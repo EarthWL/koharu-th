@@ -47,6 +47,15 @@ pub enum Method {
     ChapterAdd,
     ChapterUpdate,
     ChapterRemove,
+    // Phase 3: characters + glossary
+    CharactersList,
+    CharacterAdd,
+    CharacterUpdate,
+    CharacterRemove,
+    GlossaryList,
+    GlossaryAdd,
+    GlossaryUpdate,
+    GlossaryRemove,
 }
 
 impl Method {
@@ -90,6 +99,14 @@ impl Method {
         Method::ChapterAdd,
         Method::ChapterUpdate,
         Method::ChapterRemove,
+        Method::CharactersList,
+        Method::CharacterAdd,
+        Method::CharacterUpdate,
+        Method::CharacterRemove,
+        Method::GlossaryList,
+        Method::GlossaryAdd,
+        Method::GlossaryUpdate,
+        Method::GlossaryRemove,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -133,6 +150,14 @@ impl Method {
             Method::ChapterAdd => "chapter_add",
             Method::ChapterUpdate => "chapter_update",
             Method::ChapterRemove => "chapter_remove",
+            Method::CharactersList => "characters_list",
+            Method::CharacterAdd => "character_add",
+            Method::CharacterUpdate => "character_update",
+            Method::CharacterRemove => "character_remove",
+            Method::GlossaryList => "glossary_list",
+            Method::GlossaryAdd => "glossary_add",
+            Method::GlossaryUpdate => "glossary_update",
+            Method::GlossaryRemove => "glossary_remove",
         }
     }
 }
@@ -187,6 +212,14 @@ impl FromStr for Method {
             "chapter_add" => Method::ChapterAdd,
             "chapter_update" => Method::ChapterUpdate,
             "chapter_remove" => Method::ChapterRemove,
+            "characters_list" => Method::CharactersList,
+            "character_add" => Method::CharacterAdd,
+            "character_update" => Method::CharacterUpdate,
+            "character_remove" => Method::CharacterRemove,
+            "glossary_list" => Method::GlossaryList,
+            "glossary_add" => Method::GlossaryAdd,
+            "glossary_update" => Method::GlossaryUpdate,
+            "glossary_remove" => Method::GlossaryRemove,
             _ => anyhow::bail!("Unknown method: {s}"),
         };
         Ok(method)

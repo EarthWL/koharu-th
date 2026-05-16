@@ -7,14 +7,19 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use koharu_api::commands::{
-    ChapterAddPayload, ChapterDto, ChapterIdPayload, ChapterUpdatePayload, ProjectCreatePayload,
+    ChapterAddPayload, ChapterDto, ChapterIdPayload, ChapterUpdatePayload, CharacterAddPayload,
+    CharacterDto, CharacterIdPayload, CharacterUpdatePayload, GlossaryAddPayload, GlossaryDto,
+    GlossaryIdPayload, GlossaryUpdatePayload, NameAliasDto, ProjectCreatePayload,
     ProjectCreatePickerPayload, ProjectInfo, ProjectOpenPayload, SeriesMetaDto,
     SeriesMetaUpdatePayload,
 };
 use koharu_project::{
     chapter::{self as chapter_ops, ChapterInsert, ChapterPatch},
+    character::{self as character_ops, CharacterInsert, CharacterPatch},
+    glossary::{self as glossary_ops, GlossaryInsert, GlossaryPatch},
     series::{self as series_ops, SeriesMetaPatch},
-    Chapter, ChapterStatus, Project, SeriesMeta, MANIFEST_FILENAME,
+    Chapter, ChapterStatus, Character, Confidence, GlossaryCategory, GlossaryEntry, NameAlias,
+    Project, SeriesMeta, MANIFEST_FILENAME,
 };
 use rfd::FileDialog;
 
@@ -260,6 +265,232 @@ pub async fn chapter_remove(
     })
     .await??;
     Ok(removed)
+}
+
+// ---------------------------------------------------------------
+// characters + glossary (Phase 3)
+// ---------------------------------------------------------------
+
+pub async fn characters_list(state: AppResources) -> anyhow::Result<Vec<CharacterDto>> {
+    let project = require_project(&state).await?;
+    let list = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<CharacterDto>> {
+        let conn = project.pool().get()?;
+        Ok(character_ops::list(&conn)?
+            .into_iter()
+            .map(character_to_dto)
+            .collect())
+    })
+    .await??;
+    Ok(list)
+}
+
+pub async fn character_add(
+    state: AppResources,
+    payload: CharacterAddPayload,
+) -> anyhow::Result<CharacterDto> {
+    let project = require_project(&state).await?;
+    let dto = tokio::task::spawn_blocking(move || -> anyhow::Result<CharacterDto> {
+        let conn = project.pool().get()?;
+        let inserted = character_ops::insert(
+            &conn,
+            CharacterInsert {
+                original_name: payload.original_name,
+                translated_name: payload.translated_name,
+                aliases: payload
+                    .aliases
+                    .into_iter()
+                    .map(|a| NameAlias { src: a.src, tgt: a.tgt })
+                    .collect(),
+                role: payload.role,
+                gender: payload.gender,
+                age: payload.age,
+                speech_style: payload.speech_style,
+                personality: payload.personality,
+                notes: payload.notes,
+                is_main: payload.is_main,
+                sort_order: payload.sort_order,
+                first_appearance_chapter_id: payload.first_appearance_chapter_id,
+            },
+        )?;
+        Ok(character_to_dto(inserted))
+    })
+    .await??;
+    Ok(dto)
+}
+
+pub async fn character_update(
+    state: AppResources,
+    payload: CharacterUpdatePayload,
+) -> anyhow::Result<Option<CharacterDto>> {
+    let project = require_project(&state).await?;
+    let dto = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<CharacterDto>> {
+        let conn = project.pool().get()?;
+        let patch = CharacterPatch {
+            original_name: payload.original_name,
+            translated_name: payload.translated_name,
+            aliases: payload.aliases.map(|v| {
+                v.into_iter()
+                    .map(|a| NameAlias { src: a.src, tgt: a.tgt })
+                    .collect()
+            }),
+            role: payload.role.map(Some),
+            gender: payload.gender.map(Some),
+            age: payload.age.map(Some),
+            speech_style: payload.speech_style.map(Some),
+            personality: payload.personality.map(Some),
+            notes: payload.notes.map(Some),
+            is_main: payload.is_main,
+            sort_order: payload.sort_order,
+            first_appearance_chapter_id: payload.first_appearance_chapter_id.map(Some),
+        };
+        Ok(character_ops::update(&conn, payload.id, patch)?.map(character_to_dto))
+    })
+    .await??;
+    Ok(dto)
+}
+
+pub async fn character_remove(
+    state: AppResources,
+    payload: CharacterIdPayload,
+) -> anyhow::Result<bool> {
+    let project = require_project(&state).await?;
+    let removed = tokio::task::spawn_blocking(move || -> anyhow::Result<bool> {
+        let conn = project.pool().get()?;
+        Ok(character_ops::remove(&conn, payload.id)?)
+    })
+    .await??;
+    Ok(removed)
+}
+
+pub async fn glossary_list(state: AppResources) -> anyhow::Result<Vec<GlossaryDto>> {
+    let project = require_project(&state).await?;
+    let list = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<GlossaryDto>> {
+        let conn = project.pool().get()?;
+        Ok(glossary_ops::list(&conn)?
+            .into_iter()
+            .map(glossary_to_dto)
+            .collect())
+    })
+    .await??;
+    Ok(list)
+}
+
+pub async fn glossary_add(
+    state: AppResources,
+    payload: GlossaryAddPayload,
+) -> anyhow::Result<GlossaryDto> {
+    let project = require_project(&state).await?;
+    let dto = tokio::task::spawn_blocking(move || -> anyhow::Result<GlossaryDto> {
+        let conn = project.pool().get()?;
+        let category = GlossaryCategory::parse(&payload.category)
+            .ok_or_else(|| anyhow::anyhow!("invalid category: {}", payload.category))?;
+        let confidence = payload
+            .confidence
+            .as_deref()
+            .map(parse_confidence)
+            .unwrap_or(Confidence::Manual);
+        let inserted = glossary_ops::insert(
+            &conn,
+            GlossaryInsert {
+                source_text: payload.source_text,
+                target_text: payload.target_text,
+                category,
+                aliases: payload.aliases,
+                context_note: payload.context_note,
+                first_appearance_chapter_id: payload.first_appearance_chapter_id,
+                confidence,
+                approved: payload.approved.unwrap_or(true),
+            },
+        )?;
+        Ok(glossary_to_dto(inserted))
+    })
+    .await??;
+    Ok(dto)
+}
+
+pub async fn glossary_update(
+    state: AppResources,
+    payload: GlossaryUpdatePayload,
+) -> anyhow::Result<Option<GlossaryDto>> {
+    let project = require_project(&state).await?;
+    let dto = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<GlossaryDto>> {
+        let conn = project.pool().get()?;
+        let patch = GlossaryPatch {
+            source_text: payload.source_text,
+            target_text: payload.target_text,
+            category: payload.category.as_deref().and_then(GlossaryCategory::parse),
+            aliases: payload.aliases,
+            context_note: payload.context_note.map(Some),
+            first_appearance_chapter_id: payload.first_appearance_chapter_id.map(Some),
+            confidence: payload.confidence.as_deref().map(parse_confidence),
+            approved: payload.approved,
+        };
+        Ok(glossary_ops::update(&conn, payload.id, patch)?.map(glossary_to_dto))
+    })
+    .await??;
+    Ok(dto)
+}
+
+pub async fn glossary_remove(
+    state: AppResources,
+    payload: GlossaryIdPayload,
+) -> anyhow::Result<bool> {
+    let project = require_project(&state).await?;
+    let removed = tokio::task::spawn_blocking(move || -> anyhow::Result<bool> {
+        let conn = project.pool().get()?;
+        Ok(glossary_ops::remove(&conn, payload.id)?)
+    })
+    .await??;
+    Ok(removed)
+}
+
+fn parse_confidence(s: &str) -> Confidence {
+    match s {
+        "extracted" => Confidence::Extracted,
+        "auto" => Confidence::Auto,
+        _ => Confidence::Manual,
+    }
+}
+
+fn character_to_dto(c: Character) -> CharacterDto {
+    CharacterDto {
+        id: c.id,
+        original_name: c.original_name,
+        translated_name: c.translated_name,
+        aliases: c
+            .aliases
+            .into_iter()
+            .map(|a| NameAliasDto { src: a.src, tgt: a.tgt })
+            .collect(),
+        role: c.role,
+        gender: c.gender,
+        age: c.age,
+        speech_style: c.speech_style,
+        personality: c.personality,
+        notes: c.notes,
+        is_main: c.is_main,
+        sort_order: c.sort_order,
+        first_appearance_chapter_id: c.first_appearance_chapter_id,
+        created_at: c.created_at.to_rfc3339(),
+        updated_at: c.updated_at.to_rfc3339(),
+    }
+}
+
+fn glossary_to_dto(g: GlossaryEntry) -> GlossaryDto {
+    GlossaryDto {
+        id: g.id,
+        source_text: g.source_text,
+        target_text: g.target_text,
+        category: g.category.as_str().to_string(),
+        aliases: g.aliases,
+        context_note: g.context_note,
+        first_appearance_chapter_id: g.first_appearance_chapter_id,
+        usage_count: g.usage_count,
+        confidence: g.confidence.as_str().to_string(),
+        approved: g.approved,
+        created_at: g.created_at.to_rfc3339(),
+        updated_at: g.updated_at.to_rfc3339(),
+    }
 }
 
 async fn require_project(state: &AppResources) -> anyhow::Result<Project> {

@@ -128,6 +128,14 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::ChapterAdd => call(operations::chapter_add, state, params).await,
         Method::ChapterUpdate => call(operations::chapter_update, state, params).await,
         Method::ChapterRemove => call(operations::chapter_remove, state, params).await,
+        Method::CharactersList => call0(operations::characters_list, state).await,
+        Method::CharacterAdd => call(operations::character_add, state, params).await,
+        Method::CharacterUpdate => call(operations::character_update, state, params).await,
+        Method::CharacterRemove => call(operations::character_remove, state, params).await,
+        Method::GlossaryList => call0(operations::glossary_list, state).await,
+        Method::GlossaryAdd => call(operations::glossary_add, state, params).await,
+        Method::GlossaryUpdate => call(operations::glossary_update, state, params).await,
+        Method::GlossaryRemove => call(operations::glossary_remove, state, params).await,
     }
 }
 

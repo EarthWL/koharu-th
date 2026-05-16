@@ -371,6 +371,132 @@ pub struct ChapterIdPayload {
     pub id: i64,
 }
 
+// ------------------------------------------------------------
+// Phase 3: characters + glossary
+// ------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NameAliasDto {
+    pub src: String,
+    pub tgt: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterDto {
+    pub id: i64,
+    pub original_name: String,
+    pub translated_name: String,
+    pub aliases: Vec<NameAliasDto>,
+    pub role: Option<String>,
+    pub gender: Option<String>,
+    pub age: Option<String>,
+    pub speech_style: Option<String>,
+    pub personality: Option<String>,
+    pub notes: Option<String>,
+    pub is_main: bool,
+    pub sort_order: i64,
+    pub first_appearance_chapter_id: Option<i64>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterAddPayload {
+    pub original_name: String,
+    pub translated_name: String,
+    #[serde(default)]
+    pub aliases: Vec<NameAliasDto>,
+    pub role: Option<String>,
+    pub gender: Option<String>,
+    pub age: Option<String>,
+    pub speech_style: Option<String>,
+    pub personality: Option<String>,
+    pub notes: Option<String>,
+    #[serde(default)]
+    pub is_main: bool,
+    #[serde(default)]
+    pub sort_order: i64,
+    pub first_appearance_chapter_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterUpdatePayload {
+    pub id: i64,
+    pub original_name: Option<String>,
+    pub translated_name: Option<String>,
+    pub aliases: Option<Vec<NameAliasDto>>,
+    pub role: Option<String>,
+    pub gender: Option<String>,
+    pub age: Option<String>,
+    pub speech_style: Option<String>,
+    pub personality: Option<String>,
+    pub notes: Option<String>,
+    pub is_main: Option<bool>,
+    pub sort_order: Option<i64>,
+    pub first_appearance_chapter_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterIdPayload {
+    pub id: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GlossaryDto {
+    pub id: i64,
+    pub source_text: String,
+    pub target_text: String,
+    pub category: String,
+    pub aliases: Vec<String>,
+    pub context_note: Option<String>,
+    pub first_appearance_chapter_id: Option<i64>,
+    pub usage_count: i64,
+    pub confidence: String,
+    pub approved: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GlossaryAddPayload {
+    pub source_text: String,
+    pub target_text: String,
+    pub category: String,
+    #[serde(default)]
+    pub aliases: Vec<String>,
+    pub context_note: Option<String>,
+    pub first_appearance_chapter_id: Option<i64>,
+    pub confidence: Option<String>,
+    pub approved: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GlossaryUpdatePayload {
+    pub id: i64,
+    pub source_text: Option<String>,
+    pub target_text: Option<String>,
+    pub category: Option<String>,
+    pub aliases: Option<Vec<String>>,
+    pub context_note: Option<String>,
+    pub first_appearance_chapter_id: Option<i64>,
+    pub confidence: Option<String>,
+    pub approved: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GlossaryIdPayload {
+    pub id: i64,
+}
+
 #[cfg(test)]
 mod tests {
     use koharu_types::{TextAlign, TextStyle};

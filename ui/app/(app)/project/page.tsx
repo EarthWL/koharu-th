@@ -56,20 +56,19 @@ export default function ProjectPage() {
   }, [refreshCurrent])
 
   return (
-    <div className='bg-muted flex flex-1 flex-col overflow-hidden'>
-      <ScrollArea className='flex-1'>
-        <div className='px-4 py-6'>
-          <div className='relative mx-auto max-w-3xl'>
-            <div className='mb-8 flex items-center'>
-              <Link
-                href='/'
-                prefetch={false}
-                className='text-muted-foreground hover:bg-accent hover:text-foreground absolute -left-14 flex size-10 items-center justify-center rounded-full transition'
-              >
-                <ChevronLeftIcon className='size-6' />
-              </Link>
-              <h1 className='text-foreground text-2xl font-bold'>Project</h1>
-            </div>
+    <ScrollArea className='flex-1'>
+      <div className='px-4 py-6'>
+        <div className='relative mx-auto max-w-3xl'>
+          <div className='mb-8 flex items-center'>
+            <Link
+              href='/'
+              prefetch={false}
+              className='text-muted-foreground hover:bg-accent hover:text-foreground absolute -left-14 flex size-10 items-center justify-center rounded-full transition'
+            >
+              <ChevronLeftIcon className='size-6' />
+            </Link>
+            <h1 className='text-foreground text-2xl font-bold'>Project</h1>
+          </div>
 
             <section className='mb-8'>
               <h2 className='text-foreground mb-1 text-sm font-bold'>
@@ -135,16 +134,15 @@ export default function ProjectPage() {
               </div>
             </section>
 
-            {info && (
-              <>
-                <SeriesMetaSection />
-                <ChaptersSection />
-              </>
-            )}
-          </div>
+          {info && (
+            <>
+              <SeriesMetaSection />
+              <ChaptersSection />
+            </>
+          )}
         </div>
-      </ScrollArea>
-    </div>
+      </div>
+    </ScrollArea>
   )
 }
 

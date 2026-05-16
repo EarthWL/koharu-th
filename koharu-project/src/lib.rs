@@ -11,8 +11,10 @@
 //! call log. See `migrations/V001__initial_schema.sql` for the schema.
 
 pub mod chapter;
+pub mod character;
 mod db;
 mod error;
+pub mod glossary;
 mod manifest;
 mod project;
 pub mod series;

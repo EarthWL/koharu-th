@@ -274,6 +274,141 @@ export const api = {
   async chapterRemove(id: number): Promise<boolean> {
     return invoke('chapter_remove', { id }) as Promise<boolean>
   },
+
+  // ----------------------------------------------------------------
+  // Characters + glossary (Phase 3)
+  // ----------------------------------------------------------------
+  async charactersList(): Promise<CharacterDto[]> {
+    return invoke('characters_list') as Promise<CharacterDto[]>
+  },
+
+  async characterAdd(input: CharacterAddInput): Promise<CharacterDto> {
+    return invoke('character_add', input) as Promise<CharacterDto>
+  },
+
+  async characterUpdate(input: CharacterUpdateInput): Promise<CharacterDto | null> {
+    return invoke('character_update', input) as Promise<CharacterDto | null>
+  },
+
+  async characterRemove(id: number): Promise<boolean> {
+    return invoke('character_remove', { id }) as Promise<boolean>
+  },
+
+  async glossaryList(): Promise<GlossaryDto[]> {
+    return invoke('glossary_list') as Promise<GlossaryDto[]>
+  },
+
+  async glossaryAdd(input: GlossaryAddInput): Promise<GlossaryDto> {
+    return invoke('glossary_add', input) as Promise<GlossaryDto>
+  },
+
+  async glossaryUpdate(input: GlossaryUpdateInput): Promise<GlossaryDto | null> {
+    return invoke('glossary_update', input) as Promise<GlossaryDto | null>
+  },
+
+  async glossaryRemove(id: number): Promise<boolean> {
+    return invoke('glossary_remove', { id }) as Promise<boolean>
+  },
+}
+
+export type NameAliasDto = { src: string; tgt: string }
+
+export type CharacterDto = {
+  id: number
+  originalName: string
+  translatedName: string
+  aliases: NameAliasDto[]
+  role: string | null
+  gender: string | null
+  age: string | null
+  speechStyle: string | null
+  personality: string | null
+  notes: string | null
+  isMain: boolean
+  sortOrder: number
+  firstAppearanceChapterId: number | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type CharacterAddInput = {
+  originalName: string
+  translatedName: string
+  aliases?: NameAliasDto[]
+  role?: string | null
+  gender?: string | null
+  age?: string | null
+  speechStyle?: string | null
+  personality?: string | null
+  notes?: string | null
+  isMain?: boolean
+  sortOrder?: number
+  firstAppearanceChapterId?: number | null
+}
+
+export type CharacterUpdateInput = {
+  id: number
+  originalName?: string
+  translatedName?: string
+  aliases?: NameAliasDto[]
+  role?: string | null
+  gender?: string | null
+  age?: string | null
+  speechStyle?: string | null
+  personality?: string | null
+  notes?: string | null
+  isMain?: boolean
+  sortOrder?: number
+  firstAppearanceChapterId?: number | null
+}
+
+export type GlossaryCategory =
+  | 'term'
+  | 'place'
+  | 'skill'
+  | 'honorific'
+  | 'item'
+  | 'org'
+  | 'sfx'
+
+export type GlossaryConfidence = 'manual' | 'extracted' | 'auto'
+
+export type GlossaryDto = {
+  id: number
+  sourceText: string
+  targetText: string
+  category: GlossaryCategory
+  aliases: string[]
+  contextNote: string | null
+  firstAppearanceChapterId: number | null
+  usageCount: number
+  confidence: GlossaryConfidence
+  approved: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export type GlossaryAddInput = {
+  sourceText: string
+  targetText: string
+  category: GlossaryCategory
+  aliases?: string[]
+  contextNote?: string | null
+  firstAppearanceChapterId?: number | null
+  confidence?: GlossaryConfidence
+  approved?: boolean
+}
+
+export type GlossaryUpdateInput = {
+  id: number
+  sourceText?: string
+  targetText?: string
+  category?: GlossaryCategory
+  aliases?: string[]
+  contextNote?: string | null
+  firstAppearanceChapterId?: number | null
+  confidence?: GlossaryConfidence
+  approved?: boolean
 }
 
 export type SeriesMetaDto = {
