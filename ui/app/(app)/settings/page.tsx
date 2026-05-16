@@ -31,6 +31,11 @@ import {
   formatContextLength,
   type OpenRouterModel,
 } from '@/lib/services/openrouterModels'
+import {
+  fetchGeminiModels,
+  formatTokenLimit,
+  type GeminiModel,
+} from '@/lib/services/geminiModels'
 import { testCloudConnection } from '@/lib/services/cloudLlm'
 import { PROVIDER_PRESETS } from '@/lib/services/providerPresets'
 import { Button } from '@/components/ui/button'
@@ -70,6 +75,32 @@ export default function SettingsPage() {
     staleTime: 10 * 60 * 1000,
     retry: 1,
   })
+
+  // Gemini model catalog — fetched once user picks Gemini + types in a key.
+  const geminiModels = useQuery({
+    queryKey: ['gemini-models', cloudApiKey],
+    queryFn: () => fetchGeminiModels(cloudApiKey),
+    enabled: cloudProvider === 'gemini' && cloudApiKey.length > 0,
+    staleTime: 10 * 60 * 1000,
+    retry: 1,
+  })
+
+  const geminiModelOptions: SearchableSelectOption[] = useMemo(() => {
+    const models: GeminiModel[] = geminiModels.data ?? []
+    return models.map((m) => {
+      const inN = formatTokenLimit(m.inputTokenLimit)
+      const outN = formatTokenLimit(m.outputTokenLimit)
+      const trailing =
+        inN && outN ? `${inN} in / ${outN} out` : inN ? `${inN} in` : undefined
+      return {
+        value: m.id,
+        label: m.name,
+        searchText: `${m.id} ${m.name}`,
+        description: m.id,
+        trailing,
+      }
+    })
+  }, [geminiModels.data])
 
   const openrouterModelOptions: SearchableSelectOption[] = useMemo(() => {
     const models: OpenRouterModel[] = openrouterModels.data ?? []
@@ -306,6 +337,36 @@ export default function SettingsPage() {
                             {t(
                               'settings.openrouterModelHint',
                               'Pick any model from the OpenRouter catalog. Pricing shown is per million tokens.',
+                            )}
+                          </span>
+                        </>
+                      ) : cloudProvider === 'gemini' ? (
+                        <>
+                          <SearchableSelect
+                            value={cloudModelName}
+                            onValueChange={setCloudModelName}
+                            options={geminiModelOptions}
+                            placeholder={
+                              cloudApiKey
+                                ? geminiModels.isLoading
+                                  ? 'Loading models…'
+                                  : 'Search and pick a model'
+                                : 'Enter API key to load models'
+                            }
+                            searchPlaceholder='Search by model name or id'
+                            loading={geminiModels.isLoading}
+                            emptyMessage={
+                              geminiModels.isError
+                                ? `Failed to load: ${(geminiModels.error as Error)?.message ?? 'unknown error'}`
+                                : 'No models match'
+                            }
+                            disabled={!cloudApiKey}
+                            clearable
+                          />
+                          <span className='text-muted-foreground text-[10px]'>
+                            {t(
+                              'settings.geminiModelHint',
+                              'Pick any Gemini model that supports generateContent. Token limits shown are the model max.',
                             )}
                           </span>
                         </>

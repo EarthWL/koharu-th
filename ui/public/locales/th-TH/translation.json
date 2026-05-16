@@ -200,6 +200,7 @@
     "cloudApiUrl": "Base URL",
     "cloudApiUrlHint": "Default: https://api.openai.com/v1 — เปลี่ยนได้ถ้าใช้ endpoint OpenAI-compatible หรือ local server",
     "openrouterModelHint": "เลือกโมเดลใดก็ได้จากแคตตาล็อก OpenRouter ราคาที่แสดงคิดต่อล้าน tokens",
+    "geminiModelHint": "เลือกโมเดล Gemini ที่รองรับ generateContent ตัวเลขด้านขวาคือ token limit สูงสุดของโมเดลนั้น",
     "providerPreset": "Quick preset",
     "providerPresetHint": "ตั้ง provider + base URL + suggested model — แก้ field ด้านล่างได้ตามต้องการ"
   },
