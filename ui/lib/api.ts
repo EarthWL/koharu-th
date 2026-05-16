@@ -375,6 +375,84 @@ export const api = {
   }): Promise<TmEntryDto> {
     return invoke('tm_insert', input) as Promise<TmEntryDto>
   },
+
+  // ----------------------------------------------------------------
+  // Provider profiles + cost tracking (Phase 9 + 10)
+  // ----------------------------------------------------------------
+  async providerProfilesList(): Promise<ProviderProfileDto[]> {
+    return invoke('provider_profiles_list') as Promise<ProviderProfileDto[]>
+  },
+
+  async providerProfileAdd(input: {
+    name: string
+    provider: string
+    apiUrl?: string | null
+    modelName: string
+    apiKeyRef?: string | null
+    isDefault?: boolean
+    costInputPer1m?: number | null
+    costOutputPer1m?: number | null
+  }): Promise<ProviderProfileDto> {
+    return invoke('provider_profile_add', input) as Promise<ProviderProfileDto>
+  },
+
+  async providerProfileUpdate(input: {
+    id: number
+    name?: string
+    provider?: string
+    apiUrl?: string | null
+    modelName?: string
+    apiKeyRef?: string | null
+    isDefault?: boolean
+    costInputPer1m?: number | null
+    costOutputPer1m?: number | null
+  }): Promise<ProviderProfileDto | null> {
+    return invoke('provider_profile_update', input) as Promise<ProviderProfileDto | null>
+  },
+
+  async providerProfileRemove(id: number): Promise<boolean> {
+    return invoke('provider_profile_remove', { id }) as Promise<boolean>
+  },
+
+  async llmCallLog(input: {
+    profileId?: number | null
+    useCase: string
+    chapterId?: number | null
+    promptTokens?: number | null
+    completionTokens?: number | null
+    estimatedCostUsd?: number | null
+    durationMs?: number | null
+    success: boolean
+    errorMessage?: string | null
+  }): Promise<void> {
+    await invoke('llm_call_log', input)
+  },
+
+  async llmCostStats(): Promise<LlmCostStats> {
+    return invoke('llm_cost_stats') as Promise<LlmCostStats>
+  },
+}
+
+export type ProviderProfileDto = {
+  id: number
+  name: string
+  provider: string
+  apiUrl: string | null
+  modelName: string
+  apiKeyRef: string | null
+  isDefault: boolean
+  costInputPer1m: number | null
+  costOutputPer1m: number | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type LlmCostStats = {
+  totalCalls: number
+  successfulCalls: number
+  totalPromptTokens: number
+  totalCompletionTokens: number
+  totalCostUsd: number
 }
 
 export type TmEntryDto = {

@@ -10,6 +10,7 @@ const TABS = [
   { href: '/project/characters', label: 'Characters' },
   { href: '/project/glossary', label: 'Glossary' },
   { href: '/project/prompts', label: 'Prompts' },
+  { href: '/project/profiles', label: 'Profiles' },
 ]
 
 export default function ProjectLayout({ children }: { children: React.ReactNode }) {

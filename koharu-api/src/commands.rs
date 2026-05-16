@@ -616,6 +616,89 @@ pub struct TmEntryDto {
     pub created_at: String,
 }
 
+// ------------------------------------------------------------
+// Phase 9: provider profiles
+// ------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderProfileDto {
+    pub id: i64,
+    pub name: String,
+    pub provider: String,
+    pub api_url: Option<String>,
+    pub model_name: String,
+    pub api_key_ref: Option<String>,
+    pub is_default: bool,
+    pub cost_input_per_1m: Option<f64>,
+    pub cost_output_per_1m: Option<f64>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderProfileAddPayload {
+    pub name: String,
+    pub provider: String,
+    pub api_url: Option<String>,
+    pub model_name: String,
+    pub api_key_ref: Option<String>,
+    #[serde(default)]
+    pub is_default: bool,
+    pub cost_input_per_1m: Option<f64>,
+    pub cost_output_per_1m: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderProfileUpdatePayload {
+    pub id: i64,
+    pub name: Option<String>,
+    pub provider: Option<String>,
+    pub api_url: Option<String>,
+    pub model_name: Option<String>,
+    pub api_key_ref: Option<String>,
+    pub is_default: Option<bool>,
+    pub cost_input_per_1m: Option<f64>,
+    pub cost_output_per_1m: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderProfileIdPayload {
+    pub id: i64,
+}
+
+// ------------------------------------------------------------
+// Phase 10: LLM call log + stats
+// ------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmCallLogPayload {
+    pub profile_id: Option<i64>,
+    pub use_case: String,
+    pub chapter_id: Option<i64>,
+    pub prompt_tokens: Option<i64>,
+    pub completion_tokens: Option<i64>,
+    pub estimated_cost_usd: Option<f64>,
+    pub duration_ms: Option<i64>,
+    #[serde(default)]
+    pub success: bool,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmCostStats {
+    pub total_calls: i64,
+    pub successful_calls: i64,
+    pub total_prompt_tokens: i64,
+    pub total_completion_tokens: i64,
+    pub total_cost_usd: f64,
+}
+
 #[cfg(test)]
 mod tests {
     use koharu_types::{TextAlign, TextStyle};

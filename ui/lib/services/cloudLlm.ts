@@ -117,6 +117,18 @@ Only return the translation, no extra text:\n\n${text}`
     })
   }
 
+  // Log the call for cost tracking. Token counts aren't always available
+  // from raw chat-completion responses without parsing, so we pass null
+  // and let later phases enrich.
+  if (useProjectStore.getState().info) {
+    void api
+      .llmCallLog({
+        useCase: 'translate',
+        success: !!result,
+      })
+      .catch((err) => console.warn('[cloudLlm] llmCallLog failed', err))
+  }
+
   return result
 }
 

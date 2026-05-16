@@ -16,6 +16,7 @@ mod db;
 mod error;
 pub mod glossary;
 mod manifest;
+pub mod profile;
 mod project;
 pub mod prompt;
 pub mod series;

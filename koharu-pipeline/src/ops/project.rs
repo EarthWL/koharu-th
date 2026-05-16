@@ -9,21 +9,25 @@ use anyhow::Context;
 use koharu_api::commands::{
     ChapterAddPayload, ChapterDto, ChapterIdPayload, ChapterUpdatePayload, CharacterAddPayload,
     CharacterDto, CharacterIdPayload, CharacterUpdatePayload, GlossaryAddPayload,
-    GlossaryBumpUsagePayload, GlossaryDto, GlossaryIdPayload, GlossaryUpdatePayload, NameAliasDto,
-    ProjectCreatePayload, ProjectCreatePickerPayload, ProjectInfo, ProjectOpenPayload,
-    PromptRenderPayload, PromptRenderResult, PromptTemplateAddPayload, PromptTemplateDto,
-    PromptTemplateIdPayload, PromptTemplateUpdatePayload, SeriesMetaDto, SeriesMetaUpdatePayload,
-    TmEntryDto, TmInsertPayload, TmLookupPayload,
+    GlossaryBumpUsagePayload, GlossaryDto, GlossaryIdPayload, GlossaryUpdatePayload,
+    LlmCallLogPayload, LlmCostStats, NameAliasDto, ProjectCreatePayload,
+    ProjectCreatePickerPayload, ProjectInfo, ProjectOpenPayload, PromptRenderPayload,
+    PromptRenderResult, PromptTemplateAddPayload, PromptTemplateDto, PromptTemplateIdPayload,
+    PromptTemplateUpdatePayload, ProviderProfileAddPayload, ProviderProfileDto,
+    ProviderProfileIdPayload, ProviderProfileUpdatePayload, SeriesMetaDto,
+    SeriesMetaUpdatePayload, TmEntryDto, TmInsertPayload, TmLookupPayload,
 };
 use koharu_project::{
     chapter::{self as chapter_ops, ChapterInsert, ChapterPatch},
     character::{self as character_ops, CharacterInsert, CharacterPatch},
     glossary::{self as glossary_ops, GlossaryInsert, GlossaryPatch},
+    profile::{self as profile_ops, ProfileInsert, ProfilePatch},
     prompt::{self as prompt_ops, PromptTemplateInsert, PromptTemplatePatch},
     series::{self as series_ops, SeriesMetaPatch},
     tm::{self as tm_ops, TmEntry, TmInsert as TmInsertItem},
     Chapter, ChapterStatus, Character, Confidence, GlossaryCategory, GlossaryEntry, NameAlias,
-    Project, PromptTemplate, PromptUseCase, SeriesMeta, MANIFEST_FILENAME,
+    Project, PromptTemplate, PromptUseCase, Provider, ProviderProfile, SeriesMeta,
+    MANIFEST_FILENAME,
 };
 use rfd::FileDialog;
 
@@ -629,6 +633,189 @@ pub async fn tm_insert(
     })
     .await??;
     Ok(dto)
+}
+
+// ---------------------------------------------------------------
+// provider profiles (Phase 9) + cost log/stats (Phase 10)
+// ---------------------------------------------------------------
+
+pub async fn provider_profiles_list(
+    state: AppResources,
+) -> anyhow::Result<Vec<ProviderProfileDto>> {
+    let project = require_project(&state).await?;
+    let list = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<ProviderProfileDto>> {
+        let conn = project.pool().get()?;
+        Ok(profile_ops::list(&conn)?.into_iter().map(profile_to_dto).collect())
+    })
+    .await??;
+    Ok(list)
+}
+
+pub async fn provider_profile_add(
+    state: AppResources,
+    payload: ProviderProfileAddPayload,
+) -> anyhow::Result<ProviderProfileDto> {
+    let project = require_project(&state).await?;
+    let dto = tokio::task::spawn_blocking(move || -> anyhow::Result<ProviderProfileDto> {
+        let conn = project.pool().get()?;
+        let inserted = profile_ops::insert(
+            &conn,
+            ProfileInsert {
+                name: payload.name,
+                provider: parse_provider(&payload.provider)?,
+                api_url: payload.api_url,
+                model_name: payload.model_name,
+                api_key_ref: payload.api_key_ref,
+                extra_headers: serde_json::json!({}),
+                extra_params: serde_json::json!({}),
+                is_default: payload.is_default,
+                cost_input_per_1m: payload.cost_input_per_1m,
+                cost_output_per_1m: payload.cost_output_per_1m,
+            },
+        )?;
+        Ok(profile_to_dto(inserted))
+    })
+    .await??;
+    Ok(dto)
+}
+
+pub async fn provider_profile_update(
+    state: AppResources,
+    payload: ProviderProfileUpdatePayload,
+) -> anyhow::Result<Option<ProviderProfileDto>> {
+    let project = require_project(&state).await?;
+    let dto = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<ProviderProfileDto>> {
+        let conn = project.pool().get()?;
+        let patch = ProfilePatch {
+            name: payload.name,
+            provider: match payload.provider.as_deref() {
+                Some(s) => Some(parse_provider(s)?),
+                None => None,
+            },
+            api_url: payload.api_url.map(Some),
+            model_name: payload.model_name,
+            api_key_ref: payload.api_key_ref.map(Some),
+            extra_headers: None,
+            extra_params: None,
+            is_default: payload.is_default,
+            cost_input_per_1m: payload.cost_input_per_1m.map(Some),
+            cost_output_per_1m: payload.cost_output_per_1m.map(Some),
+        };
+        Ok(profile_ops::update(&conn, payload.id, patch)?.map(profile_to_dto))
+    })
+    .await??;
+    Ok(dto)
+}
+
+pub async fn provider_profile_remove(
+    state: AppResources,
+    payload: ProviderProfileIdPayload,
+) -> anyhow::Result<bool> {
+    let project = require_project(&state).await?;
+    let removed = tokio::task::spawn_blocking(move || -> anyhow::Result<bool> {
+        let conn = project.pool().get()?;
+        Ok(profile_ops::remove(&conn, payload.id)?)
+    })
+    .await??;
+    Ok(removed)
+}
+
+pub async fn llm_call_log(
+    state: AppResources,
+    payload: LlmCallLogPayload,
+) -> anyhow::Result<()> {
+    let project = require_project(&state).await?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        let conn = project.pool().get()?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        conn.execute(
+            "INSERT INTO llm_call_log
+                (profile_id, use_case, chapter_id, prompt_tokens,
+                 completion_tokens, estimated_cost_usd, duration_ms,
+                 success, error_message, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            rusqlite::params![
+                payload.profile_id,
+                payload.use_case,
+                payload.chapter_id,
+                payload.prompt_tokens,
+                payload.completion_tokens,
+                payload.estimated_cost_usd,
+                payload.duration_ms,
+                if payload.success { 1 } else { 0 },
+                payload.error_message,
+                now,
+            ],
+        )?;
+        Ok(())
+    })
+    .await??;
+    Ok(())
+}
+
+pub async fn llm_cost_stats(state: AppResources) -> anyhow::Result<LlmCostStats> {
+    let project = require_project(&state).await?;
+    let stats = tokio::task::spawn_blocking(move || -> anyhow::Result<LlmCostStats> {
+        let conn = project.pool().get()?;
+        let row = conn
+            .query_row(
+                "SELECT
+                    COUNT(*),
+                    COALESCE(SUM(success), 0),
+                    COALESCE(SUM(prompt_tokens), 0),
+                    COALESCE(SUM(completion_tokens), 0),
+                    COALESCE(SUM(estimated_cost_usd), 0)
+                 FROM llm_call_log",
+                [],
+                |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, i64>(1)?,
+                        r.get::<_, i64>(2)?,
+                        r.get::<_, i64>(3)?,
+                        r.get::<_, f64>(4)?,
+                    ))
+                },
+            )
+            .unwrap_or((0, 0, 0, 0, 0.0));
+        Ok(LlmCostStats {
+            total_calls: row.0,
+            successful_calls: row.1,
+            total_prompt_tokens: row.2,
+            total_completion_tokens: row.3,
+            total_cost_usd: row.4,
+        })
+    })
+    .await??;
+    Ok(stats)
+}
+
+fn parse_provider(s: &str) -> anyhow::Result<Provider> {
+    match s {
+        "openai" | "openrouter" => Ok(Provider::Openai),
+        "gemini" => Ok(Provider::Gemini),
+        "anthropic" => Ok(Provider::Anthropic),
+        other => anyhow::bail!("unknown provider: {other}"),
+    }
+}
+
+fn profile_to_dto(p: ProviderProfile) -> ProviderProfileDto {
+    ProviderProfileDto {
+        id: p.id,
+        name: p.name,
+        provider: p.provider.as_str().to_string(),
+        api_url: p.api_url,
+        model_name: p.model_name,
+        api_key_ref: p.api_key_ref,
+        is_default: p.is_default,
+        cost_input_per_1m: p.cost_input_per_1m,
+        cost_output_per_1m: p.cost_output_per_1m,
+        created_at: p.created_at.to_rfc3339(),
+        updated_at: p.updated_at.to_rfc3339(),
+    }
 }
 
 fn tm_to_dto(e: TmEntry) -> TmEntryDto {

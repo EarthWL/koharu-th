@@ -114,6 +114,7 @@ export default function ProjectPage() {
                       <span>👤 {info.characterCount} characters</span>
                       <span>📖 {info.glossaryCount} glossary entries</span>
                     </div>
+                    <CostStats />
                   </div>
                 ) : (
                   <div className='flex flex-col items-start gap-3'>
@@ -146,6 +147,26 @@ export default function ProjectPage() {
         </div>
       </div>
     </ScrollArea>
+  )
+}
+
+function CostStats() {
+  const stats = useQuery({
+    queryKey: ['project', 'cost-stats'],
+    queryFn: () => api.llmCostStats(),
+    staleTime: 30_000,
+  })
+  if (!stats.data) return null
+  const s = stats.data
+  if (s.totalCalls === 0) return null
+  return (
+    <div className='text-muted-foreground border-border border-t pt-2 text-[10px]'>
+      ☁️ {s.successfulCalls}/{s.totalCalls} cloud calls
+      {s.totalPromptTokens > 0 && (
+        <> · {s.totalPromptTokens.toLocaleString()} in / {s.totalCompletionTokens.toLocaleString()} out tokens</>
+      )}
+      {s.totalCostUsd > 0 && <> · ${s.totalCostUsd.toFixed(4)}</>}
+    </div>
   )
 }
 

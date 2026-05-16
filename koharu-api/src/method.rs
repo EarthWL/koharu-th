@@ -66,6 +66,14 @@ pub enum Method {
     // Phase 6: translation memory
     TmLookup,
     TmInsert,
+    // Phase 9: provider profiles
+    ProviderProfilesList,
+    ProviderProfileAdd,
+    ProviderProfileUpdate,
+    ProviderProfileRemove,
+    // Phase 10: LLM call log + stats
+    LlmCallLog,
+    LlmCostStats,
 }
 
 impl Method {
@@ -125,6 +133,12 @@ impl Method {
         Method::PromptRender,
         Method::TmLookup,
         Method::TmInsert,
+        Method::ProviderProfilesList,
+        Method::ProviderProfileAdd,
+        Method::ProviderProfileUpdate,
+        Method::ProviderProfileRemove,
+        Method::LlmCallLog,
+        Method::LlmCostStats,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -184,6 +198,12 @@ impl Method {
             Method::PromptRender => "prompt_render",
             Method::TmLookup => "tm_lookup",
             Method::TmInsert => "tm_insert",
+            Method::ProviderProfilesList => "provider_profiles_list",
+            Method::ProviderProfileAdd => "provider_profile_add",
+            Method::ProviderProfileUpdate => "provider_profile_update",
+            Method::ProviderProfileRemove => "provider_profile_remove",
+            Method::LlmCallLog => "llm_call_log",
+            Method::LlmCostStats => "llm_cost_stats",
         }
     }
 }
@@ -254,6 +274,12 @@ impl FromStr for Method {
             "prompt_render" => Method::PromptRender,
             "tm_lookup" => Method::TmLookup,
             "tm_insert" => Method::TmInsert,
+            "provider_profiles_list" => Method::ProviderProfilesList,
+            "provider_profile_add" => Method::ProviderProfileAdd,
+            "provider_profile_update" => Method::ProviderProfileUpdate,
+            "provider_profile_remove" => Method::ProviderProfileRemove,
+            "llm_call_log" => Method::LlmCallLog,
+            "llm_cost_stats" => Method::LlmCostStats,
             _ => anyhow::bail!("Unknown method: {s}"),
         };
         Ok(method)
