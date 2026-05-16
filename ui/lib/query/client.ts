@@ -18,16 +18,39 @@ const shouldPersistQueryKey = (queryKey: readonly unknown[]) => {
   return false
 }
 
+/**
+ * The backend rejects every RPC with "Resources not initialized" until
+ * the Tauri setup hook finishes loading the ML pipeline (a few seconds
+ * on first launch, longer with CUDA dylib download). Queries that fire
+ * during that window — `llm_list`, `device`, etc. — would normally hit
+ * react-query's `retry: 1` default and then permanently fail. We
+ * detect this specific case and back off with short polling so they
+ * eventually succeed without manual refresh.
+ */
+const isBackendBooting = (err: unknown) => {
+  const msg = (err instanceof Error ? err.message : String(err)) ?? ''
+  return msg.includes('Resources not initialized')
+}
+
 const createClient = () =>
   new QueryClient({
     defaultOptions: {
       queries: {
         gcTime: 5 * 60 * 1000,
-        retry: 1,
+        retry: (failureCount, error) => {
+          if (isBackendBooting(error)) return failureCount < 60
+          return failureCount < 1
+        },
+        retryDelay: (failureCount, error) => {
+          if (isBackendBooting(error)) return Math.min(2_000, 250 * (failureCount + 1))
+          return Math.min(30_000, 1_000 * 2 ** failureCount)
+        },
         refetchOnWindowFocus: false,
       },
       mutations: {
-        retry: false,
+        retry: (failureCount, error) =>
+          isBackendBooting(error) && failureCount < 60,
+        retryDelay: (failureCount) => Math.min(2_000, 250 * (failureCount + 1)),
       },
     },
   })
