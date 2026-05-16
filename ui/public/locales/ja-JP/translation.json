@@ -1,0 +1,187 @@
+{
+  "common": {
+    "initializing": "初期化中..."
+  },
+  "menu": {
+    "file": "ファイル",
+    "openFile": "ファイルを開く...",
+    "addFile": "ファイルを追加...",
+    "save": "保存...",
+    "export": "エクスポート...",
+    "exportAllInpainted": "インペイント画像をすべてエクスポート...",
+    "exportAllRendered": "レンダリング画像をすべてエクスポート...",
+    "view": "表示",
+    "fitWindow": "ウィンドウに合わせる",
+    "originalSize": "原寸",
+    "process": "処理",
+    "processCurrent": "現在の画像を処理",
+    "redoInpaintRender": "再インペイントしてレンダー",
+    "processAll": "すべての画像を処理",
+    "help": "ヘルプ",
+    "settings": "設定",
+    "discord": "Discord",
+    "github": "GitHub",
+    "version": "バージョン: {{version}}",
+    "versionUnknown": "バージョン: 不明",
+    "language": "言語",
+    "languages": {
+      "en-US": "English",
+      "zh-CN": "简体中文",
+      "zh-TW": "繁體中文",
+      "ja-JP": "日本語",
+      "ru-RU": "Русский",
+      "es-ES": "Español"
+    }
+  },
+  "operations": {
+    "title": "処理中",
+    "inProgress": "処理が完了するまでお待ちください。",
+    "loadKhr": "プロジェクトを読み込み中",
+    "saveKhr": "プロジェクトを保存中",
+    "loadModel": "LLM モデルを読み込み中",
+    "processCurrent": "現在の画像を処理中",
+    "processAll": "すべての画像を一括処理中",
+    "imageProgress": "画像 {{current}} / {{total}}",
+    "stepProgress": "ステップ {{current}} / {{total}}：{{step}}",
+    "cancel": "停止",
+    "cancelling": "停止中..."
+  },
+  "navigator": {
+    "title": "ナビゲーター",
+    "pages_one": "{{count}} ページ",
+    "pages_other": "{{count}} ページ",
+    "empty": "ドキュメントがありません",
+    "prompt": "ページを選択または読み込んで開始してください"
+  },
+  "panels": {
+    "processing": "処理",
+    "mask": "マスク",
+    "llm": "LLM",
+    "render": "レンダー"
+  },
+  "layers": {
+    "title": "レイヤー",
+    "rendered": "レンダー済みテキスト",
+    "textBlocks": "テキスト枠",
+    "brush": "ブラシレイヤー",
+    "inpainted": "インペイント",
+    "mask": "セグメンテーションマスク",
+    "base": "元画像"
+  },
+  "processing": {
+    "detect": "検出",
+    "detectTooltip": "現在のページでテキスト検出を実行",
+    "ocr": "OCR",
+    "ocrTooltip": "検出された領域のテキストを認識",
+    "render": "レンダー"
+  },
+  "mask": {
+    "showSegmentationMask": "セグメンテーションマスクを表示",
+    "showInpainted": "インペイント画像を表示",
+    "showBrushLayer": "ブラシレイヤーを表示",
+    "showRendered": "レンダー済みテキストを表示",
+    "showTextBlocks": "テキスト枠を表示",
+    "inpaint": "インペイント",
+    "inpaintTooltip": "インペイントを適用"
+  },
+  "llm": {
+    "title": "LLM",
+    "ready": "準備完了",
+    "idle": "待機中",
+    "selectPlaceholder": "モデルを選択",
+    "modelLabel": "モデル",
+    "languageLabel": "翻訳先の言語",
+    "languagePlaceholder": "言語を選択",
+    "load": "読み込み",
+    "unload": "解放",
+    "loadTooltip": "選択したモデルを読み込む",
+    "unloadTooltip": "モデルを解放する",
+    "generate": "生成",
+    "generating": "生成中...",
+    "generateTooltip": "検出されたテキストブロックを翻訳する",
+    "render": "レンダー",
+    "renderTooltip": "翻訳をページにレンダー",
+    "loadingModel": "LLM モデルを読み込み中",
+    "statusReady": "LLM 準備完了",
+    "statusIdle": "LLM 未読み込み"
+  },
+  "render": {
+    "effectLabel": "文字効果",
+    "alignLabel": "配置",
+    "alignLeft": "左揃え",
+    "alignCenter": "中央揃え",
+    "alignRight": "右揃え",
+    "fontLabel": "フォント",
+    "fontPlaceholder": "フォントを選択",
+    "fontColorLabel": "フォントカラー",
+    "fontScopeGlobal": "Global",
+    "fontScopeBlock": "Per block",
+    "fontScopeBlockIndex": "Block {{index}}",
+    "effectItalic": "斜体",
+    "effectBold": "太字",
+    "effectBorder": "縁取り"
+  },
+  "textBlocks": {
+    "emptyPrompt": "画像を開くとテキストブロックが表示されます。",
+    "title": "テキストブロック（{{count}}）",
+    "none": "まだテキストブロックがありません。検出を実行してください。",
+    "emptySummary": "<空>",
+    "ocrLabel": "OCR テキスト",
+    "ocrBadge": "OCR",
+    "translationLabel": "翻訳",
+    "translationBadge": "TL",
+    "addOcrPlaceholder": "OCR テキストを追加",
+    "addTranslationPlaceholder": "翻訳を追加"
+  },
+  "workspace": {
+    "importPrompt": "ページを読み込んで編集を開始してください。",
+    "deleteBlock": "ブロックを削除"
+  },
+  "statusBar": {
+    "zoom": "ズーム",
+    "canvas": "キャンバス"
+  },
+  "toolbar": {
+    "brush": "ブラシ",
+    "eraser": "消しゴム",
+    "brushSize": "ブラシサイズ",
+    "brushColor": "ブラシカラー"
+  },
+  "toolRail": {
+    "select": "選択",
+    "block": "ブロック",
+    "brush": "ブラシ",
+    "repairBrush": "リペアブラシ",
+    "eraser": "消しゴム"
+  },
+  "download": {
+    "title": "ダウンロード中"
+  },
+  "errors": {
+    "title": "エラー",
+    "dismiss": "閉じる"
+  },
+  "settings": {
+    "title": "設定",
+    "appearance": "外観",
+    "appearanceDescription": "Koharu の外観をカスタマイズします。",
+    "theme": "テーマ",
+    "themeDescription": "お好みの配色を選択してください。",
+    "themeLight": "ライト",
+    "themeDark": "ダーク",
+    "themeSystem": "システム",
+    "language": "言語",
+    "languageDescription": "お好みの言語を選択してください。",
+    "about": "このアプリについて",
+    "aboutDescription": "このアプリケーションに関する情報。",
+    "aboutTagline": "漫画翻訳ツール",
+    "aboutVersion": "バージョン",
+    "aboutLatest": "最新",
+    "aboutUpdate": "アップデートあり ({{version}})",
+    "aboutAuthor": "作者",
+    "aboutRepository": "リポジトリ",
+    "device": "デバイス",
+    "deviceDescription": "ハードウェアアクセラレーション情報",
+    "deviceMl": "ML 演算"
+  }
+}

@@ -1,0 +1,36 @@
+[package]
+name = "koharu-renderer"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+authors.workspace = true
+readme.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+publish.workspace = true
+
+[dependencies]
+koharu-types = { workspace = true }
+anyhow = { workspace = true }
+image = { workspace = true }
+imageproc = { workspace = true }
+once_cell = { workspace = true }
+serde = { workspace = true }
+skrifa = { workspace = true }
+harfrust = { workspace = true }
+icu = { workspace = true }
+fontique = { workspace = true }
+fontdue = { workspace = true }
+tiny-skia = { workspace = true }
+tracing = { workspace = true }
+rayon = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "rendering"
+harness = false

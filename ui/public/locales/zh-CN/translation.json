@@ -1,0 +1,187 @@
+{
+  "common": {
+    "initializing": "初始化中..."
+  },
+  "menu": {
+    "file": "文件",
+    "openFile": "打开文件...",
+    "addFile": "添加文件...",
+    "save": "保存...",
+    "export": "导出...",
+    "exportAllInpainted": "导出所有修复后的图像...",
+    "exportAllRendered": "导出所有渲染后的图像...",
+    "view": "视图",
+    "fitWindow": "适应窗口",
+    "originalSize": "原始大小",
+    "process": "处理",
+    "processCurrent": "处理当前图片",
+    "redoInpaintRender": "重新修补并渲染",
+    "processAll": "处理所有图片",
+    "help": "帮助",
+    "settings": "设置",
+    "discord": "Discord",
+    "github": "GitHub",
+    "version": "版本：{{version}}",
+    "versionUnknown": "版本：未知",
+    "language": "语言",
+    "languages": {
+      "en-US": "English",
+      "zh-CN": "简体中文",
+      "zh-TW": "繁體中文",
+      "ja-JP": "日本語",
+      "ru-RU": "Русский",
+      "es-ES": "Español"
+    }
+  },
+  "operations": {
+    "title": "处理中",
+    "inProgress": "请稍候，正在处理。",
+    "loadKhr": "正在加载项目",
+    "saveKhr": "正在保存项目",
+    "loadModel": "正在加载 LLM 模型",
+    "processCurrent": "正在处理当前图片",
+    "processAll": "正在批量处理所有图片",
+    "imageProgress": "图片 {{current}} / {{total}}",
+    "stepProgress": "步骤 {{current}} / {{total}}：{{step}}",
+    "cancel": "停止",
+    "cancelling": "正在停止..."
+  },
+  "navigator": {
+    "title": "导航",
+    "pages_one": "{{count}} 页",
+    "pages_other": "{{count}} 页",
+    "empty": "没有文档",
+    "prompt": "选择或导入页面开始"
+  },
+  "panels": {
+    "processing": "处理",
+    "mask": "遮罩",
+    "llm": "LLM",
+    "render": "渲染"
+  },
+  "layers": {
+    "title": "图层",
+    "rendered": "渲染文本",
+    "textBlocks": "文本框",
+    "brush": "笔刷图层",
+    "inpainted": "修补图像",
+    "mask": "分割遮罩",
+    "base": "原始图像"
+  },
+  "processing": {
+    "detect": "检测",
+    "detectTooltip": "对当前页面运行文本检测",
+    "ocr": "识别",
+    "ocrTooltip": "识别已检测区域中的文本",
+    "render": "渲染"
+  },
+  "mask": {
+    "showSegmentationMask": "显示分割遮罩",
+    "showInpainted": "显示修补图像",
+    "showBrushLayer": "显示笔刷图层",
+    "showRendered": "显示渲染文本",
+    "showTextBlocks": "显示文本框",
+    "inpaint": "修补",
+    "inpaintTooltip": "执行图像修补"
+  },
+  "llm": {
+    "title": "LLM",
+    "ready": "就绪",
+    "idle": "空闲",
+    "selectPlaceholder": "选择模型",
+    "modelLabel": "模型",
+    "languageLabel": "目标语言",
+    "languagePlaceholder": "选择语言",
+    "load": "加载",
+    "unload": "卸载",
+    "loadTooltip": "加载所选模型",
+    "unloadTooltip": "卸载当前模型",
+    "generate": "生成",
+    "generating": "生成中...",
+    "generateTooltip": "为检测到的文本块生成翻译",
+    "render": "渲染",
+    "renderTooltip": "将翻译渲染到页面",
+    "loadingModel": "正在加载 LLM 模型",
+    "statusReady": "LLM 已就绪",
+    "statusIdle": "LLM 未加载"
+  },
+  "render": {
+    "effectLabel": "文字效果",
+    "alignLabel": "对齐",
+    "alignLeft": "左对齐",
+    "alignCenter": "居中对齐",
+    "alignRight": "右对齐",
+    "fontLabel": "字体",
+    "fontPlaceholder": "选择字体",
+    "fontColorLabel": "字体颜色",
+    "fontScopeGlobal": "Global",
+    "fontScopeBlock": "Per block",
+    "fontScopeBlockIndex": "Block {{index}}",
+    "effectItalic": "斜体",
+    "effectBold": "粗体",
+    "effectBorder": "描边"
+  },
+  "textBlocks": {
+    "emptyPrompt": "打开图像以查看文本块。",
+    "title": "文本块（{{count}}）",
+    "none": "尚无文本块。运行检测以填充列表。",
+    "emptySummary": "<空>",
+    "ocrLabel": "OCR 文本",
+    "ocrBadge": "OCR",
+    "translationLabel": "翻译",
+    "translationBadge": "TL",
+    "addOcrPlaceholder": "添加 OCR 文本",
+    "addTranslationPlaceholder": "添加翻译"
+  },
+  "workspace": {
+    "importPrompt": "导入页面以开始编辑。",
+    "deleteBlock": "删除块"
+  },
+  "statusBar": {
+    "zoom": "缩放",
+    "canvas": "画布"
+  },
+  "toolbar": {
+    "brush": "画笔",
+    "eraser": "橡皮擦",
+    "brushSize": "笔刷大小",
+    "brushColor": "笔刷颜色"
+  },
+  "toolRail": {
+    "select": "选择",
+    "block": "框选",
+    "brush": "画笔",
+    "repairBrush": "修复笔",
+    "eraser": "橡皮擦"
+  },
+  "download": {
+    "title": "下载中"
+  },
+  "errors": {
+    "title": "错误",
+    "dismiss": "关闭"
+  },
+  "settings": {
+    "title": "设置",
+    "appearance": "外观",
+    "appearanceDescription": "自定义 Koharu 在您设备上的外观。",
+    "theme": "主题",
+    "themeDescription": "选择您偏好的配色方案。",
+    "themeLight": "浅色",
+    "themeDark": "深色",
+    "themeSystem": "跟随系统",
+    "language": "语言",
+    "languageDescription": "选择您偏好的语言。",
+    "about": "关于",
+    "aboutDescription": "关于此应用程序的信息。",
+    "aboutTagline": "漫画翻译工具",
+    "aboutVersion": "版本",
+    "aboutLatest": "最新",
+    "aboutUpdate": "有更新可用 ({{version}})",
+    "aboutAuthor": "作者",
+    "aboutRepository": "代码仓库",
+    "device": "设备",
+    "deviceDescription": "硬件加速信息",
+    "deviceMl": "ML 计算"
+  }
+}

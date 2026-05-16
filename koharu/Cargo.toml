@@ -1,0 +1,55 @@
+[package]
+name = "koharu"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+authors.workspace = true
+readme.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+publish.workspace = true
+license = "GPL-3.0"
+include = [
+    "src/**",
+    "icons/**",
+    "gen/**",
+    "tauri.conf.json",
+    "tauri.*.conf.json",
+    "capabilities/**",
+    "build.rs",
+    "../ui/out/**",
+]
+
+[dependencies]
+koharu-ml = { workspace = true }
+koharu-pipeline = { workspace = true }
+koharu-renderer = { workspace = true }
+koharu-rpc = { workspace = true }
+koharu-runtime = { workspace = true }
+koharu-types = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+dirs = { workspace = true }
+git-version = { workspace = true }
+serde_json = { workspace = true }
+once_cell = { workspace = true }
+rfd = { workspace = true }
+tauri = { workspace = true }
+tauri-plugin-updater = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true }
+windows-sys = { workspace = true }
+winreg = { workspace = true }
+
+[features]
+cuda = ["koharu-runtime/cuda", "koharu-ml/cuda"]
+cudnn = ["koharu-runtime/cudnn", "koharu-ml/cudnn"]
+metal = ["koharu-ml/metal"]
+
+[build-dependencies]
+tauri-build = { workspace = true }
