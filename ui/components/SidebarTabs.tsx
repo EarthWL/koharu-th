@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
   BookOpenIcon,
+  BotIcon,
   FilesIcon,
   FolderIcon,
   ImagesIcon,
@@ -20,6 +21,7 @@ import { CharactersTabPanel } from '@/components/sidebar/CharactersTabPanel'
 import { GlossaryTabPanel } from '@/components/sidebar/GlossaryTabPanel'
 import { PromptsTabPanel } from '@/components/sidebar/PromptsTabPanel'
 import { ProfilesTabPanel } from '@/components/sidebar/ProfilesTabPanel'
+import { ChatTabPanel } from '@/components/sidebar/ChatTabPanel'
 import { useProjectStore } from '@/lib/stores/projectStore'
 import { api } from '@/lib/api'
 
@@ -31,6 +33,7 @@ type TabKey =
   | 'glossary'
   | 'prompts'
   | 'profiles'
+  | 'chat'
 
 const TABS: {
   key: TabKey
@@ -80,6 +83,13 @@ const TABS: {
     icon: KeyRoundIcon,
     labelKey: 'sidebar.tabProfiles',
     fallback: 'Profiles',
+    needsProject: true,
+  },
+  {
+    key: 'chat',
+    icon: BotIcon,
+    labelKey: 'sidebar.tabChat',
+    fallback: 'AI Chat',
     needsProject: true,
   },
 ]
@@ -153,6 +163,7 @@ export function SidebarTabs() {
         {active === 'glossary' && projectInfo && <GlossaryTabPanel />}
         {active === 'prompts' && projectInfo && <PromptsTabPanel />}
         {active === 'profiles' && projectInfo && <ProfilesTabPanel />}
+        {active === 'chat' && projectInfo && <ChatTabPanel />}
       </div>
     </div>
   )

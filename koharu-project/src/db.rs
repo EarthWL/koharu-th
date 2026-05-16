@@ -21,11 +21,23 @@ struct Migration {
 }
 
 /// Migrations are applied in `version` order. New migrations are appended here.
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "initial_schema",
-    sql: include_str!("../migrations/V001__initial_schema.sql"),
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "initial_schema",
+        sql: include_str!("../migrations/V001__initial_schema.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "chapter_folders",
+        sql: include_str!("../migrations/V002__chapter_folders.sql"),
+    },
+    Migration {
+        version: 3,
+        name: "chat_messages",
+        sql: include_str!("../migrations/V003__chat_messages.sql"),
+    },
+];
 
 /// Open (or create) the database at `path`, install required PRAGMAs,
 /// and apply any pending migrations.

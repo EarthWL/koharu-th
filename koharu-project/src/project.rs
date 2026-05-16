@@ -68,6 +68,12 @@ impl Project {
         }
         let manifest = Manifest::read(&manifest_path)?;
         let pool = db::open(root.join(&manifest.paths.db))?;
+        // Legacy file_path-only chapters (V001 schema) get auto-wrapped
+        // into the new folder layout on first open after the V002 migration.
+        {
+            let mut conn = pool.get()?;
+            let _ = crate::chapter::ensure_folder_layout(&mut conn, root);
+        }
         Ok(Self {
             root: root.to_path_buf(),
             manifest,

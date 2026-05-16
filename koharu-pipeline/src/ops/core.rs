@@ -25,6 +25,30 @@ async fn pick_output_dir() -> anyhow::Result<Option<PathBuf>> {
     Ok(tokio::task::spawn_blocking(|| FileDialog::new().pick_folder()).await?)
 }
 
+/// If every loaded document was opened from a chapter folder's
+/// `source/` subdirectory and they all share the same parent chapter
+/// folder, return that chapter's sibling `render/` directory. Otherwise
+/// `None` — caller should fall back to the folder picker.
+fn chapter_render_dir(documents: &[koharu_types::Document]) -> Option<PathBuf> {
+    let mut chapter_root: Option<PathBuf> = None;
+    for doc in documents {
+        let parent = doc.path.parent()?;
+        if parent.file_name().and_then(|s| s.to_str()) != Some("source") {
+            return None;
+        }
+        let root = parent.parent()?.to_path_buf();
+        match &chapter_root {
+            Some(existing) if existing != &root => return None,
+            None => chapter_root = Some(root),
+            _ => {}
+        }
+    }
+    let root = chapter_root?;
+    let render = root.join("render");
+    std::fs::create_dir_all(&render).ok();
+    Some(render)
+}
+
 fn document_ext(document: &koharu_types::Document) -> String {
     document
         .path
@@ -183,11 +207,27 @@ pub async fn export_document(
 }
 
 pub async fn export_all_inpainted(state: AppResources) -> anyhow::Result<usize> {
-    let Some(output_dir) = pick_output_dir().await? else {
-        return Ok(0);
-    };
-
     let guard = state.state.read().await;
+    let output_dir = match chapter_render_dir(&guard.documents) {
+        Some(dir) => dir,
+        None => {
+            drop(guard);
+            let Some(dir) = pick_output_dir().await? else {
+                return Ok(0);
+            };
+            // Re-acquire after the await.
+            return {
+                let guard = state.state.read().await;
+                export_documents_matching(
+                    &guard.documents,
+                    &dir,
+                    "inpainted",
+                    "No inpainted images found to export",
+                    |document| document.inpainted.as_ref(),
+                )
+            };
+        }
+    };
     export_documents_matching(
         &guard.documents,
         &output_dir,
@@ -198,11 +238,26 @@ pub async fn export_all_inpainted(state: AppResources) -> anyhow::Result<usize> 
 }
 
 pub async fn export_all_rendered(state: AppResources) -> anyhow::Result<usize> {
-    let Some(output_dir) = pick_output_dir().await? else {
-        return Ok(0);
-    };
-
     let guard = state.state.read().await;
+    let output_dir = match chapter_render_dir(&guard.documents) {
+        Some(dir) => dir,
+        None => {
+            drop(guard);
+            let Some(dir) = pick_output_dir().await? else {
+                return Ok(0);
+            };
+            return {
+                let guard = state.state.read().await;
+                export_documents_matching(
+                    &guard.documents,
+                    &dir,
+                    "rendered",
+                    "No rendered images found to export",
+                    |document| document.rendered.as_ref(),
+                )
+            };
+        }
+    };
     export_documents_matching(
         &guard.documents,
         &output_dir,

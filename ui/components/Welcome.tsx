@@ -497,8 +497,16 @@ function SetupStep({
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Step 4: Add first chapter(s)
+// Step 4: Create chapter(s) + add page images
 // ─────────────────────────────────────────────────────────────────
+type WizardChapter = {
+  id: number
+  chapterNumber: number
+  title: string | null
+  folderPath: string
+  pageCount: number
+}
+
 function ChaptersStep({
   t,
   onDone,
@@ -506,40 +514,96 @@ function ChaptersStep({
   t: (key: string, fallback?: any, opts?: any) => string
   onDone: () => void
 }) {
-  const [importing, setImporting] = useState(false)
-  const [addedCount, setAddedCount] = useState(0)
+  const [chapters, setChapters] = useState<WizardChapter[]>([])
+  const [title, setTitle] = useState('')
+  const [chapterNumber, setChapterNumber] = useState<string>('1')
+  const [busy, setBusy] = useState(false)
+  const [pageBusyId, setPageBusyId] = useState<number | null>(null)
+  const [justAdded, setJustAdded] = useState<{ id: number; n: number } | null>(
+    null,
+  )
+  const [opening, setOpening] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const importFiles = async () => {
-    setImporting(true)
+  const refresh = async () => {
+    const list = await api.chaptersList()
+    setChapters(
+      list.map((c) => ({
+        id: c.id,
+        chapterNumber: c.chapterNumber,
+        title: c.title,
+        folderPath: c.folderPath,
+        pageCount: c.pageCount,
+      })),
+    )
+    const next = list.reduce((m, c) => Math.max(m, c.chapterNumber), 0) + 1
+    setChapterNumber(String(next))
+  }
+
+  useEffect(() => {
+    void refresh()
+  }, [])
+
+  const createChapter = async () => {
+    const num = Number(chapterNumber)
+    if (!Number.isFinite(num)) {
+      setError(t('welcome.invalidNumber', 'Chapter number must be a number'))
+      return
+    }
+    setBusy(true)
     setError(null)
     try {
-      const r = await api.chapterAddFromPicker()
-      setAddedCount((c) => c + r.added)
-      if (r.added === 0 && r.skipped === 0) {
-        // Cancelled.
-      } else if (r.added === 0) {
-        setError(`Skipped ${r.skipped} files (unsupported / copy failed)`)
-      }
+      await api.chapterCreate({
+        chapterNumber: num,
+        title: title.trim() || null,
+      })
+      setTitle('')
+      await refresh()
     } catch (e: any) {
       setError(e?.message ?? String(e))
     } finally {
-      setImporting(false)
+      setBusy(false)
     }
   }
 
-  const openFirstChapter = async () => {
-    setImporting(true)
+  const addPages = async (chapterId: number) => {
+    setPageBusyId(chapterId)
+    setError(null)
     try {
-      const chapters = await api.chaptersList()
-      if (chapters.length > 0) {
-        const first = chapters[0]
-        await api.chapterOpen(first.id)
-        useProjectStore.getState().setActiveChapterId(first.id)
+      const r = await api.chapterAddPages(chapterId)
+      if (r.added > 0) {
+        setJustAdded({ id: chapterId, n: r.added })
+        window.setTimeout(() => setJustAdded(null), 2500)
+      } else if (r.skipped > 0) {
+        setError(
+          t('welcome.skippedPages', 'Skipped {{n}} files', { n: r.skipped }),
+        )
       }
-      onDone()
+      await refresh()
+    } catch (e: any) {
+      setError(e?.message ?? String(e))
     } finally {
-      setImporting(false)
+      setPageBusyId(null)
+    }
+  }
+
+  const totalPages = chapters.reduce((n, c) => n + c.pageCount, 0)
+  const firstWithPages = chapters.find((c) => c.pageCount > 0)
+
+  const openFirstChapter = async () => {
+    if (!firstWithPages) {
+      onDone()
+      return
+    }
+    setOpening(true)
+    try {
+      await api.chapterOpen(firstWithPages.id)
+      useProjectStore.getState().setActiveChapterId(firstWithPages.id)
+      onDone()
+    } catch (e: any) {
+      setError(e?.message ?? String(e))
+    } finally {
+      setOpening(false)
     }
   }
 
@@ -550,37 +614,119 @@ function ChaptersStep({
         total={3}
         title={t('welcome.chaptersTitle', 'Add chapters')}
       />
-      <p className='text-muted-foreground mb-4 text-xs'>
+      <p className='text-muted-foreground mb-3 text-xs leading-relaxed'>
         {t(
           'welcome.chaptersHint',
-          'Pick .khr or image files. They will be copied into the project so the original folder stays untouched. You can add more later from the Chapters tab.',
+          'สร้าง Chapter — ระบบจะทำโฟลเดอร์ source/ + render/ ให้ จากนั้นกด “+ Pages” อัปโหลดรูปหน้ามังงะเข้าโฟลเดอร์ source/ ของแต่ละตอน',
         )}
       </p>
-      <div className='border-border bg-muted/30 mb-4 rounded-md border border-dashed p-6 text-center'>
+
+      {/* Create-chapter row */}
+      <div className='border-border bg-muted/30 mb-3 flex items-center gap-2 rounded-md border p-2'>
+        <Input
+          inputMode='decimal'
+          value={chapterNumber}
+          onChange={(e) => setChapterNumber(e.target.value)}
+          placeholder={t('welcome.chapterNumberPh', 'No.')}
+          className='h-8 w-16 text-xs'
+          title={t('welcome.chapterNumberTitle', 'Chapter number')}
+        />
+        <Input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder={t(
+            'welcome.chapterTitlePh',
+            'Chapter title (optional)',
+          )}
+          className='h-8 flex-1 text-xs'
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void createChapter()
+          }}
+        />
         <Button
-          variant='default'
           size='sm'
-          disabled={importing}
-          onClick={() => void importFiles()}
+          disabled={busy}
+          onClick={() => void createChapter()}
         >
-          {importing ? (
+          {busy ? (
             <Loader2Icon className='size-3.5 animate-spin' />
           ) : (
-            <FolderOpenIcon className='size-3.5' />
+            <FolderPlusIcon className='size-3.5' />
           )}
-          {t('welcome.pickChapterFiles', 'Pick files…')}
+          {t('welcome.createChapter', 'Create')}
         </Button>
-        {addedCount > 0 && (
-          <div className='mt-3 flex items-center justify-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400'>
-            <CheckIcon className='size-3.5' />
-            {addedCount}{' '}
-            {t('welcome.chaptersAdded', 'chapters added — pick more or finish')}
+      </div>
+
+      {/* Chapter list */}
+      <div className='mb-4 max-h-64 space-y-1 overflow-auto pr-1'>
+        {chapters.length === 0 ? (
+          <div className='border-border text-muted-foreground rounded-md border border-dashed p-4 text-center text-xs'>
+            {t('welcome.noChaptersYet', 'No chapters yet — create one above')}
           </div>
-        )}
-        {error && (
-          <div className='text-destructive mt-2 text-[10px]'>{error}</div>
+        ) : (
+          chapters.map((c) => {
+            const flashing = justAdded?.id === c.id
+            return (
+              <div
+                key={c.id}
+                className={
+                  'flex items-center gap-2 rounded-md border p-2 text-xs transition ' +
+                  (flashing
+                    ? 'border-emerald-500/60 bg-emerald-500/10 ring-2 ring-emerald-500/40'
+                    : 'border-border bg-card')
+                }
+              >
+                <span className='bg-muted text-muted-foreground rounded px-1 py-0.5 font-mono text-[10px]'>
+                  #{c.chapterNumber}
+                </span>
+                <span className='min-w-0 flex-1 truncate'>
+                  {c.title ?? c.folderPath.split(/[\\/]/).pop()}
+                </span>
+                <span
+                  className={
+                    'shrink-0 text-[10px] font-medium ' +
+                    (c.pageCount === 0
+                      ? 'text-muted-foreground/60'
+                      : 'text-emerald-600 dark:text-emerald-400')
+                  }
+                >
+                  {c.pageCount} {c.pageCount === 1 ? 'page' : 'pages'}
+                </span>
+                {flashing && (
+                  <span className='flex shrink-0 items-center gap-0.5 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300'>
+                    <CheckIcon className='size-2.5' />+{justAdded!.n}
+                  </span>
+                )}
+                <Button
+                  variant='outline'
+                  size='sm'
+                  className='h-7 px-2 text-[10px]'
+                  disabled={pageBusyId === c.id}
+                  onClick={() => void addPages(c.id)}
+                >
+                  {pageBusyId === c.id ? (
+                    <Loader2Icon className='size-3 animate-spin' />
+                  ) : (
+                    <FileImageIcon className='size-3' />
+                  )}
+                  {t('welcome.addPages', '+ Pages')}
+                </Button>
+              </div>
+            )
+          })
         )}
       </div>
+
+      {error && (
+        <div className='text-destructive mb-2 text-[10px]'>{error}</div>
+      )}
+
+      <div className='text-muted-foreground mb-2 text-center text-[10px]'>
+        {chapters.length}{' '}
+        {t('welcome.chaptersCount', 'chapters')} · {totalPages}{' '}
+        {t('welcome.pagesCount', 'pages')}
+      </div>
+
       <div className='flex justify-between gap-2'>
         <Button variant='ghost' size='sm' onClick={onDone}>
           {t('welcome.skipChapters', 'Add later')}
@@ -588,10 +734,18 @@ function ChaptersStep({
         <Button
           variant='default'
           size='sm'
-          disabled={importing || addedCount === 0}
+          disabled={opening || !firstWithPages}
           onClick={() => void openFirstChapter()}
+          title={
+            firstWithPages
+              ? undefined
+              : t(
+                  'welcome.needPages',
+                  'Add at least one page to a chapter to open the editor',
+                )
+          }
         >
-          {importing && <Loader2Icon className='size-3.5 animate-spin' />}
+          {opening && <Loader2Icon className='size-3.5 animate-spin' />}
           {t('welcome.openFirst', 'Open first chapter →')}
         </Button>
       </div>

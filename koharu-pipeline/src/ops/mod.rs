@@ -1,3 +1,4 @@
+mod chat;
 mod core;
 mod edit;
 mod llm;
@@ -6,6 +7,7 @@ mod project;
 mod utils;
 mod vision;
 
+pub use chat::*;
 pub use core::*;
 pub use edit::*;
 pub use llm::*;

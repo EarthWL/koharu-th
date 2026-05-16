@@ -12,11 +12,20 @@ use rmcp::model::{
 use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 
 use koharu_api::commands::{
-    AddTextBlockPayload, ExportDocumentParams, FileEntry, IndexPayload, InpaintPartialPayload,
-    InpaintRegion, InpaintRegionParams, LlmGenerateParams, LlmGeneratePayload, LlmListPayload,
-    LlmLoadParams, LlmLoadPayload, MaskMorphPayload, OpenDocumentsParams, OpenDocumentsPayload,
-    ProcessParams, ProcessRequest, RemoveTextBlockPayload, RenderParams, RenderPayload,
-    UpdateTextBlockPayload, ViewImageParams, ViewTextBlockParams,
+    AddTextBlockPayload, ChapterCreatePayload, ChapterIdPayload,
+    ChapterUpdatePayload, CharacterAddPayload, CharacterIdPayload, CharacterUpdatePayload,
+    WebFetchPayload,
+    ExportDocumentParams, FileEntry, GlossaryAddPayload, GlossaryBulkAddPayload,
+    GlossaryBumpUsagePayload, GlossaryIdPayload, GlossaryUpdatePayload, IndexPayload,
+    InpaintPartialPayload, InpaintRegion, InpaintRegionParams, LlmCallLogPayload,
+    LlmGenerateParams, LlmGeneratePayload, LlmListPayload, LlmLoadParams, LlmLoadPayload,
+    MaskMorphPayload, OpenDocumentsParams, OpenDocumentsPayload, ProcessParams, ProcessRequest,
+    ProjectCreatePayload, ProjectOpenPayload, PromptRenderPayload, PromptTemplateAddPayload,
+    PromptTemplateIdPayload, PromptTemplateUpdatePayload, ProviderProfileAddPayload,
+    ProviderProfileIdPayload, ProviderProfileUpdatePayload, RecentProjectRemovePayload,
+    RemoveTextBlockPayload, RenderParams, RenderPayload, SeriesMetaUpdatePayload, TmInsertPayload,
+    TmLookupFuzzyPayload, TmLookupPayload, UpdateTextBlockPayload, ViewImageParams,
+    ViewTextBlockParams,
 };
 use koharu_api::views::to_doc_info;
 use koharu_pipeline::AppResources;
@@ -25,6 +34,17 @@ use koharu_pipeline::operations;
 use crate::shared::SharedResources;
 
 use helpers::encode_png_base64;
+
+/// MCP-only payload for `chapter_add_pages_from_paths`. The HTTP/Tauri
+/// variant pops a file picker which can't be driven from an agent, so
+/// the MCP tool takes absolute paths directly.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChapterAddPagesFromPathsParams {
+    pub chapter_id: i64,
+    /// Absolute paths to image files (.png/.jpg/.jpeg/.webp/.bmp/.khr).
+    pub paths: Vec<String>,
+}
 
 #[derive(Clone)]
 pub struct KoharuMcp {
@@ -531,6 +551,534 @@ impl KoharuMcp {
             "Inpainted region ({},{}) {}x{}",
             p.x, p.y, p.width, p.height
         ))
+    }
+
+    // ============================================================
+    // Project lifecycle
+    // ============================================================
+
+    #[tool(
+        description = "Create a new Koharu project at the given absolute directory path. Returns project info."
+    )]
+    async fn project_create(
+        &self,
+        Parameters(p): Parameters<ProjectCreatePayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let info = operations::project_create(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&info).map_err(|e| e.to_string())
+    }
+
+    #[tool(
+        description = "Open an existing project. Path can be the project root directory or the series.koharuproj manifest file."
+    )]
+    async fn project_open(
+        &self,
+        Parameters(p): Parameters<ProjectOpenPayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let info = operations::project_open(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&info).map_err(|e| e.to_string())
+    }
+
+    #[tool(description = "Close the currently open project (no-op if none open)")]
+    async fn project_close(&self) -> Result<String, String> {
+        let res = self.resources()?;
+        operations::project_close(res)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok("Project closed".to_string())
+    }
+
+    #[tool(description = "Return info about the currently-open project (null if none)")]
+    async fn project_current(&self) -> Result<String, String> {
+        let res = self.resources()?;
+        let info = operations::project_current(res)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&info).map_err(|e| e.to_string())
+    }
+
+    #[tool(description = "List recently-opened projects (path, name, last opened timestamp)")]
+    async fn recent_projects_list(&self) -> Result<String, String> {
+        let res = self.resources()?;
+        let list = operations::recent_projects_list(res)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&list).map_err(|e| e.to_string())
+    }
+
+    #[tool(description = "Remove a path from the recent-projects list")]
+    async fn recent_projects_remove(
+        &self,
+        Parameters(p): Parameters<RecentProjectRemovePayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let removed = operations::recent_projects_remove(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(if removed {
+            "Removed".to_string()
+        } else {
+            "Not in list".to_string()
+        })
+    }
+
+    // ============================================================
+    // Series metadata
+    // ============================================================
+
+    #[tool(
+        description = "Get the series metadata for the open project (title, languages, tone, style notes, etc.)"
+    )]
+    async fn series_meta_get(&self) -> Result<String, String> {
+        let res = self.resources()?;
+        let meta = operations::series_meta_get(res)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())
+    }
+
+    #[tool(
+        description = "Update series metadata. Only provided fields are changed. Returns the new state."
+    )]
+    async fn series_meta_update(
+        &self,
+        Parameters(p): Parameters<SeriesMetaUpdatePayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let meta = operations::series_meta_update(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())
+    }
+
+    // ============================================================
+    // Chapters
+    // ============================================================
+
+    #[tool(description = "List all chapters in the open project, sorted by chapter number")]
+    async fn chapters_list(&self) -> Result<String, String> {
+        let res = self.resources()?;
+        let list = operations::chapters_list(res)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&list).map_err(|e| e.to_string())
+    }
+
+    #[tool(
+        description = "Create a new chapter. Auto-creates <project>/chapters/<name>/source/ and render/ subfolders. Use chapter_add_pages_from_paths to add page images."
+    )]
+    async fn chapter_create(
+        &self,
+        Parameters(p): Parameters<ChapterCreatePayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let dto = operations::chapter_create(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&dto).map_err(|e| e.to_string())
+    }
+
+    #[tool(
+        description = "Copy one or more page image files from disk into a chapter's source/ folder. Refreshes page_count. Returns count of added/skipped."
+    )]
+    async fn chapter_add_pages_from_paths(
+        &self,
+        Parameters(p): Parameters<ChapterAddPagesFromPathsParams>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let paths: Vec<PathBuf> = p.paths.into_iter().map(PathBuf::from).collect();
+        let result = operations::chapter_add_pages_from_paths(res, p.chapter_id, paths)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(format!(
+            "Added {} page(s), skipped {}",
+            result.added, result.skipped
+        ))
+    }
+
+    #[tool(
+        description = "Open a chapter into the editor: enumerates pages in source/ and loads them all as documents. Returns the page count."
+    )]
+    async fn chapter_open(
+        &self,
+        Parameters(p): Parameters<ChapterIdPayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let count = operations::chapter_open(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(format!("Opened chapter — {count} page(s) loaded"))
+    }
+
+    #[tool(
+        description = "Update a chapter's fields (title, chapter_number, volume, status, summary, notes, page_count). Only provided fields are changed."
+    )]
+    async fn chapter_update(
+        &self,
+        Parameters(p): Parameters<ChapterUpdatePayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let dto = operations::chapter_update(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&dto).map_err(|e| e.to_string())
+    }
+
+    #[tool(description = "Remove a chapter from the index (files on disk are not deleted)")]
+    async fn chapter_remove(
+        &self,
+        Parameters(p): Parameters<ChapterIdPayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let removed = operations::chapter_remove(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(if removed { "Removed" } else { "Not found" }.to_string())
+    }
+
+    // ============================================================
+    // Characters
+    // ============================================================
+
+    #[tool(description = "List all characters defined in the open project")]
+    async fn characters_list(&self) -> Result<String, String> {
+        let res = self.resources()?;
+        let list = operations::characters_list(res)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&list).map_err(|e| e.to_string())
+    }
+
+    #[tool(description = "Add a character (original + translated name, aliases, role, etc.)")]
+    async fn character_add(
+        &self,
+        Parameters(p): Parameters<CharacterAddPayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let dto = operations::character_add(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&dto).map_err(|e| e.to_string())
+    }
+
+    #[tool(description = "Update a character. Only provided fields are changed.")]
+    async fn character_update(
+        &self,
+        Parameters(p): Parameters<CharacterUpdatePayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let dto = operations::character_update(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&dto).map_err(|e| e.to_string())
+    }
+
+    #[tool(description = "Remove a character by id")]
+    async fn character_remove(
+        &self,
+        Parameters(p): Parameters<CharacterIdPayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let removed = operations::character_remove(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(if removed { "Removed" } else { "Not found" }.to_string())
+    }
+
+    // ============================================================
+    // Glossary
+    // ============================================================
+
+    #[tool(description = "List all glossary entries (source/target/category/aliases/usage count)")]
+    async fn glossary_list(&self) -> Result<String, String> {
+        let res = self.resources()?;
+        let list = operations::glossary_list(res)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&list).map_err(|e| e.to_string())
+    }
+
+    #[tool(
+        description = "Add a glossary entry. Category must be one of: character, place, term, skill, honorific, item, org, sfx."
+    )]
+    async fn glossary_add(
+        &self,
+        Parameters(p): Parameters<GlossaryAddPayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let dto = operations::glossary_add(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&dto).map_err(|e| e.to_string())
+    }
+
+    #[tool(
+        description = "Bulk-add glossary entries — atomic insert with duplicate detection. Returns counts."
+    )]
+    async fn glossary_bulk_add(
+        &self,
+        Parameters(p): Parameters<GlossaryBulkAddPayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let result = operations::glossary_bulk_add(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&result).map_err(|e| e.to_string())
+    }
+
+    #[tool(description = "Update a glossary entry. Only provided fields are changed.")]
+    async fn glossary_update(
+        &self,
+        Parameters(p): Parameters<GlossaryUpdatePayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let dto = operations::glossary_update(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&dto).map_err(|e| e.to_string())
+    }
+
+    #[tool(description = "Remove a glossary entry by id")]
+    async fn glossary_remove(
+        &self,
+        Parameters(p): Parameters<GlossaryIdPayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let removed = operations::glossary_remove(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(if removed { "Removed" } else { "Not found" }.to_string())
+    }
+
+    #[tool(
+        description = "Bump usage_count for a batch of glossary entries — call after a successful translation that used them."
+    )]
+    async fn glossary_bump_usage(
+        &self,
+        Parameters(p): Parameters<GlossaryBumpUsagePayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        operations::glossary_bump_usage(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok("Usage counts bumped".to_string())
+    }
+
+    // ============================================================
+    // Prompt templates + rendering
+    // ============================================================
+
+    #[tool(description = "List all prompt templates (name, use_case, is_default)")]
+    async fn prompt_templates_list(&self) -> Result<String, String> {
+        let res = self.resources()?;
+        let list = operations::prompt_templates_list(res)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&list).map_err(|e| e.to_string())
+    }
+
+    #[tool(
+        description = "Add a prompt template. use_case ∈ {translate, extract_entities, summarize_chapter}. Template is Handlebars-rendered with series + character + glossary + rolling-summary context."
+    )]
+    async fn prompt_template_add(
+        &self,
+        Parameters(p): Parameters<PromptTemplateAddPayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let dto = operations::prompt_template_add(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&dto).map_err(|e| e.to_string())
+    }
+
+    #[tool(description = "Update a prompt template. Only provided fields are changed.")]
+    async fn prompt_template_update(
+        &self,
+        Parameters(p): Parameters<PromptTemplateUpdatePayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let dto = operations::prompt_template_update(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&dto).map_err(|e| e.to_string())
+    }
+
+    #[tool(description = "Remove a prompt template by id")]
+    async fn prompt_template_remove(
+        &self,
+        Parameters(p): Parameters<PromptTemplateIdPayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let removed = operations::prompt_template_remove(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(if removed { "Removed" } else { "Not found" }.to_string())
+    }
+
+    #[tool(
+        description = "Render a prompt: resolves the template (by name or use_case default), assembles series + main characters + glossary-filtered + rolling-summary context, and returns the rendered prompt plus glossary entry IDs that matched."
+    )]
+    async fn prompt_render(
+        &self,
+        Parameters(p): Parameters<PromptRenderPayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let result = operations::prompt_render(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&result).map_err(|e| e.to_string())
+    }
+
+    // ============================================================
+    // Translation memory
+    // ============================================================
+
+    #[tool(
+        description = "Exact-match TM lookup. Returns the cached translation if source_text + target_lang match a previous entry."
+    )]
+    async fn tm_lookup(
+        &self,
+        Parameters(p): Parameters<TmLookupPayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let dto = operations::tm_lookup(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&dto).map_err(|e| e.to_string())
+    }
+
+    #[tool(
+        description = "Fuzzy TM lookup using Jaccard similarity. min_similarity is 0.0..1.0 (0.85 is a sane default). Returns entry + similarity score."
+    )]
+    async fn tm_lookup_fuzzy(
+        &self,
+        Parameters(p): Parameters<TmLookupFuzzyPayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let hit = operations::tm_lookup_fuzzy(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&hit).map_err(|e| e.to_string())
+    }
+
+    #[tool(
+        description = "Insert a TM entry — call after a confirmed translation so future identical/near-identical source matches the cached target."
+    )]
+    async fn tm_insert(
+        &self,
+        Parameters(p): Parameters<TmInsertPayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let dto = operations::tm_insert(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&dto).map_err(|e| e.to_string())
+    }
+
+    // ============================================================
+    // Provider profiles
+    // ============================================================
+
+    #[tool(description = "List all saved LLM provider profiles (api_key is never returned)")]
+    async fn provider_profiles_list(&self) -> Result<String, String> {
+        let res = self.resources()?;
+        let list = operations::provider_profiles_list(res)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&list).map_err(|e| e.to_string())
+    }
+
+    #[tool(
+        description = "Add a provider profile. provider ∈ {openai, openrouter, gemini, anthropic}. api_key is stored in the OS keyring server-side and never written to the DB. Empty api_key leaves the keyring entry unset."
+    )]
+    async fn provider_profile_add(
+        &self,
+        Parameters(p): Parameters<ProviderProfileAddPayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let dto = operations::provider_profile_add(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&dto).map_err(|e| e.to_string())
+    }
+
+    #[tool(
+        description = "Update a provider profile. api_key: omit to leave alone, '' to clear, non-empty to (re)write the keyring entry."
+    )]
+    async fn provider_profile_update(
+        &self,
+        Parameters(p): Parameters<ProviderProfileUpdatePayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let dto = operations::provider_profile_update(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&dto).map_err(|e| e.to_string())
+    }
+
+    #[tool(description = "Remove a provider profile (also deletes its keyring entry)")]
+    async fn provider_profile_remove(
+        &self,
+        Parameters(p): Parameters<ProviderProfileIdPayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let removed = operations::provider_profile_remove(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(if removed { "Removed" } else { "Not found" }.to_string())
+    }
+
+    // ============================================================
+    // LLM cost log + stats
+    // ============================================================
+
+    #[tool(
+        description = "Record an LLM call in the cost log (token counts, cost, duration, success/failure)."
+    )]
+    async fn llm_call_log(
+        &self,
+        Parameters(p): Parameters<LlmCallLogPayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        operations::llm_call_log(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok("Logged".to_string())
+    }
+
+    #[tool(
+        description = "Aggregate stats from the LLM cost log: total calls, successes, total tokens, total USD cost."
+    )]
+    async fn llm_cost_stats(&self) -> Result<String, String> {
+        let res = self.resources()?;
+        let stats = operations::llm_cost_stats(res)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&stats).map_err(|e| e.to_string())
+    }
+
+    // ============================================================
+    // Web fetch (agentic tool — for wiki / fandom summarisation)
+    // ============================================================
+
+    #[tool(
+        description = "Fetch a URL and return its text content (HTML stripped to readable text, with title). Use this to pull manga wikis / fandom pages / blog posts into context so you can summarise into series_meta + characters + glossary. 12s timeout, 1.5MB cap, 5 redirects."
+    )]
+    async fn web_fetch_url(
+        &self,
+        Parameters(p): Parameters<WebFetchPayload>,
+    ) -> Result<String, String> {
+        let res = self.resources()?;
+        let result = operations::web_fetch_url(res, p)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&result).map_err(|e| e.to_string())
     }
 }
 

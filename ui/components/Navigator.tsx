@@ -82,6 +82,7 @@ export function Navigator() {
                   key={virtualRow.key}
                   data-index={virtualRow.index}
                   ref={rowVirtualizer.measureElement}
+                  className='flex justify-center'
                   style={{
                     position: 'absolute',
                     top: 0,
@@ -153,7 +154,7 @@ function PagePreview({
       data-testid={`navigator-page-${index}`}
       data-page-index={index}
       data-selected={selected}
-      className='bg-card data-[selected=true]:border-primary flex h-auto flex-col gap-0.5 rounded border border-transparent p-1.5 text-left shadow-sm'
+      className='bg-card data-[selected=true]:border-primary flex h-auto w-[200px] flex-col gap-0.5 rounded border border-transparent p-1.5 text-left shadow-sm'
     >
       {loading ? (
         <div className='bg-muted aspect-3/4 w-full animate-pulse rounded' />

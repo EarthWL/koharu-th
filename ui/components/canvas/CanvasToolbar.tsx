@@ -30,6 +30,17 @@ import { useLlmModelsQuery, useLlmReadyQuery } from '@/lib/query/hooks'
 import { useDocumentMutations, useLlmMutations } from '@/lib/query/mutations'
 import { useOperationStore } from '@/lib/stores/operationStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
+import { useQuery } from '@tanstack/react-query'
+import { api, type ProviderProfileDto } from '@/lib/api'
+
+const PROVIDER_LABEL: Record<string, string> = {
+  openai: 'OpenAI',
+  openrouter: 'OpenRouter',
+  gemini: 'Gemini',
+  anthropic: 'Claude',
+}
+
+const LOCAL_VALUE = '__local__'
 
 export function CanvasToolbar() {
   return (
@@ -167,9 +178,56 @@ function LlmStatusPopover() {
   const { data: llmReady = false } = useLlmReadyQuery()
   const { llmSetSelectedModel, llmSetSelectedLanguage, llmToggleLoadUnload } =
     useLlmMutations()
-  const { cloudProvider, setCloudProvider, cloudTargetLanguage, setCloudTargetLanguage } = usePreferencesStore()
+  const {
+    cloudProvider,
+    setCloudProvider,
+    cloudModelName,
+    setCloudModelName,
+    setCloudApiKey,
+    setCloudApiUrl,
+    cloudTargetLanguage,
+    setCloudTargetLanguage,
+  } = usePreferencesStore()
   const { t } = useTranslation()
   const isCloudActive = cloudProvider !== 'none'
+
+  // Profiles drive the engine picker — local engine is always available;
+  // each saved profile becomes one option.
+  const profiles = useQuery({
+    queryKey: ['project', 'profiles'],
+    queryFn: () => api.providerProfilesList(),
+  })
+  const profileList = profiles.data ?? []
+
+  const activeProfileId = useMemo(() => {
+    if (!isCloudActive) return LOCAL_VALUE
+    const match = profileList.find(
+      (p) => p.provider === cloudProvider && p.modelName === cloudModelName,
+    )
+    return match ? String(match.id) : LOCAL_VALUE
+  }, [isCloudActive, profileList, cloudProvider, cloudModelName])
+
+  const applyProfile = async (p: ProviderProfileDto) => {
+    setCloudProvider(p.provider as any)
+    setCloudModelName(p.modelName)
+    if (p.apiUrl) setCloudApiUrl(p.apiUrl)
+    try {
+      const { apiKey } = await api.providerProfileSecretGet(p.id)
+      if (apiKey) setCloudApiKey(apiKey)
+    } catch (err) {
+      console.warn('[toolbar] profile secret fetch failed', err)
+    }
+  }
+
+  const onEngineChange = (value: string) => {
+    if (value === LOCAL_VALUE) {
+      setCloudProvider('none' as any)
+      return
+    }
+    const id = Number(value)
+    const profile = profileList.find((p) => p.id === id)
+    if (profile) void applyProfile(profile)
+  }
 
   const activeLanguages = useMemo(
     () =>
@@ -235,17 +293,40 @@ function LlmStatusPopover() {
             {t('panels.llm')}
           </p>
 
-          <Select value={cloudProvider} onValueChange={setCloudProvider as any}>
+          <Select value={activeProfileId} onValueChange={onEngineChange}>
             <SelectTrigger className='w-full'>
-              <SelectValue placeholder="AI Engine" />
+              <SelectValue placeholder='AI Engine' />
             </SelectTrigger>
             <SelectContent position='popper'>
-              <SelectItem value="none">Local Engine (GGUF)</SelectItem>
-              <SelectItem value="openai">Cloud: OpenAI</SelectItem>
-              <SelectItem value="gemini">Cloud: Gemini</SelectItem>
-              <SelectItem value="anthropic">Cloud: Anthropic</SelectItem>
+              <SelectItem value={LOCAL_VALUE}>Local Engine (GGUF)</SelectItem>
+              {profileList.length > 0 && (
+                <div className='text-muted-foreground px-2 pt-2 pb-1 text-[10px] font-semibold uppercase'>
+                  Cloud Profiles
+                </div>
+              )}
+              {profileList.map((p) => (
+                <SelectItem key={p.id} value={String(p.id)}>
+                  <span className='flex items-center gap-1.5'>
+                    {p.isDefault && (
+                      <span className='text-amber-500' title='default'>
+                        ★
+                      </span>
+                    )}
+                    <span>{p.name}</span>
+                    <span className='text-muted-foreground text-[10px]'>
+                      · {PROVIDER_LABEL[p.provider] ?? p.provider} ·{' '}
+                      {p.modelName || 'no model'}
+                    </span>
+                  </span>
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
+          {profileList.length === 0 && (
+            <p className='text-muted-foreground text-[10px]'>
+              สร้าง Cloud profile ที่ Sidebar → Profiles tab เพื่อเลือกใช้ตรงนี้
+            </p>
+          )}
 
           {!isCloudActive ? (
             <>
@@ -324,9 +405,25 @@ function LlmStatusPopover() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="bg-muted text-muted-foreground rounded border p-3 text-center text-xs">
-                <p className="mb-1 font-semibold text-foreground">Cloud AI is active</p>
-                API Key & Model can be configured in the Settings.
+              <div className='bg-muted text-muted-foreground rounded border p-3 text-center text-xs'>
+                <p className='text-foreground mb-1 font-semibold'>
+                  Cloud AI is active
+                </p>
+                <p>
+                  {cloudProvider !== 'none' && cloudModelName ? (
+                    <>
+                      <span className='font-medium'>
+                        {PROVIDER_LABEL[cloudProvider] ?? cloudProvider}
+                      </span>{' '}
+                      · {cloudModelName}
+                    </>
+                  ) : (
+                    <>No profile applied</>
+                  )}
+                </p>
+                <p className='text-muted-foreground/70 mt-1 text-[10px]'>
+                  Edit profiles in Sidebar → Profiles tab.
+                </p>
               </div>
             </div>
           )}

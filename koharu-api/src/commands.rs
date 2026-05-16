@@ -354,7 +354,8 @@ pub struct SeriesMetaUpdatePayload {
 #[serde(rename_all = "camelCase")]
 pub struct ChapterDto {
     pub id: i64,
-    pub file_path: String,
+    /// Relative folder path inside the project root, e.g. "chapters/ch01".
+    pub folder_path: String,
     pub chapter_number: f64,
     pub title: Option<String>,
     pub volume: Option<i64>,
@@ -366,13 +367,21 @@ pub struct ChapterDto {
     pub updated_at: String,
 }
 
+/// Create a chapter — backend mints a folder name from title /
+/// chapter_number, makes `source/` + `render/` subfolders, and inserts
+/// the row. No files yet; user adds pages separately.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct ChapterAddPayload {
-    pub file_path: String,
+pub struct ChapterCreatePayload {
     pub chapter_number: f64,
     pub title: Option<String>,
     pub volume: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChapterAddPagesPayload {
+    pub chapter_id: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -774,6 +783,72 @@ pub struct LlmCallLogPayload {
     pub error_message: Option<String>,
 }
 
+// ------------------------------------------------------------
+// AI Chat (per-project chat history + agentic web fetch tool)
+// ------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMessageDto {
+    pub id: i64,
+    /// `user`, `assistant`, `tool`, `system`.
+    pub role: String,
+    pub content: String,
+    /// JSON array of tool_calls when present (assistant turns).
+    pub tool_calls: Option<String>,
+    /// Set on tool rows — matching assistant tool_call.id.
+    pub tool_call_id: Option<String>,
+    /// `provider:model` that produced an assistant turn.
+    pub model: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatListPayload {
+    /// Max rows to return; default 50, max 1000.
+    pub limit: Option<u32>,
+    /// Page back through history: pass the smallest id in the current
+    /// page to fetch the page before it. None = newest page.
+    pub before_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMessageAddPayload {
+    pub role: String,
+    pub content: String,
+    pub tool_calls: Option<String>,
+    pub tool_call_id: Option<String>,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatClearResult {
+    pub removed: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WebFetchPayload {
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WebFetchResult {
+    /// Final URL after redirects.
+    pub url: String,
+    pub status: u16,
+    pub content_type: String,
+    pub title: Option<String>,
+    /// HTML-stripped text (or raw body for non-HTML).
+    pub text: String,
+    /// True if the response exceeded the byte cap and `text` is partial.
+    pub truncated: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LlmCostStats {
@@ -827,6 +902,10 @@ mod tests {
                     width_px: Some(2.0),
                 }),
                 text_align: Some(TextAlign::Right),
+                line_height: None,
+                letter_spacing_px: None,
+                min_font_size: None,
+                vertical_align: None,
             }),
             ..Default::default()
         };

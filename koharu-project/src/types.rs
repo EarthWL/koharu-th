@@ -98,12 +98,14 @@ impl SeriesMeta {
     }
 }
 
-/// A chapter inside a project. `file_path` is relative to the project root.
+/// A chapter inside a project. `folder_path` is relative to the project
+/// root and contains two subfolders: `source/` (uploaded originals) and
+/// `render/` (rendered output). Page count reflects files in source/.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Chapter {
     pub id: i64,
-    pub file_path: String,
+    pub folder_path: String,
     pub chapter_number: f64,
     pub title: Option<String>,
     pub volume: Option<i64>,

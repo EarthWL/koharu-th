@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use koharu_api::commands::{
-    ChapterAddPayload, ChapterDto, ChapterIdPayload, ChapterImportResult, ChapterUpdatePayload,
+    ChapterAddPagesPayload, ChapterCreatePayload, ChapterDto, ChapterIdPayload,
+    ChapterImportResult, ChapterUpdatePayload,
     CharacterAddPayload,
     CharacterDto, CharacterIdPayload, CharacterUpdatePayload, GlossaryAddPayload,
     GlossaryBumpUsagePayload, GlossaryDto, GlossaryIdPayload, GlossaryUpdatePayload,
@@ -353,17 +354,28 @@ pub async fn chapters_list(state: AppResources) -> anyhow::Result<Vec<ChapterDto
     Ok(list)
 }
 
-pub async fn chapter_add(
+/// Create a chapter: mint a folder name, make `<chapters>/<name>/source`
+/// + `.../render` subfolders, and insert a DB row pointing at the
+/// folder. No page files are copied here — `chapter_add_pages` does that.
+pub async fn chapter_create(
     state: AppResources,
-    payload: ChapterAddPayload,
+    payload: ChapterCreatePayload,
 ) -> anyhow::Result<ChapterDto> {
     let project = require_project(&state).await?;
     let dto = tokio::task::spawn_blocking(move || -> anyhow::Result<ChapterDto> {
+        let chapters_dir = project.chapters_dir();
+        std::fs::create_dir_all(&chapters_dir).ok();
+
+        let base = chapter_ops::folder_name_for(payload.chapter_number, payload.title.as_deref());
+        let dedup = chapter_ops::dedupe_folder_name(&chapters_dir, &base);
+        chapter_ops::create_chapter_folder(&chapters_dir, &dedup)?;
+        let rel = format!("chapters/{dedup}");
+
         let conn = project.pool().get()?;
         let inserted = chapter_ops::insert(
             &conn,
             ChapterInsert {
-                file_path: payload.file_path,
+                folder_path: rel,
                 chapter_number: payload.chapter_number,
                 title: payload.title,
                 volume: payload.volume,
@@ -375,22 +387,18 @@ pub async fn chapter_add(
     Ok(dto)
 }
 
-/// Open a file picker, let the user pick one or more image / .khr
-/// files, copy them into the project's chapters/ directory, and
-/// insert a chapter row for each. Auto-assigns chapter numbers as
-/// `max(existing) + 1, +2, ...` so the natural reading order is
-/// preserved if the user picks files in batches.
-pub async fn chapter_add_from_picker(
+/// Open a file picker, let the user pick page image / .khr files, and
+/// copy them into the given chapter's `source/` subfolder. Refreshes
+/// `page_count` afterwards.
+pub async fn chapter_add_pages(
     state: AppResources,
+    payload: ChapterAddPagesPayload,
 ) -> anyhow::Result<ChapterImportResult> {
     let project = require_project(&state).await?;
 
     let chosen = tokio::task::spawn_blocking(|| {
         FileDialog::new()
-            .add_filter(
-                "Chapter files",
-                &["khr", "png", "jpg", "jpeg", "webp", "bmp"],
-            )
+            .add_filter("Page files", chapter_ops::PAGE_EXTENSIONS)
             .pick_files()
     })
     .await?;
@@ -401,55 +409,80 @@ pub async fn chapter_add_from_picker(
         });
     };
 
+    let chapter_id = payload.chapter_id;
     let result = tokio::task::spawn_blocking(move || -> anyhow::Result<ChapterImportResult> {
-        let chapters_dir = project.chapters_dir();
-        std::fs::create_dir_all(&chapters_dir).ok();
-
         let conn = project.pool().get()?;
-        let existing = chapter_ops::list(&conn)?;
-        let mut next_number = existing
-            .iter()
-            .map(|c| c.chapter_number)
-            .fold(0.0_f64, f64::max);
+        let chapter = chapter_ops::get(&conn, chapter_id)?
+            .ok_or_else(|| anyhow::anyhow!("chapter {chapter_id} not found"))?;
+        let source_dir = project
+            .root()
+            .join(&chapter.folder_path)
+            .join(chapter_ops::SOURCE_SUBDIR);
+        std::fs::create_dir_all(&source_dir).ok();
 
         let mut added = 0u32;
         let mut skipped = 0u32;
-
         for src in files {
             let Some(name) = src.file_name().and_then(|s| s.to_str()) else {
                 skipped += 1;
                 continue;
             };
-            let dest_name = dedupe_in_dir(&chapters_dir, name);
-            let dest = chapters_dir.join(&dest_name);
-
+            let dest_name = dedupe_in_dir(&source_dir, name);
+            let dest = source_dir.join(&dest_name);
             if let Err(err) = std::fs::copy(&src, &dest) {
-                tracing::warn!(?err, ?src, ?dest, "chapter copy failed");
-                skipped += 1;
-                continue;
-            }
-
-            next_number += 1.0;
-            let chapter_number = filename_chapter_number(&dest_name).unwrap_or(next_number);
-            let rel = format!("chapters/{}", dest_name.replace('\\', "/"));
-            if let Err(err) = chapter_ops::insert(
-                &conn,
-                chapter_ops::ChapterInsert {
-                    file_path: rel,
-                    chapter_number,
-                    title: Some(strip_ext(&dest_name).into()),
-                    volume: None,
-                },
-            ) {
-                tracing::warn!(?err, "chapter insert failed");
-                // Roll back the copy so we don't leave orphan files.
-                let _ = std::fs::remove_file(&dest);
+                tracing::warn!(?err, ?src, ?dest, "page copy failed");
                 skipped += 1;
                 continue;
             }
             added += 1;
         }
 
+        let _ = chapter_ops::refresh_page_count(&conn, project.root(), chapter_id);
+
+        Ok(ChapterImportResult { added, skipped })
+    })
+    .await??;
+    Ok(result)
+}
+
+/// Programmatic variant of `chapter_add_pages` for callers (MCP /
+/// scripts) that can't drive the file picker. Takes absolute source
+/// paths, copies each into the chapter's `source/` subfolder, and
+/// refreshes `page_count`.
+pub async fn chapter_add_pages_from_paths(
+    state: AppResources,
+    chapter_id: i64,
+    paths: Vec<PathBuf>,
+) -> anyhow::Result<ChapterImportResult> {
+    let project = require_project(&state).await?;
+    let result = tokio::task::spawn_blocking(move || -> anyhow::Result<ChapterImportResult> {
+        let conn = project.pool().get()?;
+        let chapter = chapter_ops::get(&conn, chapter_id)?
+            .ok_or_else(|| anyhow::anyhow!("chapter {chapter_id} not found"))?;
+        let source_dir = project
+            .root()
+            .join(&chapter.folder_path)
+            .join(chapter_ops::SOURCE_SUBDIR);
+        std::fs::create_dir_all(&source_dir).ok();
+
+        let mut added = 0u32;
+        let mut skipped = 0u32;
+        for src in paths {
+            let Some(name) = src.file_name().and_then(|s| s.to_str()) else {
+                skipped += 1;
+                continue;
+            };
+            let dest_name = dedupe_in_dir(&source_dir, name);
+            let dest = source_dir.join(&dest_name);
+            if let Err(err) = std::fs::copy(&src, &dest) {
+                tracing::warn!(?err, ?src, ?dest, "page copy failed");
+                skipped += 1;
+                continue;
+            }
+            added += 1;
+        }
+
+        let _ = chapter_ops::refresh_page_count(&conn, project.root(), chapter_id);
         Ok(ChapterImportResult { added, skipped })
     })
     .await??;
@@ -481,63 +514,36 @@ fn dedupe_in_dir(dir: &std::path::Path, name: &str) -> String {
     format!("{stem}-{ts}{ext}")
 }
 
-/// Guess a chapter number from a filename like "ch03.khr",
-/// "chapter-5.png", "012.png". Returns None if no obvious number is
-/// present.
-fn filename_chapter_number(name: &str) -> Option<f64> {
-    let stem = match name.rfind('.') {
-        Some(i) => &name[..i],
-        None => name,
-    };
-    // Scan for the first run of digits (with optional dot for 2.5
-    // omake chapter numbering).
-    let bytes = stem.as_bytes();
-    let mut start = None;
-    let mut end = 0;
-    for (i, b) in bytes.iter().enumerate() {
-        let is_digit = b.is_ascii_digit() || (start.is_some() && *b == b'.');
-        if is_digit {
-            if start.is_none() {
-                start = Some(i);
-            }
-            end = i + 1;
-        } else if start.is_some() {
-            break;
-        }
-    }
-    let s = &stem[start?..end];
-    s.parse().ok()
-}
-
-fn strip_ext(name: &str) -> &str {
-    match name.rfind('.') {
-        Some(i) => &name[..i],
-        None => name,
-    }
-}
-
-/// Resolve a chapter's stored file_path against its project root,
-/// read the bytes, and replace the editor's loaded documents with
-/// the contents. After this returns, the canvas page shows the
-/// chapter ready to translate.
+/// Open all pages from a chapter's `source/` subfolder into the editor.
+/// Replaces the currently-loaded documents.
 pub async fn chapter_open(
     state: AppResources,
     payload: ChapterIdPayload,
 ) -> anyhow::Result<usize> {
     let project = require_project(&state).await?;
 
-    let (path, bytes) = tokio::task::spawn_blocking(move || -> anyhow::Result<(PathBuf, Vec<u8>)> {
+    let loaded = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<(PathBuf, Vec<u8>)>> {
         let conn = project.pool().get()?;
         let chapter = chapter_ops::get(&conn, payload.id)?
             .ok_or_else(|| anyhow::anyhow!("chapter {} not found", payload.id))?;
-        let abs = project.root().join(&chapter.file_path);
-        let bytes = std::fs::read(&abs)
-            .map_err(|e| anyhow::anyhow!("read {}: {}", abs.display(), e))?;
-        Ok((abs, bytes))
+        let pages = chapter_ops::list_source_pages(project.root(), &chapter)?;
+        if pages.is_empty() {
+            anyhow::bail!(
+                "chapter {} has no pages — add pages to source/ first",
+                payload.id
+            );
+        }
+        let mut out = Vec::with_capacity(pages.len());
+        for abs in pages {
+            let bytes = std::fs::read(&abs)
+                .map_err(|e| anyhow::anyhow!("read {}: {}", abs.display(), e))?;
+            out.push((abs, bytes));
+        }
+        Ok(out)
     })
     .await??;
 
-    let docs = crate::ops::load_documents(vec![(path, bytes)])?;
+    let docs = crate::ops::load_documents(loaded)?;
     let count = docs.len();
     let mut guard = state.state.write().await;
     guard.documents = docs;
@@ -1388,7 +1394,7 @@ fn series_meta_to_dto(m: SeriesMeta) -> SeriesMetaDto {
 fn chapter_to_dto(c: Chapter) -> ChapterDto {
     ChapterDto {
         id: c.id,
-        file_path: c.file_path,
+        folder_path: c.folder_path,
         chapter_number: c.chapter_number,
         title: c.title,
         volume: c.volume,

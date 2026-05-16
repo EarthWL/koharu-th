@@ -132,10 +132,8 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::SeriesMetaGet => call0(operations::series_meta_get, state).await,
         Method::SeriesMetaUpdate => call(operations::series_meta_update, state, params).await,
         Method::ChaptersList => call0(operations::chapters_list, state).await,
-        Method::ChapterAdd => call(operations::chapter_add, state, params).await,
-        Method::ChapterAddFromPicker => {
-            call0(operations::chapter_add_from_picker, state).await
-        }
+        Method::ChapterCreate => call(operations::chapter_create, state, params).await,
+        Method::ChapterAddPages => call(operations::chapter_add_pages, state, params).await,
         Method::ChapterOpen => call(operations::chapter_open, state, params).await,
         Method::ChapterUpdate => call(operations::chapter_update, state, params).await,
         Method::ChapterRemove => call(operations::chapter_remove, state, params).await,
@@ -178,6 +176,12 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         }
         Method::LlmCallLog => call(operations::llm_call_log, state, params).await,
         Method::LlmCostStats => call0(operations::llm_cost_stats, state).await,
+        Method::ChatMessagesList => {
+            call(operations::chat_messages_list, state, params).await
+        }
+        Method::ChatMessageAdd => call(operations::chat_message_add, state, params).await,
+        Method::ChatMessagesClear => call0(operations::chat_messages_clear, state).await,
+        Method::WebFetchUrl => call(operations::web_fetch_url, state, params).await,
     }
 }
 

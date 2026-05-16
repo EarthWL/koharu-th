@@ -47,8 +47,8 @@ pub enum Method {
     SeriesMetaGet,
     SeriesMetaUpdate,
     ChaptersList,
-    ChapterAdd,
-    ChapterAddFromPicker,
+    ChapterCreate,
+    ChapterAddPages,
     ChapterOpen,
     ChapterUpdate,
     ChapterRemove,
@@ -82,6 +82,11 @@ pub enum Method {
     // Phase 10: LLM call log + stats
     LlmCallLog,
     LlmCostStats,
+    // AI Chat
+    ChatMessagesList,
+    ChatMessageAdd,
+    ChatMessagesClear,
+    WebFetchUrl,
 }
 
 impl Method {
@@ -125,8 +130,8 @@ impl Method {
         Method::SeriesMetaGet,
         Method::SeriesMetaUpdate,
         Method::ChaptersList,
-        Method::ChapterAdd,
-        Method::ChapterAddFromPicker,
+        Method::ChapterCreate,
+        Method::ChapterAddPages,
         Method::ChapterOpen,
         Method::ChapterUpdate,
         Method::ChapterRemove,
@@ -155,6 +160,10 @@ impl Method {
         Method::ProviderProfileSecretGet,
         Method::LlmCallLog,
         Method::LlmCostStats,
+        Method::ChatMessagesList,
+        Method::ChatMessageAdd,
+        Method::ChatMessagesClear,
+        Method::WebFetchUrl,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -198,8 +207,8 @@ impl Method {
             Method::SeriesMetaGet => "series_meta_get",
             Method::SeriesMetaUpdate => "series_meta_update",
             Method::ChaptersList => "chapters_list",
-            Method::ChapterAdd => "chapter_add",
-            Method::ChapterAddFromPicker => "chapter_add_from_picker",
+            Method::ChapterCreate => "chapter_create",
+            Method::ChapterAddPages => "chapter_add_pages",
             Method::ChapterOpen => "chapter_open",
             Method::ChapterUpdate => "chapter_update",
             Method::ChapterRemove => "chapter_remove",
@@ -228,6 +237,10 @@ impl Method {
             Method::ProviderProfileSecretGet => "provider_profile_secret_get",
             Method::LlmCallLog => "llm_call_log",
             Method::LlmCostStats => "llm_cost_stats",
+            Method::ChatMessagesList => "chat_messages_list",
+            Method::ChatMessageAdd => "chat_message_add",
+            Method::ChatMessagesClear => "chat_messages_clear",
+            Method::WebFetchUrl => "web_fetch_url",
         }
     }
 }
@@ -282,8 +295,8 @@ impl FromStr for Method {
             "series_meta_get" => Method::SeriesMetaGet,
             "series_meta_update" => Method::SeriesMetaUpdate,
             "chapters_list" => Method::ChaptersList,
-            "chapter_add" => Method::ChapterAdd,
-            "chapter_add_from_picker" => Method::ChapterAddFromPicker,
+            "chapter_create" => Method::ChapterCreate,
+            "chapter_add_pages" => Method::ChapterAddPages,
             "chapter_open" => Method::ChapterOpen,
             "chapter_update" => Method::ChapterUpdate,
             "chapter_remove" => Method::ChapterRemove,
@@ -312,6 +325,10 @@ impl FromStr for Method {
             "provider_profile_secret_get" => Method::ProviderProfileSecretGet,
             "llm_call_log" => Method::LlmCallLog,
             "llm_cost_stats" => Method::LlmCostStats,
+            "chat_messages_list" => Method::ChatMessagesList,
+            "chat_message_add" => Method::ChatMessageAdd,
+            "chat_messages_clear" => Method::ChatMessagesClear,
+            "web_fetch_url" => Method::WebFetchUrl,
             _ => anyhow::bail!("Unknown method: {s}"),
         };
         Ok(method)

@@ -65,8 +65,8 @@ export function PromptsTabPanel() {
           <PlusIcon className='size-3.5' />
         </Button>
       </div>
-      <ScrollArea className='flex-1'>
-        <div className='space-y-1 p-2'>
+      <ScrollArea className='min-w-0 flex-1'>
+        <div className='w-full min-w-0 space-y-1 p-2'>
           {templates.isLoading ? (
             <p className='text-muted-foreground p-2 text-center text-xs'>
               Loading…
@@ -89,7 +89,7 @@ export function PromptsTabPanel() {
                 <span className='min-w-0 flex-1 truncate font-medium'>
                   {tpl.name}
                 </span>
-                <span className='text-muted-foreground text-[10px]'>
+                <span className='text-muted-foreground shrink-0 truncate text-[10px]'>
                   {tpl.useCase.replace('_', ' ')}
                 </span>
               </button>
@@ -150,7 +150,7 @@ function TemplateEditor({
   }
 
   return (
-    <div className='border-border bg-card mt-3 space-y-2 rounded-md border p-2'>
+    <div className='border-border bg-card mt-3 w-full min-w-0 space-y-2 overflow-hidden rounded-md border p-2'>
       <div className='grid grid-cols-2 gap-2'>
         <Input
           value={draft.name}
@@ -176,7 +176,8 @@ function TemplateEditor({
       <Textarea
         value={draft.template}
         onChange={(e) => patch('template', e.target.value)}
-        className='min-h-40 font-mono text-[10px]'
+        style={{ fieldSizing: 'fixed' as any, width: '100%' }}
+        className='block min-h-40 w-full resize-y font-mono text-[10px] whitespace-pre-wrap break-words'
       />
       <label className='flex items-center gap-1 text-[10px]'>
         <input

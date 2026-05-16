@@ -30,7 +30,7 @@ export default function Page() {
         onLayoutChanged={onLayoutChanged}
         className='flex min-h-0 flex-1'
       >
-        <Panel id='left' defaultSize={280} minSize={220} maxSize={520}>
+        <Panel id='left' defaultSize={320} minSize={300} maxSize={520}>
           <SidebarTabs />
         </Panel>
         <Separator className='bg-border/40 hover:bg-border w-1 transition-colors' />

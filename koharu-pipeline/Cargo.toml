@@ -23,6 +23,7 @@ imageproc = { workspace = true }
 once_cell = { workspace = true }
 open = { workspace = true }
 rayon = { workspace = true }
+reqwest = { workspace = true }
 rfd = { workspace = true }
 rusqlite = { workspace = true }
 serde = { workspace = true }

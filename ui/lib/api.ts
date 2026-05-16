@@ -267,24 +267,28 @@ export const api = {
     return invoke('chapters_list') as Promise<ChapterDto[]>
   },
 
-  async chapterAdd(input: {
-    filePath: string
+  /** Create a chapter folder + DB row. No files copied — call
+   *  `chapterAddPages` after. */
+  async chapterCreate(input: {
     chapterNumber: number
     title?: string | null
     volume?: number | null
   }): Promise<ChapterDto> {
-    return invoke('chapter_add', input) as Promise<ChapterDto>
+    return invoke('chapter_create', input) as Promise<ChapterDto>
   },
 
-  async chapterAddFromPicker(): Promise<{ added: number; skipped: number }> {
-    return invoke('chapter_add_from_picker') as Promise<{
+  /** Pop a file picker and copy selected page images into the chapter's
+   *  `source/` subfolder. */
+  async chapterAddPages(
+    chapterId: number,
+  ): Promise<{ added: number; skipped: number }> {
+    return invoke('chapter_add_pages', { chapterId }) as Promise<{
       added: number
       skipped: number
     }>
   },
 
-  /** Read the chapter's .khr from disk and replace the editor's loaded
-   *  documents with it. Returns the page count. */
+  /** Load all pages from the chapter's `source/` folder into the editor. */
   async chapterOpen(id: number): Promise<number> {
     return invoke('chapter_open', { id }) as Promise<number>
   },
@@ -492,6 +496,59 @@ export const api = {
   async llmCostStats(): Promise<LlmCostStats> {
     return invoke('llm_cost_stats') as Promise<LlmCostStats>
   },
+
+  // ----------------------------------------------------------------
+  // AI Chat (per-project history + agentic web fetch)
+  // ----------------------------------------------------------------
+  async chatMessagesList(input: {
+    limit?: number
+    beforeId?: number | null
+  } = {}): Promise<ChatMessageDto[]> {
+    return invoke('chat_messages_list', input) as Promise<ChatMessageDto[]>
+  },
+
+  async chatMessageAdd(input: {
+    role: 'user' | 'assistant' | 'tool' | 'system'
+    content: string
+    toolCalls?: string | null
+    toolCallId?: string | null
+    model?: string | null
+  }): Promise<ChatMessageDto> {
+    return invoke('chat_message_add', input) as Promise<ChatMessageDto>
+  },
+
+  async chatMessagesClear(): Promise<{ removed: number }> {
+    return invoke('chat_messages_clear') as Promise<{ removed: number }>
+  },
+
+  /** Server-side HTTP GET — bypasses CORS, capped to 1.5MB / 12s.
+   *  Returns title + HTML-stripped text, suitable for piping into the
+   *  active LLM to summarise into project metadata. */
+  async webFetchUrl(url: string): Promise<WebFetchResult> {
+    return invoke('web_fetch_url', { url }) as Promise<WebFetchResult>
+  },
+}
+
+export type ChatMessageDto = {
+  id: number
+  role: 'user' | 'assistant' | 'tool' | 'system'
+  content: string
+  /** JSON string of tool_calls array when assistant invoked tools. */
+  toolCalls: string | null
+  /** Set on tool rows — matching assistant tool_call.id. */
+  toolCallId: string | null
+  /** `provider:model` that produced this message. */
+  model: string | null
+  createdAt: string
+}
+
+export type WebFetchResult = {
+  url: string
+  status: number
+  contentType: string
+  title: string | null
+  text: string
+  truncated: boolean
 }
 
 export type ProviderProfileDto = {
@@ -675,7 +732,7 @@ export type ChapterStatus =
 
 export type ChapterDto = {
   id: number
-  filePath: string
+  folderPath: string
   chapterNumber: number
   title: string | null
   volume: number | null

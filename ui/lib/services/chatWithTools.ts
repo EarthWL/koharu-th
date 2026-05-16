@@ -1,0 +1,434 @@
+/**
+ * Multi-turn chat with auto tool-loop for the in-app AI Chat panel.
+ *
+ * Provider-agnostic — accepts the active profile's preferences slot
+ * and dispatches to the right wire format:
+ *   - openai / openrouter / local (OpenAI-compatible) → /v1/chat/completions
+ *   - anthropic                                       → /v1/messages
+ *   - gemini                                          → :generateContent
+ *
+ * Tools come from `aiTools.listTools()` — the assistant decides which
+ * to call; we run the handler client-side and append the result as a
+ * tool message before re-sending. Loop caps at MAX_TOOL_ROUNDS to avoid
+ * runaway agents.
+ */
+
+import { dispatchTool, listTools, type ToolDef } from './aiTools'
+
+const MAX_TOOL_ROUNDS = 8
+
+export type ChatRole = 'system' | 'user' | 'assistant' | 'tool'
+
+export type ToolCall = {
+  id: string
+  name: string
+  /** JSON-stringified arguments. */
+  arguments: string
+}
+
+export type ChatMessage = {
+  role: ChatRole
+  content: string
+  /** Present on assistant messages that invoked tools. */
+  toolCalls?: ToolCall[]
+  /** Present on tool messages — the matching toolCalls[].id. */
+  toolCallId?: string
+}
+
+export type ChatEvent =
+  | { kind: 'text-delta'; delta: string }
+  | { kind: 'tool-call'; call: ToolCall }
+  | { kind: 'tool-result'; toolCallId: string; result: unknown }
+  | { kind: 'done'; finalMessages: ChatMessage[] }
+  | { kind: 'error'; message: string }
+
+export type ChatProviderConfig = {
+  /** 'openai' | 'openrouter' | 'gemini' | 'anthropic'. */
+  provider: string
+  apiKey: string
+  /** Required for OpenAI-compatible providers; ignored for native Gemini/Anthropic. */
+  apiUrl: string
+  model: string
+}
+
+/** Run one turn of chat. The caller passes the full history (system +
+ *  prior user/assistant/tool turns) plus the new user message; we
+ *  loop until the assistant has no more tool calls, emitting events.
+ *  Returns the final updated history. */
+export async function runChatTurn(
+  cfg: ChatProviderConfig,
+  history: ChatMessage[],
+  onEvent: (e: ChatEvent) => void,
+): Promise<ChatMessage[]> {
+  let messages = [...history]
+  const tools = listTools()
+
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    let assistant: ChatMessage
+    try {
+      assistant = await callProvider(cfg, messages, tools, onEvent)
+    } catch (err: any) {
+      onEvent({ kind: 'error', message: err?.message ?? String(err) })
+      throw err
+    }
+    messages.push(assistant)
+
+    if (!assistant.toolCalls || assistant.toolCalls.length === 0) {
+      onEvent({ kind: 'done', finalMessages: messages })
+      return messages
+    }
+
+    // Dispatch each requested tool and append results.
+    for (const call of assistant.toolCalls) {
+      onEvent({ kind: 'tool-call', call })
+      let args: unknown = {}
+      try {
+        args = call.arguments ? JSON.parse(call.arguments) : {}
+      } catch {
+        // Pass the raw string — handlers ignore unknown shapes safely.
+        args = { _raw: call.arguments }
+      }
+      const result = await dispatchTool(call.name, args)
+      onEvent({ kind: 'tool-result', toolCallId: call.id, result })
+      messages.push({
+        role: 'tool',
+        toolCallId: call.id,
+        content: safeStringify(result),
+      })
+    }
+  }
+  // Hit the tool-loop cap — return what we have plus a synthetic note.
+  messages.push({
+    role: 'assistant',
+    content: `_(stopped after ${MAX_TOOL_ROUNDS} tool rounds — too many)_`,
+  })
+  onEvent({ kind: 'done', finalMessages: messages })
+  return messages
+}
+
+function safeStringify(v: unknown): string {
+  try {
+    return JSON.stringify(v, null, 2)
+  } catch {
+    return String(v)
+  }
+}
+
+// ────────────────────────────────────────────────────────────────
+// Provider dispatch
+// ────────────────────────────────────────────────────────────────
+
+async function callProvider(
+  cfg: ChatProviderConfig,
+  messages: ChatMessage[],
+  tools: ToolDef[],
+  onEvent: (e: ChatEvent) => void,
+): Promise<ChatMessage> {
+  switch (cfg.provider) {
+    case 'openai':
+    case 'openrouter':
+      return callOpenAiCompat(cfg, messages, tools, onEvent)
+    case 'anthropic':
+      return callAnthropic(cfg, messages, tools, onEvent)
+    case 'gemini':
+      return callGemini(cfg, messages, tools, onEvent)
+    default:
+      throw new Error(`Unsupported provider for chat: ${cfg.provider}`)
+  }
+}
+
+// ── OpenAI / OpenRouter / Local LLM (OpenAI-compatible) ─────────
+
+function toOpenAiMessages(msgs: ChatMessage[]) {
+  return msgs.map((m) => {
+    const base: any = { role: m.role, content: m.content }
+    if (m.toolCalls?.length) {
+      base.tool_calls = m.toolCalls.map((c) => ({
+        id: c.id,
+        type: 'function',
+        function: { name: c.name, arguments: c.arguments },
+      }))
+    }
+    if (m.toolCallId) base.tool_call_id = m.toolCallId
+    return base
+  })
+}
+
+function toOpenAiTools(tools: ToolDef[]) {
+  return tools.map((t) => ({
+    type: 'function',
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+    },
+  }))
+}
+
+async function callOpenAiCompat(
+  cfg: ChatProviderConfig,
+  messages: ChatMessage[],
+  tools: ToolDef[],
+  _onEvent: (e: ChatEvent) => void,
+): Promise<ChatMessage> {
+  const base = (cfg.apiUrl || 'https://api.openai.com/v1').replace(/\/+$/, '')
+  const url = cfg.provider === 'openrouter'
+    ? 'https://openrouter.ai/api/v1/chat/completions'
+    : `${base}/chat/completions`
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${cfg.apiKey}`,
+  }
+  if (cfg.provider === 'openrouter') {
+    headers['HTTP-Referer'] = 'https://koharu.local'
+    headers['X-Title'] = 'Koharu AI Chat'
+  }
+
+  const body = {
+    model: cfg.model,
+    messages: toOpenAiMessages(messages),
+    tools: toOpenAiTools(tools),
+    tool_choice: 'auto',
+    stream: false,
+  }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '')
+    throw new Error(`${cfg.provider} chat failed (${res.status}): ${errBody.slice(0, 400)}`)
+  }
+  const data = await res.json()
+  const choice = data.choices?.[0]?.message
+  if (!choice) throw new Error('No assistant message in response')
+
+  const toolCalls: ToolCall[] | undefined = choice.tool_calls
+    ? choice.tool_calls.map((c: any) => ({
+        id: c.id,
+        name: c.function?.name ?? '',
+        arguments: c.function?.arguments ?? '{}',
+      }))
+    : undefined
+
+  return {
+    role: 'assistant',
+    content: choice.content ?? '',
+    toolCalls,
+  }
+}
+
+// ── Anthropic ──────────────────────────────────────────────────
+
+function toAnthropicMessages(msgs: ChatMessage[]) {
+  // System messages go to the top-level `system` field — strip from
+  // the array. Tool turns become content blocks of type tool_result.
+  const out: any[] = []
+  for (const m of msgs) {
+    if (m.role === 'system') continue
+    if (m.role === 'tool') {
+      out.push({
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: m.toolCallId ?? '',
+            content: m.content,
+          },
+        ],
+      })
+    } else if (m.role === 'assistant' && m.toolCalls?.length) {
+      const content: any[] = []
+      if (m.content) content.push({ type: 'text', text: m.content })
+      for (const c of m.toolCalls) {
+        let parsed: any = {}
+        try {
+          parsed = c.arguments ? JSON.parse(c.arguments) : {}
+        } catch {
+          parsed = {}
+        }
+        content.push({
+          type: 'tool_use',
+          id: c.id,
+          name: c.name,
+          input: parsed,
+        })
+      }
+      out.push({ role: 'assistant', content })
+    } else {
+      out.push({ role: m.role, content: m.content })
+    }
+  }
+  return out
+}
+
+function toAnthropicTools(tools: ToolDef[]) {
+  return tools.map((t) => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.parameters,
+  }))
+}
+
+async function callAnthropic(
+  cfg: ChatProviderConfig,
+  messages: ChatMessage[],
+  tools: ToolDef[],
+  _onEvent: (e: ChatEvent) => void,
+): Promise<ChatMessage> {
+  const system =
+    messages
+      .filter((m) => m.role === 'system')
+      .map((m) => m.content)
+      .join('\n\n') || undefined
+
+  const body: any = {
+    model: cfg.model,
+    max_tokens: 4096,
+    messages: toAnthropicMessages(messages),
+    tools: toAnthropicTools(tools),
+  }
+  if (system) body.system = system
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': cfg.apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '')
+    throw new Error(`Anthropic chat failed (${res.status}): ${errBody.slice(0, 400)}`)
+  }
+  const data = await res.json()
+  // content is an array of blocks (text / tool_use).
+  const blocks: any[] = data.content ?? []
+  let text = ''
+  const toolCalls: ToolCall[] = []
+  for (const b of blocks) {
+    if (b.type === 'text') text += b.text ?? ''
+    else if (b.type === 'tool_use') {
+      toolCalls.push({
+        id: b.id,
+        name: b.name,
+        arguments: JSON.stringify(b.input ?? {}),
+      })
+    }
+  }
+  return {
+    role: 'assistant',
+    content: text,
+    toolCalls: toolCalls.length ? toolCalls : undefined,
+  }
+}
+
+// ── Gemini ─────────────────────────────────────────────────────
+
+function toGeminiContents(msgs: ChatMessage[]) {
+  const out: any[] = []
+  for (const m of msgs) {
+    if (m.role === 'system') continue
+    if (m.role === 'tool') {
+      out.push({
+        role: 'user',
+        parts: [
+          {
+            functionResponse: {
+              name: m.toolCallId ?? '',
+              response: { result: m.content },
+            },
+          },
+        ],
+      })
+    } else if (m.role === 'assistant' && m.toolCalls?.length) {
+      const parts: any[] = []
+      if (m.content) parts.push({ text: m.content })
+      for (const c of m.toolCalls) {
+        let parsed: any = {}
+        try {
+          parsed = c.arguments ? JSON.parse(c.arguments) : {}
+        } catch {
+          parsed = {}
+        }
+        parts.push({ functionCall: { name: c.name, args: parsed } })
+      }
+      out.push({ role: 'model', parts })
+    } else {
+      out.push({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }],
+      })
+    }
+  }
+  return out
+}
+
+function toGeminiTools(tools: ToolDef[]) {
+  return [
+    {
+      functionDeclarations: tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        parameters: t.parameters,
+      })),
+    },
+  ]
+}
+
+async function callGemini(
+  cfg: ChatProviderConfig,
+  messages: ChatMessage[],
+  tools: ToolDef[],
+  _onEvent: (e: ChatEvent) => void,
+): Promise<ChatMessage> {
+  const system =
+    messages
+      .filter((m) => m.role === 'system')
+      .map((m) => m.content)
+      .join('\n\n') || undefined
+
+  const body: any = {
+    contents: toGeminiContents(messages),
+    tools: toGeminiTools(tools),
+  }
+  if (system) body.systemInstruction = { parts: [{ text: system }] }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent?key=${encodeURIComponent(cfg.apiKey)}`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '')
+    throw new Error(`Gemini chat failed (${res.status}): ${errBody.slice(0, 400)}`)
+  }
+  const data = await res.json()
+  const candidate = data.candidates?.[0]
+  const parts: any[] = candidate?.content?.parts ?? []
+  let text = ''
+  const toolCalls: ToolCall[] = []
+  for (const p of parts) {
+    if (typeof p.text === 'string') text += p.text
+    else if (p.functionCall) {
+      toolCalls.push({
+        // Gemini doesn't give us an id, mint one.
+        id: `gemini-${Math.random().toString(36).slice(2, 10)}`,
+        name: p.functionCall.name,
+        arguments: JSON.stringify(p.functionCall.args ?? {}),
+      })
+    }
+  }
+  return {
+    role: 'assistant',
+    content: text,
+    toolCalls: toolCalls.length ? toolCalls : undefined,
+  }
+}

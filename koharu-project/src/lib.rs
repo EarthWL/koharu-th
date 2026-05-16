@@ -13,6 +13,7 @@
 pub mod backup;
 pub mod chapter;
 pub mod character;
+pub mod chat;
 mod db;
 mod error;
 pub mod glossary;

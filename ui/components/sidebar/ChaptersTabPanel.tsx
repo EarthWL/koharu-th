@@ -4,15 +4,19 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import {
-  FolderOpenIcon,
+  CheckIcon,
+  FolderPlusIcon,
+  ImagePlusIcon,
   Loader2Icon,
   PinIcon,
   PinOffIcon,
   PlayIcon,
+  PlusIcon,
   Trash2Icon,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -46,6 +50,11 @@ export function ChaptersTabPanel() {
     staleTime: 30_000,
   })
   const refresh = () => void chapters.refetch()
+  const nextNumber =
+    (chapters.data ?? []).reduce(
+      (m, c) => Math.max(m, c.chapterNumber),
+      0,
+    ) + 1
 
   return (
     <div className='flex h-full min-h-0 flex-col'>
@@ -58,7 +67,12 @@ export function ChaptersTabPanel() {
             </span>
           )}
         </span>
-        <ImportButton onImported={refresh} />
+      </div>
+      <div className='border-border border-b p-2'>
+        <NewChapterForm
+          defaultNumber={nextNumber}
+          onCreated={refresh}
+        />
       </div>
       <ScrollArea className='flex-1'>
         <div className='space-y-1 p-2'>
@@ -68,11 +82,8 @@ export function ChaptersTabPanel() {
             </p>
           ) : !chapters.data?.length ? (
             <div className='border-border rounded-md border border-dashed p-4 text-center text-xs'>
-              <p className='text-muted-foreground mb-2'>No chapters yet.</p>
-              <ImportButton onImported={refresh} />
-              <p className='text-muted-foreground/70 mt-2 text-[10px]'>
-                Pick .khr or image files — they're copied into the project's
-                chapters/ folder.
+              <p className='text-muted-foreground'>
+                ยังไม่มีตอน — สร้าง Chapter ด้านบน แล้วค่อยอัปโหลดไฟล์รูปหน้าเข้าไป
               </p>
             </div>
           ) : (
@@ -82,6 +93,81 @@ export function ChaptersTabPanel() {
           )}
         </div>
       </ScrollArea>
+    </div>
+  )
+}
+
+function NewChapterForm({
+  defaultNumber,
+  onCreated,
+}: {
+  defaultNumber: number
+  onCreated: () => void
+}) {
+  const [title, setTitle] = useState('')
+  const [chapterNumber, setChapterNumber] = useState<string>(
+    String(defaultNumber),
+  )
+  const [busy, setBusy] = useState(false)
+
+  const submit = async () => {
+    const num = Number(chapterNumber)
+    if (!Number.isFinite(num)) return
+    setBusy(true)
+    try {
+      await api.chapterCreate({
+        chapterNumber: num,
+        title: title.trim() || null,
+      })
+      setTitle('')
+      setChapterNumber(String(num + 1))
+      onCreated()
+    } catch (err: any) {
+      alert(err?.message ?? String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className='flex flex-col gap-1.5'>
+      <div className='flex items-center gap-1'>
+        <Input
+          inputMode='decimal'
+          value={chapterNumber}
+          onChange={(e) => setChapterNumber(e.target.value)}
+          placeholder='No.'
+          className='h-7 w-16 text-xs'
+          title='Chapter number (decimals OK for omake)'
+        />
+        <Input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder='Chapter title (optional)'
+          className='h-7 flex-1 text-xs'
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void submit()
+          }}
+        />
+        <Button
+          size='sm'
+          className='h-7 px-2 text-[10px]'
+          disabled={busy}
+          onClick={() => void submit()}
+          title='Create chapter folder (source/ + render/)'
+        >
+          {busy ? (
+            <Loader2Icon className='size-3 animate-spin' />
+          ) : (
+            <FolderPlusIcon className='size-3' />
+          )}
+          New
+        </Button>
+      </div>
+      <p className='text-muted-foreground/70 text-[10px] leading-tight'>
+        สร้าง Chapter จะมีโฟลเดอร์ source/ และ render/ ให้ — แล้วค่อยกด “+
+        Pages” อัปโหลดรูปหน้าเข้าไป
+      </p>
     </div>
   )
 }
@@ -99,6 +185,8 @@ function ChapterRow({
   const setActiveChapterId = useProjectStore((s) => s.setActiveChapterId)
   const isActive = activeChapterId === chapter.id
   const [opening, setOpening] = useState(false)
+  const [addingPages, setAddingPages] = useState(false)
+  const [justAdded, setJustAdded] = useState<number | null>(null)
 
   const open = async () => {
     setOpening(true)
@@ -114,23 +202,50 @@ function ChapterRow({
     }
   }
 
+  const addPages = async () => {
+    setAddingPages(true)
+    try {
+      const r = await api.chapterAddPages(chapter.id)
+      if (r.added > 0) {
+        setJustAdded(r.added)
+        onChanged()
+        window.setTimeout(() => setJustAdded(null), 2500)
+      } else if (r.skipped > 0) {
+        alert(`Skipped ${r.skipped} files (unsupported / copy failed)`)
+      }
+    } catch (err: any) {
+      alert(err?.message ?? String(err))
+    } finally {
+      setAddingPages(false)
+    }
+  }
+
   const changeStatus = async (status: ChapterStatus) => {
     await api.chapterUpdate({ id: chapter.id, status })
     onChanged()
   }
 
   const remove = async () => {
-    if (!confirm(`Remove "${chapter.title ?? chapter.filePath}" from index?`))
+    if (
+      !confirm(
+        `ลบ "${chapter.title ?? chapter.folderPath}" ออกจาก index? (ไฟล์ในโฟลเดอร์ไม่ถูกลบ)`,
+      )
+    )
       return
     await api.chapterRemove(chapter.id)
     onChanged()
   }
 
+  const folderName = chapter.folderPath.split(/[\\/]/).pop() ?? ''
+
   return (
     <div
       className={
         'border-border bg-card hover:bg-accent/40 group rounded-md border p-2 transition ' +
-        (isActive ? 'ring-primary/40 ring-1' : '')
+        (isActive ? 'ring-primary/40 ring-1 ' : '') +
+        (justAdded !== null
+          ? 'ring-2 ring-emerald-500/60 bg-emerald-500/5'
+          : '')
       }
     >
       <div className='flex items-center gap-1.5'>
@@ -153,20 +268,46 @@ function ChapterRow({
           #{chapter.chapterNumber}
         </span>
         <span className='min-w-0 flex-1 truncate text-xs font-medium'>
-          {chapter.title ?? chapter.filePath.split(/[\\/]/).pop()}
+          {chapter.title ?? folderName}
         </span>
         <span
           className={`size-2 shrink-0 rounded-full ${STATUS_DOT[chapter.status]}`}
           title={chapter.status}
         />
       </div>
+      <div className='mt-1 flex items-center gap-1.5 text-[10px]'>
+        <span className='text-muted-foreground/70 min-w-0 truncate font-mono'>
+          {chapter.folderPath}
+        </span>
+        <span className='text-muted-foreground/70 shrink-0'>·</span>
+        <span
+          className={
+            'shrink-0 font-medium ' +
+            (chapter.pageCount === 0
+              ? 'text-muted-foreground/60'
+              : 'text-emerald-600 dark:text-emerald-400')
+          }
+        >
+          {chapter.pageCount} {chapter.pageCount === 1 ? 'page' : 'pages'}
+        </span>
+        {justAdded !== null && (
+          <span className='ml-auto flex shrink-0 items-center gap-0.5 rounded bg-emerald-500/15 px-1.5 py-0.5 font-semibold text-emerald-600 dark:text-emerald-400'>
+            <CheckIcon className='size-2.5' />+{justAdded}
+          </span>
+        )}
+      </div>
       <div className='mt-1.5 flex items-center gap-1'>
         <Button
           variant='default'
           size='sm'
           className='h-6 flex-1 text-[10px]'
-          disabled={opening}
+          disabled={opening || chapter.pageCount === 0}
           onClick={() => void open()}
+          title={
+            chapter.pageCount === 0
+              ? 'ยังไม่มีรูปหน้า — กด “+ Pages” อัปโหลดก่อน'
+              : 'Open chapter in editor'
+          }
         >
           {opening ? (
             <Loader2Icon className='size-3 animate-spin' />
@@ -174,6 +315,21 @@ function ChapterRow({
             <PlayIcon className='size-3' />
           )}
           Open
+        </Button>
+        <Button
+          variant='outline'
+          size='sm'
+          className='h-6 px-2 text-[10px]'
+          disabled={addingPages}
+          onClick={() => void addPages()}
+          title='เพิ่มรูปหน้าจากเครื่องเข้าโฟลเดอร์ source/ ของตอนนี้'
+        >
+          {addingPages ? (
+            <Loader2Icon className='size-3 animate-spin' />
+          ) : (
+            <ImagePlusIcon className='size-3' />
+          )}
+          Pages
         </Button>
         <Select
           value={chapter.status}
@@ -201,35 +357,5 @@ function ChapterRow({
         </Button>
       </div>
     </div>
-  )
-}
-
-function ImportButton({ onImported }: { onImported: () => void }) {
-  const [busy, setBusy] = useState(false)
-  const run = async () => {
-    setBusy(true)
-    try {
-      const r = await api.chapterAddFromPicker()
-      if (r.added > 0) onImported()
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <Button
-      variant='outline'
-      size='sm'
-      className='h-6 px-2 text-[10px]'
-      disabled={busy}
-      onClick={() => void run()}
-      title='Pick .khr / image files — they will be copied into the project'
-    >
-      {busy ? (
-        <Loader2Icon className='size-3 animate-spin' />
-      ) : (
-        <FolderOpenIcon className='size-3' />
-      )}
-      Import
-    </Button>
   )
 }
