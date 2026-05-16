@@ -19,7 +19,8 @@ import { useProjectStore } from '@/lib/stores/projectStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { testCloudConnection } from '@/lib/services/cloudLlm'
 import { PROVIDER_PRESETS } from '@/lib/services/providerPresets'
-import { CheckIcon, Loader2Icon, XIcon, ZapIcon } from 'lucide-react'
+import { CheckIcon, KeyRoundIcon, Loader2Icon, XIcon, ZapIcon } from 'lucide-react'
+import { EmptyHint } from '@/components/project/EmptyHint'
 
 const PROVIDER_OPTIONS = [
   { value: 'openai', label: 'OpenAI (or compatible)' },
@@ -109,8 +110,17 @@ export default function ProfilesPage() {
                 Loading…
               </div>
             ) : !profiles.data?.length ? (
-              <div className='text-muted-foreground p-6 text-center text-sm'>
-                No profiles yet — add one to begin.
+              <div className='p-2'>
+                <EmptyHint
+                  icon={KeyRoundIcon}
+                  title='No saved profiles yet'
+                  description='Profiles store multiple cloud LLM setups so you can switch between (e.g.) GPT-4o for dialogue and a free Groq Llama for SFX with one click.'
+                  steps={[
+                    'Click "Add profile" and pick a quick-preset (OpenAI, OpenRouter, Groq, Together, DeepSeek, Mistral, xAI, Ollama, …).',
+                    'API keys are stored in the OS keyring, never in plaintext on disk.',
+                    'On the QA review page, every translate button has a profile picker so you can route specific blocks to specific models.',
+                  ]}
+                />
               </div>
             ) : (
               <ul>

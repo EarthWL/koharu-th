@@ -24,6 +24,8 @@ import { api, type GlossaryCategory, type GlossaryDto } from '@/lib/api'
 import { useProjectStore } from '@/lib/stores/projectStore'
 import { ExtractEntitiesModal } from '@/components/project/ExtractEntitiesModal'
 import { ImportGlossaryModal } from '@/components/project/ImportGlossaryModal'
+import { EmptyHint } from '@/components/project/EmptyHint'
+import { BookOpenIcon } from 'lucide-react'
 
 const CATEGORY_OPTIONS: { value: GlossaryCategory; label: string }[] = [
   { value: 'term', label: 'Term' },
@@ -166,11 +168,24 @@ export default function GlossaryPage() {
                 Loading…
               </div>
             ) : filtered.length === 0 ? (
-              <div className='text-muted-foreground p-6 text-center text-sm'>
-                {query || categoryFilter !== 'all'
-                  ? 'No entries match your filter.'
-                  : 'No entries yet — add one or extract them from a chapter.'}
-              </div>
+              query || categoryFilter !== 'all' ? (
+                <div className='text-muted-foreground p-6 text-center text-sm'>
+                  No entries match your filter.
+                </div>
+              ) : (
+                <div className='p-2'>
+                  <EmptyHint
+                    icon={BookOpenIcon}
+                    title='No glossary entries yet'
+                    description='Glossary lets you lock specific terms (names, skills, places, SFX) to consistent translations across the whole series.'
+                    steps={[
+                      'Quickest start: use ✨ Extract entities — run after translating a chapter and the LLM will propose entries to review.',
+                      'Or paste a list with Import (CSV / JSON) if you have one prepared.',
+                      'Or add entries manually one-by-one with the + button.',
+                    ]}
+                  />
+                </div>
+              )
             ) : (
               <table className='w-full text-left text-xs'>
                 <thead className='bg-muted/50 text-muted-foreground'>

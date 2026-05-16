@@ -22,6 +22,8 @@ import {
   type NameAliasDto,
 } from '@/lib/api'
 import { useProjectStore } from '@/lib/stores/projectStore'
+import { EmptyHint } from '@/components/project/EmptyHint'
+import { UsersIcon } from 'lucide-react'
 
 const ROLE_OPTIONS = [
   { value: 'protagonist', label: 'Protagonist' },
@@ -117,13 +119,23 @@ export default function CharactersPage() {
                   ))}
                 </Section>
               )}
-              {filtered.length === 0 && (
-                <div className='text-muted-foreground rounded-lg border border-dashed p-8 text-center text-sm'>
-                  {query
-                    ? 'No characters match your search.'
-                    : 'No characters yet — add one to get started.'}
-                </div>
-              )}
+              {filtered.length === 0 &&
+                (query ? (
+                  <div className='text-muted-foreground rounded-lg border border-dashed p-8 text-center text-sm'>
+                    No characters match your search.
+                  </div>
+                ) : (
+                  <EmptyHint
+                    icon={UsersIcon}
+                    title='No characters yet'
+                    description='Character entries get injected into every translation prompt for this series, so names + speech styles stay consistent across chapters.'
+                    steps={[
+                      'Add main characters first (pin them with ⭐) — they appear in every prompt.',
+                      'Supporting characters are only injected when their original_name appears in the current page text.',
+                      'You can auto-extract entities from a translated chapter via the Glossary tab.',
+                    ]}
+                  />
+                ))}
             </>
           )}
         </div>

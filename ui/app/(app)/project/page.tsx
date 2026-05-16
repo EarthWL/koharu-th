@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { summarizeChapter } from '@/lib/services/summarizeChapter'
 import { loadCurrentWorkspaceText } from '@/lib/services/chapterText'
+import { EmptyHint } from '@/components/project/EmptyHint'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -441,8 +442,17 @@ function ChaptersSection() {
             Loading chapters…
           </div>
         ) : !chapters.data?.length ? (
-          <div className='text-muted-foreground p-6 text-center text-sm'>
-            No chapters yet. Add one to begin.
+          <div className='p-2'>
+            <EmptyHint
+              icon={FolderOpenIcon}
+              title='No chapters yet'
+              description='A project holds an ordered list of chapters. Each chapter is a .khr or image file inside the project folder.'
+              steps={[
+                'Click "Import files…" above and pick .khr / image files — they will be copied into the project automatically.',
+                'Each row gets a status (pending → in progress → translated → done) and a 📍 pin button to mark which chapter is active for rolling context.',
+                'Click the ✨ on a row to generate an LLM summary of the loaded pages.',
+              ]}
+            />
           </div>
         ) : (
           <table className='w-full text-left text-xs'>
