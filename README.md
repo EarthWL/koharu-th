@@ -19,7 +19,7 @@ Under the hood, Koharu uses [candle](https://github.com/huggingface/candle) for 
 
 ---
 
-![screenshot](assets/koharu-screenshot-en.png)
+![screenshot](assets/koharu-th-screenshot-ex.png)
 
 ## What's different in this fork
 

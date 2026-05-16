@@ -19,7 +19,7 @@
 
 ---
 
-![screenshot](assets/koharu-screenshot-en.png)
+![screenshot](assets/koharu-th-screenshot-ex.png)
 
 ## สิ่งที่ฉีกจาก upstream
 
