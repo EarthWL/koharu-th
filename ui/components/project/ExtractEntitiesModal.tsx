@@ -5,7 +5,6 @@ import { DownloadIcon, Loader2Icon, SparklesIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Select,
   SelectContent,
@@ -289,91 +288,95 @@ export function ExtractEntitiesModal({
               {error}
             </div>
           )}
+
+          {items && (
+            <div className='border-border -mx-4 mt-2 border-t'>
+              <table className='w-full text-left text-xs'>
+              <thead className='bg-muted/50 text-muted-foreground'>
+                <tr>
+                  <th className='w-8 px-2 py-1'></th>
+                  <th className='px-2 py-1 font-medium'>Original</th>
+                  <th className='px-2 py-1 font-medium'>Translation</th>
+                  <th className='px-2 py-1 font-medium'>Category</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((it, i) => (
+                  <tr
+                    key={i}
+                    className='border-border hover:bg-accent/30 border-t'
+                  >
+                    <td className='px-2 py-1'>
+                      <input
+                        type='checkbox'
+                        checked={it.selected}
+                        onChange={(e) => {
+                          const next = [...items]
+                          next[i] = { ...it, selected: e.target.checked }
+                          setItems(next)
+                        }}
+                      />
+                    </td>
+                    <td className='px-2 py-1'>
+                      <Input
+                        value={it.original}
+                        onChange={(e) => {
+                          const next = [...items]
+                          next[i] = { ...it, original: e.target.value }
+                          setItems(next)
+                        }}
+                        className='h-6 text-xs'
+                      />
+                    </td>
+                    <td className='px-2 py-1'>
+                      <Input
+                        value={it.translation}
+                        onChange={(e) => {
+                          const next = [...items]
+                          next[i] = { ...it, translation: e.target.value }
+                          setItems(next)
+                        }}
+                        className='h-6 text-xs'
+                      />
+                    </td>
+                    <td className='px-2 py-1'>
+                      <Select
+                        value={it.appliedCategory}
+                        onValueChange={(v) => {
+                          const next = [...items]
+                          next[i] = {
+                            ...it,
+                            appliedCategory: v as Proposed['appliedCategory'],
+                          }
+                          setItems(next)
+                        }}
+                      >
+                        <SelectTrigger className='h-6 w-full'>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ALL_CATEGORIES.map((c) => (
+                            <SelectItem key={c} value={c}>
+                              {CATEGORY_LABEL[c]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            </div>
+          )}
         </div>
 
-        {items && (
-          <>
-            <div className='border-border shrink-0 border-t'>
-              <ScrollArea className='max-h-72'>
-                <table className='w-full text-left text-xs'>
-                  <thead className='bg-muted/50 text-muted-foreground'>
-                    <tr>
-                      <th className='w-8 px-2 py-1'></th>
-                      <th className='px-2 py-1 font-medium'>Original</th>
-                      <th className='px-2 py-1 font-medium'>Translation</th>
-                      <th className='px-2 py-1 font-medium'>Category</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {items.map((it, i) => (
-                      <tr
-                        key={i}
-                        className='border-border hover:bg-accent/30 border-t'
-                      >
-                        <td className='px-2 py-1'>
-                          <input
-                            type='checkbox'
-                            checked={it.selected}
-                            onChange={(e) => {
-                              const next = [...items]
-                              next[i] = { ...it, selected: e.target.checked }
-                              setItems(next)
-                            }}
-                          />
-                        </td>
-                        <td className='px-2 py-1'>
-                          <Input
-                            value={it.original}
-                            onChange={(e) => {
-                              const next = [...items]
-                              next[i] = { ...it, original: e.target.value }
-                              setItems(next)
-                            }}
-                            className='h-6 text-xs'
-                          />
-                        </td>
-                        <td className='px-2 py-1'>
-                          <Input
-                            value={it.translation}
-                            onChange={(e) => {
-                              const next = [...items]
-                              next[i] = { ...it, translation: e.target.value }
-                              setItems(next)
-                            }}
-                            className='h-6 text-xs'
-                          />
-                        </td>
-                        <td className='px-2 py-1'>
-                          <Select
-                            value={it.appliedCategory}
-                            onValueChange={(v) => {
-                              const next = [...items]
-                              next[i] = {
-                                ...it,
-                                appliedCategory: v as Proposed['appliedCategory'],
-                              }
-                              setItems(next)
-                            }}
-                          >
-                            <SelectTrigger className='h-6 w-full'>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {ALL_CATEGORIES.map((c) => (
-                                <SelectItem key={c} value={c}>
-                                  {CATEGORY_LABEL[c]}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </ScrollArea>
-            </div>
-            <div className='border-border flex shrink-0 items-center justify-between border-t p-3'>
+        {/* Single footer — combines selection count + action buttons when
+            items present, otherwise just the Close button. Sticky at the
+            bottom of the modal, never scrolls. */}
+        <div className='border-border flex shrink-0 items-center justify-between gap-2 border-t p-3'>
+          {items ? (
+            <>
               <span className='text-muted-foreground text-xs'>
                 {selectedCount} of {items.length} selected
               </span>
@@ -383,10 +386,15 @@ export function ExtractEntitiesModal({
                   size='sm'
                   onClick={() => {
                     const allSelected = items.every((i) => i.selected)
-                    setItems(items.map((i) => ({ ...i, selected: !allSelected })))
+                    setItems(
+                      items.map((i) => ({ ...i, selected: !allSelected })),
+                    )
                   }}
                 >
                   Toggle all
+                </Button>
+                <Button variant='ghost' size='sm' onClick={onClose}>
+                  Close
                 </Button>
                 <Button
                   variant='default'
@@ -398,14 +406,17 @@ export function ExtractEntitiesModal({
                   Apply {selectedCount}
                 </Button>
               </div>
-            </div>
-          </>
-        )}
-
-        <div className='border-border flex shrink-0 justify-end border-t p-3'>
-          <Button variant='ghost' size='sm' onClick={onClose}>
-            Close
-          </Button>
+            </>
+          ) : (
+            <Button
+              variant='ghost'
+              size='sm'
+              onClick={onClose}
+              className='ml-auto'
+            >
+              Close
+            </Button>
+          )}
         </div>
       </div>
     </div>
