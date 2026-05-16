@@ -33,12 +33,9 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+  SearchableSelect,
+  type SearchableSelectOption,
+} from '@/components/ui/searchable-select'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { useFontsQuery } from '@/lib/query/hooks'
@@ -365,7 +362,7 @@ export function RenderControlsPanel() {
 
         <div className='flex min-w-0 items-center gap-1.5'>
           <div className='min-w-0 flex-1'>
-            <Select
+            <SearchableSelect
               value={currentFont}
               onValueChange={(value) => {
                 const nextFamilies = mergeFontFamilies(
@@ -386,29 +383,21 @@ export function RenderControlsPanel() {
                 }))
                 void updateTextBlocks(nextBlocks)
               }}
+              options={fontOptions.map(
+                (font): SearchableSelectOption => ({
+                  value: font,
+                  label: (
+                    <span style={{ fontFamily: font }}>{font}</span>
+                  ),
+                  searchText: font,
+                }),
+              )}
+              placeholder={t('render.fontPlaceholder')}
+              searchPlaceholder='Search font…'
+              emptyMessage='No fonts match'
               disabled={fontOptions.length === 0}
-            >
-              <SelectTrigger
-                data-testid='render-font-select'
-                size='sm'
-                className='h-8 w-full min-w-0 text-sm'
-                style={currentFont ? { fontFamily: currentFont } : undefined}
-              >
-                <SelectValue placeholder={t('render.fontPlaceholder')} />
-              </SelectTrigger>
-              <SelectContent position='popper' className='max-h-80'>
-                {fontOptions.map((font, index) => (
-                  <SelectItem
-                    key={font}
-                    value={font}
-                    style={{ fontFamily: font, fontSize: '14px', lineHeight: '20px' }}
-                    data-testid={`render-font-option-${index}`}
-                  >
-                    {font}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              className='h-8 w-full min-w-0'
+            />
           </div>
 
           <Tooltip>
