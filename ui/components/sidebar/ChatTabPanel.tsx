@@ -34,6 +34,7 @@ import {
   blobToAttachment,
   parseAttachments,
 } from '@/lib/services/imageAttach'
+import { supportsVision } from '@/lib/services/visionSupport'
 
 const DISPLAY_LIMIT = 50
 
@@ -114,6 +115,15 @@ export function ChatTabPanel() {
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const currentDocIndex = useEditorUiStore((s) => s.currentDocumentIndex)
+
+  // Vision-support check for the active LLM profile. Heuristic per
+  // provider — see lib/services/visionSupport.ts. Used to disable
+  // attach buttons + warn before send when the model is text-only.
+  const vision = useMemo(
+    () => supportsVision(provider, model || ''),
+    [provider, model],
+  )
+  const canAttach = provider !== 'none' && vision.supported
 
   useEffect(() => {
     // Auto-scroll to bottom on new message or streamed delta
@@ -301,19 +311,42 @@ export function ChatTabPanel() {
       </div>
 
       {/* Provider status */}
-      <div className='border-border text-muted-foreground border-b px-2 py-1 text-[10px]'>
+      <div className='border-border text-muted-foreground flex items-center gap-2 border-b px-2 py-1 text-[10px]'>
         {provider === 'none' ? (
           <span className='flex items-center gap-1 text-amber-600 dark:text-amber-400'>
             <TriangleAlertIcon className='size-3' />
             No cloud profile active — pick one via LLM badge
           </span>
         ) : (
-          <span>
+          <span className='min-w-0 flex-1 truncate'>
             via <span className='text-foreground font-semibold'>{provider}</span>{' '}
             · {model || '(no model)'}
           </span>
         )}
+        {provider !== 'none' && (
+          <span
+            className={
+              'shrink-0 rounded px-1 py-0.5 font-semibold ' +
+              (vision.supported
+                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
+                : 'bg-muted text-muted-foreground/70')
+            }
+            title={vision.reason}
+          >
+            {vision.supported ? '👁 vision' : 'text only'}
+          </span>
+        )}
       </div>
+
+      {/* Warn if attachments queued but active model is text-only */}
+      {!vision.supported && pendingAttachments.length > 0 && (
+        <div className='border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 border-b px-2 py-1.5 text-[10px]'>
+          ⚠ {pendingAttachments.length} image attachment(s) queued but the
+          active model is text-only — switch profile to a vision-capable
+          model (e.g. gpt-4o, claude-haiku, gemini-1.5+) or remove the
+          attachments before sending.
+        </div>
+      )}
 
       {/* Messages */}
       <ScrollArea className='min-w-0 flex-1' viewportRef={scrollRef}>
@@ -415,9 +448,13 @@ export function ChatTabPanel() {
               variant='ghost'
               size='icon-xs'
               className='size-6'
-              disabled={attaching || currentDocIndex < 0}
+              disabled={attaching || currentDocIndex < 0 || !canAttach}
               onClick={() => void attachCurrentPage()}
-              title='Attach the current canvas page (downsized to ≤1024px JPEG)'
+              title={
+                !canAttach
+                  ? `Image attach disabled — ${vision.reason}`
+                  : 'Attach the current canvas page (downsized to ≤1024px JPEG)'
+              }
             >
               {attaching ? (
                 <Loader2Icon className='size-3 animate-spin' />
@@ -429,9 +466,13 @@ export function ChatTabPanel() {
               variant='ghost'
               size='icon-xs'
               className='size-6'
-              disabled={attaching}
+              disabled={attaching || !canAttach}
               onClick={() => fileInputRef.current?.click()}
-              title='Upload image file from disk'
+              title={
+                !canAttach
+                  ? `Image attach disabled — ${vision.reason}`
+                  : 'Upload image file from disk'
+              }
             >
               <ImagePlusIcon className='size-3' />
             </Button>
