@@ -549,9 +549,22 @@ function MessageRow({ message: m }: { message: ChatMessageDto }) {
         {isUser ? <UserIcon className='size-3' /> : <BotIcon className='size-3' />}
         {m.role}
       </div>
-      <div className='whitespace-pre-wrap break-words text-xs leading-relaxed'>
-        {m.content || <span className='text-muted-foreground italic'>(empty)</span>}
-      </div>
+      {/* Don't render an "(empty)" placeholder when the assistant
+       *  turn has tool_calls — Claude / Gemini often dispatch a tool
+       *  without preamble text, and showing "(empty)" makes it look
+       *  like a failure. The tool badge below already tells the
+       *  user what's happening. */}
+      {(m.content ||
+        !m.toolCalls ||
+        (typeof m.toolCalls === 'string' && m.toolCalls === 'null')) && (
+        <div className='whitespace-pre-wrap break-words text-xs leading-relaxed'>
+          {m.content || (
+            <span className='text-muted-foreground italic'>
+              {m.role === 'assistant' ? '(no reply)' : '(empty)'}
+            </span>
+          )}
+        </div>
+      )}
       {attachments.length > 0 && (
         <div className='mt-1.5 flex flex-wrap gap-1'>
           {attachments.map((a, i) => (
