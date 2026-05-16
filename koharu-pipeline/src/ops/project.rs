@@ -516,6 +516,34 @@ fn strip_ext(name: &str) -> &str {
     }
 }
 
+/// Resolve a chapter's stored file_path against its project root,
+/// read the bytes, and replace the editor's loaded documents with
+/// the contents. After this returns, the canvas page shows the
+/// chapter ready to translate.
+pub async fn chapter_open(
+    state: AppResources,
+    payload: ChapterIdPayload,
+) -> anyhow::Result<usize> {
+    let project = require_project(&state).await?;
+
+    let (path, bytes) = tokio::task::spawn_blocking(move || -> anyhow::Result<(PathBuf, Vec<u8>)> {
+        let conn = project.pool().get()?;
+        let chapter = chapter_ops::get(&conn, payload.id)?
+            .ok_or_else(|| anyhow::anyhow!("chapter {} not found", payload.id))?;
+        let abs = project.root().join(&chapter.file_path);
+        let bytes = std::fs::read(&abs)
+            .map_err(|e| anyhow::anyhow!("read {}: {}", abs.display(), e))?;
+        Ok((abs, bytes))
+    })
+    .await??;
+
+    let docs = crate::ops::load_documents(vec![(path, bytes)])?;
+    let count = docs.len();
+    let mut guard = state.state.write().await;
+    guard.documents = docs;
+    Ok(count)
+}
+
 pub async fn chapter_update(
     state: AppResources,
     payload: ChapterUpdatePayload,

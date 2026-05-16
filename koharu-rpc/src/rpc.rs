@@ -136,6 +136,7 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::ChapterAddFromPicker => {
             call0(operations::chapter_add_from_picker, state).await
         }
+        Method::ChapterOpen => call(operations::chapter_open, state, params).await,
         Method::ChapterUpdate => call(operations::chapter_update, state, params).await,
         Method::ChapterRemove => call(operations::chapter_remove, state, params).await,
         Method::CharactersList => call0(operations::characters_list, state).await,

@@ -283,6 +283,12 @@ export const api = {
     }>
   },
 
+  /** Read the chapter's .khr from disk and replace the editor's loaded
+   *  documents with it. Returns the page count. */
+  async chapterOpen(id: number): Promise<number> {
+    return invoke('chapter_open', { id }) as Promise<number>
+  },
+
   async chapterUpdate(input: {
     id: number
     chapterNumber?: number

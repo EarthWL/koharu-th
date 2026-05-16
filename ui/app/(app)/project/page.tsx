@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useTranslation } from 'react-i18next'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArchiveIcon,
   ChevronLeftIcon,
@@ -13,10 +13,12 @@ import {
   LogOutIcon,
   PinIcon,
   PinOffIcon,
+  PlayIcon,
   PlusIcon,
   SparklesIcon,
   Trash2Icon,
 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { summarizeChapter } from '@/lib/services/summarizeChapter'
 import { loadCurrentWorkspaceText } from '@/lib/services/chapterText'
 import { EmptyHint } from '@/components/project/EmptyHint'
@@ -498,11 +500,34 @@ function ChapterRow({
 }) {
   const [open, setOpen] = useState(false)
   const [summarising, setSummarising] = useState(false)
+  const [opening, setOpening] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [summaryDraft, setSummaryDraft] = useState(chapter.summary ?? '')
   const activeChapterId = useProjectStore((s) => s.activeChapterId)
   const setActiveChapterId = useProjectStore((s) => s.setActiveChapterId)
   const isActive = activeChapterId === chapter.id
+  const router = useRouter()
+  const queryClient = useQueryClient()
+
+  const openInEditor = async () => {
+    setOpening(true)
+    setError(null)
+    try {
+      await api.chapterOpen(chapter.id)
+      // Pin so rolling context kicks in for translations.
+      setActiveChapterId(chapter.id)
+      // Refresh any cached document queries so the canvas reflects
+      // the freshly-loaded chapter, then jump there.
+      await queryClient.invalidateQueries({
+        queryKey: ['documents'],
+      })
+      router.push('/')
+    } catch (e: any) {
+      setError(e?.message || String(e))
+    } finally {
+      setOpening(false)
+    }
+  }
 
   // Sync local draft when chapter row reloads.
   if (summaryDraft === '' && chapter.summary && !open) {
@@ -594,6 +619,21 @@ function ChapterRow({
         </td>
         <td className='px-3 py-2 text-right'>
           <Button
+            variant='default'
+            size='sm'
+            title='Open this chapter in the editor + pin it as the active chapter'
+            disabled={opening}
+            onClick={() => void openInEditor()}
+            className='mr-1'
+          >
+            {opening ? (
+              <Loader2Icon className='size-3.5 animate-spin' />
+            ) : (
+              <PlayIcon className='size-3.5' />
+            )}
+            Open
+          </Button>
+          <Button
             variant='ghost'
             size='sm'
             title={chapter.summary ? 'View / edit summary' : 'Add summary'}
@@ -620,7 +660,7 @@ function ChapterRow({
           <Button
             variant='ghost'
             size='sm'
-            title='Remove from index'
+            title='Remove from index (does not delete the file)'
             onClick={onRemove}
           >
             <Trash2Icon className='size-3.5' />
