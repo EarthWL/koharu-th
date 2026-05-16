@@ -56,6 +56,13 @@ pub enum Method {
     GlossaryAdd,
     GlossaryUpdate,
     GlossaryRemove,
+    GlossaryBumpUsage,
+    // Phase 4: prompt templates + rendering
+    PromptTemplatesList,
+    PromptTemplateAdd,
+    PromptTemplateUpdate,
+    PromptTemplateRemove,
+    PromptRender,
 }
 
 impl Method {
@@ -107,6 +114,12 @@ impl Method {
         Method::GlossaryAdd,
         Method::GlossaryUpdate,
         Method::GlossaryRemove,
+        Method::GlossaryBumpUsage,
+        Method::PromptTemplatesList,
+        Method::PromptTemplateAdd,
+        Method::PromptTemplateUpdate,
+        Method::PromptTemplateRemove,
+        Method::PromptRender,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -158,6 +171,12 @@ impl Method {
             Method::GlossaryAdd => "glossary_add",
             Method::GlossaryUpdate => "glossary_update",
             Method::GlossaryRemove => "glossary_remove",
+            Method::GlossaryBumpUsage => "glossary_bump_usage",
+            Method::PromptTemplatesList => "prompt_templates_list",
+            Method::PromptTemplateAdd => "prompt_template_add",
+            Method::PromptTemplateUpdate => "prompt_template_update",
+            Method::PromptTemplateRemove => "prompt_template_remove",
+            Method::PromptRender => "prompt_render",
         }
     }
 }
@@ -220,6 +239,12 @@ impl FromStr for Method {
             "glossary_add" => Method::GlossaryAdd,
             "glossary_update" => Method::GlossaryUpdate,
             "glossary_remove" => Method::GlossaryRemove,
+            "glossary_bump_usage" => Method::GlossaryBumpUsage,
+            "prompt_templates_list" => Method::PromptTemplatesList,
+            "prompt_template_add" => Method::PromptTemplateAdd,
+            "prompt_template_update" => Method::PromptTemplateUpdate,
+            "prompt_template_remove" => Method::PromptTemplateRemove,
+            "prompt_render" => Method::PromptRender,
             _ => anyhow::bail!("Unknown method: {s}"),
         };
         Ok(method)

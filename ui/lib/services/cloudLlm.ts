@@ -1,27 +1,69 @@
 import { usePreferencesStore } from '../stores/preferencesStore'
+import { useProjectStore } from '../stores/projectStore'
+import { api } from '../api'
+
+/**
+ * If a project is open, ask the backend to render the prompt with full
+ * 3-layer context (series meta + main characters + smart-filtered
+ * glossary). Returns the rendered prompt + glossary hit IDs to bump
+ * usage on after a successful translation. If no project is open,
+ * returns null and callers fall back to a built-in stub prompt.
+ */
+async function tryProjectPrompt(
+  text: string,
+  language: string,
+): Promise<{ prompt: string; glossaryHitIds: number[] } | null> {
+  const project = useProjectStore.getState().info
+  if (!project) return null
+  try {
+    const rendered = await api.promptRender({
+      useCase: 'translate',
+      sourceText: text,
+    })
+    void language // project's target_language already feeds the template
+    return { prompt: rendered.prompt, glossaryHitIds: rendered.glossaryHitIds }
+  } catch (err) {
+    // If the project DB doesn't have a translate template (e.g. very old
+    // schema) we just fall back to the stub prompt instead of failing.
+    console.warn('[cloudLlm] promptRender failed; falling back', err)
+    return null
+  }
+}
 
 export async function generateCloudTranslation(text: string, language: string): Promise<string> {
   const { cloudProvider, cloudApiKey, cloudApiUrl, cloudModelName } = usePreferencesStore.getState()
-  
+
   if (!cloudApiKey) {
     throw new Error('Cloud API Key is missing.')
   }
 
-  const prompt = `You are a professional manga translator. Translate the following text to ${language}.
+  const projectPrompt = await tryProjectPrompt(text, language)
+  const prompt = projectPrompt?.prompt ??
+    `You are a professional manga translator. Translate the following text to ${language}.
 The translation should sound natural, conversational, and appropriate for comic book characters, keeping the original tone and context intact.
 Only return the translation, no extra text:\n\n${text}`
 
+  let result: string
   if (cloudProvider === 'openai') {
-    return fetchOpenAI(prompt, cloudApiKey, cloudApiUrl, cloudModelName)
+    result = await fetchOpenAI(prompt, cloudApiKey, cloudApiUrl, cloudModelName)
   } else if (cloudProvider === 'openrouter') {
-    return fetchOpenRouter(prompt, cloudApiKey, cloudModelName)
+    result = await fetchOpenRouter(prompt, cloudApiKey, cloudModelName)
   } else if (cloudProvider === 'gemini') {
-    return fetchGemini(prompt, cloudApiKey, cloudModelName)
+    result = await fetchGemini(prompt, cloudApiKey, cloudModelName)
   } else if (cloudProvider === 'anthropic') {
-    return fetchAnthropic(prompt, cloudApiKey, cloudModelName)
+    result = await fetchAnthropic(prompt, cloudApiKey, cloudModelName)
+  } else {
+    throw new Error(`Unsupported cloud provider: ${cloudProvider}`)
   }
 
-  throw new Error(`Unsupported cloud provider: ${cloudProvider}`)
+  // Bump glossary usage after a successful generation so the dashboard
+  // reflects which entries are actually pulling weight.
+  if (projectPrompt && projectPrompt.glossaryHitIds.length > 0) {
+    void api.glossaryBumpUsage(projectPrompt.glossaryHitIds).catch((err) => {
+      console.warn('[cloudLlm] glossaryBumpUsage failed (non-fatal)', err)
+    })
+  }
+  return result
 }
 
 export async function generateCloudBatchTranslation(blocks: {index: number, text: string}[], language: string): Promise<{index: number, translation: string}[]> {

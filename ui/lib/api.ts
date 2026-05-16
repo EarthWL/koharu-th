@@ -309,6 +309,70 @@ export const api = {
   async glossaryRemove(id: number): Promise<boolean> {
     return invoke('glossary_remove', { id }) as Promise<boolean>
   },
+
+  async glossaryBumpUsage(ids: number[]): Promise<void> {
+    await invoke('glossary_bump_usage', { ids })
+  },
+
+  // ----------------------------------------------------------------
+  // Prompt templates + rendering (Phase 4 / 5)
+  // ----------------------------------------------------------------
+  async promptTemplatesList(): Promise<PromptTemplateDto[]> {
+    return invoke('prompt_templates_list') as Promise<PromptTemplateDto[]>
+  },
+
+  async promptTemplateAdd(input: {
+    name: string
+    description?: string | null
+    useCase: PromptUseCase
+    template: string
+    isDefault?: boolean
+  }): Promise<PromptTemplateDto> {
+    return invoke('prompt_template_add', input) as Promise<PromptTemplateDto>
+  },
+
+  async promptTemplateUpdate(input: {
+    id: number
+    name?: string
+    description?: string | null
+    useCase?: PromptUseCase
+    template?: string
+    isDefault?: boolean
+  }): Promise<PromptTemplateDto | null> {
+    return invoke('prompt_template_update', input) as Promise<PromptTemplateDto | null>
+  },
+
+  async promptTemplateRemove(id: number): Promise<boolean> {
+    return invoke('prompt_template_remove', { id }) as Promise<boolean>
+  },
+
+  async promptRender(input: {
+    useCase: PromptUseCase
+    sourceText: string
+    templateName?: string
+    rollingSummary?: string
+  }): Promise<PromptRenderResult> {
+    return invoke('prompt_render', input) as Promise<PromptRenderResult>
+  },
+}
+
+export type PromptUseCase = 'translate' | 'extract_entities' | 'summarize_chapter'
+
+export type PromptTemplateDto = {
+  id: number
+  name: string
+  description: string | null
+  isDefault: boolean
+  useCase: PromptUseCase
+  template: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type PromptRenderResult = {
+  prompt: string
+  templateName: string
+  glossaryHitIds: number[]
 }
 
 export type NameAliasDto = { src: string; tgt: string }

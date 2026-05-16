@@ -136,6 +136,16 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::GlossaryAdd => call(operations::glossary_add, state, params).await,
         Method::GlossaryUpdate => call(operations::glossary_update, state, params).await,
         Method::GlossaryRemove => call(operations::glossary_remove, state, params).await,
+        Method::GlossaryBumpUsage => call(operations::glossary_bump_usage, state, params).await,
+        Method::PromptTemplatesList => call0(operations::prompt_templates_list, state).await,
+        Method::PromptTemplateAdd => call(operations::prompt_template_add, state, params).await,
+        Method::PromptTemplateUpdate => {
+            call(operations::prompt_template_update, state, params).await
+        }
+        Method::PromptTemplateRemove => {
+            call(operations::prompt_template_remove, state, params).await
+        }
+        Method::PromptRender => call(operations::prompt_render, state, params).await,
     }
 }
 

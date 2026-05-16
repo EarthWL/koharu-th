@@ -497,6 +497,83 @@ pub struct GlossaryIdPayload {
     pub id: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GlossaryBumpUsagePayload {
+    pub ids: Vec<i64>,
+}
+
+// ------------------------------------------------------------
+// Phase 4: prompt templates + rendering
+// ------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptTemplateDto {
+    pub id: i64,
+    pub name: String,
+    pub description: Option<String>,
+    pub is_default: bool,
+    pub use_case: String,
+    pub template: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptTemplateAddPayload {
+    pub name: String,
+    pub description: Option<String>,
+    pub use_case: String,
+    pub template: String,
+    #[serde(default)]
+    pub is_default: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptTemplateUpdatePayload {
+    pub id: i64,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub use_case: Option<String>,
+    pub template: Option<String>,
+    pub is_default: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptTemplateIdPayload {
+    pub id: i64,
+}
+
+/// Inputs to `prompt_render`. If `template_name` is None the default
+/// template for `use_case` is used.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptRenderPayload {
+    pub use_case: String,
+    pub source_text: String,
+    pub template_name: Option<String>,
+    /// Optional pre-built rolling-summary string (UI may pass last-N
+    /// chapter summaries it already fetched). If empty, no summary is
+    /// injected.
+    #[serde(default)]
+    pub rolling_summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptRenderResult {
+    pub prompt: String,
+    /// Name of the template actually used.
+    pub template_name: String,
+    /// Glossary entry IDs that the smart filter matched. The UI passes
+    /// these back to `glossary_bump_usage` after a successful generation.
+    pub glossary_hit_ids: Vec<i64>,
+}
+
 #[cfg(test)]
 mod tests {
     use koharu_types::{TextAlign, TextStyle};

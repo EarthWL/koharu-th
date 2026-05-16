@@ -49,6 +49,7 @@ impl Project {
 
         let pool = db::open(root.join(&manifest.paths.db))?;
         seed_series_meta(&pool, &manifest)?;
+        crate::prompt::seed_defaults(&pool.get()?)?;
         manifest.write(&manifest_path)?;
 
         Ok(Self {

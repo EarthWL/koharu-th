@@ -8,18 +8,20 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use koharu_api::commands::{
     ChapterAddPayload, ChapterDto, ChapterIdPayload, ChapterUpdatePayload, CharacterAddPayload,
-    CharacterDto, CharacterIdPayload, CharacterUpdatePayload, GlossaryAddPayload, GlossaryDto,
-    GlossaryIdPayload, GlossaryUpdatePayload, NameAliasDto, ProjectCreatePayload,
-    ProjectCreatePickerPayload, ProjectInfo, ProjectOpenPayload, SeriesMetaDto,
-    SeriesMetaUpdatePayload,
+    CharacterDto, CharacterIdPayload, CharacterUpdatePayload, GlossaryAddPayload,
+    GlossaryBumpUsagePayload, GlossaryDto, GlossaryIdPayload, GlossaryUpdatePayload, NameAliasDto,
+    ProjectCreatePayload, ProjectCreatePickerPayload, ProjectInfo, ProjectOpenPayload,
+    PromptRenderPayload, PromptRenderResult, PromptTemplateAddPayload, PromptTemplateDto,
+    PromptTemplateIdPayload, PromptTemplateUpdatePayload, SeriesMetaDto, SeriesMetaUpdatePayload,
 };
 use koharu_project::{
     chapter::{self as chapter_ops, ChapterInsert, ChapterPatch},
     character::{self as character_ops, CharacterInsert, CharacterPatch},
     glossary::{self as glossary_ops, GlossaryInsert, GlossaryPatch},
+    prompt::{self as prompt_ops, PromptTemplateInsert, PromptTemplatePatch},
     series::{self as series_ops, SeriesMetaPatch},
     Chapter, ChapterStatus, Character, Confidence, GlossaryCategory, GlossaryEntry, NameAlias,
-    Project, SeriesMeta, MANIFEST_FILENAME,
+    Project, PromptTemplate, PromptUseCase, SeriesMeta, MANIFEST_FILENAME,
 };
 use rfd::FileDialog;
 
@@ -442,6 +444,165 @@ pub async fn glossary_remove(
     })
     .await??;
     Ok(removed)
+}
+
+pub async fn glossary_bump_usage(
+    state: AppResources,
+    payload: GlossaryBumpUsagePayload,
+) -> anyhow::Result<()> {
+    let project = require_project(&state).await?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        let conn = project.pool().get()?;
+        glossary_ops::bump_usage(&conn, &payload.ids)?;
+        Ok(())
+    })
+    .await??;
+    Ok(())
+}
+
+// ---------------------------------------------------------------
+// prompt templates + render (Phase 4 / 5)
+// ---------------------------------------------------------------
+
+pub async fn prompt_templates_list(state: AppResources) -> anyhow::Result<Vec<PromptTemplateDto>> {
+    let project = require_project(&state).await?;
+    let list = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<PromptTemplateDto>> {
+        let conn = project.pool().get()?;
+        Ok(prompt_ops::list(&conn)?
+            .into_iter()
+            .map(prompt_to_dto)
+            .collect())
+    })
+    .await??;
+    Ok(list)
+}
+
+pub async fn prompt_template_add(
+    state: AppResources,
+    payload: PromptTemplateAddPayload,
+) -> anyhow::Result<PromptTemplateDto> {
+    let project = require_project(&state).await?;
+    let dto = tokio::task::spawn_blocking(move || -> anyhow::Result<PromptTemplateDto> {
+        let conn = project.pool().get()?;
+        let use_case = parse_use_case(&payload.use_case)?;
+        let inserted = prompt_ops::insert(
+            &conn,
+            PromptTemplateInsert {
+                name: payload.name,
+                description: payload.description,
+                use_case,
+                template: payload.template,
+                is_default: payload.is_default,
+            },
+        )?;
+        Ok(prompt_to_dto(inserted))
+    })
+    .await??;
+    Ok(dto)
+}
+
+pub async fn prompt_template_update(
+    state: AppResources,
+    payload: PromptTemplateUpdatePayload,
+) -> anyhow::Result<Option<PromptTemplateDto>> {
+    let project = require_project(&state).await?;
+    let dto = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<PromptTemplateDto>> {
+        let conn = project.pool().get()?;
+        let patch = PromptTemplatePatch {
+            name: payload.name,
+            description: payload.description.map(Some),
+            use_case: match payload.use_case.as_deref() {
+                Some(s) => Some(parse_use_case(s)?),
+                None => None,
+            },
+            template: payload.template,
+            is_default: payload.is_default,
+        };
+        Ok(prompt_ops::update(&conn, payload.id, patch)?.map(prompt_to_dto))
+    })
+    .await??;
+    Ok(dto)
+}
+
+pub async fn prompt_template_remove(
+    state: AppResources,
+    payload: PromptTemplateIdPayload,
+) -> anyhow::Result<bool> {
+    let project = require_project(&state).await?;
+    let removed = tokio::task::spawn_blocking(move || -> anyhow::Result<bool> {
+        let conn = project.pool().get()?;
+        Ok(prompt_ops::remove(&conn, payload.id)?)
+    })
+    .await??;
+    Ok(removed)
+}
+
+/// Render a prompt for the open project. Resolves the template (by name
+/// or by use-case default), assembles the 3-layer context (series meta +
+/// main characters + smart-filtered glossary + rolling summary), and
+/// returns the rendered string plus the glossary entry IDs that matched.
+pub async fn prompt_render(
+    state: AppResources,
+    payload: PromptRenderPayload,
+) -> anyhow::Result<PromptRenderResult> {
+    let project = require_project(&state).await?;
+    let result = tokio::task::spawn_blocking(move || -> anyhow::Result<PromptRenderResult> {
+        let conn = project.pool().get()?;
+
+        let use_case = parse_use_case(&payload.use_case)?;
+        let template: PromptTemplate = match payload.template_name.as_deref() {
+            Some(name) => prompt_ops::get_by_name(&conn, name)?
+                .ok_or_else(|| anyhow::anyhow!("template '{name}' not found"))?,
+            None => prompt_ops::default_for(&conn, use_case)?
+                .ok_or_else(|| anyhow::anyhow!("no template available for use case"))?,
+        };
+
+        let series = series_ops::get(&conn)?;
+        let main_chars: Vec<Character> = character_ops::list(&conn)?
+            .into_iter()
+            .filter(|c| c.is_main)
+            .collect();
+        let glossary_entries = glossary_ops::list(&conn)?;
+
+        let ctx = prompt_ops::build_context(
+            &series,
+            &main_chars,
+            &glossary_entries,
+            &payload.rolling_summary,
+            &payload.source_text,
+        );
+        let prompt = prompt_ops::render_template(&template.template, &ctx)?;
+
+        Ok(PromptRenderResult {
+            prompt,
+            template_name: template.name,
+            glossary_hit_ids: ctx.glossary_hit_ids,
+        })
+    })
+    .await??;
+    Ok(result)
+}
+
+fn parse_use_case(s: &str) -> anyhow::Result<PromptUseCase> {
+    Ok(match s {
+        "translate" => PromptUseCase::Translate,
+        "extract_entities" => PromptUseCase::ExtractEntities,
+        "summarize_chapter" => PromptUseCase::SummarizeChapter,
+        other => anyhow::bail!("unknown prompt use case: {other}"),
+    })
+}
+
+fn prompt_to_dto(t: PromptTemplate) -> PromptTemplateDto {
+    PromptTemplateDto {
+        id: t.id,
+        name: t.name,
+        description: t.description,
+        is_default: t.is_default,
+        use_case: t.use_case.as_str().to_string(),
+        template: t.template,
+        created_at: t.created_at.to_rfc3339(),
+        updated_at: t.updated_at.to_rfc3339(),
+    }
 }
 
 fn parse_confidence(s: &str) -> Confidence {
