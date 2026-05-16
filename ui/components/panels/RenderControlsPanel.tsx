@@ -1,6 +1,6 @@
 'use client'
 
-import type { ComponentType } from 'react'
+import { useEffect, useState, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   AlignCenterIcon,
@@ -199,12 +199,23 @@ export function RenderControlsPanel() {
   const currentColorHex = colorToHex(currentColor)
   const currentStrokeColorHex = colorToHex(currentStroke.color)
   const currentStrokeWidth = currentStroke.widthPx ?? DEFAULT_STROKE_WIDTH
-  // New layout controls (Phase: Thai-friendly text shaping)
-  const currentFontSize = selectedBlock?.style?.fontSize
-  const currentLineHeight = selectedBlock?.style?.lineHeight ?? 1.0
-  const currentLetterSpacing = selectedBlock?.style?.letterSpacingPx ?? 0
-  const currentMinFontSize = selectedBlock?.style?.minFontSize
-  const currentVerticalAlign = selectedBlock?.style?.verticalAlign ?? 'top'
+  // New layout controls. When no block is selected the panel is in
+  // "global" mode — pick up the firstBlock's values for display so
+  // the stepper doesn't appear to "reset" after an apply-all.
+  const currentFontSize =
+    selectedBlock?.style?.fontSize ?? firstBlock?.style?.fontSize
+  const currentLineHeight =
+    selectedBlock?.style?.lineHeight ?? firstBlock?.style?.lineHeight ?? 1.0
+  const currentLetterSpacing =
+    selectedBlock?.style?.letterSpacingPx ??
+    firstBlock?.style?.letterSpacingPx ??
+    0
+  const currentMinFontSize =
+    selectedBlock?.style?.minFontSize ?? firstBlock?.style?.minFontSize
+  const currentVerticalAlign =
+    selectedBlock?.style?.verticalAlign ??
+    firstBlock?.style?.verticalAlign ??
+    'top'
   const fontLabel = t('render.fontLabel')
   const effectLabel = t('render.effectLabel')
   const strokeLabel = t('render.effectBorder')
@@ -794,7 +805,15 @@ export function RenderControlsPanel() {
   )
 }
 
-/** Compact +/- stepper used for the new numeric layout controls. */
+/**
+ * Compact +/- stepper used for the new numeric layout controls.
+ *
+ * Uses `type='text'` (not `number`) so the browser doesn't strip
+ * intermediate "1." while the user is typing "1.35". A local draft
+ * string holds the in-flight input; it commits to the parent on blur
+ * or when +/- is clicked, and is re-synced from the prop value
+ * whenever the input is not focused.
+ */
 function NumericStepper({
   value,
   min,
@@ -818,8 +837,36 @@ function NumericStepper({
 }) {
   const clamp = (v: number) =>
     Number(Math.max(min, Math.min(max, v)).toFixed(decimals))
-  const display =
-    value === undefined || !Number.isFinite(value) ? '' : String(clamp(value))
+  const canonical = (v: number | undefined) =>
+    v === undefined || !Number.isFinite(v) ? '' : clamp(v).toString()
+
+  const [focused, setFocused] = useState(false)
+  const [draft, setDraft] = useState(() => canonical(value))
+
+  // Keep the draft in sync with prop changes when the user isn't
+  // actively typing — that way step buttons and parent re-renders
+  // both show the latest value.
+  useEffect(() => {
+    if (!focused) setDraft(canonical(value))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, focused])
+
+  const commit = (raw: string) => {
+    const trimmed = raw.trim()
+    if (trimmed === '' || trimmed === '-' || trimmed === '.') {
+      onChange(undefined)
+      return
+    }
+    // Accept "1.", "1.3" mid-input — parseFloat handles both.
+    const parsed = Number.parseFloat(trimmed)
+    if (!Number.isFinite(parsed)) {
+      // Bad input — fall back to current value.
+      setDraft(canonical(value))
+      return
+    }
+    onChange(clamp(parsed))
+  }
+
   return (
     <div className='border-input bg-background inline-flex w-auto min-w-0 shrink-0 items-center rounded-md border shadow-xs'>
       <Button
@@ -834,25 +881,32 @@ function NumericStepper({
         <MinusIcon className='size-3' />
       </Button>
       <Input
-        type='number'
-        step={String(step)}
-        min={String(min)}
-        max={String(max)}
+        type='text'
         inputMode='decimal'
         aria-label={ariaLabel}
         disabled={disabled}
         placeholder={placeholder}
-        className='h-7 w-14 min-w-0 [appearance:textfield] rounded-none border-0 px-1.5 text-center text-[11px] shadow-none focus-visible:ring-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
-        value={display}
+        className='h-7 w-14 min-w-0 rounded-none border-0 px-1.5 text-center text-[11px] shadow-none focus-visible:ring-0'
+        value={draft}
+        onFocus={() => setFocused(true)}
         onChange={(e) => {
-          const raw = e.target.value
-          if (raw === '') {
-            onChange(undefined)
-            return
+          // Allow only digits, one optional sign, and one decimal
+          // point to land in the draft. Other chars are silently
+          // dropped so typing a stray letter doesn't break flow.
+          const filtered = e.target.value
+            .replace(/[^0-9.\-]/g, '')
+            .replace(/(?!^)-/g, '')
+            .replace(/(\..*)\./g, '$1')
+          setDraft(filtered)
+        }}
+        onBlur={() => {
+          setFocused(false)
+          commit(draft)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            ;(e.target as HTMLInputElement).blur()
           }
-          const parsed = Number.parseFloat(raw)
-          if (!Number.isFinite(parsed)) return
-          onChange(clamp(parsed))
         }}
       />
       <Button
