@@ -12,6 +12,90 @@ itself, see [their CHANGELOG](https://github.com/mayocream/koharu/blob/main/CHAN
 
 ---
 
+## [1.0.1] — 2026-05-17
+
+Patch release focused on tightening the AI Chat + LLM Profile flows
+discovered after the 1.0.0 cut, plus a meaningful UX feature
+("Fit to bubble") for Thai translations that overflow the original
+detected text-block bbox.
+
+### Added
+
+- **Fit to bubble** button per text-block (in TextBlocksPanel
+  accordion). Floods white pixels from the current bbox on the
+  original image, snaps the block geometry to the actual bubble
+  outline. Fixes the common case where the Japanese-source bbox is
+  too tight for the longer Thai translation. Adds new RPC method
+  `text_block_fit_to_bubble`.
+- **Vision-support detection** in AI Chat — `👁 vision` / `text only`
+  badge in the panel header; attach buttons disable on text-only
+  models. New `lib/services/visionSupport.ts` with heuristics for
+  OpenAI / Claude / Gemini / OpenRouter / Local.
+- **Searchable font picker** in RenderControlsPanel — type-to-filter
+  the font dropdown (was a plain Radix Select; awful with 200+
+  installed fonts).
+- **Tool-progress narration** in the streaming chat bubble: every
+  tool dispatch shows `🔧 calling <name>… ✓` (or `✗`) so the user
+  sees the agentic loop in flight instead of a silent gap.
+
+### Fixed
+
+- **OpenRouter round-trip** — Rust `Provider` enum collapsed
+  `"openrouter"` into `Provider::Openai`, so saving an OpenRouter
+  profile stored `provider='openai'`. Edit modal re-opened the wrong
+  tile, Apply pointed prefs at OpenAI, and translate hit the wrong
+  endpoint with the wrong key. Added `Provider::Openrouter`; UI now
+  also detects legacy mis-stored rows via the `vendor/model` slash
+  heuristic and routes them to the OpenRouter tile / dispatcher.
+- **"Resources not initialized" on cold launch** — UI WebSocket
+  connects + fires RPCs before the Rust `AppResources` OnceCell is
+  populated (~1-2s of model init). New `get_resources_wait` polls up
+  to 20s with 100ms intervals so early requests queue silently
+  instead of bouncing with a scary overlay.
+- **Auto-apply after profile Save** — saving a profile now also
+  writes its provider / model / apiUrl / apiKey into the live
+  preferences store. Previously the user had to click both Save AND
+  Apply (or pick from toolbar). Now Save = Apply.
+- **Apply badge missed legacy profiles** — `isActive` compared raw
+  `provider` field; for mis-stored OpenRouter rows that never
+  matched. Now compares the effective dispatched provider via
+  `kindOf()`.
+- **API-key state on edit** — modal now distinguishes "loaded from
+  keyring" vs "never stored" vs "keyring miss" vs "keyring error" and
+  shows a coloured hint so the user knows whether they need to
+  re-enter. Save with a blank field is safe (sends JSON null, leaves
+  the keyring untouched).
+- **Auto-render after batch translate** — the single-block translate
+  path already re-rendered, but batch translate left the new
+  translations sitting in the data model until the user clicked
+  Render manually. Now batch translate triggers a full-page render +
+  cache invalidation on completion.
+- **"(empty)" placeholder on tool-only assistant turns** in AI Chat
+  made tool dispatches look like failures. Suppressed when the turn
+  has tool_calls.
+- **Chat panel scroll layout** — three issues with one root cause:
+  ScrollArea was missing `min-h-0`, so it grew with content past the
+  panel bounds. The input footer fell off the bottom, the message
+  list became unscrollable, and chat-area scroll bubbled up to the
+  window and dragged the sidebar icon strip along. Added `min-h-0`
+  to ScrollArea + `flex-1` to ChatTabPanel root + flex chain through
+  the tab content column.
+- **"Cloud API Key is missing"** error message is now actionable —
+  tells the user to apply a profile or re-enter the key, with the
+  active provider name.
+- **Help menu** GitHub link now points at our fork instead of
+  upstream; new "Report an issue" entry; upstream Discord renamed to
+  "Upstream Discord (Mayo)" so users know it's not our support
+  channel.
+
+### Changed
+
+- **Help menu** entries reorganised (see Fixed above).
+
+[1.0.1]: https://github.com/EarthWL/koharu-th/releases/tag/1.0.1
+
+---
+
 ## [1.0.0] — 2026-05-17
 
 First independent release of Koharu-TH. Forked from
