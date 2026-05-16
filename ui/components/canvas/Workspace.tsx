@@ -13,7 +13,6 @@ import {
 import { useTranslation } from 'react-i18next'
 import { listen } from '@/lib/backend'
 import { Image } from '@/components/Image'
-import { Welcome } from '@/components/Welcome'
 import {
   setCanvasViewport,
   fitCanvasToViewport,
@@ -380,7 +379,9 @@ export function Workspace() {
                 </ContextMenuContent>
               </ContextMenu>
             ) : (
-              <Welcome />
+              <div className='text-muted-foreground flex h-full w-full items-center justify-center text-sm'>
+                {t('workspace.importPrompt')}
+              </div>
             )}
           </ScrollAreaPrimitive.Viewport>
           <ScrollAreaPrimitive.Scrollbar

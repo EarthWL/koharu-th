@@ -84,10 +84,6 @@ export function MenuBar() {
       },
     })),
     {
-      label: t('menu.projectSettings', 'Project settings…'),
-      disabled: !projectInfo,
-    },
-    {
       label: t('menu.closeProject', 'Close project'),
       onSelect: () => {
         void closeProject()
@@ -242,45 +238,22 @@ export function MenuBar() {
             sideOffset={5}
             alignOffset={-3}
           >
-            {projectMenuItems.map((item) =>
-              item.label === t('menu.projectSettings', 'Project settings…') ? (
-                <MenubarItem
-                  key={item.label}
-                  className='text-[13px]'
-                  disabled={item.disabled}
-                  asChild={!item.disabled}
-                >
-                  {item.disabled ? (
-                    <span>{item.label}</span>
-                  ) : (
-                    <Link href='/project' prefetch={false}>
-                      {item.label}
-                    </Link>
-                  )}
-                </MenubarItem>
-              ) : (
-                <MenubarItem
-                  key={item.label}
-                  className='text-[13px]'
-                  disabled={item.disabled}
-                  onSelect={
-                    item.onSelect
-                      ? () => {
-                          void item.onSelect?.()
-                        }
-                      : undefined
-                  }
-                >
-                  {item.label}
-                </MenubarItem>
-              ),
-            )}
-            <MenubarSeparator />
-            <MenubarItem className='text-[13px]' asChild>
-              <Link href='/project' prefetch={false}>
-                {t('menu.projectDashboard', 'Open dashboard…')}
-              </Link>
-            </MenubarItem>
+            {projectMenuItems.map((item) => (
+              <MenubarItem
+                key={item.label}
+                className='text-[13px]'
+                disabled={item.disabled}
+                onSelect={
+                  item.onSelect
+                    ? () => {
+                        void item.onSelect?.()
+                      }
+                    : undefined
+                }
+              >
+                {item.label}
+              </MenubarItem>
+            ))}
           </MenubarContent>
         </MenubarMenu>
         {menus.map(({ label, items, triggerTestId }) => (
@@ -372,11 +345,7 @@ function ProjectIndicator() {
   const activeChapterId = useProjectStore((s) => s.activeChapterId)
   if (!projectInfo) return null
   return (
-    <Link
-      href='/project'
-      prefetch={false}
-      className='text-muted-foreground hover:text-foreground pointer-events-auto text-[11px] font-medium'
-    >
+    <span className='text-muted-foreground pointer-events-auto text-[11px] font-medium'>
       📁 {projectInfo.name}
       <span className='text-muted-foreground/70 ml-1'>
         · {projectInfo.chapterCount} ch
@@ -384,7 +353,7 @@ function ProjectIndicator() {
       {activeChapterId !== null && (
         <span className='text-primary/80 ml-1'>· 📍 active</span>
       )}
-    </Link>
+    </span>
   )
 }
 
