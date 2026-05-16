@@ -644,7 +644,7 @@ export const useLlmMutations = () => {
             if (blocksToTranslate.length > 0) {
               const { generateCloudBatchTranslation } = await import('@/lib/services/cloudLlm')
               const translatedResult = await generateCloudBatchTranslation(blocksToTranslate, language)
-              
+
               // Map the returned JSON translations back to the blocks array
               for (const result of translatedResult) {
                 if (result && typeof result.index === 'number' && typeof result.translation === 'string') {
@@ -654,8 +654,30 @@ export const useLlmMutations = () => {
                   }
                 }
               }
-              
+
               await updateTextBlocks(nextBlocks)
+              // Auto-render the full page after batch translate so the new
+              // translations paint immediately. Without this, blocks sit
+              // in the data model but the canvas doesn't repaint until
+              // the user clicks Render or twiddles a font setting.
+              try {
+                const { renderEffect, renderStroke } =
+                  useEditorUiStore.getState()
+                const { fontFamily } = usePreferencesStore.getState()
+                await api.render(resolvedIndex, {
+                  shaderEffect: renderEffect,
+                  shaderStroke: renderStroke,
+                  fontFamily,
+                })
+                await invalidateCurrentDocument(queryClient, resolvedIndex)
+                await invalidateThumbnailAtIndex(queryClient, resolvedIndex)
+                useEditorUiStore.getState().setShowRenderedImage(true)
+              } catch (renderErr) {
+                console.warn(
+                  '[llmGenerate] auto-render after batch translate failed',
+                  renderErr,
+                )
+              }
             }
           } catch (e: any) {
             console.error('Cloud LLM Batch JSON Generation failed:', e)
