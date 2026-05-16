@@ -27,9 +27,13 @@ Under the hood, Koharu uses [candle](https://github.com/huggingface/candle) for 
 | State | In-memory + .khr files | + per-project SQLite (`series.db`) with 11 tables |
 | LLM | Local 7B GGUF only | Local + **5 cloud profile types** (OpenAI / Claude / Gemini / OpenRouter / Local LLM server) with live model search |
 | Sidebar | Page thumbnails | **8 tabs**: Pages · Chapters · Project · Characters · Glossary · Prompts · Profiles · AI Chat |
-| Renderer | CJK fonts | + Thai-aware fonts + text-block rotation + line-height / letter-spacing / vertical-align / min-font-size controls |
+| Renderer | CJK fonts | + Thai-aware fonts + text-block rotation + line-height / letter-spacing / vertical-align / min-font-size controls + overflow warnings |
 | MCP server | 25 tools | **~60 tools** covering full project surface + agentic web fetch |
-| AI assistant | — | **In-app AI Chat** with native function-calling, 7 slash commands, drives the same tools as MCP |
+| AI assistant | — | **In-app AI Chat** — streaming, multi-modal (image attach), native function-calling on 4 providers, 10 slash commands |
+| Translation memory | — | exact / Jaccard / **semantic (vector embeddings)** + TMX 1.4 import/export |
+| Export | single page | **CBZ multi-chapter** with ComicInfo.xml |
+| Cost tracking | — | per-call log + **dashboard** (by profile / chapter / day / use case) |
+| Power-user | — | **⌘K command palette** for chapter / profile / export / slash jump |
 
 ## Features
 
@@ -67,9 +71,12 @@ Every model picker is searchable — type any part of the model id. API keys liv
 
 The Toolbar **LLM badge** lets you pick which saved profile is active without leaving the canvas.
 
-### AI Chat (agentic)
+### AI Chat (agentic, multi-modal, streaming)
 
 A sidebar tab that talks to your **active profile** using native function-calling on all 4 cloud providers. It has tools for every project entity (series_meta / chapters / characters / glossary / TM / prompt_render) plus a server-side `web_fetch_url` that bypasses browser CORS.
+
+- **Streaming responses** with a Stop button — tokens appear as the model generates them (OpenAI / OpenRouter / Local SSE · Anthropic content_block_delta · Gemini :streamGenerateContent).
+- **Image attachments** — attach the current canvas page (1-click) or upload any image. Auto-downsized to ≤1024px JPEG q85 before send. Sent as multi-modal blocks to all 4 providers; previous attachments persist in the chat history.
 
 **Slash commands** (autocomplete on `/`):
 - `/fetch-wiki <url>` — pull a Fandom/wiki page, propose updates to synopsis + characters + glossary
@@ -78,8 +85,15 @@ A sidebar tab that talks to your **active profile** using native function-callin
 - `/extract-glossary <text>` — pull terms from a chunk of source text
 - `/summarize-chapter [id]` — generate the chapter summary (feeds rolling context)
 - `/preview-prompt <text>` — show the actual prompt your translation will see
+- `/qc-consistency` — scan the open chapter for glossary / character-name mismatches, propose fixes
+- `/tm-semantic <text>` — semantic TM lookup via embeddings (finds paraphrases)
+- `/check-thai` — review Thai output for spelling / grammar / naturalness, auto-apply fixes
 
 Chat history is stored per project in `series.db` (`chat_messages` table); the panel displays the last 50 messages and pages back through history.
+
+### Command palette (Cmd+K)
+
+⌘K / Ctrl+K opens a global palette to jump to chapter, switch LLM profile, export CBZ, open settings, or copy any slash command into the chat input.
 
 ### Prompt template engine
 
@@ -95,11 +109,26 @@ Translate prompts are **Handlebars templates** rendered at call time with:
 
 Edit templates from the **Prompts tab**. Default templates ship for `translate`, `extract_entities`, and `summarize_chapter` use cases.
 
-### Translation memory + cost log
+### Translation memory
 
-- Exact-match and **Jaccard fuzzy** TM lookup (threshold configurable, default 0.85)
+- **Exact-match** + **Jaccard fuzzy** lookup (threshold configurable, default 0.85)
+- **Semantic / vector search** via embeddings (cosine similarity, top-K) — finds paraphrases that fuzzy match misses. Backfill button in Project tab embeds existing entries with the active LLM profile (`text-embedding-3-small` on OpenAI-compat, `text-embedding-004` on Gemini)
 - Hit on TM short-circuits the cloud call entirely
-- Every LLM call is logged in `llm_call_log` with token counts, duration, success, and estimated USD cost — `llmCostStats` aggregates for dashboards (UI dashboard pending)
+- **TMX 1.4 import / export** — round-trip translation memory with Trados / OmegaT / MemoQ / any CAT tool
+
+### Cost tracking + dashboard
+
+- Every LLM call logged in `llm_call_log` with token counts, duration, success/failure, estimated USD cost
+- **Dashboard in the Project sidebar tab**: headline spend / call / token stats + bar charts for last 30 days, per profile, per chapter, per use case. Bring-your-own per-1M pricing on each profile to get accurate dollar figures
+
+### Multi-chapter export
+
+- **CBZ export** per chapter with `ComicInfo.xml` sidecar (Kavita / Komga / YACReader / mobile manga readers). Uses pages from `<chapter>/render/` when available, falls back to `source/`. Click the archive icon on any chapter row or trigger from the Cmd+K palette
+
+### Quality control
+
+- **Bubble-fit warnings** — text-block panel shows amber `TIGHT` / rose `OVERFLOW` badges when the translation is likely to overflow the original bubble (heuristic: chars × estimated 18pt glyph area vs. bubble area, plus Thai/source length ratio)
+- **Consistency checker** — `/qc-consistency` slash scans every translated block on the open chapter against the glossary + character names (including aliases), surfaces mismatches as a table, and proposes fixes via `update_text_block` after approval
 
 ### Thai-specific renderer additions
 
@@ -125,6 +154,7 @@ Point your MCP-capable client at `http://localhost:9999/mcp`.
 - <kbd>Ctrl</kbd> + Mouse Wheel: Zoom in/out
 - <kbd>Ctrl</kbd> + Drag: Pan the canvas
 - <kbd>Del</kbd>: Delete selected text block
+- <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>K</kbd>: Open command palette
 
 ### Headless mode
 
@@ -249,44 +279,54 @@ Direct rebase against upstream gets messy because of the project-folder + sideba
 
 ## Roadmap
 
-Not promises — just things being considered as the fork keeps iterating. See [memory/roadmap_next_features.md](https://github.com/EarthWL/koharu-th) for the full tiered backlog (private).
+Not promises — just things being considered as the fork keeps iterating.
 
-**Tier 1 (recommended next):**
+**Shipped — Tier 1 (UX wins on AI Chat):**
 
-- [ ] Vision in AI Chat — attach the current page so the model can see actual bubbles + glyphs
-- [ ] Streaming chat responses (token-by-token + stop button)
-- [ ] Batch chapter translation queue (background, progress UI)
+- [x] Vision in AI Chat — attach the current canvas page or any image, multi-modal blocks across all 4 providers
+- [x] Streaming chat responses (SSE token deltas + ⏹ Stop button via AbortController)
 
-**Tier 2:**
+**Shipped — Tier 2 (workflow polish):**
 
-- [ ] Cost dashboard (log data exists, UI pending)
-- [ ] QC consistency checker (AI scans a chapter against glossary)
-- [ ] Thai bubble-fit warnings (Thai often 1.5–2× source length)
-- [ ] Auto-extract characters + glossary on first chapter import
+- [x] Cost dashboard — per-profile / per-chapter / 30-day / per-use-case breakdown in Project sidebar
+- [x] QC consistency checker — `qc_chapter_consistency` tool + `/qc-consistency` slash command (scans glossary + character mismatches, proposes fixes)
+- [x] Thai bubble-fit warnings — amber/rose badges in text-block panel headers when translation is tight or overflows the bubble
+- [x] Auto-extract characters + glossary — wand button per chapter row: opens chapter → OCRs all pages → extract proposals → bulk-add on approval
 
-**Tier 3:**
+**Shipped — Tier 3 (interchange + power-user):**
 
-- [ ] Cmd+K command palette
-- [ ] Vector-embedding TM (semantic search beyond fuzzy)
-- [ ] TMX import/export (CAT-tool interchange)
-- [ ] Multi-chapter export to CBZ / PDF (`<chapter>/render/` is ready)
-- [ ] Thai spell / grammar check on output
+- [x] CBZ multi-chapter export with `ComicInfo.xml` (Kavita / Komga / YACReader compatible)
+- [x] Cmd+K / Ctrl+K command palette — jump to chapter, switch profile, export, slash commands
+- [x] Vector-embedding TM with cosine semantic search + backfill button + `/tm-semantic` slash command
+- [x] TMX 1.4 import/export (Trados / OmegaT / MemoQ interchange)
+- [x] Thai spell / grammar check via `/check-thai` AI Chat slash command
 
-**Already shipped (was on roadmap earlier):**
+**Earlier shipped:**
 
 - [x] Series project format + glossary + TM + custom prompt templates
-- [x] OpenRouter + Local LLM support
-- [x] Cost tracking (storage + stats; UI pending)
+- [x] OpenRouter + Local LLM support · 5-provider live model search
+- [x] OS keyring for API keys
 - [x] Bundled-font support for Thai
 - [x] Rolling-context summaries from previous chapters
+- [x] Folder-based chapters (`source/` + `render/`) with auto-wrap of legacy single-file chapters
+- [x] MCP server with ~60 tools covering the full project surface
+
+**Not shipped yet (next considerations):**
+
+- [ ] Batch chapter translation queue (background worker, multi-chapter progress)
+- [ ] Cloud sync for project folders (Google Drive / Dropbox / S3)
+- [ ] Multi-project workspace with shared TM / glossary pool across series
+- [ ] Translator collaboration (multi-user, comments, approve workflow)
+- [ ] Thai OCR (current OCR is JP-only via manga-ocr)
 
 ## Known limitations
 
 - **Anthropic in pure-browser headless mode** — CORS will block direct calls in a plain browser; the desktop Tauri build adds `anthropic-dangerous-direct-browser-access: true` and works fine.
 - **OpenAI JSON mode** is gated by a `model.includes('gpt')` check. Newer OpenAI models (`o3`, `o4`) and most OpenRouter-routed models skip JSON mode and may need lenient parsing — handled but quality varies.
 - **Thai font fallback** depends on the OS having one of the listed fonts installed (Leelawadee UI / Tahoma on Windows · Thonburi / Krungthep on macOS · Noto Sans Thai on Linux). If none are present, drop a Thai TTF into the bundled-fonts directory.
-- **No translation streaming** yet — translations appear when the cloud request fully completes (streaming chat is on the roadmap above).
+- **Translation result streaming** (page-level translate) still resolves on full response; AI Chat is streamed but the per-block translate path isn't yet.
 - **OCR is JP-only** — current OCR model is manga-ocr; Thai OCR is not yet supported.
+- **Semantic TM embeddings** require a key on an OpenAI-compatible profile (OpenAI / OpenRouter / Local / Gemini). Anthropic has no native embeddings API.
 
 ## Credits
 
