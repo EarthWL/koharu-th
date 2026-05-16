@@ -21,7 +21,7 @@
 
 ![screenshot](assets/koharu-th-screenshot-ex.png)
 
-## สิ่งที่ฉีกจาก upstream
+## สิ่งที่ต่างจาก upstream
 
 | มิติ | Upstream | Koharu-TH |
 |---|---|---|
