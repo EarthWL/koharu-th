@@ -26,7 +26,10 @@ import { queryKeys } from '@/lib/query/keys'
 import { useTextBlockMutations } from '@/lib/query/mutations'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
-import { generateCloudTranslation } from '@/lib/services/cloudLlm'
+import {
+  generateCloudTranslationDetailed,
+  type TranslationMeta,
+} from '@/lib/services/cloudLlm'
 import type { TextBlock } from '@/types'
 
 type Filter = 'all' | 'untranslated' | 'translated'
@@ -205,6 +208,7 @@ function QaRow({
   const [draft, setDraft] = useState(block.translation ?? '')
   const [generating, setGenerating] = useState(false)
   const [streaming, setStreaming] = useState(false)
+  const [meta, setMeta] = useState<TranslationMeta | null>(null)
   const cloudProvider = usePreferencesStore((s) => s.cloudProvider)
 
   // Re-sync the draft if the block reloads with a different translation
@@ -236,7 +240,7 @@ function QaRow({
         // arriving live, then persist once at the end.
         let acc = ''
         setDraft('')
-        const final = await generateCloudTranslation(
+        const result = await generateCloudTranslationDetailed(
           block.text,
           'auto',
           (delta) => {
@@ -244,16 +248,17 @@ function QaRow({
             setDraft(acc)
           },
         )
+        setMeta(result.meta)
         const docState = useEditorUiStore.getState()
         const idx = docState.currentDocumentIndex
         const allBlocks = await api
           .getDocument(idx)
           .then((d: any) => d.textBlocks ?? [])
         const next = allBlocks.map((b: TextBlock, j: number) =>
-          j === blockIndex ? { ...b, translation: final } : b,
+          j === blockIndex ? { ...b, translation: result.text } : b,
         )
         await updateTextBlocks(next)
-        setDraft(final)
+        setDraft(result.text)
       } else {
         // Local LLM path: no streaming surface yet, just call the
         // existing pipeline and wait for it.
@@ -282,6 +287,7 @@ function QaRow({
           placeholder='(empty)'
           className='min-h-12 text-xs'
         />
+        {meta && <ProvenanceBadges meta={meta} />}
       </td>
       <td className='px-3 py-2 align-top text-right'>
         <Button
@@ -299,5 +305,69 @@ function QaRow({
         </Button>
       </td>
     </tr>
+  )
+}
+
+function ProvenanceBadges({ meta }: { meta: TranslationMeta }) {
+  const badges: React.ReactNode[] = []
+  if (meta.tmHit) {
+    const pct =
+      meta.tmSimilarity != null && meta.tmSimilarity < 1
+        ? ` ${Math.round(meta.tmSimilarity * 100)}%`
+        : ''
+    const from =
+      meta.tmFromChapterId != null ? ` · ch${meta.tmFromChapterId}` : ''
+    badges.push(
+      <span
+        key='tm'
+        className='rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] text-emerald-700 dark:text-emerald-300'
+        title='Reused from translation memory — no API call was made'
+      >
+        ♻️ TM{pct}
+        {from}
+      </span>,
+    )
+  }
+  if (meta.glossaryHitIds.length > 0) {
+    badges.push(
+      <span
+        key='glossary'
+        className='bg-sky-500/15 text-sky-700 dark:text-sky-300 rounded px-1.5 py-0.5 text-[9px]'
+        title='Glossary entries injected into the prompt'
+      >
+        📖 {meta.glossaryHitIds.length} glossary
+      </span>,
+    )
+  }
+  if (meta.rollingContextUsed) {
+    badges.push(
+      <span
+        key='roll'
+        className='bg-violet-500/15 text-violet-700 dark:text-violet-300 rounded px-1.5 py-0.5 text-[9px]'
+        title='Prior chapter summaries injected as rolling context'
+      >
+        📍 chapter ctx
+      </span>,
+    )
+  }
+  if (meta.usage?.promptTokens != null || meta.durationMs > 0) {
+    const u = meta.usage
+    const tokens =
+      u?.promptTokens != null && u.completionTokens != null
+        ? ` · ${u.promptTokens} in / ${u.completionTokens} out`
+        : ''
+    badges.push(
+      <span
+        key='timing'
+        className='text-muted-foreground text-[9px]'
+        title='Wall-clock duration and token usage'
+      >
+        ⏱ {meta.durationMs} ms{tokens}
+      </span>,
+    )
+  }
+  if (badges.length === 0) return null
+  return (
+    <div className='mt-1 flex flex-wrap items-center gap-1'>{badges}</div>
   )
 }

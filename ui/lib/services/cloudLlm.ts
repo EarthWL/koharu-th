@@ -1,6 +1,6 @@
 import { usePreferencesStore } from '../stores/preferencesStore'
 import { useProjectStore } from '../stores/projectStore'
-import { api } from '../api'
+import { api, type TmEntryDto } from '../api'
 
 /** Token counts as reported by the provider. `null` = provider didn't return them. */
 export type TokenUsage = {
@@ -83,10 +83,20 @@ function logCallSafe(args: {
  * usage on after a successful translation. If no project is open,
  * returns null and callers fall back to a built-in stub prompt.
  */
+type ProjectPrompt = {
+  prompt: string
+  glossaryHitIds: number[]
+  templateName: string
+  /** True when activeChapterId was set so rolling-context summaries
+   *  were eligible for injection (the backend may still produce empty
+   *  text if no prior summaries exist). */
+  rollingContextRequested: boolean
+}
+
 async function tryProjectPrompt(
   text: string,
   language: string,
-): Promise<{ prompt: string; glossaryHitIds: number[] } | null> {
+): Promise<ProjectPrompt | null> {
   const project = useProjectStore.getState().info
   if (!project) return null
   try {
@@ -101,7 +111,12 @@ async function tryProjectPrompt(
       rollingChapterCount: 2,
     })
     void language // project's target_language already feeds the template
-    return { prompt: rendered.prompt, glossaryHitIds: rendered.glossaryHitIds }
+    return {
+      prompt: rendered.prompt,
+      glossaryHitIds: rendered.glossaryHitIds,
+      templateName: rendered.templateName,
+      rollingContextRequested: activeChapterId != null,
+    }
   } catch (err) {
     // If the project DB doesn't have a translate template (e.g. very old
     // schema) we just fall back to the stub prompt instead of failing.
@@ -113,12 +128,14 @@ async function tryProjectPrompt(
 /** Threshold below which a fuzzy hit is ignored. */
 const FUZZY_TM_MIN_SIMILARITY = 0.92
 
-async function tryTmHit(sourceText: string, targetLang: string) {
+type TmHit = { entry: TmEntryDto; similarity: number }
+
+async function tryTmHit(sourceText: string, targetLang: string): Promise<TmHit | null> {
   if (!useProjectStore.getState().info) return null
   try {
     // Exact-match short-circuit first — fastest path.
     const exact = await api.tmLookup(sourceText, targetLang)
-    if (exact) return exact
+    if (exact) return { entry: exact, similarity: 1.0 }
     // Then fall back to fuzzy. Threshold is conservative (0.92) so we
     // don't poison the cache with "close but actually different" hits.
     const fuzzy = await api.tmLookupFuzzy(
@@ -133,7 +150,7 @@ async function tryTmHit(sourceText: string, targetLang: string) {
         '←',
         fuzzy.entry.sourceText.slice(0, 40),
       )
-      return fuzzy.entry
+      return fuzzy
     }
     return null
   } catch (err) {
@@ -215,11 +232,56 @@ async function rememberTm(args: {
   }
 }
 
+/** Extra context about how a translation was produced. Surfaced to the
+ *  QA page so it can render "♻️ TM hit" / "📖 3 glossary" / "📍 ch.5"
+ *  badges alongside each block. */
+export type TranslationMeta = {
+  /** True if the text came from translation memory (exact or fuzzy). */
+  tmHit: boolean
+  /** Similarity for fuzzy TM hits (0..1). 1.0 means exact match. */
+  tmSimilarity: number | null
+  /** Chapter id where the matched TM entry was originally stored. */
+  tmFromChapterId: number | null
+  /** Names / ids of glossary entries injected into the prompt. */
+  glossaryHitIds: number[]
+  /** Template the backend picked (e.g. "manga-standard"). */
+  templateName: string | null
+  /** True if a rolling-context summary was injected. */
+  rollingContextUsed: boolean
+  /** Wall-clock duration in ms. */
+  durationMs: number
+  /** Token usage when known. */
+  usage: TokenUsage | null
+}
+
+export type TranslationDetailed = {
+  text: string
+  meta: TranslationMeta
+}
+
+/** Detailed sibling of {@link generateCloudTranslation} — returns
+ *  metadata about TM/glossary/template alongside the text. */
+export async function generateCloudTranslationDetailed(
+  text: string,
+  language: string,
+  onChunk?: StreamHandler,
+): Promise<TranslationDetailed> {
+  return generateCloudTranslationImpl(text, language, onChunk)
+}
+
 export async function generateCloudTranslation(
   text: string,
   language: string,
   onChunk?: StreamHandler,
 ): Promise<string> {
+  return (await generateCloudTranslationImpl(text, language, onChunk)).text
+}
+
+async function generateCloudTranslationImpl(
+  text: string,
+  language: string,
+  onChunk?: StreamHandler,
+): Promise<TranslationDetailed> {
   const { cloudProvider, cloudApiKey, cloudApiUrl, cloudModelName } = usePreferencesStore.getState()
 
   if (!cloudApiKey) {
@@ -234,8 +296,20 @@ export async function generateCloudTranslation(
     // TM hits skip the API entirely — also skip the streaming UX
     // since there's nothing to stream. Caller's onChunk just fires
     // once with the full cached result.
-    if (onChunk) onChunk(tmHit.targetText)
-    return tmHit.targetText
+    if (onChunk) onChunk(tmHit.entry.targetText)
+    return {
+      text: tmHit.entry.targetText,
+      meta: {
+        tmHit: true,
+        tmSimilarity: tmHit.similarity,
+        tmFromChapterId: tmHit.entry.chapterId,
+        glossaryHitIds: [],
+        templateName: null,
+        rollingContextUsed: false,
+        durationMs: 0,
+        usage: null,
+      },
+    }
   }
 
   const projectPrompt = await tryProjectPrompt(text, language)
@@ -301,14 +375,27 @@ Only return the translation, no extra text:\n\n${text}`
     })
   }
 
+  const durationMs = Math.round(performance.now() - t0)
   logCallSafe({
     useCase: 'translate',
     success: !!result,
     usage: raw.usage,
-    durationMs: Math.round(performance.now() - t0),
+    durationMs,
   })
 
-  return result
+  return {
+    text: result,
+    meta: {
+      tmHit: false,
+      tmSimilarity: null,
+      tmFromChapterId: null,
+      glossaryHitIds: projectPrompt?.glossaryHitIds ?? [],
+      templateName: projectPrompt?.templateName ?? null,
+      rollingContextUsed: projectPrompt?.rollingContextRequested ?? false,
+      durationMs,
+      usage: raw.usage,
+    },
+  }
 }
 
 /**
