@@ -120,13 +120,15 @@ export function SidebarTabs() {
   }
 
   return (
-    <div className='bg-muted/50 flex h-full min-h-0 w-full flex-row overflow-hidden border-r'>
+    <div className='bg-muted/50 flex h-full min-h-0 w-full flex-row border-r'>
       {/* Vertical icon strip on the left edge.
-       *  - h-full + flex-col stacks the buttons from the top
-       *  - overflow-y-auto + min-h-0 means the strip scrolls internally
-       *    if the window ever gets tall enough to need it; doesn't push
-       *    the panel layout around when content next to it changes height. */}
-      <div className='border-border bg-background/60 flex h-full w-10 min-h-0 shrink-0 flex-col overflow-y-auto border-r py-1'>
+       *  - flex-col stacks the buttons from the top
+       *  - shrink-0 keeps its natural width
+       *  - The button list scrolls internally (overflow-y-auto on the
+       *    inner div, not on the column itself) so we don't fight the
+       *    parent's flex height calculation. */}
+      <div className='border-border bg-background/60 flex w-10 shrink-0 flex-col border-r'>
+        <div className='flex min-h-0 flex-1 flex-col overflow-y-auto py-1'>
         {TABS.map(({ key, icon: Icon, labelKey, fallback, needsProject }) => {
           const disabled = needsProject && !projectInfo
           const badge =
@@ -156,10 +158,11 @@ export function SidebarTabs() {
             </button>
           )
         })}
+        </div>
       </div>
 
       {/* Active tab content */}
-      <div className='min-w-0 flex-1'>
+      <div className='flex min-w-0 min-h-0 flex-1 flex-col'>
         {active === 'pages' && <Navigator />}
         {active === 'chapters' && projectInfo && <ChaptersTabPanel />}
         {active === 'project' && projectInfo && <ProjectTabPanel />}
