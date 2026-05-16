@@ -1,10 +1,13 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useCurrentDocumentState } from '@/lib/query/hooks'
 import { useTextBlockMutations } from '@/lib/query/mutations'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { TextBlock } from '@/types'
+import { api } from '@/lib/api'
+import { queryKeys } from '@/lib/query/keys'
 
 const TEXT_BLOCK_RENDER_DEBOUNCE_MS = 250
 
@@ -26,6 +29,7 @@ const hasGeometryChange = (updates: Partial<TextBlock>) =>
   Object.prototype.hasOwnProperty.call(updates, 'rotationDeg')
 
 export function useTextBlocks() {
+  const queryClient = useQueryClient()
   const { currentDocument: document, currentDocumentIndex } =
     useCurrentDocumentState()
   const textBlocks = document?.textBlocks ?? []
@@ -113,6 +117,28 @@ export function useTextBlocks() {
     setSelectedBlockIndex(undefined)
   }
 
+  /** Ask the backend to expand a block's bbox to match the bubble it
+   *  sits in (flood-fill of white pixels on the original image), then
+   *  refresh the document cache so the new bbox appears on canvas, and
+   *  re-render the block so the text reflows into the new shape. */
+  const fitBlockToBubble = async (index: number) => {
+    clearScheduledRender(index)
+    try {
+      await api.textBlockFitToBubble(currentDocumentIndex, index)
+    } catch (err: any) {
+      console.error('[useTextBlocks] fitBlockToBubble failed', err)
+      alert(err?.message ?? String(err))
+      return
+    }
+    await queryClient.invalidateQueries({
+      queryKey: queryKeys.documents.current(currentDocumentIndex),
+    })
+    const ui = useEditorUiStore.getState()
+    ui.setShowRenderedImage(false)
+    ui.setShowTextBlocksOverlay(true)
+    void renderTextBlock(undefined, currentDocumentIndex, index)
+  }
+
   return {
     document,
     textBlocks,
@@ -123,5 +149,6 @@ export function useTextBlocks() {
     replaceAllBlocks,
     appendBlock,
     removeBlock,
+    fitBlockToBubble,
   }
 }

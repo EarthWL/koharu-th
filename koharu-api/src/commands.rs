@@ -222,6 +222,13 @@ pub struct AddTextBlockPayload {
     pub height: f32,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TextBlockFitToBubblePayload {
+    pub index: usize,
+    pub text_block_index: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoveTextBlockPayload {

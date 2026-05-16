@@ -301,6 +301,146 @@ pub async fn update_text_block(
     .await
 }
 
+/// Expand a text block's bbox to match the bubble it sits in. Useful
+/// when comic-text-detector returned a tight bbox around the SOURCE
+/// text but the translated Thai needs the full bubble area to fit.
+///
+/// Algorithm: flood-fill white pixels (luminance ≥ threshold) on the
+/// original image starting from a grid of seeds inside the current
+/// bbox, then take the bounding rectangle of the filled region with a
+/// small inward padding so we don't kiss the bubble outline.
+///
+/// Returns the updated TextBlockInfo so the UI can re-render.
+pub async fn text_block_fit_to_bubble(
+    state: AppResources,
+    payload: koharu_api::commands::TextBlockFitToBubblePayload,
+) -> anyhow::Result<TextBlockInfo> {
+    state_tx::mutate_doc(&state.state, payload.index, |document| {
+        let img_w = document.width as i32;
+        let img_h = document.height as i32;
+        let luma = document.image.to_luma8();
+
+        let block = document
+            .text_blocks
+            .get(payload.text_block_index)
+            .ok_or_else(|| {
+                anyhow::anyhow!("Text block {} not found", payload.text_block_index)
+            })?;
+        let bx0 = block.x.max(0.0) as i32;
+        let by0 = block.y.max(0.0) as i32;
+        let bx1 = ((block.x + block.width) as i32).min(img_w - 1);
+        let by1 = ((block.y + block.height) as i32).min(img_h - 1);
+        if bx0 >= bx1 || by0 >= by1 {
+            anyhow::bail!("Block bbox has zero or negative size");
+        }
+
+        // Cap how far we let the fill grow — 3× the original bbox in
+        // each direction. Without this, on pages with very-light
+        // backgrounds the flood would leak out of the bubble entirely.
+        let cap_padding_x = ((bx1 - bx0) as f32 * 1.5) as i32;
+        let cap_padding_y = ((by1 - by0) as f32 * 1.5) as i32;
+        let cap_x0 = (bx0 - cap_padding_x).max(0);
+        let cap_y0 = (by0 - cap_padding_y).max(0);
+        let cap_x1 = (bx1 + cap_padding_x).min(img_w - 1);
+        let cap_y1 = (by1 + cap_padding_y).min(img_h - 1);
+
+        // Threshold: pixels with luma >= 200 count as "bubble interior".
+        // 200 is generous — bubbles are usually pure white but JPEG
+        // compression can drop a few pixels into the 200-240 range.
+        const LUMA_THRESHOLD: u8 = 200;
+
+        // BFS flood from seeds = all pixels inside the original bbox
+        // that pass the threshold. Using multiple seeds (not just centre)
+        // is more robust when text characters split the bubble interior
+        // into several regions through the bbox centre.
+        let bbox_w = (cap_x1 - cap_x0 + 1) as usize;
+        let bbox_h = (cap_y1 - cap_y0 + 1) as usize;
+        let mut visited = vec![false; bbox_w * bbox_h];
+        let mut queue: std::collections::VecDeque<(i32, i32)> =
+            std::collections::VecDeque::new();
+
+        for y in by0..=by1 {
+            for x in bx0..=bx1 {
+                let p = luma.get_pixel(x as u32, y as u32)[0];
+                if p >= LUMA_THRESHOLD {
+                    let idx = ((y - cap_y0) as usize) * bbox_w + ((x - cap_x0) as usize);
+                    if !visited[idx] {
+                        visited[idx] = true;
+                        queue.push_back((x, y));
+                    }
+                }
+            }
+        }
+        if queue.is_empty() {
+            anyhow::bail!(
+                "No bubble interior detected inside current bbox (page is too dark / bubble outline crosses bbox)"
+            );
+        }
+
+        let mut min_x = bx0;
+        let mut min_y = by0;
+        let mut max_x = bx1;
+        let mut max_y = by1;
+
+        while let Some((x, y)) = queue.pop_front() {
+            if x < min_x {
+                min_x = x;
+            }
+            if x > max_x {
+                max_x = x;
+            }
+            if y < min_y {
+                min_y = y;
+            }
+            if y > max_y {
+                max_y = y;
+            }
+            for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                let nx = x + dx;
+                let ny = y + dy;
+                if nx < cap_x0 || ny < cap_y0 || nx > cap_x1 || ny > cap_y1 {
+                    continue;
+                }
+                let idx = ((ny - cap_y0) as usize) * bbox_w + ((nx - cap_x0) as usize);
+                if visited[idx] {
+                    continue;
+                }
+                let p = luma.get_pixel(nx as u32, ny as u32)[0];
+                if p >= LUMA_THRESHOLD {
+                    visited[idx] = true;
+                    queue.push_back((nx, ny));
+                }
+            }
+        }
+
+        // Inward padding so text doesn't render flush against the
+        // bubble outline. 4% of the smaller dimension, capped to a
+        // reasonable absolute range.
+        let span_w = (max_x - min_x) as f32;
+        let span_h = (max_y - min_y) as f32;
+        let pad = ((span_w.min(span_h) * 0.04) as i32).clamp(2, 12);
+
+        let new_x = (min_x + pad).max(0) as f32;
+        let new_y = (min_y + pad).max(0) as f32;
+        let new_w = ((max_x - min_x - 2 * pad).max(8)) as f32;
+        let new_h = ((max_y - min_y - 2 * pad).max(8)) as f32;
+
+        let block = document
+            .text_blocks
+            .get_mut(payload.text_block_index)
+            .unwrap();
+        block.x = new_x;
+        block.y = new_y;
+        block.width = new_w;
+        block.height = new_h;
+        block.lock_layout_box = true;
+        block.set_layout_seed(new_x, new_y, new_w, new_h);
+
+        Ok(to_block_info(payload.text_block_index, block))
+    })
+    .await
+}
+
 pub async fn add_text_block(
     state: AppResources,
     payload: AddTextBlockPayload,

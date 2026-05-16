@@ -111,6 +111,9 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::InpaintPartial => call(operations::inpaint_partial, state, params).await,
         Method::Render => call(operations::render, state, params).await,
         Method::UpdateTextBlocks => call(operations::update_text_blocks, state, params).await,
+        Method::TextBlockFitToBubble => {
+            call(operations::text_block_fit_to_bubble, state, params).await
+        }
         Method::LlmLoad => call(operations::llm_load, state, params).await,
         Method::LlmGenerate => call(operations::llm_generate, state, params).await,
         Method::Process => call(operations::process, state, params).await,

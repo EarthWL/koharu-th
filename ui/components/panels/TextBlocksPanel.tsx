@@ -7,6 +7,7 @@ import { TextBlock } from '@/types'
 import {
   AlertTriangleIcon,
   Download,
+  ExpandIcon,
   Languages,
   LoaderCircleIcon,
   Upload,
@@ -42,6 +43,7 @@ export function TextBlocksPanel() {
     setSelectedBlockIndex,
     replaceBlock,
     replaceAllBlocks,
+    fitBlockToBubble,
   } = useTextBlocks()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { t } = useTranslation()
@@ -205,6 +207,7 @@ export function TextBlocksPanel() {
                   selected={index === selectedBlockIndex}
                   onChange={(updates) => void replaceBlock(index, updates)}
                   onGenerate={() => void handleGenerate(index)}
+                  onFitToBubble={() => void fitBlockToBubble(index)}
                   generating={generatingIndex === index}
                   llmReady={isLlmAvailable}
                 />
@@ -223,6 +226,7 @@ type BlockCardProps = {
   selected: boolean
   onChange: (updates: Partial<TextBlock>) => void
   onGenerate: () => void | Promise<void>
+  onFitToBubble: () => void | Promise<void>
   generating: boolean
   llmReady: boolean
 }
@@ -233,6 +237,7 @@ function BlockCard({
   selected,
   onChange,
   onGenerate,
+  onFitToBubble,
   generating,
   llmReady,
 }: BlockCardProps) {
@@ -377,6 +382,16 @@ function BlockCard({
                 className='py-2'
               />
             </div>
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={() => void onFitToBubble()}
+              className='h-7 w-full gap-1 text-[10px]'
+              title='Auto-expand this block to fit the surrounding speech bubble (uses flood-fill of white pixels on the original image)'
+            >
+              <ExpandIcon className='size-3' />
+              Fit to bubble
+            </Button>
           </div>
         </AccordionContent>
       </AccordionItem>

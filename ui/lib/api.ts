@@ -159,6 +159,21 @@ export const api = {
     await invoke('update_text_blocks', { index, textBlocks })
   },
 
+  /** Expand a text block's bbox to fit the bubble it sits in. Uses a
+   *  flood-fill of high-luminance pixels on the original image as a
+   *  heuristic for "inside the bubble". Useful when comic-text-detector
+   *  returned a tight bbox around the source text but the translated
+   *  Thai needs the full bubble area to render without overflow. */
+  async textBlockFitToBubble(
+    index: number,
+    textBlockIndex: number,
+  ): Promise<unknown> {
+    return invoke('text_block_fit_to_bubble', {
+      index,
+      textBlockIndex,
+    })
+  },
+
   /** Update a single text block on a page — used by the QC consistency
    *  flow to patch one translation at a time. */
   async updateTextBlock(input: {
