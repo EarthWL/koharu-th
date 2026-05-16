@@ -1,12 +1,14 @@
 # Koharu-TH
 
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/EarthWL/koharu-th/releases)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE-GPL)
-[![Upstream](https://img.shields.io/badge/upstream-mayocream%2Fkoharu%200.37.0-purple.svg)](https://github.com/mayocream/koharu)
+[![Sub-crates: Apache 2.0](https://img.shields.io/badge/sub--crates-Apache--2.0-blue.svg)](LICENSE-APACHE)
+[![Based on](https://img.shields.io/badge/based%20on-mayocream%2Fkoharu%200.37.0-purple.svg)](https://github.com/mayocream/koharu)
 [![Rust](https://img.shields.io/badge/rust-1.92%2B-orange.svg)](https://www.rust-lang.org/)
 
 > [English](./README.md)
 >
-> Fork ส่วนตัวของ [mayocream/koharu](https://github.com/mayocream/koharu) จากที่เริ่มต้นเป็นแค่ patch รองรับภาษาไทย ตอนนี้กลายเป็น **series translation studio** เต็มตัว — SQLite ต่อ project เก็บ characters / glossary / TM / prompt templates / cost log, ระบบ LLM Profile 5 provider, AI Chat agentic ที่สรุปข้อมูลจาก wiki URL เข้าโปรเจคให้ได้, และ MCP server ~60 tools สำหรับ external agents
+> **Manga series-translation studio** ที่ตั้งต้นจาก [mayocream/koharu](https://github.com/mayocream/koharu) 0.37.0. เริ่มจาก patch รองรับภาษาไทย, ตอนนี้กลายเป็น product แยกที่มี — SQLite ต่อ project เก็บ characters / glossary / TM / prompt templates / cost log, ระบบ LLM Profile 5 provider, AI Chat agentic ที่สรุปข้อมูลจาก wiki URL เข้าโปรเจคให้ได้, และ MCP server ~60 tools สำหรับ external agents. Versioning แยกอิสระจาก upstream (เริ่ม semver ใหม่ที่ 1.0.0).
 
 โปรแกรมแปลมังงะด้วย ML เขียนด้วย **Rust**
 
@@ -270,12 +272,16 @@ cargo test -p koharu-project -p koharu-api
 
 ### Sync กับ upstream
 
+Fork นี้ไม่ track upstream แบบ linear แล้ว — restructure เป็น project-folder + sidebar tabs + crate ใหม่ (`koharu-project`) ทำให้ rebase ตรงๆ ชนทุกที่. แนะนำ cherry-pick เฉพาะตัวที่ต้องการ:
+
 ```bash
 git fetch upstream
-git diff upstream/main         # ดูว่าฉีกไปเยอะแค่ไหน (เยอะแล้ว)
+git log <last-synced>..upstream/main --oneline --grep="^fix"   # หา bug fix candidates
+git show <sha>                                                  # ดูก่อน apply
+git cherry-pick -x <sha>                                        # บันทึก SHA เดิมใน commit body
 ```
 
-Rebase ตรงๆ จาก upstream จะยุ่งเพราะการ restructure เป็น project-folder + sidebar tabs — แนะนำ cherry-pick commit ทีละตัว
+ตอน backport ให้ cite upstream SHA ใน commit body (ดูตัวอย่างเดิมด้วย `git log --grep="cherry-picked from"`) เพื่อให้ audit trail ติดตามได้
 
 ## Roadmap
 

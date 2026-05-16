@@ -14,7 +14,8 @@ import { invoke, isTauri } from '@/lib/backend'
 import { useDocumentMutations } from '@/lib/query/mutations'
 import Image from 'next/image'
 
-const GITHUB_REPO = 'mayocream/koharu'
+const GITHUB_REPO = 'EarthWL/koharu-th'
+const UPSTREAM_REPO = 'mayocream/koharu'
 
 type VersionStatus = 'loading' | 'latest' | 'outdated' | 'error'
 
@@ -85,9 +86,23 @@ export default function AboutPage() {
                 className='mb-4'
                 draggable={false}
               />
-              <h2 className='text-foreground mb-1 text-xl font-bold'>Koharu</h2>
+              <h2 className='text-foreground mb-1 text-xl font-bold'>
+                Koharu-TH
+              </h2>
               <p className='text-muted-foreground text-sm'>
                 {t('settings.aboutTagline')}
+              </p>
+              <p className='text-muted-foreground/70 mt-1 text-[10px]'>
+                Personal fork of{' '}
+                <button
+                  onClick={() =>
+                    openExternal(`https://github.com/${UPSTREAM_REPO}`)
+                  }
+                  className='underline hover:text-foreground'
+                >
+                  mayocream/koharu
+                </button>{' '}
+                — series-translation studio for Thai output.
               </p>
             </div>
 
@@ -131,10 +146,10 @@ export default function AboutPage() {
                     {t('settings.aboutAuthor')}
                   </span>
                   <button
-                    onClick={() => openExternal('https://github.com/mayocream')}
+                    onClick={() => openExternal('https://github.com/EarthWL')}
                     className='text-foreground font-medium hover:underline'
                   >
-                    Mayo
+                    EarthWL
                   </button>
                 </div>
                 <div className='flex items-center justify-between'>
@@ -147,7 +162,31 @@ export default function AboutPage() {
                     }
                     className='text-foreground font-medium hover:underline'
                   >
-                    GitHub
+                    EarthWL/koharu-th
+                  </button>
+                </div>
+                <div className='flex items-center justify-between'>
+                  <span className='text-muted-foreground'>Based on</span>
+                  <button
+                    onClick={() =>
+                      openExternal(`https://github.com/${UPSTREAM_REPO}`)
+                    }
+                    className='text-muted-foreground/80 text-xs font-medium hover:underline'
+                  >
+                    mayocream/koharu
+                  </button>
+                </div>
+                <div className='flex items-center justify-between'>
+                  <span className='text-muted-foreground'>License</span>
+                  <button
+                    onClick={() =>
+                      openExternal(
+                        `https://github.com/${GITHUB_REPO}/blob/main/LICENSE-GPL`,
+                      )
+                    }
+                    className='text-muted-foreground/80 text-xs font-medium hover:underline'
+                  >
+                    GPL-3.0 · Apache-2.0
                   </button>
                 </div>
               </div>

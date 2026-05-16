@@ -15,17 +15,22 @@ default-members = ["koharu"]
 resolver = "3"
 
 [workspace.package]
-version = "0.37.0"
+# koharu-th versioning is independent from upstream (which is at 0.59.x).
+# Reset to 1.0.0 — the fork is a series-translation studio rather than a
+# patch of upstream 0.37.0 (added series project, agentic AI chat,
+# 5-provider LLM profiles, MCP expansion, vector TM, CBZ export, …).
+version = "1.0.0"
 edition = "2024"
-description = "Manga translation tools"
+description = "Manga series translation studio (koharu-th fork)"
 license = "Apache-2.0"
 authors = [
+    "EarthWL <criticenz.inc3ption@gmail.com>",
     "Mayo Takanashi <mayo@linux.com>",
     "Wangchong Zhou <fffonion@gmail.com>",
 ]
 readme = "README.md"
-homepage = "https://koharu.rs"
-repository = "https://github.com/mayocream/koharu"
+homepage = "https://github.com/EarthWL/koharu-th"
+repository = "https://github.com/EarthWL/koharu-th"
 keywords = ["manga", "ocr", "translation", "deep_learning", "computer_vision"]
 publish = false
 

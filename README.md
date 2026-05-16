@@ -1,12 +1,14 @@
 # Koharu-TH
 
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/EarthWL/koharu-th/releases)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE-GPL)
-[![Upstream](https://img.shields.io/badge/upstream-mayocream%2Fkoharu%200.37.0-purple.svg)](https://github.com/mayocream/koharu)
+[![Sub-crates: Apache 2.0](https://img.shields.io/badge/sub--crates-Apache--2.0-blue.svg)](LICENSE-APACHE)
+[![Based on](https://img.shields.io/badge/based%20on-mayocream%2Fkoharu%200.37.0-purple.svg)](https://github.com/mayocream/koharu)
 [![Rust](https://img.shields.io/badge/rust-1.92%2B-orange.svg)](https://www.rust-lang.org/)
 
 > [ภาษาไทย](./README.th.md)
 >
-> Personal fork of [mayocream/koharu](https://github.com/mayocream/koharu). What started as a Thai-language patch has grown into a **series translation studio** — per-project SQLite for characters / glossary / translation memory / prompt templates / cost log, a 5-provider LLM profile system, an agentic AI Chat that can populate project data from a wiki URL, and a ~60-tool MCP server for external agents.
+> **Manga series-translation studio**, based on [mayocream/koharu](https://github.com/mayocream/koharu) 0.37.0. What started as a Thai-language patch has grown into its own product with per-project SQLite (characters / glossary / translation memory / prompt templates / cost log), a 5-provider LLM profile system, an agentic AI Chat that can populate project data from a wiki URL, and a ~60-tool MCP server for external agents. Versioning is independent from upstream (we run our own semver starting at 1.0.0).
 
 ML-powered manga translation studio, written in **Rust**.
 
@@ -270,12 +272,16 @@ cargo test -p koharu-project -p koharu-api
 
 ### Syncing with upstream
 
+This fork no longer tracks upstream linearly — the project-folder + sidebar tabs restructuring + new crates (`koharu-project`) mean a straight rebase would conflict everywhere. Cherry-pick selectively:
+
 ```bash
 git fetch upstream
-git diff upstream/main         # see what's diverged (it's a lot now)
+git log <last-synced>..upstream/main --oneline --grep="^fix"   # candidate bug fixes
+git show <sha>                                                  # inspect before applying
+git cherry-pick -x <sha>                                        # records original SHA in commit body
 ```
 
-Direct rebase against upstream gets messy because of the project-folder + sidebar tabs restructuring — prefer cherry-picking specific upstream commits.
+When backporting, cite the upstream SHA in the commit body (see `git log --grep="cherry-picked from"` for prior examples) so the audit trail stays intact.
 
 ## Roadmap
 
