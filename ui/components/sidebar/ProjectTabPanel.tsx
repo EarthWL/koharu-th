@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArchiveIcon, Loader2Icon, LogOutIcon } from 'lucide-react'
+import { CostDashboard } from '@/components/project/CostDashboard'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -203,6 +204,10 @@ export function ProjectTabPanel() {
               <LogOutIcon className='size-3' />
               Close project
             </Button>
+          </div>
+
+          <div className='border-border border-t pt-3'>
+            <CostDashboard />
           </div>
         </div>
       </ScrollArea>

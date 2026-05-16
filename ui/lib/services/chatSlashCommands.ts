@@ -114,6 +114,25 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     }),
   },
   {
+    name: 'qc-consistency',
+    description:
+      'Scan the open chapter for glossary / character name mismatches and propose fixes.',
+    build: (extra) => ({
+      display: `/qc-consistency ${extra}`,
+      prompt: [
+        'Call qc_chapter_consistency on the currently-open chapter.',
+        'Then:',
+        '1. Summarise the report (how many blocks scanned, how many mismatches).',
+        '2. Group mismatches by term and present as a markdown table (page · block · source term · expected target · what the translator wrote).',
+        '3. For each group, suggest one of:',
+        '   - rewrite the block to use the expected target (call update_text_block — wait for approval)',
+        '   - update the glossary entry to a new canonical form (call glossary_update — wait for approval)',
+        '   - leave as-is if the variation is intentional',
+        extra ? `\nExtra hint from user: ${extra}` : '',
+      ].join('\n'),
+    }),
+  },
+  {
     name: 'fetch-wiki',
     argsHint: '<url>',
     description:

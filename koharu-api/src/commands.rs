@@ -855,6 +855,61 @@ pub struct WebFetchResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct LlmCostByProfile {
+    pub profile_id: i64,
+    pub profile_name: String,
+    pub provider: String,
+    pub total_calls: i64,
+    pub successful_calls: i64,
+    pub total_prompt_tokens: i64,
+    pub total_completion_tokens: i64,
+    pub total_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmCostByChapter {
+    pub chapter_id: i64,
+    pub chapter_title: String,
+    pub chapter_number: f64,
+    pub total_calls: i64,
+    pub total_prompt_tokens: i64,
+    pub total_completion_tokens: i64,
+    pub total_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmCostByDay {
+    /// "YYYY-MM-DD" UTC.
+    pub day: String,
+    pub total_calls: i64,
+    pub total_prompt_tokens: i64,
+    pub total_completion_tokens: i64,
+    pub total_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmCostByUseCase {
+    pub use_case: String,
+    pub total_calls: i64,
+    pub total_prompt_tokens: i64,
+    pub total_completion_tokens: i64,
+    pub total_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmCostBreakdown {
+    pub by_profile: Vec<LlmCostByProfile>,
+    pub by_chapter: Vec<LlmCostByChapter>,
+    pub by_day: Vec<LlmCostByDay>,
+    pub by_use_case: Vec<LlmCostByUseCase>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct LlmCostStats {
     pub total_calls: i64,
     pub successful_calls: i64,

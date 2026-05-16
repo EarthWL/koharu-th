@@ -82,6 +82,7 @@ pub enum Method {
     // Phase 10: LLM call log + stats
     LlmCallLog,
     LlmCostStats,
+    LlmCostBreakdown,
     // AI Chat
     ChatMessagesList,
     ChatMessageAdd,
@@ -160,6 +161,7 @@ impl Method {
         Method::ProviderProfileSecretGet,
         Method::LlmCallLog,
         Method::LlmCostStats,
+        Method::LlmCostBreakdown,
         Method::ChatMessagesList,
         Method::ChatMessageAdd,
         Method::ChatMessagesClear,
@@ -237,6 +239,7 @@ impl Method {
             Method::ProviderProfileSecretGet => "provider_profile_secret_get",
             Method::LlmCallLog => "llm_call_log",
             Method::LlmCostStats => "llm_cost_stats",
+            Method::LlmCostBreakdown => "llm_cost_breakdown",
             Method::ChatMessagesList => "chat_messages_list",
             Method::ChatMessageAdd => "chat_message_add",
             Method::ChatMessagesClear => "chat_messages_clear",
@@ -325,6 +328,7 @@ impl FromStr for Method {
             "provider_profile_secret_get" => Method::ProviderProfileSecretGet,
             "llm_call_log" => Method::LlmCallLog,
             "llm_cost_stats" => Method::LlmCostStats,
+            "llm_cost_breakdown" => Method::LlmCostBreakdown,
             "chat_messages_list" => Method::ChatMessagesList,
             "chat_message_add" => Method::ChatMessageAdd,
             "chat_messages_clear" => Method::ChatMessagesClear,

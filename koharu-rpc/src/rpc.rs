@@ -176,6 +176,7 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         }
         Method::LlmCallLog => call(operations::llm_call_log, state, params).await,
         Method::LlmCostStats => call0(operations::llm_cost_stats, state).await,
+        Method::LlmCostBreakdown => call0(operations::llm_cost_breakdown, state).await,
         Method::ChatMessagesList => {
             call(operations::chat_messages_list, state, params).await
         }

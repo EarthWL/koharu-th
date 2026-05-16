@@ -159,6 +159,25 @@ export const api = {
     await invoke('update_text_blocks', { index, textBlocks })
   },
 
+  /** Update a single text block on a page — used by the QC consistency
+   *  flow to patch one translation at a time. */
+  async updateTextBlock(input: {
+    index: number
+    textBlockIndex: number
+    translation?: string
+    x?: number
+    y?: number
+    width?: number
+    height?: number
+    fontFamilies?: string[]
+    fontSize?: number
+    color?: string
+    shaderEffect?: string
+    rotationDeg?: number
+  }): Promise<void> {
+    await invoke('update_text_block', input)
+  },
+
   async listFontFamilies(): Promise<string[]> {
     return invoke('list_font_families')
   },
@@ -497,6 +516,10 @@ export const api = {
     return invoke('llm_cost_stats') as Promise<LlmCostStats>
   },
 
+  async llmCostBreakdown(): Promise<LlmCostBreakdown> {
+    return invoke('llm_cost_breakdown') as Promise<LlmCostBreakdown>
+  },
+
   // ----------------------------------------------------------------
   // AI Chat (per-project history + agentic web fetch)
   // ----------------------------------------------------------------
@@ -583,6 +606,51 @@ export type LlmCostStats = {
   totalPromptTokens: number
   totalCompletionTokens: number
   totalCostUsd: number
+}
+
+export type LlmCostByProfile = {
+  profileId: number
+  profileName: string
+  provider: string
+  totalCalls: number
+  successfulCalls: number
+  totalPromptTokens: number
+  totalCompletionTokens: number
+  totalCostUsd: number
+}
+
+export type LlmCostByChapter = {
+  chapterId: number
+  chapterTitle: string
+  chapterNumber: number
+  totalCalls: number
+  totalPromptTokens: number
+  totalCompletionTokens: number
+  totalCostUsd: number
+}
+
+export type LlmCostByDay = {
+  /** YYYY-MM-DD UTC */
+  day: string
+  totalCalls: number
+  totalPromptTokens: number
+  totalCompletionTokens: number
+  totalCostUsd: number
+}
+
+export type LlmCostByUseCase = {
+  useCase: string
+  totalCalls: number
+  totalPromptTokens: number
+  totalCompletionTokens: number
+  totalCostUsd: number
+}
+
+export type LlmCostBreakdown = {
+  byProfile: LlmCostByProfile[]
+  byChapter: LlmCostByChapter[]
+  byDay: LlmCostByDay[]
+  byUseCase: LlmCostByUseCase[]
 }
 
 export type TmEntryDto = {

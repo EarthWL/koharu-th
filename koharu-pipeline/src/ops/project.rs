@@ -1214,6 +1214,137 @@ pub async fn llm_call_log(
     Ok(())
 }
 
+pub async fn llm_cost_breakdown(
+    state: AppResources,
+) -> anyhow::Result<koharu_api::commands::LlmCostBreakdown> {
+    use koharu_api::commands::{
+        LlmCostBreakdown, LlmCostByChapter, LlmCostByDay, LlmCostByProfile,
+        LlmCostByUseCase,
+    };
+    let project = require_project(&state).await?;
+    let breakdown = tokio::task::spawn_blocking(move || -> anyhow::Result<LlmCostBreakdown> {
+        let conn = project.pool().get()?;
+
+        // By provider profile — join with provider_profiles for name/provider.
+        let by_profile = {
+            let mut stmt = conn.prepare(
+                "SELECT
+                    p.id, p.name, p.provider,
+                    COUNT(l.id),
+                    COALESCE(SUM(l.success), 0),
+                    COALESCE(SUM(l.prompt_tokens), 0),
+                    COALESCE(SUM(l.completion_tokens), 0),
+                    COALESCE(SUM(l.estimated_cost_usd), 0)
+                 FROM llm_call_log l
+                 LEFT JOIN provider_profiles p ON p.id = l.profile_id
+                 WHERE l.profile_id IS NOT NULL
+                 GROUP BY l.profile_id
+                 ORDER BY SUM(l.estimated_cost_usd) DESC",
+            )?;
+            stmt.query_map([], |r| {
+                Ok(LlmCostByProfile {
+                    profile_id: r.get(0)?,
+                    profile_name: r.get::<_, Option<String>>(1)?.unwrap_or_else(|| "(deleted)".into()),
+                    provider: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                    total_calls: r.get(3)?,
+                    successful_calls: r.get(4)?,
+                    total_prompt_tokens: r.get(5)?,
+                    total_completion_tokens: r.get(6)?,
+                    total_cost_usd: r.get(7)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+
+        // By chapter — join with chapters for the name.
+        let by_chapter = {
+            let mut stmt = conn.prepare(
+                "SELECT
+                    c.id, COALESCE(c.title, ''), c.chapter_number,
+                    COUNT(l.id),
+                    COALESCE(SUM(l.prompt_tokens), 0),
+                    COALESCE(SUM(l.completion_tokens), 0),
+                    COALESCE(SUM(l.estimated_cost_usd), 0)
+                 FROM llm_call_log l
+                 INNER JOIN chapters c ON c.id = l.chapter_id
+                 GROUP BY l.chapter_id
+                 ORDER BY c.chapter_number ASC",
+            )?;
+            stmt.query_map([], |r| {
+                Ok(LlmCostByChapter {
+                    chapter_id: r.get(0)?,
+                    chapter_title: r.get(1)?,
+                    chapter_number: r.get(2)?,
+                    total_calls: r.get(3)?,
+                    total_prompt_tokens: r.get(4)?,
+                    total_completion_tokens: r.get(5)?,
+                    total_cost_usd: r.get(6)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+
+        // By day (UTC) — last 30 days for spark/line chart.
+        let by_day = {
+            let mut stmt = conn.prepare(
+                "SELECT
+                    strftime('%Y-%m-%d', created_at, 'unixepoch'),
+                    COUNT(*),
+                    COALESCE(SUM(prompt_tokens), 0),
+                    COALESCE(SUM(completion_tokens), 0),
+                    COALESCE(SUM(estimated_cost_usd), 0)
+                 FROM llm_call_log
+                 WHERE created_at >= strftime('%s', 'now', '-30 days')
+                 GROUP BY 1
+                 ORDER BY 1 ASC",
+            )?;
+            stmt.query_map([], |r| {
+                Ok(LlmCostByDay {
+                    day: r.get(0)?,
+                    total_calls: r.get(1)?,
+                    total_prompt_tokens: r.get(2)?,
+                    total_completion_tokens: r.get(3)?,
+                    total_cost_usd: r.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+
+        let by_use_case = {
+            let mut stmt = conn.prepare(
+                "SELECT
+                    use_case,
+                    COUNT(*),
+                    COALESCE(SUM(prompt_tokens), 0),
+                    COALESCE(SUM(completion_tokens), 0),
+                    COALESCE(SUM(estimated_cost_usd), 0)
+                 FROM llm_call_log
+                 GROUP BY use_case
+                 ORDER BY SUM(estimated_cost_usd) DESC",
+            )?;
+            stmt.query_map([], |r| {
+                Ok(LlmCostByUseCase {
+                    use_case: r.get(0)?,
+                    total_calls: r.get(1)?,
+                    total_prompt_tokens: r.get(2)?,
+                    total_completion_tokens: r.get(3)?,
+                    total_cost_usd: r.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+
+        Ok(LlmCostBreakdown {
+            by_profile,
+            by_chapter,
+            by_day,
+            by_use_case,
+        })
+    })
+    .await??;
+    Ok(breakdown)
+}
+
 pub async fn llm_cost_stats(state: AppResources) -> anyhow::Result<LlmCostStats> {
     let project = require_project(&state).await?;
     let stats = tokio::task::spawn_blocking(move || -> anyhow::Result<LlmCostStats> {

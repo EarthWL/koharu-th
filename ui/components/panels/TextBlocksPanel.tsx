@@ -4,7 +4,14 @@ import React, { useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'motion/react'
 import { TextBlock } from '@/types'
-import { Languages, LoaderCircleIcon, Download, Upload } from 'lucide-react'
+import {
+  AlertTriangleIcon,
+  Download,
+  Languages,
+  LoaderCircleIcon,
+  Upload,
+} from 'lucide-react'
+import { bubbleFitWarning } from '@/lib/services/bubbleFit'
 import { fileSave } from 'browser-fs-access'
 import { useTextBlocks } from '@/hooks/useTextBlocks'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
@@ -233,6 +240,7 @@ function BlockCard({
   const hasOcr = !!block.text?.trim()
   const hasTranslation = !!block.translation?.trim()
   const preview = block.translation?.trim() || block.text?.trim()
+  const fit = bubbleFitWarning(block)
 
   return (
     <motion.div
@@ -274,6 +282,25 @@ function BlockCard({
             >
               {t('textBlocks.translationBadge')}
             </span>
+            {fit && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className={`flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-medium uppercase ${
+                      fit.level === 'overflow'
+                        ? 'bg-rose-500 text-white'
+                        : 'bg-amber-400 text-black'
+                    }`}
+                  >
+                    <AlertTriangleIcon className='size-2.5' />
+                    {fit.level === 'overflow' ? 'overflow' : 'tight'}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side='top' className='max-w-[260px] text-[10px]'>
+                  {fit.reason}
+                </TooltipContent>
+              </Tooltip>
+            )}
             {preview && (
               <p className='text-muted-foreground line-clamp-1 min-w-0 flex-1 text-xs'>
                 {preview}

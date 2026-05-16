@@ -13,6 +13,7 @@ import {
   PlayIcon,
   PlusIcon,
   Trash2Icon,
+  WandSparklesIcon,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
@@ -26,6 +27,7 @@ import {
 } from '@/components/ui/select'
 import { api, type ChapterDto, type ChapterStatus } from '@/lib/api'
 import { useProjectStore } from '@/lib/stores/projectStore'
+import { ExtractEntitiesModal } from '@/components/project/ExtractEntitiesModal'
 
 const STATUS_OPTIONS: { value: ChapterStatus; label: string }[] = [
   { value: 'pending', label: 'Pending' },
@@ -55,6 +57,9 @@ export function ChaptersTabPanel() {
       (m, c) => Math.max(m, c.chapterNumber),
       0,
     ) + 1
+  /** Set when user clicks the ✨ wand button on a chapter row — opens
+   *  the extract modal with the chapter already loaded into the editor. */
+  const [extractOpen, setExtractOpen] = useState(false)
 
   return (
     <div className='flex h-full min-h-0 flex-col'>
@@ -88,11 +93,21 @@ export function ChaptersTabPanel() {
             </div>
           ) : (
             chapters.data.map((c) => (
-              <ChapterRow key={c.id} chapter={c} onChanged={refresh} />
+              <ChapterRow
+                key={c.id}
+                chapter={c}
+                onChanged={refresh}
+                onRequestExtract={() => setExtractOpen(true)}
+              />
             ))
           )}
         </div>
       </ScrollArea>
+      <ExtractEntitiesModal
+        open={extractOpen}
+        onClose={() => setExtractOpen(false)}
+        onApplied={refresh}
+      />
     </div>
   )
 }
@@ -175,9 +190,13 @@ function NewChapterForm({
 function ChapterRow({
   chapter,
   onChanged,
+  onRequestExtract,
 }: {
   chapter: ChapterDto
   onChanged: () => void
+  /** Open the panel-level Extract Entities modal after this chapter
+   *  is loaded into the editor. */
+  onRequestExtract: () => void
 }) {
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -185,8 +204,23 @@ function ChapterRow({
   const setActiveChapterId = useProjectStore((s) => s.setActiveChapterId)
   const isActive = activeChapterId === chapter.id
   const [opening, setOpening] = useState(false)
+  const [openingForExtract, setOpeningForExtract] = useState(false)
   const [addingPages, setAddingPages] = useState(false)
   const [justAdded, setJustAdded] = useState<number | null>(null)
+
+  const openAndExtract = async () => {
+    setOpeningForExtract(true)
+    try {
+      await api.chapterOpen(chapter.id)
+      setActiveChapterId(chapter.id)
+      await queryClient.invalidateQueries({ queryKey: ['documents'] })
+      onRequestExtract()
+    } catch (err: any) {
+      alert(err?.message ?? String(err))
+    } finally {
+      setOpeningForExtract(false)
+    }
+  }
 
   const open = async () => {
     setOpening(true)
@@ -330,6 +364,20 @@ function ChapterRow({
             <ImagePlusIcon className='size-3' />
           )}
           Pages
+        </Button>
+        <Button
+          variant='outline'
+          size='sm'
+          className='h-6 px-1.5 text-[10px]'
+          disabled={openingForExtract || chapter.pageCount === 0}
+          onClick={() => void openAndExtract()}
+          title='Auto-setup: open chapter → OCR all pages → extract characters & glossary'
+        >
+          {openingForExtract ? (
+            <Loader2Icon className='size-3 animate-spin' />
+          ) : (
+            <WandSparklesIcon className='size-3' />
+          )}
         </Button>
         <Select
           value={chapter.status}

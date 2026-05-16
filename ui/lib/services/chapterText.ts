@@ -30,3 +30,42 @@ export async function loadCurrentWorkspaceText(): Promise<string> {
   }
   return parts.join('\n\n')
 }
+
+/**
+ * Run detect + OCR on every loaded page that doesn't have text yet,
+ * then return the concatenated text. Idempotent — pages that already
+ * have text blocks (i.e. OCR was run before) are skipped. Calls
+ * `onProgress(done, total, label)` after each page so callers can
+ * surface progress.
+ *
+ * Used by the auto-extract flow that runs immediately after a user
+ * adds pages to a fresh chapter — they shouldn't have to walk through
+ * "click detect, click ocr, repeat" before the LLM can read the text.
+ */
+export async function ocrAllOpenPages(
+  onProgress: (done: number, total: number, label: string) => void,
+): Promise<string> {
+  const count = await api.getDocumentsCount()
+  if (!count) return ''
+  for (let i = 0; i < count; i++) {
+    onProgress(i, count, `Page ${i + 1}: detect`)
+    try {
+      const before = await api.getDocument(i)
+      if ((before.textBlocks ?? []).length === 0) {
+        await api.detect(i)
+      }
+      const afterDetect = await api.getDocument(i)
+      const needsOcr = (afterDetect.textBlocks ?? []).some(
+        (b: { text?: string | null }) => !b.text || b.text.trim() === '',
+      )
+      if (needsOcr) {
+        onProgress(i, count, `Page ${i + 1}: ocr`)
+        await api.ocr(i)
+      }
+    } catch (err) {
+      console.warn(`[chapterText] ocr page ${i} failed`, err)
+    }
+    onProgress(i + 1, count, `Page ${i + 1} done`)
+  }
+  return loadCurrentWorkspaceText()
+}

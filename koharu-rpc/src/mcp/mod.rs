@@ -1063,6 +1063,17 @@ impl KoharuMcp {
         serde_json::to_string_pretty(&stats).map_err(|e| e.to_string())
     }
 
+    #[tool(
+        description = "LLM cost breakdown: lists per-profile, per-chapter, per-day (last 30 days), and per-use-case spend with token counts. Use to diagnose where translation cost is concentrated."
+    )]
+    async fn llm_cost_breakdown(&self) -> Result<String, String> {
+        let res = self.resources()?;
+        let bd = operations::llm_cost_breakdown(res)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&bd).map_err(|e| e.to_string())
+    }
+
     // ============================================================
     // Web fetch (agentic tool — for wiki / fandom summarisation)
     // ============================================================

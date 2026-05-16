@@ -247,6 +247,45 @@ const TOOLS: ToolDef[] = [
     handler: (args) => api.tmLookup(args.sourceText, args.targetLang),
   },
 
+  // ── Text block edit (for QC fixes) ────────────────────────────
+  {
+    name: 'update_text_block',
+    description:
+      'Update a single text block on a specific page. Use to fix translations after a QC scan finds a glossary / character name mismatch. Index is the page (0-based), textBlockIndex is the block within that page.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['index', 'textBlockIndex'],
+      properties: {
+        index: {
+          type: 'integer',
+          description: '0-based page index in the currently-open chapter.',
+        },
+        textBlockIndex: {
+          type: 'integer',
+          description: '0-based block index within the page.',
+        },
+        translation: { type: 'string' },
+        fontSize: { type: 'number' },
+        color: { type: 'string', description: 'Hex like #ffffff.' },
+      },
+    },
+    handler: (args) => api.updateTextBlock(args),
+  },
+
+  // ── QC consistency check ──────────────────────────────────────
+  {
+    name: 'qc_chapter_consistency',
+    description:
+      'Scan the currently-loaded chapter pages: for every translated text block, check whether glossary terms / character names that appear in the source were rendered as the canonical translation. Returns mismatches (source term, expected target, actual target, page+block index) so the assistant can summarise + propose fixes.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {},
+    },
+    handler: () => runQcConsistency(),
+  },
+
   // ── Web fetch (agentic) ───────────────────────────────────────
   {
     name: 'web_fetch_url',
@@ -263,6 +302,111 @@ const TOOLS: ToolDef[] = [
     handler: (args) => api.webFetchUrl(args.url),
   },
 ]
+
+// ─────────────────────────────────────────────────────────────────
+// QC consistency — pure JS scan, no LLM cost
+// ─────────────────────────────────────────────────────────────────
+type QcMismatch = {
+  page: number
+  blockIndex: number
+  source: string
+  translation: string
+  term: string
+  expected: string
+  category: string
+}
+
+type QcReport = {
+  pagesScanned: number
+  blocksScanned: number
+  glossaryTermsChecked: number
+  charactersChecked: number
+  mismatches: QcMismatch[]
+  summary: string
+}
+
+async function runQcConsistency(): Promise<QcReport> {
+  const [pageCount, glossary, characters] = await Promise.all([
+    api.getDocumentsCount(),
+    api.glossaryList().catch(() => [] as Awaited<ReturnType<typeof api.glossaryList>>),
+    api.charactersList().catch(() => [] as Awaited<ReturnType<typeof api.charactersList>>),
+  ])
+
+  // Flatten into a single (sourceTerm, expectedTarget, category) list.
+  const terms: { src: string; tgt: string; category: string }[] = []
+  for (const g of glossary) {
+    if (g.sourceText && g.targetText) {
+      terms.push({ src: g.sourceText, tgt: g.targetText, category: g.category })
+    }
+    for (const a of g.aliases ?? []) {
+      if (a) terms.push({ src: a, tgt: g.targetText, category: g.category })
+    }
+  }
+  for (const c of characters) {
+    if (c.originalName && c.translatedName) {
+      terms.push({
+        src: c.originalName,
+        tgt: c.translatedName,
+        category: 'character',
+      })
+    }
+    for (const a of c.aliases ?? []) {
+      if (a.src && a.tgt) {
+        terms.push({ src: a.src, tgt: a.tgt, category: 'character' })
+      }
+    }
+  }
+
+  const mismatches: QcMismatch[] = []
+  let blocksScanned = 0
+  let pagesScanned = 0
+  for (let pageIdx = 0; pageIdx < pageCount; pageIdx++) {
+    let doc: Awaited<ReturnType<typeof api.getDocument>>
+    try {
+      doc = await api.getDocument(pageIdx)
+    } catch {
+      continue
+    }
+    pagesScanned += 1
+    const blocks = doc.textBlocks ?? []
+    for (let bIdx = 0; bIdx < blocks.length; bIdx++) {
+      const b = blocks[bIdx]
+      const src = b.text?.trim() ?? ''
+      const tgt = b.translation?.trim() ?? ''
+      if (!src || !tgt) continue
+      blocksScanned += 1
+      for (const term of terms) {
+        if (!src.includes(term.src)) continue
+        // Mismatch if expected target text doesn't appear in translation.
+        if (!tgt.includes(term.tgt)) {
+          mismatches.push({
+            page: pageIdx + 1,
+            blockIndex: bIdx,
+            source: src,
+            translation: tgt,
+            term: term.src,
+            expected: term.tgt,
+            category: term.category,
+          })
+        }
+      }
+    }
+  }
+
+  const summary =
+    mismatches.length === 0
+      ? `Scanned ${blocksScanned} translated block(s) across ${pagesScanned} page(s). No glossary / character mismatches found.`
+      : `Found ${mismatches.length} potential mismatch(es) across ${blocksScanned} translated block(s) on ${pagesScanned} page(s). Glossary terms checked: ${terms.length}.`
+
+  return {
+    pagesScanned,
+    blocksScanned,
+    glossaryTermsChecked: glossary.length,
+    charactersChecked: characters.length,
+    mismatches,
+    summary,
+  }
+}
 
 export function listTools(): ToolDef[] {
   return TOOLS

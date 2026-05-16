@@ -17,8 +17,12 @@ import {
   extractEntitiesFromText,
   type ExtractedEntity,
 } from '@/lib/services/cloudLlm'
-import { loadCurrentWorkspaceText } from '@/lib/services/chapterText'
+import {
+  loadCurrentWorkspaceText,
+  ocrAllOpenPages,
+} from '@/lib/services/chapterText'
 import { api, type GlossaryCategory } from '@/lib/api'
+import { WandSparklesIcon } from 'lucide-react'
 
 type Proposed = ExtractedEntity & {
   selected: boolean
@@ -80,6 +84,7 @@ export function ExtractEntitiesModal({
   const [items, setItems] = useState<Proposed[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [loadingDocs, setLoadingDocs] = useState(false)
+  const [ocrProgress, setOcrProgress] = useState<{ done: number; total: number; label: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [applying, setApplying] = useState(false)
 
@@ -99,6 +104,41 @@ export function ExtractEntitiesModal({
       setError(e?.message || String(e))
     } finally {
       setLoadingDocs(false)
+    }
+  }
+
+  /** Run detect+OCR on all open pages (skipping pages that already have
+   *  text), then auto-trigger the extract step. One-shot setup for a
+   *  freshly imported chapter. */
+  const autoOcrAndExtract = async () => {
+    setLoadingDocs(true)
+    setError(null)
+    setItems(null)
+    try {
+      const loaded = await ocrAllOpenPages((done, total, label) =>
+        setOcrProgress({ done, total, label }),
+      )
+      setOcrProgress(null)
+      if (!loaded) {
+        setError('No text recognised on any page. Try OCR manually.')
+        return
+      }
+      setText(loaded)
+      setLoading(true)
+      const proposed = await extractEntitiesFromText(loaded)
+      setItems(
+        proposed.map((p) => ({
+          ...p,
+          selected: true,
+          appliedCategory: normaliseCategory(p.category),
+        })),
+      )
+    } catch (e: any) {
+      setError(e?.message || String(e))
+    } finally {
+      setLoadingDocs(false)
+      setLoading(false)
+      setOcrProgress(null)
     }
   }
 
@@ -176,26 +216,43 @@ export function ExtractEntitiesModal({
             className='min-h-32 text-xs'
           />
           <div className='flex items-center justify-between gap-2'>
-            <Button
-              variant='outline'
-              size='sm'
-              disabled={loadingDocs}
-              onClick={() => void loadFromWorkspace()}
-            >
-              {loadingDocs ? (
-                <Loader2Icon className='size-3.5 animate-spin' />
-              ) : (
-                <DownloadIcon className='size-3.5' />
-              )}
-              Load from open pages
-            </Button>
+            <div className='flex items-center gap-2'>
+              <Button
+                variant='outline'
+                size='sm'
+                disabled={loadingDocs}
+                onClick={() => void loadFromWorkspace()}
+                title='Load text from pages that have already been OCR'd'
+              >
+                {loadingDocs && !ocrProgress ? (
+                  <Loader2Icon className='size-3.5 animate-spin' />
+                ) : (
+                  <DownloadIcon className='size-3.5' />
+                )}
+                Load from open pages
+              </Button>
+              <Button
+                variant='outline'
+                size='sm'
+                disabled={loadingDocs || loading}
+                onClick={() => void autoOcrAndExtract()}
+                title='Run detect+OCR on every open page, then extract entities — best for a freshly imported chapter'
+              >
+                {loadingDocs && ocrProgress ? (
+                  <Loader2Icon className='size-3.5 animate-spin' />
+                ) : (
+                  <WandSparklesIcon className='size-3.5' />
+                )}
+                Auto OCR + Extract
+              </Button>
+            </div>
             <Button
               variant='default'
               size='sm'
               disabled={!text.trim() || loading}
               onClick={() => void runExtract()}
             >
-              {loading ? (
+              {loading && !ocrProgress ? (
                 <Loader2Icon className='size-3.5 animate-spin' />
               ) : (
                 <SparklesIcon className='size-3.5' />
@@ -203,6 +260,29 @@ export function ExtractEntitiesModal({
               Extract
             </Button>
           </div>
+          {ocrProgress && (
+            <div className='border-border bg-muted/40 rounded-md border p-2 text-[10px]'>
+              <div className='mb-1 flex items-center justify-between'>
+                <span className='text-foreground font-semibold'>
+                  Running OCR on chapter pages…
+                </span>
+                <span className='text-muted-foreground font-mono'>
+                  {ocrProgress.done} / {ocrProgress.total}
+                </span>
+              </div>
+              <div className='bg-muted h-1 overflow-hidden rounded'>
+                <div
+                  className='bg-primary h-full transition-all'
+                  style={{
+                    width: `${Math.round((ocrProgress.done / ocrProgress.total) * 100)}%`,
+                  }}
+                />
+              </div>
+              <div className='text-muted-foreground mt-1 truncate'>
+                {ocrProgress.label}
+              </div>
+            </div>
+          )}
           {error && (
             <div className='border-destructive/40 bg-destructive/10 text-destructive rounded-md border p-2 text-xs'>
               {error}
