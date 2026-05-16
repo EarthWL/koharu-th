@@ -83,6 +83,7 @@ export const renderStrokeSchema = z
   }))
 
 export const textAlignSchema = z.enum(['left', 'center', 'right'])
+export const verticalAlignSchema = z.enum(['top', 'middle', 'bottom'])
 
 export const textStyleSchema = z.object({
   fontFamilies: z.array(z.string()),
@@ -91,6 +92,12 @@ export const textStyleSchema = z.object({
   effect: fromRustOption(renderEffectSchema),
   stroke: fromRustOption(renderStrokeSchema),
   textAlign: fromRustOption(textAlignSchema),
+  // Layout controls (Thai-friendly text shaping) — all optional so
+  // older .khr documents that lack these keys still validate.
+  lineHeight: fromRustOption(z.number()),
+  letterSpacingPx: fromRustOption(z.number()),
+  minFontSize: fromRustOption(z.number()),
+  verticalAlign: fromRustOption(verticalAlignSchema),
 })
 
 const namedFontPredictionSchema = z.object({
