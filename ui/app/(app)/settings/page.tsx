@@ -31,6 +31,10 @@ import {
   formatContextLength,
   type OpenRouterModel,
 } from '@/lib/services/openrouterModels'
+import { testCloudConnection } from '@/lib/services/cloudLlm'
+import { PROVIDER_PRESETS } from '@/lib/services/providerPresets'
+import { Button } from '@/components/ui/button'
+import { CheckIcon, Loader2Icon, XIcon, ZapIcon } from 'lucide-react'
 
 const THEME_OPTIONS = [
   { value: 'light', icon: SunIcon, labelKey: 'settings.themeLight' },
@@ -193,6 +197,44 @@ export default function SettingsPage() {
               <div className='bg-card border-border rounded-lg border p-4 space-y-4'>
                 <div className='flex flex-col gap-1.5'>
                   <label className='text-foreground text-xs font-semibold'>
+                    {t('settings.providerPreset', 'Quick preset')}
+                  </label>
+                  <Select
+                    value=''
+                    onValueChange={(presetId) => {
+                      const p = PROVIDER_PRESETS.find((x) => x.id === presetId)
+                      if (!p) return
+                      setCloudProvider(p.provider)
+                      if (p.baseUrl) setCloudApiUrl(p.baseUrl)
+                      if (p.defaultModel) setCloudModelName(p.defaultModel)
+                    }}
+                  >
+                    <SelectTrigger className='w-full'>
+                      <SelectValue placeholder='Pick a preset to auto-fill below…' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PROVIDER_PRESETS.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.label}
+                          {p.hint && (
+                            <span className='text-muted-foreground ml-1 text-[10px]'>
+                              · {p.hint}
+                            </span>
+                          )}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <span className='text-muted-foreground text-[10px]'>
+                    {t(
+                      'settings.providerPresetHint',
+                      'Sets provider + base URL + a suggested model. Tweak the fields below as needed.',
+                    )}
+                  </span>
+                </div>
+
+                <div className='flex flex-col gap-1.5'>
+                  <label className='text-foreground text-xs font-semibold'>
                     {t('settings.cloudProvider', 'Provider')}
                   </label>
                   <Select
@@ -224,6 +266,12 @@ export default function SettingsPage() {
                         value={cloudApiKey}
                         onChange={(e) => setCloudApiKey(e.target.value)}
                         className='text-xs'
+                      />
+                      <TestConnectionRow
+                        provider={cloudProvider}
+                        apiKey={cloudApiKey}
+                        apiUrl={cloudApiUrl}
+                        model={cloudModelName}
                       />
                     </div>
                     
@@ -342,6 +390,82 @@ export default function SettingsPage() {
           </div>
         </div>
       </ScrollArea>
+    </div>
+  )
+}
+
+function TestConnectionRow({
+  provider,
+  apiKey,
+  apiUrl,
+  model,
+}: {
+  provider: string
+  apiKey: string
+  apiUrl: string
+  model: string
+}) {
+  const [status, setStatus] = useState<
+    | { kind: 'idle' }
+    | { kind: 'pending' }
+    | { kind: 'ok'; reply: string; durationMs: number }
+    | { kind: 'err'; error: string; durationMs: number }
+  >({ kind: 'idle' })
+
+  const disabled =
+    !apiKey ||
+    !model ||
+    (provider === 'openai' && !apiUrl) ||
+    status.kind === 'pending'
+
+  const run = async () => {
+    setStatus({ kind: 'pending' })
+    const result = await testCloudConnection({ provider, apiKey, apiUrl, model })
+    if (result.ok) {
+      setStatus({
+        kind: 'ok',
+        reply: result.reply,
+        durationMs: result.durationMs,
+      })
+    } else {
+      setStatus({
+        kind: 'err',
+        error: result.error,
+        durationMs: result.durationMs,
+      })
+    }
+  }
+
+  return (
+    <div className='flex items-start gap-2'>
+      <Button
+        variant='outline'
+        size='sm'
+        disabled={disabled}
+        onClick={() => void run()}
+      >
+        {status.kind === 'pending' ? (
+          <Loader2Icon className='size-3.5 animate-spin' />
+        ) : (
+          <ZapIcon className='size-3.5' />
+        )}
+        Test connection
+      </Button>
+      {status.kind === 'ok' && (
+        <span className='flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400'>
+          <CheckIcon className='size-3' />
+          OK ({status.durationMs} ms) — &quot;{status.reply.slice(0, 60)}&quot;
+        </span>
+      )}
+      {status.kind === 'err' && (
+        <span className='flex items-start gap-1 text-[10px] text-rose-600 dark:text-rose-400'>
+          <XIcon className='size-3 shrink-0' />
+          <span className='break-all'>
+            {status.error.slice(0, 200)}
+            {status.error.length > 200 ? '…' : ''}
+          </span>
+        </span>
+      )}
     </div>
   )
 }

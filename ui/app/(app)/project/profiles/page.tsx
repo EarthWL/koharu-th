@@ -17,6 +17,9 @@ import {
 import { api, type ProviderProfileDto } from '@/lib/api'
 import { useProjectStore } from '@/lib/stores/projectStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
+import { testCloudConnection } from '@/lib/services/cloudLlm'
+import { PROVIDER_PRESETS } from '@/lib/services/providerPresets'
+import { CheckIcon, Loader2Icon, XIcon, ZapIcon } from 'lucide-react'
 
 const PROVIDER_OPTIONS = [
   { value: 'openai', label: 'OpenAI (or compatible)' },
@@ -172,6 +175,37 @@ function AddProfileButton({ onAdded }: { onAdded: () => void }) {
     apiKey: '',
     isDefault: false,
   })
+  const [testStatus, setTestStatus] = useState<
+    { kind: 'idle' } | { kind: 'pending' } | { kind: 'ok'; ms: number } | { kind: 'err'; msg: string }
+  >({ kind: 'idle' })
+
+  const runTest = async () => {
+    setTestStatus({ kind: 'pending' })
+    const r = await testCloudConnection({
+      provider: draft.provider,
+      apiKey: draft.apiKey,
+      apiUrl: draft.apiUrl || 'https://api.openai.com/v1',
+      model: draft.modelName,
+    })
+    setTestStatus(
+      r.ok
+        ? { kind: 'ok', ms: r.durationMs }
+        : { kind: 'err', msg: r.error.slice(0, 200) },
+    )
+  }
+
+  const applyPreset = (presetId: string) => {
+    const p = PROVIDER_PRESETS.find((x) => x.id === presetId)
+    if (!p) return
+    setDraft((d) => ({
+      ...d,
+      provider: p.provider,
+      apiUrl: p.baseUrl || d.apiUrl,
+      modelName: p.defaultModel || d.modelName,
+      name: d.name || p.label,
+    }))
+    setTestStatus({ kind: 'idle' })
+  }
 
   const submit = async () => {
     if (!draft.name.trim() || !draft.modelName.trim()) return
@@ -208,6 +242,23 @@ function AddProfileButton({ onAdded }: { onAdded: () => void }) {
               Add provider profile
             </h3>
             <div className='space-y-3'>
+              <Select value='' onValueChange={applyPreset}>
+                <SelectTrigger className='w-full'>
+                  <SelectValue placeholder='Quick preset — auto-fills fields below' />
+                </SelectTrigger>
+                <SelectContent>
+                  {PROVIDER_PRESETS.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.label}
+                      {p.hint && (
+                        <span className='text-muted-foreground ml-1 text-[10px]'>
+                          · {p.hint}
+                        </span>
+                      )}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Input
                 autoFocus
                 value={draft.name}
@@ -267,18 +318,53 @@ function AddProfileButton({ onAdded }: { onAdded: () => void }) {
                 <label htmlFor='profile-default'>Mark as default profile</label>
               </div>
             </div>
-            <div className='mt-4 flex justify-end gap-2'>
-              <Button variant='ghost' size='sm' onClick={() => setOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                variant='default'
-                size='sm'
-                disabled={!draft.name.trim() || !draft.modelName.trim()}
-                onClick={() => void submit()}
-              >
-                Save
-              </Button>
+            <div className='mt-4 flex items-center justify-between gap-2'>
+              <div className='flex items-center gap-2'>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  disabled={
+                    !draft.apiKey ||
+                    !draft.modelName ||
+                    testStatus.kind === 'pending'
+                  }
+                  onClick={() => void runTest()}
+                >
+                  {testStatus.kind === 'pending' ? (
+                    <Loader2Icon className='size-3.5 animate-spin' />
+                  ) : (
+                    <ZapIcon className='size-3.5' />
+                  )}
+                  Test
+                </Button>
+                {testStatus.kind === 'ok' && (
+                  <span className='flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400'>
+                    <CheckIcon className='size-3' /> {testStatus.ms} ms
+                  </span>
+                )}
+                {testStatus.kind === 'err' && (
+                  <span
+                    className='flex items-start gap-1 text-[10px] text-rose-600 dark:text-rose-400'
+                    title={testStatus.msg}
+                  >
+                    <XIcon className='size-3 shrink-0' />
+                    {testStatus.msg.slice(0, 40)}
+                  </span>
+                )}
+              </div>
+              <div className='flex gap-2'>
+                <Button variant='ghost' size='sm' onClick={() => setOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant='default'
+                  size='sm'
+                  disabled={!draft.name.trim() || !draft.modelName.trim()}
+                  onClick={() => void submit()}
+                >
+                  Save
+                </Button>
+              </div>
             </div>
           </div>
         </div>

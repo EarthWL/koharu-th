@@ -414,6 +414,61 @@ export async function callCloudOnce(args: {
   return result.text
 }
 
+/**
+ * Send a single trivial round-trip to the configured provider and
+ * report success/failure. Used by the "Test connection" buttons in
+ * Settings and Profiles. Tiny prompt to keep the cost negligible —
+ * usually a few cents per thousand pings.
+ */
+export type TestConnectionInput = {
+  provider: string
+  apiKey: string
+  apiUrl: string
+  model: string
+}
+
+export type TestConnectionResult =
+  | { ok: true; reply: string; durationMs: number; usage: TokenUsage | null }
+  | { ok: false; error: string; durationMs: number }
+
+export async function testCloudConnection(
+  input: TestConnectionInput,
+): Promise<TestConnectionResult> {
+  const t0 = performance.now()
+  const prompt = 'Reply with the single word OK and nothing else.'
+  try {
+    let res: CloudResult
+    switch (input.provider) {
+      case 'openai':
+        res = await fetchOpenAI(prompt, input.apiKey, input.apiUrl, input.model)
+        break
+      case 'openrouter':
+        res = await fetchOpenRouter(prompt, input.apiKey, input.model)
+        break
+      case 'gemini':
+        res = await fetchGemini(prompt, input.apiKey, input.model)
+        break
+      case 'anthropic':
+        res = await fetchAnthropic(prompt, input.apiKey, input.model)
+        break
+      default:
+        throw new Error(`Unsupported provider: ${input.provider}`)
+    }
+    return {
+      ok: true,
+      reply: res.text,
+      durationMs: Math.round(performance.now() - t0),
+      usage: res.usage,
+    }
+  } catch (err: any) {
+    return {
+      ok: false,
+      error: err?.message ?? String(err),
+      durationMs: Math.round(performance.now() - t0),
+    }
+  }
+}
+
 async function fetchOpenAI(prompt: string, apiKey: string, apiUrl: string, model: string, isJsonMode = false): Promise<CloudResult> {
   // Use user's custom url or trailing slash cleanup
   const baseUrl = apiUrl.replace(/\/+$/, '')
