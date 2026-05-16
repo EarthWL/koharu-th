@@ -160,6 +160,9 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::ProviderProfileRemove => {
             call(operations::provider_profile_remove, state, params).await
         }
+        Method::ProviderProfileSecretGet => {
+            call(operations::provider_profile_secret_get, state, params).await
+        }
         Method::LlmCallLog => call(operations::llm_call_log, state, params).await,
         Method::LlmCostStats => call0(operations::llm_cost_stats, state).await,
     }

@@ -651,7 +651,10 @@ pub struct ProviderProfileAddPayload {
     pub provider: String,
     pub api_url: Option<String>,
     pub model_name: String,
-    pub api_key_ref: Option<String>,
+    /// Plaintext API key — stored in the OS keyring server-side and
+    /// never written back to the DB. Pass an empty string to leave
+    /// the keyring entry empty.
+    pub api_key: Option<String>,
     #[serde(default)]
     pub is_default: bool,
     pub cost_input_per_1m: Option<f64>,
@@ -666,10 +669,21 @@ pub struct ProviderProfileUpdatePayload {
     pub provider: Option<String>,
     pub api_url: Option<String>,
     pub model_name: Option<String>,
-    pub api_key_ref: Option<String>,
+    /// When present, rewrites the keyring entry. Pass empty string to
+    /// clear it, omit (None) to leave it alone.
+    pub api_key: Option<String>,
     pub is_default: Option<bool>,
     pub cost_input_per_1m: Option<f64>,
     pub cost_output_per_1m: Option<f64>,
+}
+
+/// Response of `provider_profile_secret_get` — used by the UI just
+/// before applying a profile so it can populate the live preferences
+/// store without ever persisting the plaintext key client-side.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderProfileSecret {
+    pub api_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]

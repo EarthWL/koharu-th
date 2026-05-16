@@ -71,6 +71,7 @@ pub enum Method {
     ProviderProfileAdd,
     ProviderProfileUpdate,
     ProviderProfileRemove,
+    ProviderProfileSecretGet,
     // Phase 10: LLM call log + stats
     LlmCallLog,
     LlmCostStats,
@@ -137,6 +138,7 @@ impl Method {
         Method::ProviderProfileAdd,
         Method::ProviderProfileUpdate,
         Method::ProviderProfileRemove,
+        Method::ProviderProfileSecretGet,
         Method::LlmCallLog,
         Method::LlmCostStats,
     ];
@@ -202,6 +204,7 @@ impl Method {
             Method::ProviderProfileAdd => "provider_profile_add",
             Method::ProviderProfileUpdate => "provider_profile_update",
             Method::ProviderProfileRemove => "provider_profile_remove",
+            Method::ProviderProfileSecretGet => "provider_profile_secret_get",
             Method::LlmCallLog => "llm_call_log",
             Method::LlmCostStats => "llm_cost_stats",
         }
@@ -278,6 +281,7 @@ impl FromStr for Method {
             "provider_profile_add" => Method::ProviderProfileAdd,
             "provider_profile_update" => Method::ProviderProfileUpdate,
             "provider_profile_remove" => Method::ProviderProfileRemove,
+            "provider_profile_secret_get" => Method::ProviderProfileSecretGet,
             "llm_call_log" => Method::LlmCallLog,
             "llm_cost_stats" => Method::LlmCostStats,
             _ => anyhow::bail!("Unknown method: {s}"),

@@ -390,7 +390,8 @@ export const api = {
     provider: string
     apiUrl?: string | null
     modelName: string
-    apiKeyRef?: string | null
+    /** Plaintext key — stored in OS keyring server-side. */
+    apiKey?: string | null
     isDefault?: boolean
     costInputPer1m?: number | null
     costOutputPer1m?: number | null
@@ -404,7 +405,8 @@ export const api = {
     provider?: string
     apiUrl?: string | null
     modelName?: string
-    apiKeyRef?: string | null
+    /** Pass empty string to clear, omit to leave alone. */
+    apiKey?: string | null
     isDefault?: boolean
     costInputPer1m?: number | null
     costOutputPer1m?: number | null
@@ -414,6 +416,11 @@ export const api = {
 
   async providerProfileRemove(id: number): Promise<boolean> {
     return invoke('provider_profile_remove', { id }) as Promise<boolean>
+  },
+
+  /** Fetch the plaintext API key for `id` from the OS keyring. */
+  async providerProfileSecretGet(id: number): Promise<{ apiKey: string | null }> {
+    return invoke('provider_profile_secret_get', { id }) as Promise<{ apiKey: string | null }>
   },
 
   async llmCallLog(input: {

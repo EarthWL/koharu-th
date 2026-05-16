@@ -14,8 +14,8 @@ use koharu_api::commands::{
     ProjectCreatePickerPayload, ProjectInfo, ProjectOpenPayload, PromptRenderPayload,
     PromptRenderResult, PromptTemplateAddPayload, PromptTemplateDto, PromptTemplateIdPayload,
     PromptTemplateUpdatePayload, ProviderProfileAddPayload, ProviderProfileDto,
-    ProviderProfileIdPayload, ProviderProfileUpdatePayload, SeriesMetaDto,
-    SeriesMetaUpdatePayload, TmEntryDto, TmInsertPayload, TmLookupPayload,
+    ProviderProfileIdPayload, ProviderProfileSecret, ProviderProfileUpdatePayload,
+    SeriesMetaDto, SeriesMetaUpdatePayload, TmEntryDto, TmInsertPayload, TmLookupPayload,
 };
 use koharu_project::{
     chapter::{self as chapter_ops, ChapterInsert, ChapterPatch},
@@ -23,6 +23,7 @@ use koharu_project::{
     glossary::{self as glossary_ops, GlossaryInsert, GlossaryPatch},
     profile::{self as profile_ops, ProfileInsert, ProfilePatch},
     prompt::{self as prompt_ops, PromptTemplateInsert, PromptTemplatePatch},
+    secret as secret_ops,
     series::{self as series_ops, SeriesMetaPatch},
     tm::{self as tm_ops, TmEntry, TmInsert as TmInsertItem},
     Chapter, ChapterStatus, Character, Confidence, GlossaryCategory, GlossaryEntry, NameAlias,
@@ -669,6 +670,24 @@ pub async fn provider_profile_add(
     let project = require_project(&state).await?;
     let dto = tokio::task::spawn_blocking(move || -> anyhow::Result<ProviderProfileDto> {
         let conn = project.pool().get()?;
+        // Mint a stable keyring reference and stash the plaintext key
+        // there. Only the reference ID lives in the DB.
+        let key_ref = if payload
+            .api_key
+            .as_deref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false)
+        {
+            let r = secret_ops::new_ref();
+            if let Err(err) = secret_ops::put(&r, payload.api_key.as_deref().unwrap()) {
+                tracing::warn!(?err, "keyring put failed; storing without secret");
+                None
+            } else {
+                Some(r)
+            }
+        } else {
+            None
+        };
         let inserted = profile_ops::insert(
             &conn,
             ProfileInsert {
@@ -676,7 +695,7 @@ pub async fn provider_profile_add(
                 provider: parse_provider(&payload.provider)?,
                 api_url: payload.api_url,
                 model_name: payload.model_name,
-                api_key_ref: payload.api_key_ref,
+                api_key_ref: key_ref,
                 extra_headers: serde_json::json!({}),
                 extra_params: serde_json::json!({}),
                 is_default: payload.is_default,
@@ -697,6 +716,36 @@ pub async fn provider_profile_update(
     let project = require_project(&state).await?;
     let dto = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<ProviderProfileDto>> {
         let conn = project.pool().get()?;
+
+        // Resolve api_key handling first: None = leave alone; Some("")
+        // = clear; Some(value) = (re)write keyring entry.
+        let key_ref_change: Option<Option<String>> = match payload.api_key {
+            None => None,
+            Some(ref s) if s.is_empty() => {
+                // Clear: delete existing keyring entry (if any) and null the ref.
+                let existing = profile_ops::get(&conn, payload.id)?;
+                if let Some(p) = existing {
+                    if let Some(r) = p.api_key_ref.as_deref() {
+                        let _ = secret_ops::delete(r);
+                    }
+                }
+                Some(None)
+            }
+            Some(plaintext) => {
+                let existing = profile_ops::get(&conn, payload.id)?;
+                let r = existing
+                    .as_ref()
+                    .and_then(|p| p.api_key_ref.clone())
+                    .unwrap_or_else(secret_ops::new_ref);
+                if let Err(err) = secret_ops::put(&r, &plaintext) {
+                    tracing::warn!(?err, "keyring put failed; leaving ref unchanged");
+                    None
+                } else {
+                    Some(Some(r))
+                }
+            }
+        };
+
         let patch = ProfilePatch {
             name: payload.name,
             provider: match payload.provider.as_deref() {
@@ -705,7 +754,7 @@ pub async fn provider_profile_update(
             },
             api_url: payload.api_url.map(Some),
             model_name: payload.model_name,
-            api_key_ref: payload.api_key_ref.map(Some),
+            api_key_ref: key_ref_change,
             extra_headers: None,
             extra_params: None,
             is_default: payload.is_default,
@@ -718,6 +767,25 @@ pub async fn provider_profile_update(
     Ok(dto)
 }
 
+pub async fn provider_profile_secret_get(
+    state: AppResources,
+    payload: ProviderProfileIdPayload,
+) -> anyhow::Result<ProviderProfileSecret> {
+    let project = require_project(&state).await?;
+    let secret = tokio::task::spawn_blocking(move || -> anyhow::Result<ProviderProfileSecret> {
+        let conn = project.pool().get()?;
+        let profile = profile_ops::get(&conn, payload.id)?
+            .ok_or_else(|| anyhow::anyhow!("profile {} not found", payload.id))?;
+        let api_key = match profile.api_key_ref.as_deref() {
+            Some(r) => secret_ops::get(r).ok().flatten(),
+            None => None,
+        };
+        Ok(ProviderProfileSecret { api_key })
+    })
+    .await??;
+    Ok(secret)
+}
+
 pub async fn provider_profile_remove(
     state: AppResources,
     payload: ProviderProfileIdPayload,
@@ -725,6 +793,12 @@ pub async fn provider_profile_remove(
     let project = require_project(&state).await?;
     let removed = tokio::task::spawn_blocking(move || -> anyhow::Result<bool> {
         let conn = project.pool().get()?;
+        // Clean up the keyring entry too so we don't leak secrets after delete.
+        if let Some(p) = profile_ops::get(&conn, payload.id)? {
+            if let Some(r) = p.api_key_ref.as_deref() {
+                let _ = secret_ops::delete(r);
+            }
+        }
         Ok(profile_ops::remove(&conn, payload.id)?)
     })
     .await??;

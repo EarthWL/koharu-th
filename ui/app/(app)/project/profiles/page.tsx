@@ -52,12 +52,17 @@ export default function ProfilesPage() {
 
   const applyProfile = async (p: ProviderProfileDto) => {
     // Copy this profile's wire-config into the live preferences store
-    // so the next cloud call uses it. (Keyring integration will replace
-    // the apiKeyRef hop in a follow-up.)
+    // so the next cloud call uses it. The key comes from the OS keyring
+    // via the secret_get RPC -- never persisted plaintext in the DB.
     setPrefs.setCloudProvider(p.provider as any)
     setPrefs.setCloudModelName(p.modelName)
     if (p.apiUrl) setPrefs.setCloudApiUrl(p.apiUrl)
-    if (p.apiKeyRef) setPrefs.setCloudApiKey(p.apiKeyRef)
+    try {
+      const { apiKey } = await api.providerProfileSecretGet(p.id)
+      if (apiKey) setPrefs.setCloudApiKey(apiKey)
+    } catch (err) {
+      console.warn('[profiles] secret fetch failed', err)
+    }
   }
 
   const setDefault = async (p: ProviderProfileDto) => {
@@ -164,7 +169,7 @@ function AddProfileButton({ onAdded }: { onAdded: () => void }) {
     provider: 'openai',
     modelName: 'gpt-4o',
     apiUrl: '',
-    apiKeyRef: '',
+    apiKey: '',
     isDefault: false,
   })
 
@@ -175,7 +180,7 @@ function AddProfileButton({ onAdded }: { onAdded: () => void }) {
       provider: draft.provider,
       modelName: draft.modelName.trim(),
       apiUrl: draft.apiUrl.trim() || null,
-      apiKeyRef: draft.apiKeyRef.trim() || null,
+      apiKey: draft.apiKey.trim() || null,
       isDefault: draft.isDefault,
     })
     setOpen(false)
@@ -184,7 +189,7 @@ function AddProfileButton({ onAdded }: { onAdded: () => void }) {
       provider: 'openai',
       modelName: 'gpt-4o',
       apiUrl: '',
-      apiKeyRef: '',
+      apiKey: '',
       isDefault: false,
     })
     onAdded()
@@ -242,11 +247,11 @@ function AddProfileButton({ onAdded }: { onAdded: () => void }) {
                 className='text-sm'
               />
               <Input
-                value={draft.apiKeyRef}
+                value={draft.apiKey}
                 onChange={(e) =>
-                  setDraft((d) => ({ ...d, apiKeyRef: e.target.value }))
+                  setDraft((d) => ({ ...d, apiKey: e.target.value }))
                 }
-                placeholder='API key — currently stored in DB; OS keyring is a future polish'
+                placeholder='API key — stored in the OS keyring, not in the project DB'
                 type='password'
                 className='text-sm'
               />
