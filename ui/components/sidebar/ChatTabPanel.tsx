@@ -35,15 +35,42 @@ import {
   parseAttachments,
 } from '@/lib/services/imageAttach'
 import { supportsVision } from '@/lib/services/visionSupport'
+import i18n from '@/lib/i18n'
 
 const DISPLAY_LIMIT = 50
+
+/** Map the app's i18next locale code to the natural-language name we
+ *  pass to the model. The model recognises "Thai" much more reliably
+ *  than the BCP-47 code "th-TH". */
+const UI_LOCALE_TO_LANGUAGE: Record<string, string> = {
+  'en-US': 'English',
+  'th-TH': 'Thai',
+  'ja-JP': 'Japanese',
+  'zh-CN': 'Simplified Chinese',
+  'zh-TW': 'Traditional Chinese',
+  'ru-RU': 'Russian',
+  'es-ES': 'Spanish',
+}
+
+function uiLanguageName(): string {
+  const code = i18n.language || i18n.options?.fallbackLng?.toString() || 'en-US'
+  return (
+    UI_LOCALE_TO_LANGUAGE[code] ??
+    UI_LOCALE_TO_LANGUAGE[code.split('-')[0]] ??
+    'English'
+  )
+}
 
 /** Build the system message injected at the top of every conversation —
  *  tells the assistant which project it's working on. */
 async function buildSystemPrompt(): Promise<string> {
+  const uiLang = uiLanguageName()
   const project = useProjectStore.getState().info
   if (!project) {
-    return 'You are an AI assistant for manga translation. No project is currently open.'
+    return [
+      'You are an AI assistant for manga translation. No project is currently open.',
+      `Reply to the user in ${uiLang}.`,
+    ].join('\n')
   }
   let series: any = null
   try {
@@ -51,7 +78,8 @@ async function buildSystemPrompt(): Promise<string> {
   } catch {}
   return [
     'You are an AI assistant embedded in the Koharu manga translation editor.',
-    `The user is working on project "${project.name}" (target language Thai by default).`,
+    `The user is working on project "${project.name}".`,
+    `Reply to the user in ${uiLang} unless they explicitly ask for another language.`,
     'You have tools to read and modify series metadata, characters, glossary, chapters, prompt templates, and to fetch web pages (wikis).',
     'When the user asks you to populate or update project data, propose changes first, wait for approval, then call the matching tool.',
     'Keep your replies concise. Use markdown tables for proposals.',
