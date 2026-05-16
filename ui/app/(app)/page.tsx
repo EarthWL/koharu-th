@@ -12,7 +12,7 @@ import {
 } from 'react-resizable-panels'
 import { AppErrorBoundary } from '@/components/AppErrorBoundary'
 
-const LAYOUT_ID = 'koharu-main-layout-v2'
+const LAYOUT_ID = 'koharu-main-layout-v3'
 
 export default function Page() {
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
@@ -43,7 +43,7 @@ export default function Page() {
           </AppErrorBoundary>
         </Panel>
         <Separator className='bg-border/40 hover:bg-border w-1 transition-colors' />
-        <Panel id='right' defaultSize={320} minSize={320} maxSize={460}>
+        <Panel id='right' defaultSize={340} minSize={300} maxSize={560}>
           <AppErrorBoundary>
             <Panels />
           </AppErrorBoundary>

@@ -222,7 +222,7 @@ export function ExtractEntitiesModal({
                 size='sm'
                 disabled={loadingDocs}
                 onClick={() => void loadFromWorkspace()}
-                title='Load text from pages that have already been OCR'd'
+                title='Load text from pages that have already been OCRed'
               >
                 {loadingDocs && !ocrProgress ? (
                   <Loader2Icon className='size-3.5 animate-spin' />

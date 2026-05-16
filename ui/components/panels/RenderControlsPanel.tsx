@@ -391,17 +391,17 @@ export function RenderControlsPanel() {
               <SelectTrigger
                 data-testid='render-font-select'
                 size='sm'
-                className='h-7 w-full min-w-0 text-xs'
+                className='h-8 w-full min-w-0 text-sm'
                 style={currentFont ? { fontFamily: currentFont } : undefined}
               >
                 <SelectValue placeholder={t('render.fontPlaceholder')} />
               </SelectTrigger>
-              <SelectContent position='popper'>
+              <SelectContent position='popper' className='max-h-80'>
                 {fontOptions.map((font, index) => (
                   <SelectItem
                     key={font}
                     value={font}
-                    style={{ fontFamily: font }}
+                    style={{ fontFamily: font, fontSize: '14px', lineHeight: '20px' }}
                     data-testid={`render-font-option-${index}`}
                   >
                     {font}
