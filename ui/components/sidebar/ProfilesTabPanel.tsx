@@ -520,6 +520,16 @@ function ProfileFormModal({
       } else {
         await api.providerProfileAdd(payload)
       }
+      // Auto-apply the just-saved profile to the live preferences
+      // store. Without this, a fresh "Add" leaves cloudApiKey empty
+      // and the next translate fails with "Cloud API Key is missing".
+      // Skip the keyring round-trip — we already have the plaintext key
+      // in this modal's state.
+      const prefs = usePreferencesStore.getState()
+      prefs.setCloudProvider(meta.dbProvider as any)
+      prefs.setCloudModelName(payload.modelName)
+      if (payload.apiUrl) prefs.setCloudApiUrl(payload.apiUrl)
+      if (payload.apiKey) prefs.setCloudApiKey(payload.apiKey)
       onSaved()
     } catch (err: any) {
       alert(err?.message ?? String(err))

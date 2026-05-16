@@ -301,7 +301,11 @@ async function generateCloudTranslationImpl(
   const cloudModelName = override?.model ?? live.cloudModelName
 
   if (!cloudApiKey) {
-    throw new Error('Cloud API Key is missing.')
+    throw new Error(
+      cloudProvider === 'none'
+        ? 'No LLM profile applied. Open the Profiles sidebar tab and click Apply on a saved profile (or pick one from the LLM badge in the toolbar).'
+        : `No API key for the active "${cloudProvider}" profile. Open Profiles tab → edit the active profile and re-enter your API key, then Apply.`,
+    )
   }
 
   // Cache key = (source text, target language). The language arg is
@@ -443,7 +447,11 @@ export async function extractEntitiesFromText(
     )
   }
   if (!cloudApiKey) {
-    throw new Error('Cloud API Key is missing.')
+    throw new Error(
+      cloudProvider === 'none'
+        ? 'No LLM profile applied. Open the Profiles sidebar tab and click Apply on a saved profile (or pick one from the LLM badge in the toolbar).'
+        : `No API key for the active "${cloudProvider}" profile. Open Profiles tab → edit the active profile and re-enter your API key, then Apply.`,
+    )
   }
 
   const rendered = await api.promptRender({
@@ -514,7 +522,11 @@ export async function generateCloudBatchTranslation(blocks: {index: number, text
   const { cloudProvider, cloudApiKey, cloudApiUrl, cloudModelName } = usePreferencesStore.getState()
   
   if (!cloudApiKey) {
-    throw new Error('Cloud API Key is missing.')
+    throw new Error(
+      cloudProvider === 'none'
+        ? 'No LLM profile applied. Open the Profiles sidebar tab and click Apply on a saved profile (or pick one from the LLM badge in the toolbar).'
+        : `No API key for the active "${cloudProvider}" profile. Open Profiles tab → edit the active profile and re-enter your API key, then Apply.`,
+    )
   }
 
   const blocksJson = JSON.stringify(blocks, null, 2)
