@@ -130,6 +130,7 @@ r2d2_sqlite = "0.25"
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 handlebars = { version = "6", default-features = false }
+sha2 = "0.10"
 
 [patch.crates-io]
 candle-transformers = { git = "https://github.com/mayocream/candle", branch = "cuda-dynamic-loading" }

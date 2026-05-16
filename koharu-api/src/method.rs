@@ -63,6 +63,9 @@ pub enum Method {
     PromptTemplateUpdate,
     PromptTemplateRemove,
     PromptRender,
+    // Phase 6: translation memory
+    TmLookup,
+    TmInsert,
 }
 
 impl Method {
@@ -120,6 +123,8 @@ impl Method {
         Method::PromptTemplateUpdate,
         Method::PromptTemplateRemove,
         Method::PromptRender,
+        Method::TmLookup,
+        Method::TmInsert,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -177,6 +182,8 @@ impl Method {
             Method::PromptTemplateUpdate => "prompt_template_update",
             Method::PromptTemplateRemove => "prompt_template_remove",
             Method::PromptRender => "prompt_render",
+            Method::TmLookup => "tm_lookup",
+            Method::TmInsert => "tm_insert",
         }
     }
 }
@@ -245,6 +252,8 @@ impl FromStr for Method {
             "prompt_template_update" => Method::PromptTemplateUpdate,
             "prompt_template_remove" => Method::PromptTemplateRemove,
             "prompt_render" => Method::PromptRender,
+            "tm_lookup" => Method::TmLookup,
+            "tm_insert" => Method::TmInsert,
             _ => anyhow::bail!("Unknown method: {s}"),
         };
         Ok(method)

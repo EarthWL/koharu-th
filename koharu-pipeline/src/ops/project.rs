@@ -13,6 +13,7 @@ use koharu_api::commands::{
     ProjectCreatePayload, ProjectCreatePickerPayload, ProjectInfo, ProjectOpenPayload,
     PromptRenderPayload, PromptRenderResult, PromptTemplateAddPayload, PromptTemplateDto,
     PromptTemplateIdPayload, PromptTemplateUpdatePayload, SeriesMetaDto, SeriesMetaUpdatePayload,
+    TmEntryDto, TmInsertPayload, TmLookupPayload,
 };
 use koharu_project::{
     chapter::{self as chapter_ops, ChapterInsert, ChapterPatch},
@@ -20,6 +21,7 @@ use koharu_project::{
     glossary::{self as glossary_ops, GlossaryInsert, GlossaryPatch},
     prompt::{self as prompt_ops, PromptTemplateInsert, PromptTemplatePatch},
     series::{self as series_ops, SeriesMetaPatch},
+    tm::{self as tm_ops, TmEntry, TmInsert as TmInsertItem},
     Chapter, ChapterStatus, Character, Confidence, GlossaryCategory, GlossaryEntry, NameAlias,
     Project, PromptTemplate, PromptUseCase, SeriesMeta, MANIFEST_FILENAME,
 };
@@ -581,6 +583,69 @@ pub async fn prompt_render(
     })
     .await??;
     Ok(result)
+}
+
+// ---------------------------------------------------------------
+// translation memory (Phase 6)
+// ---------------------------------------------------------------
+
+pub async fn tm_lookup(
+    state: AppResources,
+    payload: TmLookupPayload,
+) -> anyhow::Result<Option<TmEntryDto>> {
+    let project = require_project(&state).await?;
+    let dto = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<TmEntryDto>> {
+        let conn = project.pool().get()?;
+        Ok(tm_ops::lookup_exact(&conn, &payload.source_text, &payload.target_lang)?
+            .map(tm_to_dto))
+    })
+    .await??;
+    Ok(dto)
+}
+
+pub async fn tm_insert(
+    state: AppResources,
+    payload: TmInsertPayload,
+) -> anyhow::Result<TmEntryDto> {
+    let project = require_project(&state).await?;
+    let dto = tokio::task::spawn_blocking(move || -> anyhow::Result<TmEntryDto> {
+        let conn = project.pool().get()?;
+        let inserted = tm_ops::insert(
+            &conn,
+            TmInsertItem {
+                source_text: payload.source_text,
+                target_text: payload.target_text,
+                source_lang: payload.source_lang,
+                target_lang: payload.target_lang,
+                chapter_id: payload.chapter_id,
+                page_index: payload.page_index,
+                text_block_index: payload.text_block_index,
+                provider: payload.provider,
+                model: payload.model,
+                prompt_template_id: None,
+            },
+        )?;
+        Ok(tm_to_dto(inserted))
+    })
+    .await??;
+    Ok(dto)
+}
+
+fn tm_to_dto(e: TmEntry) -> TmEntryDto {
+    TmEntryDto {
+        id: e.id,
+        source_text: e.source_text,
+        target_text: e.target_text,
+        source_lang: e.source_lang,
+        target_lang: e.target_lang,
+        chapter_id: e.chapter_id,
+        page_index: e.page_index,
+        text_block_index: e.text_block_index,
+        provider: e.provider,
+        model: e.model,
+        is_approved: e.is_approved,
+        created_at: e.created_at.to_rfc3339(),
+    }
 }
 
 fn parse_use_case(s: &str) -> anyhow::Result<PromptUseCase> {

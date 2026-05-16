@@ -19,6 +19,7 @@ mod manifest;
 mod project;
 pub mod prompt;
 pub mod series;
+pub mod tm;
 mod types;
 
 pub use db::{Conn, Pool};

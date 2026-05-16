@@ -574,6 +574,48 @@ pub struct PromptRenderResult {
     pub glossary_hit_ids: Vec<i64>,
 }
 
+// ------------------------------------------------------------
+// Phase 6: translation memory
+// ------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmLookupPayload {
+    pub source_text: String,
+    pub target_lang: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmInsertPayload {
+    pub source_text: String,
+    pub target_text: String,
+    pub source_lang: String,
+    pub target_lang: String,
+    pub chapter_id: Option<i64>,
+    pub page_index: Option<i64>,
+    pub text_block_index: Option<i64>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmEntryDto {
+    pub id: i64,
+    pub source_text: String,
+    pub target_text: String,
+    pub source_lang: String,
+    pub target_lang: String,
+    pub chapter_id: Option<i64>,
+    pub page_index: Option<i64>,
+    pub text_block_index: Option<i64>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub is_approved: bool,
+    pub created_at: String,
+}
+
 #[cfg(test)]
 mod tests {
     use koharu_types::{TextAlign, TextStyle};

@@ -354,6 +354,42 @@ export const api = {
   }): Promise<PromptRenderResult> {
     return invoke('prompt_render', input) as Promise<PromptRenderResult>
   },
+
+  // ----------------------------------------------------------------
+  // Translation memory (Phase 6)
+  // ----------------------------------------------------------------
+  async tmLookup(sourceText: string, targetLang: string): Promise<TmEntryDto | null> {
+    return invoke('tm_lookup', { sourceText, targetLang }) as Promise<TmEntryDto | null>
+  },
+
+  async tmInsert(input: {
+    sourceText: string
+    targetText: string
+    sourceLang: string
+    targetLang: string
+    chapterId?: number | null
+    pageIndex?: number | null
+    textBlockIndex?: number | null
+    provider?: string | null
+    model?: string | null
+  }): Promise<TmEntryDto> {
+    return invoke('tm_insert', input) as Promise<TmEntryDto>
+  },
+}
+
+export type TmEntryDto = {
+  id: number
+  sourceText: string
+  targetText: string
+  sourceLang: string
+  targetLang: string
+  chapterId: number | null
+  pageIndex: number | null
+  textBlockIndex: number | null
+  provider: string | null
+  model: string | null
+  isApproved: boolean
+  createdAt: string
 }
 
 export type PromptUseCase = 'translate' | 'extract_entities' | 'summarize_chapter'

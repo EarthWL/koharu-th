@@ -146,6 +146,8 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
             call(operations::prompt_template_remove, state, params).await
         }
         Method::PromptRender => call(operations::prompt_render, state, params).await,
+        Method::TmLookup => call(operations::tm_lookup, state, params).await,
+        Method::TmInsert => call(operations::tm_insert, state, params).await,
     }
 }
 

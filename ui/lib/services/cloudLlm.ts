@@ -30,11 +30,52 @@ async function tryProjectPrompt(
   }
 }
 
+async function tryTmHit(sourceText: string, targetLang: string) {
+  if (!useProjectStore.getState().info) return null
+  try {
+    const hit = await api.tmLookup(sourceText, targetLang)
+    return hit ?? null
+  } catch (err) {
+    console.warn('[cloudLlm] tmLookup failed (non-fatal)', err)
+    return null
+  }
+}
+
+async function rememberTm(args: {
+  sourceText: string
+  targetText: string
+  targetLang: string
+  provider: string
+  model: string
+}) {
+  if (!useProjectStore.getState().info) return
+  try {
+    await api.tmInsert({
+      sourceText: args.sourceText,
+      targetText: args.targetText,
+      sourceLang: 'auto',
+      targetLang: args.targetLang,
+      provider: args.provider,
+      model: args.model,
+    })
+  } catch (err) {
+    console.warn('[cloudLlm] tmInsert failed (non-fatal)', err)
+  }
+}
+
 export async function generateCloudTranslation(text: string, language: string): Promise<string> {
   const { cloudProvider, cloudApiKey, cloudApiUrl, cloudModelName } = usePreferencesStore.getState()
 
   if (!cloudApiKey) {
     throw new Error('Cloud API Key is missing.')
+  }
+
+  // Cache key = (source text, target language). The language arg is
+  // whatever the caller passed (project's target_language or a free-text
+  // value), so identical pages on the same project bucket together.
+  const tmHit = await tryTmHit(text, language)
+  if (tmHit) {
+    return tmHit.targetText
   }
 
   const projectPrompt = await tryProjectPrompt(text, language)
@@ -63,6 +104,19 @@ Only return the translation, no extra text:\n\n${text}`
       console.warn('[cloudLlm] glossaryBumpUsage failed (non-fatal)', err)
     })
   }
+
+  // Remember the translation in TM so future identical bubbles skip the
+  // API call entirely. Best-effort: failure is logged, not raised.
+  if (result) {
+    void rememberTm({
+      sourceText: text,
+      targetText: result,
+      targetLang: language,
+      provider: cloudProvider,
+      model: cloudModelName,
+    })
+  }
+
   return result
 }
 
