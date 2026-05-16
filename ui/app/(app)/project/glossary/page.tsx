@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronLeftIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { ChevronLeftIcon, PlusIcon, SparklesIcon, Trash2Icon } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/select'
 import { api, type GlossaryCategory, type GlossaryDto } from '@/lib/api'
 import { useProjectStore } from '@/lib/stores/projectStore'
+import { ExtractEntitiesModal } from '@/components/project/ExtractEntitiesModal'
 
 const CATEGORY_OPTIONS: { value: GlossaryCategory; label: string }[] = [
   { value: 'term', label: 'Term' },
@@ -37,6 +38,7 @@ export default function GlossaryPage() {
   const [categoryFilter, setCategoryFilter] = useState<'all' | GlossaryCategory>(
     'all',
   )
+  const [extractOpen, setExtractOpen] = useState(false)
 
   const glossary = useQuery({
     queryKey: ['project', 'glossary'],
@@ -94,8 +96,22 @@ export default function GlossaryPage() {
                 ({glossary.data?.length ?? 0})
               </span>
             </h1>
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={() => setExtractOpen(true)}
+              className='mr-2'
+            >
+              <SparklesIcon className='size-3.5' />
+              Extract entities
+            </Button>
             <AddGlossaryButton onAdded={refresh} />
           </div>
+          <ExtractEntitiesModal
+            open={extractOpen}
+            onClose={() => setExtractOpen(false)}
+            onApplied={refresh}
+          />
 
           <div className='mb-4 flex gap-2'>
             <Input

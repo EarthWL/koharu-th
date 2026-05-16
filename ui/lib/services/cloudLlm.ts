@@ -120,6 +120,84 @@ Only return the translation, no extra text:\n\n${text}`
   return result
 }
 
+/**
+ * Ask the cloud LLM to propose entities (characters, places, terms, etc.)
+ * from a chapter's text. Requires an open project (uses its
+ * `extract_entities` prompt template) and a configured cloud provider.
+ *
+ * Returns the parsed JSON array exactly as the LLM produced it; the
+ * caller is responsible for showing a review UI and bulk-applying.
+ */
+export type ExtractedEntity = {
+  original: string
+  translation: string
+  category: string
+}
+
+export async function extractEntitiesFromText(
+  sourceText: string,
+): Promise<ExtractedEntity[]> {
+  const project = useProjectStore.getState().info
+  if (!project) {
+    throw new Error('Open a project first — extraction needs a series context.')
+  }
+  const { cloudProvider, cloudApiKey, cloudApiUrl, cloudModelName } =
+    usePreferencesStore.getState()
+  if (cloudProvider === 'none') {
+    throw new Error(
+      'Pick a Cloud AI provider in Settings — extraction uses the cloud LLM.',
+    )
+  }
+  if (!cloudApiKey) {
+    throw new Error('Cloud API Key is missing.')
+  }
+
+  const rendered = await api.promptRender({
+    useCase: 'extract_entities',
+    sourceText,
+  })
+
+  let raw: string
+  if (cloudProvider === 'openai') {
+    raw = await fetchOpenAI(rendered.prompt, cloudApiKey, cloudApiUrl, cloudModelName, true)
+  } else if (cloudProvider === 'openrouter') {
+    raw = await fetchOpenRouter(rendered.prompt, cloudApiKey, cloudModelName, true)
+  } else if (cloudProvider === 'gemini') {
+    raw = await fetchGemini(rendered.prompt, cloudApiKey, cloudModelName, true)
+  } else if (cloudProvider === 'anthropic') {
+    raw = await fetchAnthropic(rendered.prompt, cloudApiKey, cloudModelName, true)
+  } else {
+    throw new Error(`Unsupported cloud provider: ${cloudProvider}`)
+  }
+
+  // Extract the JSON array even if the model wrapped it in prose.
+  const trimmed = raw.trim()
+  const start = trimmed.indexOf('[')
+  const end = trimmed.lastIndexOf(']')
+  if (start === -1 || end === -1 || end < start) {
+    throw new Error(`Model did not return a JSON array. Raw: ${trimmed.slice(0, 120)}…`)
+  }
+  const slice = trimmed.slice(start, end + 1)
+  const parsed = JSON.parse(slice) as unknown
+  if (!Array.isArray(parsed)) throw new Error('Parsed result was not an array')
+
+  return parsed
+    .filter(
+      (e): e is ExtractedEntity =>
+        !!e &&
+        typeof e === 'object' &&
+        typeof (e as any).original === 'string' &&
+        typeof (e as any).translation === 'string' &&
+        typeof (e as any).category === 'string',
+    )
+    .map((e) => ({
+      original: e.original.trim(),
+      translation: e.translation.trim(),
+      category: e.category.trim().toLowerCase(),
+    }))
+    .filter((e) => e.original && e.translation)
+}
+
 export async function generateCloudBatchTranslation(blocks: {index: number, text: string}[], language: string): Promise<{index: number, translation: string}[]> {
   const { cloudProvider, cloudApiKey, cloudApiUrl, cloudModelName } = usePreferencesStore.getState()
   
