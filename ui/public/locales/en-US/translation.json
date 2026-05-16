@@ -21,6 +21,8 @@
     "settings": "Settings",
     "discord": "Discord",
     "github": "GitHub",
+    "reportIssue": "Report an issue",
+    "upstreamDiscord": "Upstream Discord (Mayo)",
     "version": "Version: {{version}}",
     "versionUnknown": "Version: Unknown",
     "language": "Language",

@@ -42,6 +42,8 @@
     "settings": "ตั้งค่า",
     "discord": "Discord",
     "github": "GitHub",
+    "reportIssue": "แจ้งปัญหา",
+    "upstreamDiscord": "Discord ของ upstream (Mayo)",
     "version": "เวอร์ชัน: {{version}}",
     "versionUnknown": "เวอร์ชัน: ไม่ทราบ",
     "language": "ภาษา",

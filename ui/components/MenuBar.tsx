@@ -160,12 +160,18 @@ export function MenuBar() {
 
   const helpMenuItems: MenuItem[] = [
     {
-      label: t('menu.discord'),
-      onSelect: () => openExternal('https://discord.gg/mHvHkxGnUY'),
+      label: t('menu.github', 'GitHub'),
+      onSelect: () =>
+        openExternal('https://github.com/EarthWL/koharu-th'),
     },
     {
-      label: t('menu.github'),
-      onSelect: () => openExternal('https://github.com/mayocream/koharu'),
+      label: t('menu.reportIssue', 'Report an issue'),
+      onSelect: () =>
+        openExternal('https://github.com/EarthWL/koharu-th/issues/new'),
+    },
+    {
+      label: t('menu.upstreamDiscord', 'Upstream Discord (Mayo)'),
+      onSelect: () => openExternal('https://discord.gg/mHvHkxGnUY'),
     },
   ]
 
