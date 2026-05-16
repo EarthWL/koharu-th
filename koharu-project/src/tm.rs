@@ -136,6 +136,98 @@ pub fn count(conn: &Conn) -> Result<i64> {
     Ok(conn.query_row("SELECT COUNT(*) FROM translation_memory", [], |r| r.get(0))?)
 }
 
+/// Fuzzy-match `source_text` against TM. Returns the best candidate
+/// over `min_similarity` (0.0..1.0) or None.
+///
+/// Two-stage search:
+///   1. tm_fts MATCH narrows down to top-K candidates by word-overlap
+///      (FTS5's bm25 ranking).
+///   2. We re-score each candidate with a character-bigram Jaccard
+///      similarity against the live source. This is cheap O(n) and
+///      handles partial-text edits much better than word overlap alone
+///      (which is useless for CJK that has no word delimiters).
+///
+/// Returns (entry, similarity) so callers can show "♻️ 87% match"
+/// indicators.
+pub fn lookup_fuzzy(
+    conn: &Conn,
+    source_text: &str,
+    target_lang: &str,
+    min_similarity: f32,
+) -> Result<Option<(TmEntry, f32)>> {
+    let trimmed = source_text.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    // FTS5 MATCH wants safe tokens — escape double-quotes and wrap in
+    // quotes so phrase queries with arbitrary chars don't blow up.
+    let safe = trimmed.replace('"', "\"\"");
+    let match_q = format!("\"{safe}\"");
+
+    let mut stmt = conn.prepare(
+        "SELECT tm.id, tm.source_text, tm.source_hash, tm.target_text,
+                tm.source_lang, tm.target_lang, tm.chapter_id, tm.page_index,
+                tm.text_block_index, tm.provider, tm.model,
+                tm.prompt_template_id, tm.quality_rating, tm.is_approved,
+                tm.created_at
+         FROM tm_fts
+         JOIN translation_memory tm ON tm.id = tm_fts.rowid
+         WHERE tm_fts MATCH ?1
+           AND tm.target_lang = ?2
+         ORDER BY bm25(tm_fts) ASC
+         LIMIT 8",
+    )?;
+    let candidates: Vec<TmEntry> = stmt
+        .query_map(params![match_q, target_lang], row_to_entry)?
+        .collect::<rusqlite::Result<_>>()?;
+
+    let mut best: Option<(TmEntry, f32)> = None;
+    for entry in candidates {
+        let sim = bigram_jaccard(trimmed, entry.source_text.trim());
+        if sim >= min_similarity {
+            match &best {
+                Some((_, s)) if *s >= sim => {}
+                _ => best = Some((entry, sim)),
+            }
+        }
+    }
+    Ok(best)
+}
+
+/// Character-bigram Jaccard similarity. Handles CJK / Thai without word
+/// segmentation since it operates on character pairs directly.
+fn bigram_jaccard(a: &str, b: &str) -> f32 {
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
+    let bigrams = |s: &str| -> std::collections::HashSet<(char, char)> {
+        let chars: Vec<char> = s.chars().collect();
+        if chars.len() < 2 {
+            return std::collections::HashSet::new();
+        }
+        chars
+            .windows(2)
+            .map(|w| (w[0], w[1]))
+            .collect::<std::collections::HashSet<_>>()
+    };
+    let ba = bigrams(a);
+    let bb = bigrams(b);
+    if ba.is_empty() && bb.is_empty() {
+        // Two single-char strings — fall back to char equality.
+        let ca = a.chars().next();
+        let cb = b.chars().next();
+        return if ca == cb && ca.is_some() { 1.0 } else { 0.0 };
+    }
+    let inter = ba.intersection(&bb).count() as f32;
+    let union = ba.union(&bb).count() as f32;
+    if union == 0.0 {
+        0.0
+    } else {
+        inter / union
+    }
+}
+
 fn row_to_entry(r: &rusqlite::Row<'_>) -> rusqlite::Result<TmEntry> {
     let approved_int: i64 = r.get(13)?;
     Ok(TmEntry {
@@ -214,5 +306,56 @@ mod tests {
         .unwrap();
         assert_eq!(second.id, inserted.id);
         assert_eq!(count(&conn).unwrap(), 1);
+    }
+
+    fn seed(conn: &Conn, src: &str, tgt: &str) {
+        insert(
+            conn,
+            TmInsert {
+                source_text: src.into(),
+                target_text: tgt.into(),
+                source_lang: "ja".into(),
+                target_lang: "th".into(),
+                chapter_id: None,
+                page_index: None,
+                text_block_index: None,
+                provider: None,
+                model: None,
+                prompt_template_id: None,
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn fuzzy_lookup_catches_near_duplicates() {
+        let dir = tempdir().unwrap();
+        let p = Project::create(dir.path(), "Test", "0").unwrap();
+        let conn = p.pool().get().unwrap();
+
+        seed(&conn, "今日はいい天気ですね", "วันนี้อากาศดีนะ");
+        seed(&conn, "おはようございます", "อรุณสวัสดิ์");
+        seed(&conn, "ありがとうございました", "ขอบคุณมาก");
+
+        // Exact match — not via fuzzy (would also hit exact, that's fine).
+        let exact = lookup_fuzzy(&conn, "今日はいい天気ですね", "th", 0.5).unwrap();
+        assert!(exact.is_some());
+        assert_eq!(exact.as_ref().unwrap().1, 1.0);
+
+        // Near-miss with trailing punctuation change.
+        let near = lookup_fuzzy(&conn, "今日はいい天気ですね。", "th", 0.7).unwrap();
+        assert!(near.is_some(), "should fuzzy-match with high similarity");
+        let (entry, sim) = near.unwrap();
+        assert_eq!(entry.target_text, "วันนี้อากาศดีนะ");
+        assert!(sim >= 0.7, "expected sim >= 0.7, got {sim}");
+
+        // Totally different text → no hit even at low threshold.
+        let none = lookup_fuzzy(&conn, "全然違うテキスト", "th", 0.5).unwrap();
+        assert!(none.is_none());
+
+        // Wrong target lang → no hit.
+        let other_lang =
+            lookup_fuzzy(&conn, "今日はいい天気ですね", "en", 0.5).unwrap();
+        assert!(other_lang.is_none());
     }
 }

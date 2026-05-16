@@ -65,6 +65,7 @@ pub enum Method {
     PromptRender,
     // Phase 6: translation memory
     TmLookup,
+    TmLookupFuzzy,
     TmInsert,
     // Phase 9: provider profiles
     ProviderProfilesList,
@@ -133,6 +134,7 @@ impl Method {
         Method::PromptTemplateRemove,
         Method::PromptRender,
         Method::TmLookup,
+        Method::TmLookupFuzzy,
         Method::TmInsert,
         Method::ProviderProfilesList,
         Method::ProviderProfileAdd,
@@ -199,6 +201,7 @@ impl Method {
             Method::PromptTemplateRemove => "prompt_template_remove",
             Method::PromptRender => "prompt_render",
             Method::TmLookup => "tm_lookup",
+            Method::TmLookupFuzzy => "tm_lookup_fuzzy",
             Method::TmInsert => "tm_insert",
             Method::ProviderProfilesList => "provider_profiles_list",
             Method::ProviderProfileAdd => "provider_profile_add",
@@ -276,6 +279,7 @@ impl FromStr for Method {
             "prompt_template_remove" => Method::PromptTemplateRemove,
             "prompt_render" => Method::PromptRender,
             "tm_lookup" => Method::TmLookup,
+            "tm_lookup_fuzzy" => Method::TmLookupFuzzy,
             "tm_insert" => Method::TmInsert,
             "provider_profiles_list" => Method::ProviderProfilesList,
             "provider_profile_add" => Method::ProviderProfileAdd,

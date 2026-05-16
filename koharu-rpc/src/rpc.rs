@@ -147,6 +147,7 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         }
         Method::PromptRender => call(operations::prompt_render, state, params).await,
         Method::TmLookup => call(operations::tm_lookup, state, params).await,
+        Method::TmLookupFuzzy => call(operations::tm_lookup_fuzzy, state, params).await,
         Method::TmInsert => call(operations::tm_insert, state, params).await,
         Method::ProviderProfilesList => {
             call0(operations::provider_profiles_list, state).await

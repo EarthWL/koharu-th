@@ -15,7 +15,8 @@ use koharu_api::commands::{
     PromptRenderResult, PromptTemplateAddPayload, PromptTemplateDto, PromptTemplateIdPayload,
     PromptTemplateUpdatePayload, ProviderProfileAddPayload, ProviderProfileDto,
     ProviderProfileIdPayload, ProviderProfileSecret, ProviderProfileUpdatePayload,
-    SeriesMetaDto, SeriesMetaUpdatePayload, TmEntryDto, TmInsertPayload, TmLookupPayload,
+    SeriesMetaDto, SeriesMetaUpdatePayload, TmEntryDto, TmFuzzyHit, TmInsertPayload,
+    TmLookupFuzzyPayload, TmLookupPayload,
 };
 use koharu_project::{
     chapter::{self as chapter_ops, ChapterInsert, ChapterPatch},
@@ -617,6 +618,28 @@ pub async fn tm_lookup(
     })
     .await??;
     Ok(dto)
+}
+
+pub async fn tm_lookup_fuzzy(
+    state: AppResources,
+    payload: TmLookupFuzzyPayload,
+) -> anyhow::Result<Option<TmFuzzyHit>> {
+    let project = require_project(&state).await?;
+    let hit = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<TmFuzzyHit>> {
+        let conn = project.pool().get()?;
+        Ok(tm_ops::lookup_fuzzy(
+            &conn,
+            &payload.source_text,
+            &payload.target_lang,
+            payload.min_similarity,
+        )?
+        .map(|(entry, similarity)| TmFuzzyHit {
+            entry: tm_to_dto(entry),
+            similarity,
+        }))
+    })
+    .await??;
+    Ok(hit)
 }
 
 pub async fn tm_insert(

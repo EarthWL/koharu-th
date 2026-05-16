@@ -364,6 +364,18 @@ export const api = {
     return invoke('tm_lookup', { sourceText, targetLang }) as Promise<TmEntryDto | null>
   },
 
+  async tmLookupFuzzy(
+    sourceText: string,
+    targetLang: string,
+    minSimilarity = 0.85,
+  ): Promise<{ entry: TmEntryDto; similarity: number } | null> {
+    return invoke('tm_lookup_fuzzy', {
+      sourceText,
+      targetLang,
+      minSimilarity,
+    }) as Promise<{ entry: TmEntryDto; similarity: number } | null>
+  },
+
   async tmInsert(input: {
     sourceText: string
     targetText: string

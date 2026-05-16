@@ -110,15 +110,87 @@ async function tryProjectPrompt(
   }
 }
 
+/** Threshold below which a fuzzy hit is ignored. */
+const FUZZY_TM_MIN_SIMILARITY = 0.92
+
 async function tryTmHit(sourceText: string, targetLang: string) {
   if (!useProjectStore.getState().info) return null
   try {
-    const hit = await api.tmLookup(sourceText, targetLang)
-    return hit ?? null
+    // Exact-match short-circuit first — fastest path.
+    const exact = await api.tmLookup(sourceText, targetLang)
+    if (exact) return exact
+    // Then fall back to fuzzy. Threshold is conservative (0.92) so we
+    // don't poison the cache with "close but actually different" hits.
+    const fuzzy = await api.tmLookupFuzzy(
+      sourceText,
+      targetLang,
+      FUZZY_TM_MIN_SIMILARITY,
+    )
+    if (fuzzy) {
+      console.info(
+        '[cloudLlm] TM fuzzy hit',
+        Math.round(fuzzy.similarity * 100) + '%',
+        '←',
+        fuzzy.entry.sourceText.slice(0, 40),
+      )
+      return fuzzy.entry
+    }
+    return null
   } catch (err) {
     console.warn('[cloudLlm] tmLookup failed (non-fatal)', err)
     return null
   }
+}
+
+/**
+ * Retry a fetch-shaped call on transient failures (HTTP 429 / 5xx,
+ * thrown errors). Exponential backoff capped at `maxBackoffMs`.
+ * Re-raises after `maxAttempts` attempts.
+ *
+ * `retryable(err)` returns true if the error should be retried.
+ */
+export async function withRetry<T>(
+  fn: () => Promise<T>,
+  opts: {
+    maxAttempts?: number
+    initialBackoffMs?: number
+    maxBackoffMs?: number
+    retryable?: (err: unknown) => boolean
+    onRetry?: (attempt: number, err: unknown, waitMs: number) => void
+  } = {},
+): Promise<T> {
+  const max = opts.maxAttempts ?? 4
+  const initial = opts.initialBackoffMs ?? 800
+  const cap = opts.maxBackoffMs ?? 15_000
+  const isRetryable = opts.retryable ?? defaultRetryable
+  let attempt = 0
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    try {
+      return await fn()
+    } catch (err) {
+      attempt++
+      if (attempt >= max || !isRetryable(err)) throw err
+      // Decorrelated jitter: random between initial and 3x the previous
+      // delay, capped. Keeps thundering-herd low if many calls fail.
+      const base = Math.min(cap, initial * Math.pow(2, attempt - 1))
+      const wait = Math.round(base * (0.5 + Math.random()))
+      opts.onRetry?.(attempt, err, wait)
+      await new Promise((r) => setTimeout(r, wait))
+    }
+  }
+}
+
+function defaultRetryable(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
+  // HTTP 429 / 5xx surfacing through the fetch* helpers' thrown messages.
+  if (msg.includes('429')) return true
+  if (/\b5\d{2}\b/.test(msg)) return true
+  // Common transient transports: timeouts, resets, etc.
+  if (msg.includes('etimedout') || msg.includes('network') || msg.includes('fetch failed')) {
+    return true
+  }
+  return false
 }
 
 async function rememberTm(args: {
@@ -175,17 +247,28 @@ Only return the translation, no extra text:\n\n${text}`
 
   let raw: CloudResult
   try {
-    if (cloudProvider === 'openai') {
-      raw = await fetchOpenAI(prompt, cloudApiKey, cloudApiUrl, cloudModelName, false, onChunk)
-    } else if (cloudProvider === 'openrouter') {
-      raw = await fetchOpenRouter(prompt, cloudApiKey, cloudModelName, false, onChunk)
-    } else if (cloudProvider === 'gemini') {
-      raw = await fetchGemini(prompt, cloudApiKey, cloudModelName, false, onChunk)
-    } else if (cloudProvider === 'anthropic') {
-      raw = await fetchAnthropic(prompt, cloudApiKey, cloudModelName, false, onChunk)
-    } else {
-      throw new Error(`Unsupported cloud provider: ${cloudProvider}`)
-    }
+    raw = await withRetry(
+      () => {
+        if (cloudProvider === 'openai') {
+          return fetchOpenAI(prompt, cloudApiKey, cloudApiUrl, cloudModelName, false, onChunk)
+        } else if (cloudProvider === 'openrouter') {
+          return fetchOpenRouter(prompt, cloudApiKey, cloudModelName, false, onChunk)
+        } else if (cloudProvider === 'gemini') {
+          return fetchGemini(prompt, cloudApiKey, cloudModelName, false, onChunk)
+        } else if (cloudProvider === 'anthropic') {
+          return fetchAnthropic(prompt, cloudApiKey, cloudModelName, false, onChunk)
+        } else {
+          throw new Error(`Unsupported cloud provider: ${cloudProvider}`)
+        }
+      },
+      {
+        onRetry: (attempt, err, waitMs) =>
+          console.warn(
+            `[cloudLlm] retry ${attempt} after ${waitMs}ms:`,
+            err instanceof Error ? err.message : err,
+          ),
+      },
+    )
   } catch (err: any) {
     logCallSafe({
       useCase: 'translate',
@@ -425,22 +508,20 @@ export async function callCloudOnce(args: {
   const t0 = performance.now()
   let result: CloudResult
   try {
-    switch (provider) {
-      case 'openai':
-        result = await fetchOpenAI(prompt, apiKey, apiUrl, model, jsonMode)
-        break
-      case 'openrouter':
-        result = await fetchOpenRouter(prompt, apiKey, model, jsonMode)
-        break
-      case 'gemini':
-        result = await fetchGemini(prompt, apiKey, model, jsonMode)
-        break
-      case 'anthropic':
-        result = await fetchAnthropic(prompt, apiKey, model, jsonMode)
-        break
-      default:
-        throw new Error(`Unsupported cloud provider: ${provider}`)
-    }
+    result = await withRetry(() => {
+      switch (provider) {
+        case 'openai':
+          return fetchOpenAI(prompt, apiKey, apiUrl, model, jsonMode)
+        case 'openrouter':
+          return fetchOpenRouter(prompt, apiKey, model, jsonMode)
+        case 'gemini':
+          return fetchGemini(prompt, apiKey, model, jsonMode)
+        case 'anthropic':
+          return fetchAnthropic(prompt, apiKey, model, jsonMode)
+        default:
+          throw new Error(`Unsupported cloud provider: ${provider}`)
+      }
+    })
   } catch (err: any) {
     logCallSafe({
       useCase,

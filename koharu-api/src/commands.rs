@@ -595,6 +595,23 @@ pub struct TmLookupPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct TmLookupFuzzyPayload {
+    pub source_text: String,
+    pub target_lang: String,
+    /// 0.0..1.0; entries below this Jaccard similarity are ignored.
+    /// Recommended default is ~0.85 for "very close" matches.
+    pub min_similarity: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmFuzzyHit {
+    pub entry: TmEntryDto,
+    pub similarity: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct TmInsertPayload {
     pub source_text: String,
     pub target_text: String,
