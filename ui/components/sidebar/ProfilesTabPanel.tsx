@@ -353,6 +353,12 @@ function ProfileFormModal({
   const [name, setName] = useState(initial?.name ?? '')
   const [apiKey, setApiKey] = useState('')
   const [apiKeyLoaded, setApiKeyLoaded] = useState(false)
+  /** Tracks why the apiKey field is empty when editing. Distinguishes
+   *  "no key was ever stored" vs "key is in keyring but fetch failed"
+   *  so the UI can tell the user whether they need to re-enter. */
+  const [apiKeyStatus, setApiKeyStatus] = useState<
+    'fresh' | 'loaded' | 'never-stored' | 'keyring-miss' | 'keyring-error'
+  >(initial ? 'loaded' : 'fresh')
   const [apiUrl, setApiUrl] = useState(
     initial?.apiUrl ?? initialMeta.defaultBaseUrl,
   )
@@ -369,16 +375,41 @@ function ProfileFormModal({
   useEffect(() => {
     if (!initial) {
       setApiKeyLoaded(true)
+      setApiKeyStatus('fresh')
       return
     }
     let cancelled = false
     void (async () => {
+      // If the profile has no api_key_ref at all, we know nothing was
+      // ever stored — no need to hit the keyring.
+      if (!initial.apiKeyRef) {
+        if (!cancelled) {
+          setApiKey('')
+          setApiKeyStatus('never-stored')
+          setApiKeyLoaded(true)
+        }
+        return
+      }
       try {
         const { apiKey: existing } =
           await api.providerProfileSecretGet(initial.id)
-        if (!cancelled) setApiKey(existing ?? '')
+        if (cancelled) return
+        if (existing) {
+          setApiKey(existing)
+          setApiKeyStatus('loaded')
+        } else {
+          // api_key_ref is set but keyring returned nothing — the
+          // entry was wiped externally, or initial write silently
+          // failed.
+          setApiKey('')
+          setApiKeyStatus('keyring-miss')
+        }
       } catch (err) {
         console.warn('[profiles] secret fetch failed', err)
+        if (!cancelled) {
+          setApiKey('')
+          setApiKeyStatus('keyring-error')
+        }
       } finally {
         if (!cancelled) setApiKeyLoaded(true)
       }
@@ -669,14 +700,43 @@ function ProfileFormModal({
               <Input
                 type='password'
                 value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
+                onChange={(e) => {
+                  setApiKey(e.target.value)
+                  // Once user types, status no longer matters — they're
+                  // entering a fresh key.
+                  if (apiKeyStatus !== 'fresh' && apiKeyStatus !== 'loaded') {
+                    setApiKeyStatus('loaded')
+                  }
+                }}
                 placeholder={
                   kind === 'openrouter'
                     ? 'sk-or-… (optional for browsing)'
-                    : 'sk-…'
+                    : apiKeyStatus === 'keyring-miss' ||
+                        apiKeyStatus === 'keyring-error'
+                      ? 'Re-enter your API key'
+                      : 'sk-…'
                 }
                 className='h-8 text-xs'
               />
+              {initial && apiKeyLoaded && (
+                <p
+                  className={
+                    'mt-1 text-[10px] ' +
+                    (apiKeyStatus === 'loaded'
+                      ? 'text-muted-foreground/70'
+                      : 'text-amber-600 dark:text-amber-400')
+                  }
+                >
+                  {apiKeyStatus === 'loaded' &&
+                    'Loaded from OS keyring. Leave as-is to keep the saved key, or type a new one to replace it.'}
+                  {apiKeyStatus === 'never-stored' &&
+                    'No key has been stored for this profile yet — enter one to enable cloud calls.'}
+                  {apiKeyStatus === 'keyring-miss' &&
+                    'Saved keyring entry could not be read (entry missing or wiped externally). Re-enter to repair — saving with this field blank will NOT erase the keyring.'}
+                  {apiKeyStatus === 'keyring-error' &&
+                    'Could not access OS keyring (permission denied?). Re-enter the key to retry. Save with blank field to leave keyring untouched.'}
+                </p>
+              )}
             </div>
           )}
 
