@@ -503,6 +503,19 @@ pub struct GlossaryBumpUsagePayload {
     pub ids: Vec<i64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GlossaryBulkAddPayload {
+    pub items: Vec<GlossaryAddPayload>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GlossaryBulkAddResult {
+    pub inserted: u32,
+    pub skipped: u32,
+}
+
 // ------------------------------------------------------------
 // Phase 4: prompt templates + rendering
 // ------------------------------------------------------------

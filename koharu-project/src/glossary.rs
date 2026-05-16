@@ -142,6 +142,53 @@ pub fn remove(conn: &Conn, id: i64) -> Result<bool> {
     Ok(changed > 0)
 }
 
+/// Bulk-import glossary entries in a single transaction. Returns
+/// `(inserted, skipped)` where `skipped` counts rows that collided with
+/// an existing (source_text, category) pair (the unique index on
+/// `idx_glossary_source`).
+///
+/// Each item is best-effort: a single bad row doesn't abort the whole
+/// batch — it just gets counted under `skipped`.
+pub fn bulk_insert(
+    conn: &mut Conn,
+    items: Vec<GlossaryInsert>,
+) -> Result<(usize, usize)> {
+    let mut inserted = 0usize;
+    let mut skipped = 0usize;
+    let now = Utc::now().timestamp();
+    let tx = conn.transaction()?;
+    {
+        let mut stmt = tx.prepare(
+            "INSERT OR IGNORE INTO glossary
+                (source_text, target_text, category, aliases, context_note,
+                 first_appearance_chapter_id, usage_count, confidence, approved,
+                 created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8, ?9, ?9)",
+        )?;
+        for item in items {
+            let aliases_json = serde_json::to_string(&item.aliases).unwrap_or("[]".into());
+            let changed = stmt.execute(params![
+                item.source_text,
+                item.target_text,
+                item.category.as_str(),
+                aliases_json,
+                item.context_note,
+                item.first_appearance_chapter_id,
+                item.confidence.as_str(),
+                if item.approved { 1 } else { 0 },
+                now,
+            ])?;
+            if changed > 0 {
+                inserted += 1;
+            } else {
+                skipped += 1;
+            }
+        }
+    }
+    tx.commit()?;
+    Ok((inserted, skipped))
+}
+
 /// Bump `usage_count` for a list of glossary entries. Called after a
 /// prompt that injected those entries is sent successfully.
 pub fn bump_usage(conn: &Conn, ids: &[i64]) -> Result<()> {
@@ -268,6 +315,55 @@ mod tests {
 
         assert!(remove(&conn, g2.id).unwrap());
         assert_eq!(list(&conn).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn bulk_insert_dedupes_and_counts_skipped() {
+        let dir = tempdir().unwrap();
+        let p = Project::create(dir.path(), "Test", "0").unwrap();
+        let mut conn = p.pool().get().unwrap();
+
+        // Seed one entry so we can verify the dedup path.
+        let _ = insert_simple(&conn, "京都", "เกียวโต", vec![], GlossaryCategory::Place);
+
+        let items = vec![
+            GlossaryInsert {
+                source_text: "健太".into(),
+                target_text: "เคนตะ".into(),
+                category: GlossaryCategory::Term,
+                aliases: vec![],
+                context_note: None,
+                first_appearance_chapter_id: None,
+                confidence: Confidence::Manual,
+                approved: true,
+            },
+            GlossaryInsert {
+                source_text: "魔法剣".into(),
+                target_text: "ดาบเวทย์".into(),
+                category: GlossaryCategory::Term,
+                aliases: vec![],
+                context_note: None,
+                first_appearance_chapter_id: None,
+                confidence: Confidence::Manual,
+                approved: true,
+            },
+            // Collides with the seeded 京都/place row → should be skipped.
+            GlossaryInsert {
+                source_text: "京都".into(),
+                target_text: "Kyoto (duplicate)".into(),
+                category: GlossaryCategory::Place,
+                aliases: vec![],
+                context_note: None,
+                first_appearance_chapter_id: None,
+                confidence: Confidence::Manual,
+                approved: true,
+            },
+        ];
+        let (ok, dup) = bulk_insert(&mut conn, items).unwrap();
+        assert_eq!(ok, 2);
+        assert_eq!(dup, 1);
+        // Total is the seeded row plus the 2 new inserts.
+        assert_eq!(list(&conn).unwrap().len(), 3);
     }
 
     #[test]

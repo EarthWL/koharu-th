@@ -10,7 +10,8 @@ use koharu_api::commands::{
     ChapterAddPayload, ChapterDto, ChapterIdPayload, ChapterUpdatePayload, CharacterAddPayload,
     CharacterDto, CharacterIdPayload, CharacterUpdatePayload, GlossaryAddPayload,
     GlossaryBumpUsagePayload, GlossaryDto, GlossaryIdPayload, GlossaryUpdatePayload,
-    LlmCallLogPayload, LlmCostStats, NameAliasDto, ProjectCreatePayload,
+    GlossaryBulkAddPayload, GlossaryBulkAddResult, LlmCallLogPayload, LlmCostStats,
+    NameAliasDto, ProjectCreatePayload,
     ProjectCreatePickerPayload, ProjectInfo, ProjectOpenPayload, PromptRenderPayload,
     PromptRenderResult, PromptTemplateAddPayload, PromptTemplateDto, PromptTemplateIdPayload,
     PromptTemplateUpdatePayload, ProviderProfileAddPayload, ProviderProfileDto,
@@ -416,6 +417,45 @@ pub async fn glossary_add(
     })
     .await??;
     Ok(dto)
+}
+
+pub async fn glossary_bulk_add(
+    state: AppResources,
+    payload: GlossaryBulkAddPayload,
+) -> anyhow::Result<GlossaryBulkAddResult> {
+    let project = require_project(&state).await?;
+    let result = tokio::task::spawn_blocking(move || -> anyhow::Result<GlossaryBulkAddResult> {
+        let mut conn = project.pool().get()?;
+        let items: Vec<GlossaryInsert> = payload
+            .items
+            .into_iter()
+            .filter_map(|p| {
+                let category = GlossaryCategory::parse(&p.category)?;
+                let confidence = p
+                    .confidence
+                    .as_deref()
+                    .map(parse_confidence)
+                    .unwrap_or(Confidence::Manual);
+                Some(GlossaryInsert {
+                    source_text: p.source_text,
+                    target_text: p.target_text,
+                    category,
+                    aliases: p.aliases,
+                    context_note: p.context_note,
+                    first_appearance_chapter_id: p.first_appearance_chapter_id,
+                    confidence,
+                    approved: p.approved.unwrap_or(true),
+                })
+            })
+            .collect();
+        let (inserted, skipped) = glossary_ops::bulk_insert(&mut conn, items)?;
+        Ok(GlossaryBulkAddResult {
+            inserted: inserted as u32,
+            skipped: skipped as u32,
+        })
+    })
+    .await??;
+    Ok(result)
 }
 
 pub async fn glossary_update(

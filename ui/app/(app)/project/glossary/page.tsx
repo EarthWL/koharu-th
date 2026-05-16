@@ -3,7 +3,13 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronLeftIcon, PlusIcon, SparklesIcon, Trash2Icon } from 'lucide-react'
+import {
+  ChevronLeftIcon,
+  PlusIcon,
+  SparklesIcon,
+  Trash2Icon,
+  UploadIcon,
+} from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -17,6 +23,7 @@ import {
 import { api, type GlossaryCategory, type GlossaryDto } from '@/lib/api'
 import { useProjectStore } from '@/lib/stores/projectStore'
 import { ExtractEntitiesModal } from '@/components/project/ExtractEntitiesModal'
+import { ImportGlossaryModal } from '@/components/project/ImportGlossaryModal'
 
 const CATEGORY_OPTIONS: { value: GlossaryCategory; label: string }[] = [
   { value: 'term', label: 'Term' },
@@ -39,6 +46,7 @@ export default function GlossaryPage() {
     'all',
   )
   const [extractOpen, setExtractOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
 
   const glossary = useQuery({
     queryKey: ['project', 'glossary'],
@@ -99,6 +107,15 @@ export default function GlossaryPage() {
             <Button
               variant='outline'
               size='sm'
+              onClick={() => setImportOpen(true)}
+              className='mr-2'
+            >
+              <UploadIcon className='size-3.5' />
+              Import
+            </Button>
+            <Button
+              variant='outline'
+              size='sm'
               onClick={() => setExtractOpen(true)}
               className='mr-2'
             >
@@ -111,6 +128,11 @@ export default function GlossaryPage() {
             open={extractOpen}
             onClose={() => setExtractOpen(false)}
             onApplied={refresh}
+          />
+          <ImportGlossaryModal
+            open={importOpen}
+            onClose={() => setImportOpen(false)}
+            onImported={() => refresh()}
           />
 
           <div className='mb-4 flex gap-2'>

@@ -310,6 +310,15 @@ export const api = {
     return invoke('glossary_remove', { id }) as Promise<boolean>
   },
 
+  async glossaryBulkAdd(
+    items: GlossaryAddInput[],
+  ): Promise<{ inserted: number; skipped: number }> {
+    return invoke('glossary_bulk_add', { items }) as Promise<{
+      inserted: number
+      skipped: number
+    }>
+  },
+
   async glossaryBumpUsage(ids: number[]): Promise<void> {
     await invoke('glossary_bump_usage', { ids })
   },
