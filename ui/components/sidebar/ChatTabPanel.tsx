@@ -337,12 +337,14 @@ export function ChatTabPanel() {
         <div className='flex items-center gap-1'>
           <Button
             variant='ghost'
-            size='icon-xs'
-            className='size-6'
-            title='Clear chat history'
+            size='sm'
+            className='h-6 px-2 text-[10px] disabled:opacity-40'
+            title='Clear all chat history for this project'
+            disabled={!history.data?.length || sending}
             onClick={() => void clearAll()}
           >
             <Trash2Icon className='size-3' />
+            Clear
           </Button>
         </div>
       </div>
