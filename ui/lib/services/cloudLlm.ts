@@ -261,6 +261,34 @@ ${blocksJson}`
 }
 
 
+/**
+ * Send a single one-shot prompt to whatever cloud provider is named.
+ * Shared by the chapter-summariser and entity-extractor flows; does
+ * NOT touch the project's TM (those callers want a fresh response).
+ */
+export async function callCloudOnce(args: {
+  prompt: string
+  provider: string
+  apiKey: string
+  apiUrl: string
+  model: string
+  jsonMode?: boolean
+}): Promise<string> {
+  const { prompt, provider, apiKey, apiUrl, model, jsonMode = false } = args
+  switch (provider) {
+    case 'openai':
+      return fetchOpenAI(prompt, apiKey, apiUrl, model, jsonMode)
+    case 'openrouter':
+      return fetchOpenRouter(prompt, apiKey, model, jsonMode)
+    case 'gemini':
+      return fetchGemini(prompt, apiKey, model, jsonMode)
+    case 'anthropic':
+      return fetchAnthropic(prompt, apiKey, model, jsonMode)
+    default:
+      throw new Error(`Unsupported cloud provider: ${provider}`)
+  }
+}
+
 async function fetchOpenAI(prompt: string, apiKey: string, apiUrl: string, model: string, isJsonMode = false): Promise<string> {
   // Use user's custom url or trailing slash cleanup
   const baseUrl = apiUrl.replace(/\/+$/, '')

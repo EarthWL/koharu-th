@@ -7,10 +7,13 @@ import {
   ChevronLeftIcon,
   FolderOpenIcon,
   FolderPlusIcon,
+  Loader2Icon,
   LogOutIcon,
   PlusIcon,
+  SparklesIcon,
   Trash2Icon,
 } from 'lucide-react'
+import { summarizeChapter } from '@/lib/services/summarizeChapter'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -376,56 +379,159 @@ function ChaptersSection() {
             </thead>
             <tbody>
               {chapters.data.map((c) => (
-                <tr
+                <ChapterRow
                   key={c.id}
-                  className='border-border border-t hover:bg-accent/30'
-                >
-                  <td className='px-3 py-2'>{c.chapterNumber}</td>
-                  <td className='text-muted-foreground truncate px-3 py-2'>
-                    {c.filePath}
-                  </td>
-                  <td className='px-3 py-2'>{c.title ?? '—'}</td>
-                  <td className='text-muted-foreground px-3 py-2'>
-                    {c.pageCount || '—'}
-                  </td>
-                  <td className='px-3 py-2'>
-                    <Select
-                      value={c.status}
-                      onValueChange={(v) =>
-                        void updateStatus(c, v as ChapterStatus)
-                      }
-                    >
-                      <SelectTrigger
-                        className={`h-6 px-1.5 text-[10px] ${STATUS_BADGE[c.status]}`}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {STATUS_OPTIONS.map((o) => (
-                          <SelectItem key={o.value} value={o.value}>
-                            {o.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </td>
-                  <td className='px-3 py-2 text-right'>
-                    <Button
-                      variant='ghost'
-                      size='sm'
-                      title='Remove from index'
-                      onClick={() => void removeChapter(c.id)}
-                    >
-                      <Trash2Icon className='size-3.5' />
-                    </Button>
-                  </td>
-                </tr>
+                  chapter={c}
+                  onChanged={refresh}
+                  onStatusChange={(s) => void updateStatus(c, s)}
+                  onRemove={() => void removeChapter(c.id)}
+                />
               ))}
             </tbody>
           </table>
         )}
       </div>
     </section>
+  )
+}
+
+function ChapterRow({
+  chapter,
+  onChanged,
+  onStatusChange,
+  onRemove,
+}: {
+  chapter: ChapterDto
+  onChanged: () => void
+  onStatusChange: (status: ChapterStatus) => void
+  onRemove: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [summarising, setSummarising] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [summaryDraft, setSummaryDraft] = useState(chapter.summary ?? '')
+
+  // Sync local draft when chapter row reloads.
+  if (summaryDraft === '' && chapter.summary && !open) {
+    // No-op — controlled by open state.
+  }
+
+  const runSummarise = async () => {
+    const text = prompt(
+      'Paste the chapter text the summary should be based on.\n(Or close this dialog and paste in the editor below.)',
+    )
+    if (!text || !text.trim()) return
+    setSummarising(true)
+    setError(null)
+    try {
+      const summary = await summarizeChapter(chapter.id, text)
+      setSummaryDraft(summary)
+      onChanged()
+      setOpen(true)
+    } catch (e: any) {
+      setError(e?.message || String(e))
+    } finally {
+      setSummarising(false)
+    }
+  }
+
+  const saveSummary = async () => {
+    await api.chapterUpdate({ id: chapter.id, summary: summaryDraft || null })
+    onChanged()
+    setOpen(false)
+  }
+
+  return (
+    <>
+      <tr className='border-border border-t hover:bg-accent/30'>
+        <td className='px-3 py-2'>{chapter.chapterNumber}</td>
+        <td className='text-muted-foreground truncate px-3 py-2'>
+          {chapter.filePath}
+        </td>
+        <td className='px-3 py-2'>{chapter.title ?? '—'}</td>
+        <td className='text-muted-foreground px-3 py-2'>
+          {chapter.pageCount || '—'}
+        </td>
+        <td className='px-3 py-2'>
+          <Select
+            value={chapter.status}
+            onValueChange={(v) => onStatusChange(v as ChapterStatus)}
+          >
+            <SelectTrigger
+              className={`h-6 px-1.5 text-[10px] ${STATUS_BADGE[chapter.status]}`}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {STATUS_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </td>
+        <td className='px-3 py-2 text-right'>
+          <Button
+            variant='ghost'
+            size='sm'
+            title={chapter.summary ? 'View / edit summary' : 'Add summary'}
+            onClick={() => {
+              setSummaryDraft(chapter.summary ?? '')
+              setOpen(!open)
+            }}
+          >
+            {chapter.summary ? '📝' : '➕'}
+          </Button>
+          <Button
+            variant='ghost'
+            size='sm'
+            title='Generate summary via LLM'
+            disabled={summarising}
+            onClick={() => void runSummarise()}
+          >
+            {summarising ? (
+              <Loader2Icon className='size-3.5 animate-spin' />
+            ) : (
+              <SparklesIcon className='size-3.5' />
+            )}
+          </Button>
+          <Button
+            variant='ghost'
+            size='sm'
+            title='Remove from index'
+            onClick={onRemove}
+          >
+            <Trash2Icon className='size-3.5' />
+          </Button>
+        </td>
+      </tr>
+      {open && (
+        <tr className='bg-muted/30'>
+          <td colSpan={6} className='px-3 py-3'>
+            {error && (
+              <div className='border-destructive/40 bg-destructive/10 text-destructive mb-2 rounded-md border p-2 text-xs'>
+                {error}
+              </div>
+            )}
+            <Textarea
+              value={summaryDraft}
+              onChange={(e) => setSummaryDraft(e.target.value)}
+              placeholder='Chapter summary used as rolling context in future translations.'
+              className='min-h-20 text-xs'
+            />
+            <div className='mt-2 flex justify-end gap-2'>
+              <Button variant='ghost' size='sm' onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+              <Button variant='default' size='sm' onClick={() => void saveSummary()}>
+                Save
+              </Button>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   )
 }
 
