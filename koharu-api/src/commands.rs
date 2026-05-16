@@ -394,6 +394,16 @@ pub struct ChapterIdPayload {
     pub id: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChapterImportResult {
+    /// Number of new chapter rows added.
+    pub added: u32,
+    /// Number of files the user picked that were skipped (unsupported
+    /// extension, copy failure, etc.).
+    pub skipped: u32,
+}
+
 // ------------------------------------------------------------
 // Phase 3: characters + glossary
 // ------------------------------------------------------------

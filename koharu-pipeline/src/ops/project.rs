@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use koharu_api::commands::{
-    ChapterAddPayload, ChapterDto, ChapterIdPayload, ChapterUpdatePayload, CharacterAddPayload,
+    ChapterAddPayload, ChapterDto, ChapterIdPayload, ChapterImportResult, ChapterUpdatePayload,
+    CharacterAddPayload,
     CharacterDto, CharacterIdPayload, CharacterUpdatePayload, GlossaryAddPayload,
     GlossaryBumpUsagePayload, GlossaryDto, GlossaryIdPayload, GlossaryUpdatePayload,
     GlossaryBulkAddPayload, GlossaryBulkAddResult, LlmCallLogPayload, LlmCostStats,
@@ -372,6 +373,147 @@ pub async fn chapter_add(
     })
     .await??;
     Ok(dto)
+}
+
+/// Open a file picker, let the user pick one or more image / .khr
+/// files, copy them into the project's chapters/ directory, and
+/// insert a chapter row for each. Auto-assigns chapter numbers as
+/// `max(existing) + 1, +2, ...` so the natural reading order is
+/// preserved if the user picks files in batches.
+pub async fn chapter_add_from_picker(
+    state: AppResources,
+) -> anyhow::Result<ChapterImportResult> {
+    let project = require_project(&state).await?;
+
+    let chosen = tokio::task::spawn_blocking(|| {
+        FileDialog::new()
+            .add_filter(
+                "Chapter files",
+                &["khr", "png", "jpg", "jpeg", "webp", "bmp"],
+            )
+            .pick_files()
+    })
+    .await?;
+    let Some(files) = chosen else {
+        return Ok(ChapterImportResult {
+            added: 0,
+            skipped: 0,
+        });
+    };
+
+    let result = tokio::task::spawn_blocking(move || -> anyhow::Result<ChapterImportResult> {
+        let chapters_dir = project.chapters_dir();
+        std::fs::create_dir_all(&chapters_dir).ok();
+
+        let conn = project.pool().get()?;
+        let existing = chapter_ops::list(&conn)?;
+        let mut next_number = existing
+            .iter()
+            .map(|c| c.chapter_number)
+            .fold(0.0_f64, f64::max);
+
+        let mut added = 0u32;
+        let mut skipped = 0u32;
+
+        for src in files {
+            let Some(name) = src.file_name().and_then(|s| s.to_str()) else {
+                skipped += 1;
+                continue;
+            };
+            let dest_name = dedupe_in_dir(&chapters_dir, name);
+            let dest = chapters_dir.join(&dest_name);
+
+            if let Err(err) = std::fs::copy(&src, &dest) {
+                tracing::warn!(?err, ?src, ?dest, "chapter copy failed");
+                skipped += 1;
+                continue;
+            }
+
+            next_number += 1.0;
+            let chapter_number = filename_chapter_number(&dest_name).unwrap_or(next_number);
+            let rel = format!("chapters/{}", dest_name.replace('\\', "/"));
+            if let Err(err) = chapter_ops::insert(
+                &conn,
+                chapter_ops::ChapterInsert {
+                    file_path: rel,
+                    chapter_number,
+                    title: Some(strip_ext(&dest_name).into()),
+                    volume: None,
+                },
+            ) {
+                tracing::warn!(?err, "chapter insert failed");
+                // Roll back the copy so we don't leave orphan files.
+                let _ = std::fs::remove_file(&dest);
+                skipped += 1;
+                continue;
+            }
+            added += 1;
+        }
+
+        Ok(ChapterImportResult { added, skipped })
+    })
+    .await??;
+    Ok(result)
+}
+
+/// Pick a filename that doesn't collide with anything already in
+/// `dir`. Appends "-2", "-3", ... before the extension.
+fn dedupe_in_dir(dir: &std::path::Path, name: &str) -> String {
+    let candidate = dir.join(name);
+    if !candidate.exists() {
+        return name.to_string();
+    }
+    let (stem, ext) = match name.rfind('.') {
+        Some(i) => (&name[..i], &name[i..]),
+        None => (name, ""),
+    };
+    for n in 2..=9999 {
+        let cand = format!("{stem}-{n}{ext}");
+        if !dir.join(&cand).exists() {
+            return cand;
+        }
+    }
+    // Astronomically unlikely fallback when 9998 dedupe attempts collide.
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    format!("{stem}-{ts}{ext}")
+}
+
+/// Guess a chapter number from a filename like "ch03.khr",
+/// "chapter-5.png", "012.png". Returns None if no obvious number is
+/// present.
+fn filename_chapter_number(name: &str) -> Option<f64> {
+    let stem = match name.rfind('.') {
+        Some(i) => &name[..i],
+        None => name,
+    };
+    // Scan for the first run of digits (with optional dot for 2.5
+    // omake chapter numbering).
+    let bytes = stem.as_bytes();
+    let mut start = None;
+    let mut end = 0;
+    for (i, b) in bytes.iter().enumerate() {
+        let is_digit = b.is_ascii_digit() || (start.is_some() && *b == b'.');
+        if is_digit {
+            if start.is_none() {
+                start = Some(i);
+            }
+            end = i + 1;
+        } else if start.is_some() {
+            break;
+        }
+    }
+    let s = &stem[start?..end];
+    s.parse().ok()
+}
+
+fn strip_ext(name: &str) -> &str {
+    match name.rfind('.') {
+        Some(i) => &name[..i],
+        None => name,
+    }
 }
 
 pub async fn chapter_update(

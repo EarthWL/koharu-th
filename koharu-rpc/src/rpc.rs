@@ -133,6 +133,9 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::SeriesMetaUpdate => call(operations::series_meta_update, state, params).await,
         Method::ChaptersList => call0(operations::chapters_list, state).await,
         Method::ChapterAdd => call(operations::chapter_add, state, params).await,
+        Method::ChapterAddFromPicker => {
+            call0(operations::chapter_add_from_picker, state).await
+        }
         Method::ChapterUpdate => call(operations::chapter_update, state, params).await,
         Method::ChapterRemove => call(operations::chapter_remove, state, params).await,
         Method::CharactersList => call0(operations::characters_list, state).await,

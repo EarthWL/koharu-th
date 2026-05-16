@@ -276,6 +276,13 @@ export const api = {
     return invoke('chapter_add', input) as Promise<ChapterDto>
   },
 
+  async chapterAddFromPicker(): Promise<{ added: number; skipped: number }> {
+    return invoke('chapter_add_from_picker') as Promise<{
+      added: number
+      skipped: number
+    }>
+  },
+
   async chapterUpdate(input: {
     id: number
     chapterNumber?: number

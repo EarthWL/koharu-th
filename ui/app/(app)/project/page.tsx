@@ -425,7 +425,10 @@ function ChaptersSection() {
     <section className='mb-8'>
       <div className='mb-1 flex items-center justify-between'>
         <h2 className='text-foreground text-sm font-bold'>Chapters</h2>
-        <AddChapterButton onAdded={refresh} />
+        <div className='flex items-center gap-1.5'>
+          <ImportChaptersButton onImported={refresh} />
+          <AddChapterButton onAdded={refresh} />
+        </div>
       </div>
       <p className='text-muted-foreground mb-4 text-sm'>
         Each chapter is a standalone .khr file stored under{' '}
@@ -638,6 +641,56 @@ function ChapterRow({
             </div>
           </td>
         </tr>
+      )}
+    </>
+  )
+}
+
+/**
+ * Primary "import chapters" button — opens the native multi-file picker,
+ * copies selected files into the project's `chapters/` folder, and
+ * auto-creates chapter rows. Replaces the manual file-path typing that
+ * the original AddChapter modal required.
+ */
+function ImportChaptersButton({ onImported }: { onImported: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [status, setStatus] = useState<string | null>(null)
+  const run = async () => {
+    setBusy(true)
+    setStatus(null)
+    try {
+      const r = await api.chapterAddFromPicker()
+      if (r.added > 0) {
+        setStatus(`✓ ${r.added} added${r.skipped ? ` · ${r.skipped} skipped` : ''}`)
+        setTimeout(() => setStatus(null), 4_000)
+        onImported()
+      } else if (r.skipped > 0) {
+        setStatus(`✗ skipped ${r.skipped}`)
+      }
+    } catch (err: any) {
+      setStatus(`✗ ${err?.message ?? String(err)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <>
+      <Button
+        variant='default'
+        size='sm'
+        disabled={busy}
+        onClick={() => void run()}
+        title='Pick image / .khr files; they will be copied into this project'
+      >
+        {busy ? (
+          <Loader2Icon className='size-3.5 animate-spin' />
+        ) : (
+          <FolderOpenIcon className='size-3.5' />
+        )}
+        Import files…
+      </Button>
+      {status && (
+        <span className='text-muted-foreground ml-1 text-[10px]'>{status}</span>
       )}
     </>
   )
