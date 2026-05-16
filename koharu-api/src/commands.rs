@@ -272,6 +272,15 @@ pub struct ProjectCreatePickerPayload {
     pub name: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectBackupResult {
+    /// Absolute path of the zip file written, or null if the user
+    /// cancelled the save-file dialog.
+    pub path: Option<String>,
+    pub file_count: u32,
+}
+
 /// Summary returned by project_open / project_create / project_current.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]

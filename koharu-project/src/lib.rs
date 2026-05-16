@@ -10,6 +10,7 @@
 //! translation memory, prompt templates, provider profiles, and an LLM
 //! call log. See `migrations/V001__initial_schema.sql` for the schema.
 
+pub mod backup;
 pub mod chapter;
 pub mod character;
 mod db;

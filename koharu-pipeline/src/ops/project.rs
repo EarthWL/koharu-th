@@ -11,7 +11,7 @@ use koharu_api::commands::{
     CharacterDto, CharacterIdPayload, CharacterUpdatePayload, GlossaryAddPayload,
     GlossaryBumpUsagePayload, GlossaryDto, GlossaryIdPayload, GlossaryUpdatePayload,
     GlossaryBulkAddPayload, GlossaryBulkAddResult, LlmCallLogPayload, LlmCostStats,
-    NameAliasDto, ProjectCreatePayload,
+    NameAliasDto, ProjectBackupResult, ProjectCreatePayload,
     ProjectCreatePickerPayload, ProjectInfo, ProjectOpenPayload, PromptRenderPayload,
     PromptRenderResult, PromptTemplateAddPayload, PromptTemplateDto, PromptTemplateIdPayload,
     PromptTemplateUpdatePayload, ProviderProfileAddPayload, ProviderProfileDto,
@@ -20,6 +20,7 @@ use koharu_api::commands::{
     TmLookupFuzzyPayload, TmLookupPayload,
 };
 use koharu_project::{
+    backup as backup_ops,
     chapter::{self as chapter_ops, ChapterInsert, ChapterPatch},
     character::{self as character_ops, CharacterInsert, CharacterPatch},
     glossary::{self as glossary_ops, GlossaryInsert, GlossaryPatch},
@@ -118,6 +119,87 @@ pub async fn project_open_picker(state: AppResources) -> anyhow::Result<Option<P
     let info = build_info(&project)?;
     *state.project.write().await = Some(project);
     Ok(Some(info))
+}
+
+pub async fn project_backup_picker(
+    state: AppResources,
+) -> anyhow::Result<ProjectBackupResult> {
+    let project = require_project(&state).await?;
+    let manifest_name = project.manifest().name.clone();
+
+    let suggested = sanitize_folder_name(&format!(
+        "{}-backup-{}",
+        manifest_name,
+        chrono_like_yyyymmdd_hhmm()
+    ));
+
+    let chosen = tokio::task::spawn_blocking(move || {
+        FileDialog::new()
+            .add_filter("Zip archive", &["zip"])
+            .set_file_name(&format!("{suggested}.zip"))
+            .save_file()
+    })
+    .await?;
+    let Some(out_zip) = chosen else {
+        return Ok(ProjectBackupResult {
+            path: None,
+            file_count: 0,
+        });
+    };
+
+    let project2 = project.clone();
+    let out_zip2 = out_zip.clone();
+    let count = tokio::task::spawn_blocking(move || -> anyhow::Result<usize> {
+        Ok(backup_ops::backup_to(project2.root(), &out_zip2)?)
+    })
+    .await??;
+
+    Ok(ProjectBackupResult {
+        path: Some(out_zip.to_string_lossy().into_owned()),
+        file_count: count as u32,
+    })
+}
+
+/// Tiny standalone timestamp formatter (yyyymmdd_HHMM in local time)
+/// — avoids pulling chrono into koharu-pipeline just for this.
+fn chrono_like_yyyymmdd_hhmm() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    // Local-time approximation: just use UTC. Filenames don't need to
+    // be perfectly local-time accurate.
+    let days = secs / 86_400;
+    let mut year = 1970i64;
+    let mut remaining = days;
+    loop {
+        let leap = is_leap(year);
+        let dy = if leap { 366 } else { 365 };
+        if remaining < dy {
+            break;
+        }
+        remaining -= dy;
+        year += 1;
+    }
+    let month_days = if is_leap(year) {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+    let mut month = 0usize;
+    let mut day = remaining;
+    while month < 12 && day >= month_days[month] as i64 {
+        day -= month_days[month] as i64;
+        month += 1;
+    }
+    let h = (secs % 86_400) / 3600;
+    let m = (secs % 3600) / 60;
+    format!("{:04}{:02}{:02}-{:02}{:02}", year, month + 1, day + 1, h, m)
+}
+
+fn is_leap(y: i64) -> bool {
+    (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0)
 }
 
 pub async fn project_close(state: AppResources) -> anyhow::Result<()> {

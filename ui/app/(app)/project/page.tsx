@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import {
+  ArchiveIcon,
   ChevronLeftIcon,
   FolderOpenIcon,
   FolderPlusIcon,
@@ -108,15 +109,18 @@ export default function ProjectPage() {
                           {info.root}
                         </div>
                       </div>
-                      <Button
-                        variant='ghost'
-                        size='sm'
-                        onClick={() => void closeProject()}
-                        title='Close project'
-                      >
-                        <LogOutIcon className='size-3.5' />
-                        Close
-                      </Button>
+                      <div className='flex items-center gap-1'>
+                        <BackupButton />
+                        <Button
+                          variant='ghost'
+                          size='sm'
+                          onClick={() => void closeProject()}
+                          title='Close project'
+                        >
+                          <LogOutIcon className='size-3.5' />
+                          Close
+                        </Button>
+                      </div>
                     </div>
                     <div className='text-muted-foreground flex gap-4 text-xs'>
                       <span>📚 {info.chapterCount} chapters</span>
@@ -156,6 +160,48 @@ export default function ProjectPage() {
         </div>
       </div>
     </ScrollArea>
+  )
+}
+
+function BackupButton() {
+  const [busy, setBusy] = useState(false)
+  const [status, setStatus] = useState<string | null>(null)
+  const run = async () => {
+    setBusy(true)
+    setStatus(null)
+    try {
+      const r = await api.projectBackupPicker()
+      if (r.path) {
+        setStatus(`✓ ${r.fileCount} files → ${r.path.split(/[\\/]/).pop()}`)
+        // Clear the status text after a few seconds.
+        setTimeout(() => setStatus(null), 5_000)
+      }
+    } catch (err: any) {
+      setStatus(`✗ ${err?.message ?? String(err)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <>
+      <Button
+        variant='ghost'
+        size='sm'
+        disabled={busy}
+        title='Pack the project (manifest + DB + chapters + reference + assets) into a zip'
+        onClick={() => void run()}
+      >
+        {busy ? (
+          <Loader2Icon className='size-3.5 animate-spin' />
+        ) : (
+          <ArchiveIcon className='size-3.5' />
+        )}
+        Backup
+      </Button>
+      {status && (
+        <span className='text-muted-foreground ml-1 text-[10px]'>{status}</span>
+      )}
+    </>
   )
 }
 

@@ -234,6 +234,16 @@ export const api = {
     return invoke('project_current') as Promise<ProjectInfo | null>
   },
 
+  async projectBackupPicker(): Promise<{
+    path: string | null
+    fileCount: number
+  }> {
+    return invoke('project_backup_picker') as Promise<{
+      path: string | null
+      fileCount: number
+    }>
+  },
+
   // ----------------------------------------------------------------
   // Series + chapters (Phase 2)
   // ----------------------------------------------------------------
