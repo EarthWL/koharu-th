@@ -239,6 +239,10 @@ impl Renderer {
             effect: None,
             stroke: None,
             text_align: None,
+            line_height: None,
+            letter_spacing_px: None,
+            min_font_size: None,
+            vertical_align: None,
         });
 
         apply_global_font_family(&mut style.font_families, font_family);
@@ -298,12 +302,27 @@ impl Renderer {
                 box_for_layout.width
             };
 
-            TextLayout::new(&font, None)
+            let manual_size = style.font_size.filter(|s| s.is_finite() && *s > 0.0);
+            let line_height = style.line_height.unwrap_or(1.0);
+            let letter_spacing = style.letter_spacing_px.unwrap_or(0.0);
+            let min_size = style
+                .min_font_size
+                .filter(|v| v.is_finite() && *v > 0.0)
+                .map(|v| v.round() as u32)
+                .unwrap_or(6);
+
+            let mut tl = TextLayout::new(&font, manual_size)
                 .with_fallback_fonts(&self.symbol_fallbacks)
                 .with_max_height(box_for_layout.height)
                 .with_max_width(max_width)
                 .with_writing_mode(writing_mode)
-                .run(&normalized_translation)
+                .with_line_height(line_height)
+                .with_letter_spacing(letter_spacing)
+                .with_min_font_size(min_size);
+            if let Some(size) = manual_size {
+                tl = tl.with_font_size(size);
+            }
+            tl.run(&normalized_translation)
         };
 
         let mut layout = build_layout(layout_box, false)?;
@@ -334,6 +353,11 @@ impl Renderer {
             }
 
             center_layout_vertically(&mut layout, layout_box.height);
+        }
+        // Apply user-controlled vertical alignment (default Top is the
+        // pre-existing behaviour — nothing to do).
+        if let Some(va) = style.vertical_align {
+            apply_vertical_align(&mut layout, layout_box.height, va);
         }
         align_layout_horizontally(&mut layout, writing_mode, layout_box.width, text_align);
 
@@ -527,6 +551,32 @@ fn center_layout_vertically(layout: &mut LayoutRun<'_>, container_height: f32) {
         return;
     }
 
+    for line in &mut layout.lines {
+        line.baseline.1 += offset;
+    }
+    layout.height = layout.height.max(container_height);
+}
+
+/// Shift the laid-out lines so that the block sits at the top, middle,
+/// or bottom of the container. Top is a no-op (the layout already
+/// starts at y=0).
+fn apply_vertical_align(
+    layout: &mut LayoutRun<'_>,
+    container_height: f32,
+    align: koharu_types::VerticalAlign,
+) {
+    if !container_height.is_finite() || container_height <= 0.0 || layout.lines.is_empty() {
+        return;
+    }
+    let remaining = (container_height - layout.height).max(0.0);
+    if remaining <= 0.0 {
+        return;
+    }
+    let offset = match align {
+        koharu_types::VerticalAlign::Top => return,
+        koharu_types::VerticalAlign::Middle => remaining * 0.5,
+        koharu_types::VerticalAlign::Bottom => remaining,
+    };
     for line in &mut layout.lines {
         line.baseline.1 += offset;
     }

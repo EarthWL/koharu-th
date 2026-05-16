@@ -73,6 +73,12 @@ pub struct TextLayout<'a> {
     font_size: Option<f32>,
     max_width: Option<f32>,
     max_height: Option<f32>,
+    /// Multiplier on the font's intrinsic line height.
+    line_height_factor: f32,
+    /// Extra pixels inserted between shaped clusters.
+    letter_spacing_px: f32,
+    /// Lower bound for the auto-fit binary search.
+    min_font_size: u32,
 }
 
 impl<'a> TextLayout<'a> {
@@ -85,6 +91,9 @@ impl<'a> TextLayout<'a> {
             font_size,
             max_width: None,
             max_height: None,
+            line_height_factor: 1.0,
+            letter_spacing_px: 0.0,
+            min_font_size: 6,
         }
     }
 
@@ -118,6 +127,32 @@ impl<'a> TextLayout<'a> {
         self
     }
 
+    /// Multiplier on the font's intrinsic line height. 1.0 = unchanged.
+    /// Values below ~0.7 risk overlapping glyph bodies; above 2.0 is
+    /// usually too sparse. Caller is responsible for sanity-checking.
+    pub fn with_line_height(mut self, factor: f32) -> Self {
+        if factor.is_finite() && factor > 0.0 {
+            self.line_height_factor = factor;
+        }
+        self
+    }
+
+    /// Extra pixels inserted between every shaped cluster — additive
+    /// to the natural advance width.
+    pub fn with_letter_spacing(mut self, px: f32) -> Self {
+        if px.is_finite() {
+            self.letter_spacing_px = px;
+        }
+        self
+    }
+
+    /// Set the lower bound for the auto-fit binary search. Useful for
+    /// Thai where anything below ~12px loses readability.
+    pub fn with_min_font_size(mut self, px: u32) -> Self {
+        self.min_font_size = px.max(1);
+        self
+    }
+
     pub fn run(&self, text: &str) -> Result<LayoutRun<'a>> {
         if let Some(font_size) = self.font_size {
             return self.run_with_size(text, font_size);
@@ -130,7 +165,7 @@ impl<'a> TextLayout<'a> {
         let max_height = self.max_height.unwrap_or(f32::INFINITY);
         let max_width = self.max_width.unwrap_or(f32::INFINITY);
 
-        let mut low = 6;
+        let mut low = self.min_font_size as i32;
         let mut high = 300;
         let mut best: Option<LayoutRun<'a>> = None;
 
@@ -165,7 +200,11 @@ impl<'a> TextLayout<'a> {
         let metrics = font_ref.metrics(Size::new(font_size), LocationRef::default());
         let ascent = metrics.ascent;
         let descent = -metrics.descent;
-        let line_height = (ascent + descent + metrics.leading).max(font_size);
+        let natural_line_height = (ascent + descent + metrics.leading).max(font_size);
+        // Apply the user's line-height multiplier (Thai often wants ~1.3
+        // so tone marks above ascent + descenders below baseline don't
+        // crowd into neighbouring lines).
+        let line_height = natural_line_height * self.line_height_factor;
 
         let opts = ShapingOptions {
             direction: self.writing_mode.into(),
@@ -242,12 +281,30 @@ impl<'a> TextLayout<'a> {
                 line_offset = start;
             }
 
-            // Adjust cluster indices and add glyphs to current line
+            // Adjust cluster indices and add glyphs to current line.
+            // Letter-spacing inserts extra advance after each glyph
+            // that starts a new cluster (so it doesn't blow up mark
+            // clusters like Thai sara + vowel sign + tone). For
+            // horizontal we bump x_advance; for vertical, y_advance.
+            let extra = self.letter_spacing_px;
+            let mut last_cluster: Option<u32> = None;
+            let mut spacing_added = 0.0_f32;
             for mut glyph in shaped.glyphs {
                 glyph.cluster += start as u32;
+                if extra != 0.0 && last_cluster.map(|c| c != glyph.cluster).unwrap_or(true) {
+                    if let Some(prev) = current.glyphs.last_mut() {
+                        if self.writing_mode.is_vertical() {
+                            prev.y_advance += extra;
+                        } else {
+                            prev.x_advance += extra;
+                        }
+                        spacing_added += extra;
+                    }
+                }
+                last_cluster = Some(glyph.cluster);
                 current.glyphs.push(glyph);
             }
-            current.advance += advance;
+            current.advance += advance + spacing_added;
 
             if segment.is_mandatory {
                 current.range = line_offset..segment.range.end;

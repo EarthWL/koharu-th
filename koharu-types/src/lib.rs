@@ -109,6 +109,15 @@ pub enum TextAlign {
     Right,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum VerticalAlign {
+    #[default]
+    Top,
+    Middle,
+    Bottom,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextStyle {
@@ -119,6 +128,24 @@ pub struct TextStyle {
     pub stroke: Option<TextStrokeStyle>,
     #[serde(default)]
     pub text_align: Option<TextAlign>,
+    /// Multiplier on the font's intrinsic line height. 1.0 = use the
+    /// font's natural metrics; 1.3 is a good default for Thai so tone
+    /// marks have room to breathe.
+    #[serde(default)]
+    pub line_height: Option<f32>,
+    /// Extra horizontal pixels inserted between every shaped cluster.
+    /// Helps Thai readability at small font sizes; default = 0.
+    #[serde(default)]
+    pub letter_spacing_px: Option<f32>,
+    /// Floor for the auto-fit binary search. Without this, auto-fit
+    /// can shrink text to 6px which is illegible for Thai. Default
+    /// (None) keeps the global floor.
+    #[serde(default)]
+    pub min_font_size: Option<f32>,
+    /// Where to place the laid-out block within its bubble. Default
+    /// behaviour (None) is Top to keep current visual output unchanged.
+    #[serde(default)]
+    pub vertical_align: Option<VerticalAlign>,
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]

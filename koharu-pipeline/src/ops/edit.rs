@@ -275,6 +275,10 @@ pub async fn update_text_block(
                 effect: None,
                 stroke: None,
                 text_align: None,
+                line_height: None,
+                letter_spacing_px: None,
+                min_font_size: None,
+                vertical_align: None,
             });
 
             if let Some(families) = payload.font_families {

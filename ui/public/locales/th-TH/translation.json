@@ -126,7 +126,14 @@
     "fontColorLabel": "สีฟอนต์",
     "fontScopeGlobal": "ทั้งหมด",
     "fontScopeBlock": "ต่อ block",
-    "fontScopeBlockIndex": "Block {{index}}"
+    "fontScopeBlockIndex": "Block {{index}}",
+    "sizeLabel": "ขนาด",
+    "sizeHint": "ว่าง = auto-fit; ใส่ตัวเลขเพื่อล็อกขนาดฟอนต์",
+    "lineHeightLabel": "บรรทัด",
+    "lineHeightLetterHint": "ตัวคูณ · px ระหว่างอักขระ",
+    "vAlignLabel": "แนวตั้ง",
+    "thaiPreset": "พรีเซ็ตไทย",
+    "thaiPresetHint": "ระยะบรรทัด 1.35 · spacing 0.5 px · ขนาดต่ำสุด 14 · จัดกลาง"
   },
   "textBlocks": {
     "emptyPrompt": "เปิดภาพเพื่อดู text blocks",

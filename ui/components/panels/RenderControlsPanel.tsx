@@ -6,8 +6,12 @@ import {
   AlignCenterIcon,
   AlignLeftIcon,
   AlignRightIcon,
+  AlignVerticalJustifyCenterIcon,
+  ArrowDownToLineIcon,
+  ArrowUpToLineIcon,
   BoldIcon,
   ItalicIcon,
+  LanguagesIcon,
   MinusIcon,
   PlusIcon,
   SquareIcon,
@@ -195,6 +199,12 @@ export function RenderControlsPanel() {
   const currentColorHex = colorToHex(currentColor)
   const currentStrokeColorHex = colorToHex(currentStroke.color)
   const currentStrokeWidth = currentStroke.widthPx ?? DEFAULT_STROKE_WIDTH
+  // New layout controls (Phase: Thai-friendly text shaping)
+  const currentFontSize = selectedBlock?.style?.fontSize
+  const currentLineHeight = selectedBlock?.style?.lineHeight ?? 1.0
+  const currentLetterSpacing = selectedBlock?.style?.letterSpacingPx ?? 0
+  const currentMinFontSize = selectedBlock?.style?.minFontSize
+  const currentVerticalAlign = selectedBlock?.style?.verticalAlign ?? 'top'
   const fontLabel = t('render.fontLabel')
   const effectLabel = t('render.effectLabel')
   const strokeLabel = t('render.effectBorder')
@@ -237,11 +247,22 @@ export function RenderControlsPanel() {
     updates: Partial<TextStyle>,
   ): TextStyle => ({
     fontFamilies: updates.fontFamilies ?? style?.fontFamilies ?? [],
-    fontSize: updates.fontSize ?? style?.fontSize,
+    fontSize:
+      'fontSize' in updates ? updates.fontSize : style?.fontSize,
     color: updates.color ?? resolveStyleColor(style, block, fallbackColor),
     effect: updates.effect ?? style?.effect,
     stroke: updates.stroke ?? style?.stroke,
     textAlign: updates.textAlign ?? style?.textAlign,
+    lineHeight:
+      'lineHeight' in updates ? updates.lineHeight : style?.lineHeight,
+    letterSpacingPx:
+      'letterSpacingPx' in updates
+        ? updates.letterSpacingPx
+        : style?.letterSpacingPx,
+    minFontSize:
+      'minFontSize' in updates ? updates.minFontSize : style?.minFontSize,
+    verticalAlign:
+      'verticalAlign' in updates ? updates.verticalAlign : style?.verticalAlign,
   })
 
   const applyStyleToSelected = (updates: Partial<TextStyle>) => {
@@ -606,6 +627,245 @@ export function RenderControlsPanel() {
           </Tooltip>
         </div>
       </div>
+
+      {/* ============================================================ */}
+      {/* Layout controls — Thai-friendly text shaping                  */}
+      {/* ============================================================ */}
+      <div className='grid w-full min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-1.5'>
+        <span className='text-muted-foreground text-[10px] font-medium tracking-wide uppercase'>
+          {t('render.sizeLabel', 'Size')}
+        </span>
+        <div className='flex items-center gap-1.5'>
+          <NumericStepper
+            value={currentFontSize}
+            min={6}
+            max={300}
+            step={1}
+            placeholder='auto'
+            ariaLabel='Font size'
+            disabled={!hasBlocks}
+            onChange={(v) =>
+              applyStyleToSelected({ fontSize: v }) ||
+              applyStyleToAll({ fontSize: v })
+            }
+          />
+          <span className='text-muted-foreground text-[10px]'>
+            {t(
+              'render.sizeHint',
+              'Empty = auto-fit; set a number to lock the font size.',
+            )}
+          </span>
+        </div>
+      </div>
+
+      <div className='grid w-full min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-1.5'>
+        <span className='text-muted-foreground text-[10px] font-medium tracking-wide uppercase'>
+          {t('render.lineHeightLabel', 'Line ht')}
+        </span>
+        <div className='flex items-center gap-1.5'>
+          <NumericStepper
+            value={currentLineHeight}
+            min={0.8}
+            max={2.0}
+            step={0.05}
+            decimals={2}
+            ariaLabel='Line height'
+            disabled={!hasBlocks}
+            onChange={(v) =>
+              applyStyleToSelected({ lineHeight: v }) ||
+              applyStyleToAll({ lineHeight: v })
+            }
+          />
+          <NumericStepper
+            value={currentLetterSpacing}
+            min={-2}
+            max={8}
+            step={0.5}
+            decimals={1}
+            ariaLabel='Letter spacing'
+            disabled={!hasBlocks}
+            onChange={(v) =>
+              applyStyleToSelected({ letterSpacingPx: v }) ||
+              applyStyleToAll({ letterSpacingPx: v })
+            }
+          />
+          <span className='text-muted-foreground text-[10px]'>
+            {t('render.lineHeightLetterHint', 'mult · px tracking')}
+          </span>
+        </div>
+      </div>
+
+      <div className='grid w-full min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-1.5'>
+        <span className='text-muted-foreground text-[10px] font-medium tracking-wide uppercase'>
+          {t('render.vAlignLabel', 'V-align')}
+        </span>
+        <div className='flex items-center gap-1.5'>
+          <div className='border-input bg-background inline-flex rounded-md border shadow-xs'>
+            {(
+              [
+                { value: 'top', icon: ArrowUpToLineIcon, label: 'Top' },
+                {
+                  value: 'middle',
+                  icon: AlignVerticalJustifyCenterIcon,
+                  label: 'Middle',
+                },
+                {
+                  value: 'bottom',
+                  icon: ArrowDownToLineIcon,
+                  label: 'Bottom',
+                },
+              ] as const
+            ).map(({ value, icon: Icon, label }, i) => (
+              <Tooltip key={value}>
+                <TooltipTrigger asChild>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='icon-sm'
+                    disabled={!hasBlocks}
+                    aria-label={label}
+                    data-active={currentVerticalAlign === value}
+                    className={cn(
+                      'size-7 rounded-none data-[active=true]:bg-accent data-[active=true]:text-foreground',
+                      i === 0 && 'rounded-l-md',
+                      i === 2 && 'rounded-r-md',
+                      i !== 0 && 'border-l',
+                    )}
+                    onClick={() => {
+                      applyStyleToSelected({ verticalAlign: value }) ||
+                        applyStyleToAll({ verticalAlign: value })
+                    }}
+                  >
+                    <Icon className='size-3.5' />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side='bottom' sideOffset={4}>
+                  {label}
+                </TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
+          <NumericStepper
+            value={currentMinFontSize}
+            min={6}
+            max={48}
+            step={1}
+            placeholder='floor'
+            ariaLabel='Min font size for auto-fit'
+            disabled={!hasBlocks}
+            onChange={(v) =>
+              applyStyleToSelected({ minFontSize: v }) ||
+              applyStyleToAll({ minFontSize: v })
+            }
+          />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                disabled={!hasBlocks}
+                className='h-7 px-2 text-[10px]'
+                onClick={() => {
+                  const thaiPreset: Partial<TextStyle> = {
+                    lineHeight: 1.35,
+                    letterSpacingPx: 0.5,
+                    minFontSize: 14,
+                    verticalAlign: 'middle',
+                  }
+                  applyStyleToSelected(thaiPreset) ||
+                    applyStyleToAll(thaiPreset)
+                }}
+              >
+                <LanguagesIcon className='size-3' />
+                {t('render.thaiPreset', 'Thai preset')}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side='bottom' sideOffset={4}>
+              {t(
+                'render.thaiPresetHint',
+                'line height 1.35 · spacing 0.5 px · min size 14 · middle align',
+              )}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Compact +/- stepper used for the new numeric layout controls. */
+function NumericStepper({
+  value,
+  min,
+  max,
+  step,
+  decimals = 0,
+  placeholder = '',
+  ariaLabel,
+  disabled,
+  onChange,
+}: {
+  value: number | undefined
+  min: number
+  max: number
+  step: number
+  decimals?: number
+  placeholder?: string
+  ariaLabel: string
+  disabled?: boolean
+  onChange: (next: number | undefined) => void
+}) {
+  const clamp = (v: number) =>
+    Number(Math.max(min, Math.min(max, v)).toFixed(decimals))
+  const display =
+    value === undefined || !Number.isFinite(value) ? '' : String(clamp(value))
+  return (
+    <div className='border-input bg-background inline-flex w-auto min-w-0 shrink-0 items-center rounded-md border shadow-xs'>
+      <Button
+        type='button'
+        variant='ghost'
+        size='icon-sm'
+        aria-label={`${ariaLabel} -`}
+        disabled={disabled}
+        className='size-7 rounded-r-none border-r'
+        onClick={() => onChange(clamp((value ?? min) - step))}
+      >
+        <MinusIcon className='size-3' />
+      </Button>
+      <Input
+        type='number'
+        step={String(step)}
+        min={String(min)}
+        max={String(max)}
+        inputMode='decimal'
+        aria-label={ariaLabel}
+        disabled={disabled}
+        placeholder={placeholder}
+        className='h-7 w-14 min-w-0 [appearance:textfield] rounded-none border-0 px-1.5 text-center text-[11px] shadow-none focus-visible:ring-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
+        value={display}
+        onChange={(e) => {
+          const raw = e.target.value
+          if (raw === '') {
+            onChange(undefined)
+            return
+          }
+          const parsed = Number.parseFloat(raw)
+          if (!Number.isFinite(parsed)) return
+          onChange(clamp(parsed))
+        }}
+      />
+      <Button
+        type='button'
+        variant='ghost'
+        size='icon-sm'
+        aria-label={`${ariaLabel} +`}
+        disabled={disabled}
+        className='size-7 rounded-l-none border-l'
+        onClick={() => onChange(clamp((value ?? min) + step))}
+      >
+        <PlusIcon className='size-3' />
+      </Button>
     </div>
   )
 }

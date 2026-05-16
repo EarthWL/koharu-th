@@ -35,6 +35,8 @@ export type FontPrediction = {
   angle_deg: number
 }
 
+export type VerticalAlign = 'top' | 'middle' | 'bottom'
+
 export type TextStyle = {
   fontFamilies: string[]
   fontSize?: number
@@ -42,6 +44,14 @@ export type TextStyle = {
   effect?: RenderEffect
   stroke?: RenderStroke
   textAlign?: TextAlign
+  /** Multiplier on natural line height. 1.0 = unchanged. */
+  lineHeight?: number
+  /** Extra px between shaped clusters; default 0. */
+  letterSpacingPx?: number
+  /** Floor for the auto-fit binary search. */
+  minFontSize?: number
+  /** Top / Middle / Bottom inside the bubble. Defaults to top. */
+  verticalAlign?: VerticalAlign
 }
 
 export type TextBlock = {
