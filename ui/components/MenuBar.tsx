@@ -18,6 +18,8 @@ import {
 import { useDocumentMutations } from '@/lib/query/mutations'
 import { useProjectMutations } from '@/lib/query/projectMutations'
 import { useProjectStore } from '@/lib/stores/projectStore'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '@/lib/api'
 
 type MenuItem = {
   label: string
@@ -47,6 +49,11 @@ export function MenuBar() {
   } = useDocumentMutations()
   const projectInfo = useProjectStore((s) => s.info)
   const { refreshCurrent, openPicker, closeProject } = useProjectMutations()
+  const recentProjects = useQuery({
+    queryKey: ['recent-projects'],
+    queryFn: () => api.recentProjectsList(),
+    staleTime: 30_000,
+  })
 
   // Sync the project store with backend state on mount so the menu always
   // reflects reality (e.g. after a hot reload).
@@ -54,6 +61,7 @@ export function MenuBar() {
     void refreshCurrent()
   }, [refreshCurrent])
 
+  const recentList = recentProjects.data ?? []
   const projectMenuItems: MenuItem[] = [
     {
       label: t('menu.openProject', 'Open project…'),
@@ -61,6 +69,20 @@ export function MenuBar() {
         void openPicker()
       },
     },
+    ...recentList.slice(0, 6).map((p) => ({
+      label: `↩ ${p.name}`,
+      onSelect: () => {
+        void (async () => {
+          try {
+            const info = await api.projectOpen(p.path)
+            useProjectStore.getState().setInfo(info)
+            void refreshCurrent()
+          } catch (err: any) {
+            alert(err?.message ?? String(err))
+          }
+        })()
+      },
+    })),
     {
       label: t('menu.projectSettings', 'Project settings…'),
       disabled: !projectInfo,

@@ -1,6 +1,26 @@
 {
   "common": {
-    "initializing": "กำลังเริ่มต้น..."
+    "initializing": "กำลังเริ่มต้น...",
+    "cancel": "ยกเลิก"
+  },
+  "welcome": {
+    "title": "ยินดีต้อนรับสู่ Koharu-TH",
+    "subtitle": "เริ่มจากสร้าง project ของซีรีย์ — ระบบจะเก็บตัวละคร · glossary · translation memory ข้ามตอนให้",
+    "newProject": "สร้างโปรเจคใหม่",
+    "newProjectDescription": "ตั้ง folder สำหรับซีรีย์นี้ แนะนำให้เริ่มแบบนี้",
+    "openProject": "เปิดโปรเจค",
+    "openProjectDescription": "เลือกไฟล์ series.koharuproj ที่มีอยู่",
+    "recent": "โปรเจคล่าสุด",
+    "removeRecent": "ลบออกจากลิสต์",
+    "standalone": "ทำงานแบบ standalone",
+    "standaloneHint": "เปิดไฟล์ .khr หรือรูปตรงๆ สำหรับแปลครั้งเดียวจบ — จะไม่มี glossary, TM, หรือ context ของ chapter",
+    "openStandalone": "เปิดไฟล์...",
+    "projectDashboard": "ไปที่แดชบอร์ดโปรเจค",
+    "newProjectModalTitle": "โปรเจคใหม่",
+    "newProjectModalHint": "เลือก folder แม่ — ระบบจะสร้าง sub-folder ตามชื่อซีรีย์ให้",
+    "newProjectNamePlaceholder": "ชื่อซีรีย์",
+    "chooseFolder": "เลือก folder...",
+    "openRecentFailed": "เปิดโปรเจคไม่สำเร็จ: {{msg}}"
   },
   "menu": {
     "file": "ไฟล์",
