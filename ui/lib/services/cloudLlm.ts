@@ -14,6 +14,44 @@ export type CloudResult = {
   usage: TokenUsage | null
 }
 
+/** Callback fired for every incremental text chunk during streaming. */
+export type StreamHandler = (delta: string) => void
+
+/**
+ * Read a Server-Sent Events stream from `body` and yield each
+ * non-empty `data:` payload string (without the prefix). Drops the
+ * `[DONE]` sentinel some providers emit. Used by the streaming
+ * implementations of OpenAI / OpenRouter / Gemini below.
+ */
+async function* readSseEvents(
+  body: ReadableStream<Uint8Array>,
+): AsyncGenerator<string, void, void> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    let nl: number
+    while ((nl = buffer.indexOf('\n')) !== -1) {
+      const line = buffer.slice(0, nl).trimEnd()
+      buffer = buffer.slice(nl + 1)
+      if (!line.startsWith('data:')) continue
+      const payload = line.slice(5).trim()
+      if (!payload || payload === '[DONE]') continue
+      yield payload
+    }
+  }
+  // Flush whatever's left in the buffer in case the server didn't
+  // terminate with a newline.
+  const tail = buffer.trim()
+  if (tail.startsWith('data:')) {
+    const payload = tail.slice(5).trim()
+    if (payload && payload !== '[DONE]') yield payload
+  }
+}
+
 /**
  * Log a single cloud-LLM call to the project DB. No-op when no project
  * is open. Best-effort: never throws — failures are logged to console.
@@ -105,7 +143,11 @@ async function rememberTm(args: {
   }
 }
 
-export async function generateCloudTranslation(text: string, language: string): Promise<string> {
+export async function generateCloudTranslation(
+  text: string,
+  language: string,
+  onChunk?: StreamHandler,
+): Promise<string> {
   const { cloudProvider, cloudApiKey, cloudApiUrl, cloudModelName } = usePreferencesStore.getState()
 
   if (!cloudApiKey) {
@@ -117,6 +159,10 @@ export async function generateCloudTranslation(text: string, language: string): 
   // value), so identical pages on the same project bucket together.
   const tmHit = await tryTmHit(text, language)
   if (tmHit) {
+    // TM hits skip the API entirely — also skip the streaming UX
+    // since there's nothing to stream. Caller's onChunk just fires
+    // once with the full cached result.
+    if (onChunk) onChunk(tmHit.targetText)
     return tmHit.targetText
   }
 
@@ -130,13 +176,13 @@ Only return the translation, no extra text:\n\n${text}`
   let raw: CloudResult
   try {
     if (cloudProvider === 'openai') {
-      raw = await fetchOpenAI(prompt, cloudApiKey, cloudApiUrl, cloudModelName)
+      raw = await fetchOpenAI(prompt, cloudApiKey, cloudApiUrl, cloudModelName, false, onChunk)
     } else if (cloudProvider === 'openrouter') {
-      raw = await fetchOpenRouter(prompt, cloudApiKey, cloudModelName)
+      raw = await fetchOpenRouter(prompt, cloudApiKey, cloudModelName, false, onChunk)
     } else if (cloudProvider === 'gemini') {
-      raw = await fetchGemini(prompt, cloudApiKey, cloudModelName)
+      raw = await fetchGemini(prompt, cloudApiKey, cloudModelName, false, onChunk)
     } else if (cloudProvider === 'anthropic') {
-      raw = await fetchAnthropic(prompt, cloudApiKey, cloudModelName)
+      raw = await fetchAnthropic(prompt, cloudApiKey, cloudModelName, false, onChunk)
     } else {
       throw new Error(`Unsupported cloud provider: ${cloudProvider}`)
     }
@@ -469,7 +515,14 @@ export async function testCloudConnection(
   }
 }
 
-async function fetchOpenAI(prompt: string, apiKey: string, apiUrl: string, model: string, isJsonMode = false): Promise<CloudResult> {
+async function fetchOpenAI(
+  prompt: string,
+  apiKey: string,
+  apiUrl: string,
+  model: string,
+  isJsonMode = false,
+  onChunk?: StreamHandler,
+): Promise<CloudResult> {
   // Use user's custom url or trailing slash cleanup
   const baseUrl = apiUrl.replace(/\/+$/, '')
   const endpoint = `${baseUrl}/chat/completions`
@@ -482,6 +535,11 @@ async function fetchOpenAI(prompt: string, apiKey: string, apiUrl: string, model
 
   if (isJsonMode && model.includes('gpt')) {
     body.response_format = { type: 'json_object' } // Need to modify prompt to expect object if strict json is required by OpenAI API, but we'll try raw first since openrouter models might not support response_format
+  }
+
+  if (onChunk) {
+    body.stream = true
+    body.stream_options = { include_usage: true }
   }
 
   const res = await fetch(endpoint, {
@@ -498,6 +556,10 @@ async function fetchOpenAI(prompt: string, apiKey: string, apiUrl: string, model
     throw new Error(`OpenAI API Error: ${err}`)
   }
 
+  if (onChunk && res.body) {
+    return await parseOpenAiStream(res.body, onChunk)
+  }
+
   const data = await res.json()
   return {
     text: data.choices[0]?.message?.content?.trim() || '',
@@ -508,7 +570,41 @@ async function fetchOpenAI(prompt: string, apiKey: string, apiUrl: string, model
   }
 }
 
-async function fetchOpenRouter(prompt: string, apiKey: string, model: string, isJsonMode = false): Promise<CloudResult> {
+async function parseOpenAiStream(
+  body: ReadableStream<Uint8Array>,
+  onChunk: StreamHandler,
+): Promise<CloudResult> {
+  let acc = ''
+  let usage: TokenUsage | null = null
+  for await (const payload of readSseEvents(body)) {
+    let evt: any
+    try {
+      evt = JSON.parse(payload)
+    } catch {
+      continue
+    }
+    const delta = evt.choices?.[0]?.delta?.content
+    if (typeof delta === 'string' && delta) {
+      acc += delta
+      onChunk(delta)
+    }
+    if (evt.usage) {
+      usage = {
+        promptTokens: evt.usage.prompt_tokens ?? null,
+        completionTokens: evt.usage.completion_tokens ?? null,
+      }
+    }
+  }
+  return { text: acc.trim(), usage }
+}
+
+async function fetchOpenRouter(
+  prompt: string,
+  apiKey: string,
+  model: string,
+  isJsonMode = false,
+  onChunk?: StreamHandler,
+): Promise<CloudResult> {
   // OpenRouter speaks OpenAI's chat-completions dialect. We send the
   // optional HTTP-Referer / X-Title headers it uses for app attribution.
   const endpoint = 'https://openrouter.ai/api/v1/chat/completions'
@@ -523,6 +619,11 @@ async function fetchOpenRouter(prompt: string, apiKey: string, model: string, is
   // and ignores it elsewhere, so it's safe to always pass in JSON mode.
   if (isJsonMode) {
     body.response_format = { type: 'json_object' }
+  }
+
+  if (onChunk) {
+    body.stream = true
+    body.stream_options = { include_usage: true }
   }
 
   const res = await fetch(endpoint, {
@@ -541,6 +642,10 @@ async function fetchOpenRouter(prompt: string, apiKey: string, model: string, is
     throw new Error(`OpenRouter API Error: ${err}`)
   }
 
+  if (onChunk && res.body) {
+    return await parseOpenAiStream(res.body, onChunk)
+  }
+
   const data = await res.json()
   return {
     text: data.choices?.[0]?.message?.content?.trim() || '',
@@ -551,9 +656,20 @@ async function fetchOpenRouter(prompt: string, apiKey: string, model: string, is
   }
 }
 
-async function fetchGemini(prompt: string, apiKey: string, model: string, isJsonMode = false): Promise<CloudResult> {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
-  
+async function fetchGemini(
+  prompt: string,
+  apiKey: string,
+  model: string,
+  isJsonMode = false,
+  onChunk?: StreamHandler,
+): Promise<CloudResult> {
+  // Gemini exposes a separate :streamGenerateContent endpoint for SSE
+  // streaming. We use alt=sse to get the data:-prefixed framing that
+  // matches our shared parser; otherwise it returns a JSON array.
+  const endpoint = onChunk
+    ? `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`
+    : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
+
   const body: any = {
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: { temperature: 0.1 }
@@ -576,6 +692,34 @@ async function fetchGemini(prompt: string, apiKey: string, model: string, isJson
     throw new Error(`Gemini API Error: ${err}`)
   }
 
+  if (onChunk && res.body) {
+    let acc = ''
+    let usage: TokenUsage | null = null
+    for await (const payload of readSseEvents(res.body)) {
+      let evt: any
+      try {
+        evt = JSON.parse(payload)
+      } catch {
+        continue
+      }
+      const parts = evt.candidates?.[0]?.content?.parts ?? []
+      for (const part of parts) {
+        const t = part.text
+        if (typeof t === 'string' && t) {
+          acc += t
+          onChunk(t)
+        }
+      }
+      if (evt.usageMetadata) {
+        usage = {
+          promptTokens: evt.usageMetadata.promptTokenCount ?? null,
+          completionTokens: evt.usageMetadata.candidatesTokenCount ?? null,
+        }
+      }
+    }
+    return { text: acc.trim(), usage }
+  }
+
   const data = await res.json()
   return {
     text: data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '',
@@ -586,12 +730,27 @@ async function fetchGemini(prompt: string, apiKey: string, model: string, isJson
   }
 }
 
-async function fetchAnthropic(prompt: string, apiKey: string, model: string, isJsonMode = false): Promise<CloudResult> {
+async function fetchAnthropic(
+  prompt: string,
+  apiKey: string,
+  model: string,
+  isJsonMode = false,
+  onChunk?: StreamHandler,
+): Promise<CloudResult> {
   const endpoint = 'https://api.anthropic.com/v1/messages'
 
   // Notice Anthropic endpoint via browser usually hits CORS.
   // We'll add standard anthropic headers, but warn user about CORS if it runs strictly in browser.
   // Tauri intercepts or can fetch with less CORS issues, but standard fetch follows CORS.
+  const body: any = {
+    model: model,
+    max_tokens: 4096,
+    messages: [{ role: 'user', content: prompt }],
+    temperature: 0.1,
+  }
+  if (onChunk) body.stream = true
+  void isJsonMode // Anthropic ignores this; consumers post-process the text.
+
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -600,17 +759,40 @@ async function fetchAnthropic(prompt: string, apiKey: string, model: string, isJ
       'anthropic-version': '2023-06-01',
       'anthropic-dangerous-direct-browser-access': 'true' // Necessary for browser calls
     },
-    body: JSON.stringify({
-      model: model,
-      max_tokens: 4096,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.1
-    })
+    body: JSON.stringify(body),
   })
 
   if (!res.ok) {
     const err = await res.text()
     throw new Error(`Anthropic API Error: ${err}`)
+  }
+
+  if (onChunk && res.body) {
+    let acc = ''
+    let usage: TokenUsage = { promptTokens: null, completionTokens: null }
+    for await (const payload of readSseEvents(res.body)) {
+      let evt: any
+      try {
+        evt = JSON.parse(payload)
+      } catch {
+        continue
+      }
+      // content_block_delta carries the streaming text shards.
+      if (evt.type === 'content_block_delta') {
+        const t = evt.delta?.text
+        if (typeof t === 'string' && t) {
+          acc += t
+          onChunk(t)
+        }
+      } else if (evt.type === 'message_start') {
+        const u = evt.message?.usage
+        if (u?.input_tokens != null) usage.promptTokens = u.input_tokens
+      } else if (evt.type === 'message_delta') {
+        const u = evt.usage
+        if (u?.output_tokens != null) usage.completionTokens = u.output_tokens
+      }
+    }
+    return { text: acc.trim(), usage }
   }
 
   const data = await res.json()

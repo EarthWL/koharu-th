@@ -22,8 +22,10 @@ import {
 } from '@/components/ui/select'
 import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query/keys'
-import { useTextBlockMutations, useLlmMutations } from '@/lib/query/mutations'
+import { useTextBlockMutations } from '@/lib/query/mutations'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
+import { usePreferencesStore } from '@/lib/stores/preferencesStore'
+import { generateCloudTranslation } from '@/lib/services/cloudLlm'
 import type { TextBlock } from '@/types'
 
 type Filter = 'all' | 'untranslated' | 'translated'
@@ -183,16 +185,17 @@ function QaRow({
   blockIndex: number
   onAfterChange: () => void
 }) {
-  const { llmGenerate } = useLlmMutations()
   const { updateTextBlocks } = useTextBlockMutations()
   const [draft, setDraft] = useState(block.translation ?? '')
   const [generating, setGenerating] = useState(false)
+  const [streaming, setStreaming] = useState(false)
+  const cloudProvider = usePreferencesStore((s) => s.cloudProvider)
 
   // Re-sync the draft if the block reloads with a different translation
   // (e.g. after re-translation), but don't overwrite mid-edit.
   useEffect(() => {
-    setDraft(block.translation ?? '')
-  }, [block.translation])
+    if (!streaming) setDraft(block.translation ?? '')
+  }, [block.translation, streaming])
 
   const saveDraft = async () => {
     if ((block.translation ?? '') === draft) return
@@ -208,13 +211,43 @@ function QaRow({
   }
 
   const retranslate = async () => {
+    if (!block.text?.trim()) return
     setGenerating(true)
+    setStreaming(true)
     try {
-      await llmGenerate(undefined, undefined, blockIndex)
+      if (cloudProvider !== 'none') {
+        // Stream directly into the textarea so the user sees text
+        // arriving live, then persist once at the end.
+        let acc = ''
+        setDraft('')
+        const final = await generateCloudTranslation(
+          block.text,
+          'auto',
+          (delta) => {
+            acc += delta
+            setDraft(acc)
+          },
+        )
+        const docState = useEditorUiStore.getState()
+        const idx = docState.currentDocumentIndex
+        const allBlocks = await api
+          .getDocument(idx)
+          .then((d: any) => d.textBlocks ?? [])
+        const next = allBlocks.map((b: TextBlock, j: number) =>
+          j === blockIndex ? { ...b, translation: final } : b,
+        )
+        await updateTextBlocks(next)
+        setDraft(final)
+      } else {
+        // Local LLM path: no streaming surface yet, just call the
+        // existing pipeline and wait for it.
+        await api.llmGenerate(useEditorUiStore.getState().currentDocumentIndex, blockIndex)
+      }
       onAfterChange()
     } catch (err) {
       console.error(err)
     } finally {
+      setStreaming(false)
       setGenerating(false)
     }
   }
