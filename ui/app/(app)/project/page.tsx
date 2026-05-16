@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import {
   ChevronLeftIcon,
@@ -55,6 +56,7 @@ export default function ProjectPage() {
   const info = useProjectStore((s) => s.info)
   const { refreshCurrent, createPicker, openPicker, closeProject } =
     useProjectMutations()
+  const { t } = useTranslation()
 
   // Make sure the store reflects the actual backend state on mount.
   useEffect(() => {
@@ -73,16 +75,20 @@ export default function ProjectPage() {
             >
               <ChevronLeftIcon className='size-6' />
             </Link>
-            <h1 className='text-foreground text-2xl font-bold'>Project</h1>
+            <h1 className='text-foreground text-2xl font-bold'>
+              {t('project.title', 'Project')}
+            </h1>
           </div>
 
             <section className='mb-8'>
               <h2 className='text-foreground mb-1 text-sm font-bold'>
-                Current project
+                {t('project.current', 'Current project')}
               </h2>
               <p className='text-muted-foreground mb-4 text-sm'>
-                A project bundles related chapters with shared characters,
-                glossary, and prompt settings.
+                {t(
+                  'project.currentHint',
+                  'A project bundles related chapters with shared characters, glossary, and prompt settings.',
+                )}
               </p>
 
               <div className='bg-card border-border rounded-lg border p-4'>

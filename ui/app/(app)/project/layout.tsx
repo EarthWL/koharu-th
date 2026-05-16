@@ -2,20 +2,22 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { useProjectStore } from '@/lib/stores/projectStore'
 
 const TABS = [
-  { href: '/project', label: 'Overview' },
-  { href: '/project/characters', label: 'Characters' },
-  { href: '/project/glossary', label: 'Glossary' },
-  { href: '/project/prompts', label: 'Prompts' },
-  { href: '/project/profiles', label: 'Profiles' },
+  { href: '/project', i18nKey: 'project.tabs.overview', fallback: 'Overview' },
+  { href: '/project/characters', i18nKey: 'project.tabs.characters', fallback: 'Characters' },
+  { href: '/project/glossary', i18nKey: 'project.tabs.glossary', fallback: 'Glossary' },
+  { href: '/project/prompts', i18nKey: 'project.tabs.prompts', fallback: 'Prompts' },
+  { href: '/project/profiles', i18nKey: 'project.tabs.profiles', fallback: 'Profiles' },
 ]
 
 export default function ProjectLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const info = useProjectStore((s) => s.info)
+  const { t } = useTranslation()
 
   return (
     <div className='bg-muted flex flex-1 flex-col overflow-hidden'>
@@ -36,7 +38,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                       : 'text-muted-foreground hover:text-foreground border-transparent',
                   )}
                 >
-                  {tab.label}
+                  {t(tab.i18nKey, tab.fallback)}
                 </Link>
               )
             })}

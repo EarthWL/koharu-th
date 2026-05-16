@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useTranslation } from 'react-i18next'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronLeftIcon,
@@ -40,6 +41,7 @@ export default function QaPage() {
   const queryClient = useQueryClient()
   const [pageIdx, setPageIdx] = useState(0)
   const [filter, setFilter] = useState<Filter>('all')
+  const { t } = useTranslation()
 
   const docsCount = useQuery({
     queryKey: queryKeys.documents.count,
@@ -92,11 +94,21 @@ export default function QaPage() {
           <ChevronLeftCircleIcon className='size-5' />
         </Link>
         <h1 className='text-foreground flex-1 text-sm font-bold'>
-          QA review
+          {t('qa.title', 'QA review')}
           {totalPages > 0 && (
             <span className='text-muted-foreground ml-2 text-xs font-normal'>
-              · page {pageIdx + 1} / {totalPages} · {translatedCount}/
-              {blocks.length} translated
+              ·{' '}
+              {t('qa.pageOf', {
+                defaultValue: 'page {{current}} / {{total}}',
+                current: pageIdx + 1,
+                total: totalPages,
+              })}{' '}
+              ·{' '}
+              {t('qa.translatedOf', {
+                defaultValue: '{{translated}} / {{total}} translated',
+                translated: translatedCount,
+                total: blocks.length,
+              })}
             </span>
           )}
         </h1>
@@ -105,9 +117,13 @@ export default function QaPage() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value='all'>All blocks</SelectItem>
-            <SelectItem value='untranslated'>Untranslated</SelectItem>
-            <SelectItem value='translated'>Translated</SelectItem>
+            <SelectItem value='all'>{t('qa.filterAll', 'All blocks')}</SelectItem>
+            <SelectItem value='untranslated'>
+              {t('qa.filterUntranslated', 'Untranslated')}
+            </SelectItem>
+            <SelectItem value='translated'>
+              {t('qa.filterTranslated', 'Translated')}
+            </SelectItem>
           </SelectContent>
         </Select>
         <Button
