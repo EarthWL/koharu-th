@@ -39,6 +39,8 @@
 
 ## ฟีเจอร์หลัก
 
+> ดูสรุปฟีเจอร์ทั้งหมดแบบกระชับใน [FEATURES.md](FEATURES.md) ส่วนด้านล่างเจาะลึกอันใหญ่ๆ
+
 ### Series Project (workspace ต่อ folder)
 
 แต่ละเรื่องที่แปลเป็น **project folder** มี SQLite database ของตัวเอง — prompt แปลจะ assemble context จาก database นี้ทุกครั้ง ทำให้ชื่อตัวละคร / ชื่อท่า / คำลงท้าย / โทน คงเส้นคงวาตลอดทุก chapter

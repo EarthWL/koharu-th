@@ -39,6 +39,9 @@ Under the hood, Koharu uses [candle](https://github.com/huggingface/candle) for 
 
 ## Features
 
+> Quick capability index: [FEATURES.md](FEATURES.md). Sections below
+> go deeper on the big ones.
+
 ### Series Project (per-folder workspace)
 
 Each translated work is a **project folder** with its own SQLite database. The translation prompt assembles context from this database every time, so character names, attack names, honorifics, and tone stay consistent across chapters.
