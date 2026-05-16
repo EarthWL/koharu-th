@@ -442,6 +442,7 @@ export function ChatTabPanel() {
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
+              setShowSlash(false)
               void send()
             }
             if (e.key === 'Escape') setShowSlash(false)
