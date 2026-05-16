@@ -138,6 +138,13 @@ impl Model {
     /// Inpaint text regions in the document.
     /// Uses the current `doc.segment` mask as the inpaint source, sets `doc.inpainted`.
     pub async fn inpaint(&self, doc: &mut Document) -> Result<()> {
+        // Upstream fix (cherry-picked from mayocream/koharu commit
+        // 82454e03): skip inpaint when detect found nothing — otherwise
+        // we run lama on an empty mask and either OOM or silently fail.
+        if doc.text_blocks.is_empty() {
+            tracing::debug!("skipping inpaint: no text blocks detected");
+            return Ok(());
+        }
         let mask = doc
             .segment
             .as_ref()

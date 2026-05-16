@@ -202,7 +202,7 @@ export function Workspace() {
         filterTaps: true,
       },
       wheel: {
-        preventDefault: true,
+        preventDefault: false,
       },
       pinch: {
         threshold: 0.1,

@@ -73,6 +73,14 @@ pub trait Translatable {
         target_language: Option<&str>,
     ) -> anyhow::Result<()> {
         let text = self.get_source()?;
+        // Upstream fix (cherry-picked from mayocream/koharu commit
+        // 82454e03): skip the LLM call entirely when there's no source
+        // — the model would otherwise hallucinate output from empty
+        // input and the pipeline crashes downstream.
+        if text.is_empty() {
+            tracing::debug!("skipping translate: no source text");
+            return Ok(());
+        }
         let response = llm.generate(&text, &GenerateOptions::default(), target_language)?;
         let response = response.trim().to_string();
         self.set_translation(response)
@@ -413,6 +421,14 @@ impl Translatable for Document {
         target_language: Option<&str>,
     ) -> anyhow::Result<()> {
         let text = self.get_source()?;
+        // Upstream fix (cherry-picked from mayocream/koharu commit
+        // 82454e03): skip the LLM call entirely when there's no source
+        // — the model would otherwise hallucinate output from empty
+        // input and the pipeline crashes downstream.
+        if text.is_empty() {
+            tracing::debug!("skipping translate: no source text");
+            return Ok(());
+        }
         let response = llm.generate(&text, &GenerateOptions::default(), target_language)?;
         let response = response.trim().to_string();
         self.set_translation(response)
