@@ -198,13 +198,13 @@ export function ExtractEntitiesModal({
 
   return (
     <div className='bg-background/80 fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm'>
-      <div className='bg-card border-border flex w-[42rem] max-w-[90vw] flex-col rounded-lg border shadow-lg'>
-        <div className='border-border flex items-center gap-2 border-b p-4'>
+      <div className='bg-card border-border flex max-h-[90vh] w-[42rem] max-w-[90vw] flex-col overflow-hidden rounded-lg border shadow-lg'>
+        <div className='border-border flex shrink-0 items-center gap-2 border-b p-4'>
           <SparklesIcon className='text-primary size-4' />
           <h3 className='text-foreground text-sm font-bold'>Extract entities</h3>
         </div>
 
-        <div className='space-y-3 p-4'>
+        <div className='min-h-0 flex-1 space-y-3 overflow-y-auto p-4'>
           <p className='text-muted-foreground text-xs'>
             Paste the chapter text (or any chunk you want analysed). The
             LLM will propose named entities and you pick which to keep.
@@ -213,7 +213,8 @@ export function ExtractEntitiesModal({
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder='Paste source text here, or load from the currently-loaded pages.'
-            className='min-h-32 text-xs'
+            style={{ fieldSizing: 'fixed' as any }}
+            className='block max-h-48 min-h-32 w-full resize-y overflow-auto text-xs whitespace-pre-wrap break-words'
           />
           <div className='flex items-center justify-between gap-2'>
             <div className='flex items-center gap-2'>
@@ -292,7 +293,7 @@ export function ExtractEntitiesModal({
 
         {items && (
           <>
-            <div className='border-border border-t'>
+            <div className='border-border shrink-0 border-t'>
               <ScrollArea className='max-h-72'>
                 <table className='w-full text-left text-xs'>
                   <thead className='bg-muted/50 text-muted-foreground'>
@@ -372,7 +373,7 @@ export function ExtractEntitiesModal({
                 </table>
               </ScrollArea>
             </div>
-            <div className='border-border flex items-center justify-between border-t p-3'>
+            <div className='border-border flex shrink-0 items-center justify-between border-t p-3'>
               <span className='text-muted-foreground text-xs'>
                 {selectedCount} of {items.length} selected
               </span>
@@ -401,7 +402,7 @@ export function ExtractEntitiesModal({
           </>
         )}
 
-        <div className='border-border flex justify-end border-t p-3'>
+        <div className='border-border flex shrink-0 justify-end border-t p-3'>
           <Button variant='ghost' size='sm' onClick={onClose}>
             Close
           </Button>
