@@ -13,6 +13,8 @@ Only return the translation, no extra text:\n\n${text}`
 
   if (cloudProvider === 'openai') {
     return fetchOpenAI(prompt, cloudApiKey, cloudApiUrl, cloudModelName)
+  } else if (cloudProvider === 'openrouter') {
+    return fetchOpenRouter(prompt, cloudApiKey, cloudModelName)
   } else if (cloudProvider === 'gemini') {
     return fetchGemini(prompt, cloudApiKey, cloudModelName)
   } else if (cloudProvider === 'anthropic') {
@@ -44,6 +46,8 @@ ${blocksJson}`
 
   if (cloudProvider === 'openai') {
     resultJson = await fetchOpenAI(prompt, cloudApiKey, cloudApiUrl, cloudModelName, true)
+  } else if (cloudProvider === 'openrouter') {
+    resultJson = await fetchOpenRouter(prompt, cloudApiKey, cloudModelName, true)
   } else if (cloudProvider === 'gemini') {
     resultJson = await fetchGemini(prompt, cloudApiKey, cloudModelName, true)
   } else if (cloudProvider === 'anthropic') {
@@ -114,6 +118,43 @@ async function fetchOpenAI(prompt: string, apiKey: string, apiUrl: string, model
 
   const data = await res.json()
   return data.choices[0]?.message?.content?.trim() || ''
+}
+
+async function fetchOpenRouter(prompt: string, apiKey: string, model: string, isJsonMode = false): Promise<string> {
+  // OpenRouter speaks OpenAI's chat-completions dialect. We send the
+  // optional HTTP-Referer / X-Title headers it uses for app attribution.
+  const endpoint = 'https://openrouter.ai/api/v1/chat/completions'
+
+  const body: any = {
+    model,
+    messages: [{ role: 'user', content: prompt }],
+    temperature: 0.1,
+  }
+
+  // OpenRouter forwards `response_format` to upstream models that support it
+  // and ignores it elsewhere, so it's safe to always pass in JSON mode.
+  if (isJsonMode) {
+    body.response_format = { type: 'json_object' }
+  }
+
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+      'HTTP-Referer': 'https://github.com/EarthWL/koharu-th',
+      'X-Title': 'Koharu-TH',
+    },
+    body: JSON.stringify(body),
+  })
+
+  if (!res.ok) {
+    const err = await res.text()
+    throw new Error(`OpenRouter API Error: ${err}`)
+  }
+
+  const data = await res.json()
+  return data.choices?.[0]?.message?.content?.trim() || ''
 }
 
 async function fetchGemini(prompt: string, apiKey: string, model: string, isJsonMode = false): Promise<string> {

@@ -56,7 +56,8 @@ Open **Settings → Cloud AI** and pick a provider:
 
 | Provider | What you enter |
 |---|---|
-| **OpenAI** (or compatible) | API Key · Model name (e.g. `gpt-4o`, `gpt-4o-mini`) · Base URL (default `https://api.openai.com/v1`; switch to OpenRouter, Together, a local llama.cpp / vLLM server, etc.) |
+| **OpenAI** (or compatible) | API Key · Model name (e.g. `gpt-4o`, `gpt-4o-mini`) · Base URL (default `https://api.openai.com/v1`; switch to Together, a local llama.cpp / vLLM server, etc.) |
+| **OpenRouter** | API Key only — model list is fetched live from OpenRouter and presented as a searchable picker (with pricing + context-length shown per model) |
 | **Google Gemini** | API Key · Model name (e.g. `gemini-2.5-pro`, `gemini-2.5-flash`) |
 | **Anthropic Claude** | API Key · Model name (e.g. `claude-3-5-sonnet`, `claude-opus-4-5`) |
 

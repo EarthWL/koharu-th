@@ -3,7 +3,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type CloudProvider = 'none' | 'openai' | 'gemini' | 'anthropic'
+export type CloudProvider = 'none' | 'openai' | 'openrouter' | 'gemini' | 'anthropic'
 
 type PreferencesState = {
   brushConfig: {

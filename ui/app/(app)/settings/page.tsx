@@ -20,9 +20,17 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
+import { SearchableSelect, type SearchableSelectOption } from '@/components/ui/searchable-select'
 import { invoke, isTauri } from '@/lib/backend'
 import type { DeviceInfo } from '@/lib/rpc-types'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
+import { useQuery } from '@tanstack/react-query'
+import {
+  fetchOpenRouterModels,
+  formatPricePerMillion,
+  formatContextLength,
+  type OpenRouterModel,
+} from '@/lib/services/openrouterModels'
 
 const THEME_OPTIONS = [
   { value: 'light', icon: SunIcon, labelKey: 'settings.themeLight' },
@@ -48,6 +56,40 @@ export default function SettingsPage() {
     cloudModelName,
     setCloudModelName,
   } = usePreferencesStore()
+
+  // OpenRouter model catalog — only fetched once user picks OpenRouter
+  // and types in an API key. Cached for 10 minutes by react-query.
+  const openrouterModels = useQuery({
+    queryKey: ['openrouter-models', cloudApiKey],
+    queryFn: () => fetchOpenRouterModels(cloudApiKey),
+    enabled: cloudProvider === 'openrouter' && cloudApiKey.length > 0,
+    staleTime: 10 * 60 * 1000,
+    retry: 1,
+  })
+
+  const openrouterModelOptions: SearchableSelectOption[] = useMemo(() => {
+    const models: OpenRouterModel[] = openrouterModels.data ?? []
+    return models.map((m) => {
+      const promptPrice = formatPricePerMillion(m.pricing?.promptUsdPerToken)
+      const completionPrice = formatPricePerMillion(m.pricing?.completionUsdPerToken)
+      const ctx = formatContextLength(m.contextLength)
+      const trailingParts = [
+        ctx,
+        promptPrice && completionPrice
+          ? `${promptPrice} in / ${completionPrice} out`
+          : promptPrice
+            ? `${promptPrice} in`
+            : null,
+      ].filter(Boolean)
+      return {
+        value: m.id,
+        label: m.name,
+        searchText: `${m.id} ${m.name}`,
+        description: m.id,
+        trailing: trailingParts.length ? trailingParts.join(' · ') : undefined,
+      }
+    })
+  }, [openrouterModels.data])
 
   useEffect(() => {
     if (!isTauri()) return
@@ -163,6 +205,7 @@ export default function SettingsPage() {
                     <SelectContent>
                       <SelectItem value="none">None (Local LLM)</SelectItem>
                       <SelectItem value="openai">OpenAI (or Compatible)</SelectItem>
+                      <SelectItem value="openrouter">OpenRouter</SelectItem>
                       <SelectItem value="gemini">Google Gemini</SelectItem>
                       <SelectItem value="anthropic">Anthropic Claude</SelectItem>
                     </SelectContent>
@@ -188,13 +231,51 @@ export default function SettingsPage() {
                       <label className='text-foreground text-xs font-semibold'>
                         {t('settings.cloudModelName', 'Model Name')}
                       </label>
-                      <Input
-                        type="text"
-                        placeholder={cloudProvider === 'openai' ? 'gpt-4o' : cloudProvider === 'gemini' ? 'gemini-2.5-pro' : 'claude-3-5-sonnet'}
-                        value={cloudModelName}
-                        onChange={(e) => setCloudModelName(e.target.value)}
-                        className='text-xs'
-                      />
+                      {cloudProvider === 'openrouter' ? (
+                        <>
+                          <SearchableSelect
+                            value={cloudModelName}
+                            onValueChange={setCloudModelName}
+                            options={openrouterModelOptions}
+                            placeholder={
+                              cloudApiKey
+                                ? openrouterModels.isLoading
+                                  ? 'Loading models…'
+                                  : 'Search and pick a model'
+                                : 'Enter API key to load models'
+                            }
+                            searchPlaceholder='Search by model name or id'
+                            loading={openrouterModels.isLoading}
+                            emptyMessage={
+                              openrouterModels.isError
+                                ? `Failed to load: ${(openrouterModels.error as Error)?.message ?? 'unknown error'}`
+                                : 'No models match'
+                            }
+                            disabled={!cloudApiKey}
+                            clearable
+                          />
+                          <span className='text-muted-foreground text-[10px]'>
+                            {t(
+                              'settings.openrouterModelHint',
+                              'Pick any model from the OpenRouter catalog. Pricing shown is per million tokens.',
+                            )}
+                          </span>
+                        </>
+                      ) : (
+                        <Input
+                          type='text'
+                          placeholder={
+                            cloudProvider === 'openai'
+                              ? 'gpt-4o'
+                              : cloudProvider === 'gemini'
+                                ? 'gemini-2.5-pro'
+                                : 'claude-3-5-sonnet'
+                          }
+                          value={cloudModelName}
+                          onChange={(e) => setCloudModelName(e.target.value)}
+                          className='text-xs'
+                        />
+                      )}
                     </div>
 
                     {cloudProvider === 'openai' && (
