@@ -5,12 +5,14 @@ import Link from 'next/link'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   ChevronLeftCircleIcon,
   Loader2Icon,
   SparklesIcon,
 } from 'lucide-react'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
@@ -28,6 +30,7 @@ import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import {
   generateCloudTranslationDetailed,
+  type ProviderOverride,
   type TranslationMeta,
 } from '@/lib/services/cloudLlm'
 import type { TextBlock } from '@/types'
@@ -230,12 +233,12 @@ function QaRow({
     onAfterChange()
   }
 
-  const retranslate = async () => {
+  const retranslate = async (override?: ProviderOverride) => {
     if (!block.text?.trim()) return
     setGenerating(true)
     setStreaming(true)
     try {
-      if (cloudProvider !== 'none') {
+      if (cloudProvider !== 'none' || override) {
         // Stream directly into the textarea so the user sees text
         // arriving live, then persist once at the end.
         let acc = ''
@@ -247,6 +250,7 @@ function QaRow({
             acc += delta
             setDraft(acc)
           },
+          override,
         )
         setMeta(result.meta)
         const docState = useEditorUiStore.getState()
@@ -290,21 +294,97 @@ function QaRow({
         {meta && <ProvenanceBadges meta={meta} />}
       </td>
       <td className='px-3 py-2 align-top text-right'>
+        <div className='inline-flex'>
+          <Button
+            variant='ghost'
+            size='sm'
+            disabled={generating}
+            title='Re-translate with current provider'
+            onClick={() => void retranslate()}
+            className='rounded-r-none pr-1'
+          >
+            {generating ? (
+              <Loader2Icon className='size-3.5 animate-spin' />
+            ) : (
+              <SparklesIcon className='size-3.5' />
+            )}
+          </Button>
+          <TranslateProfilePicker
+            onPick={(o) => void retranslate(o)}
+            disabled={generating}
+          />
+        </div>
+      </td>
+    </tr>
+  )
+}
+
+function TranslateProfilePicker({
+  onPick,
+  disabled,
+}: {
+  onPick: (override: ProviderOverride) => void
+  disabled?: boolean
+}) {
+  const profiles = useQuery({
+    queryKey: ['project', 'profiles'],
+    queryFn: () => api.providerProfilesList(),
+    staleTime: 60_000,
+  })
+  const list = profiles.data ?? []
+
+  if (list.length === 0) {
+    return null
+  }
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
         <Button
           variant='ghost'
           size='sm'
-          disabled={generating}
-          title='Re-translate with current provider'
-          onClick={() => void retranslate()}
+          disabled={disabled}
+          title='Translate with a different saved profile'
+          className='rounded-l-none border-l border-l-border/40 pl-1 pr-1.5'
         >
-          {generating ? (
-            <Loader2Icon className='size-3.5 animate-spin' />
-          ) : (
-            <SparklesIcon className='size-3.5' />
-          )}
+          <ChevronDownIcon className='size-3' />
         </Button>
-      </td>
-    </tr>
+      </PopoverTrigger>
+      <PopoverContent align='end' className='w-56 p-1'>
+        <div className='text-muted-foreground px-2 py-1 text-[10px] font-semibold uppercase tracking-wide'>
+          Translate with…
+        </div>
+        {list.map((p) => (
+          <button
+            key={p.id}
+            onClick={async () => {
+              try {
+                const { apiKey } = await api.providerProfileSecretGet(p.id)
+                if (!apiKey) {
+                  alert(`Profile "${p.name}" has no API key in keyring.`)
+                  return
+                }
+                onPick({
+                  provider: p.provider,
+                  apiKey,
+                  apiUrl: p.apiUrl ?? '',
+                  model: p.modelName,
+                })
+              } catch (err: any) {
+                alert(err?.message ?? String(err))
+              }
+            }}
+            className='hover:bg-accent flex w-full items-start gap-1 rounded-sm px-2 py-1.5 text-left text-xs transition'
+          >
+            <span className='min-w-0 flex-1'>
+              <span className='block truncate font-medium'>{p.name}</span>
+              <span className='text-muted-foreground block truncate text-[10px]'>
+                {p.provider} · {p.modelName}
+              </span>
+            </span>
+          </button>
+        ))}
+      </PopoverContent>
+    </Popover>
   )
 }
 

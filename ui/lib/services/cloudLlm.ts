@@ -259,14 +259,25 @@ export type TranslationDetailed = {
   meta: TranslationMeta
 }
 
+/** When set, the translation call uses these credentials instead of
+ *  the live preferences store. Useful for "Translate this block with
+ *  a different model" without disturbing the user's saved default. */
+export type ProviderOverride = {
+  provider: string
+  apiKey: string
+  apiUrl: string
+  model: string
+}
+
 /** Detailed sibling of {@link generateCloudTranslation} — returns
  *  metadata about TM/glossary/template alongside the text. */
 export async function generateCloudTranslationDetailed(
   text: string,
   language: string,
   onChunk?: StreamHandler,
+  override?: ProviderOverride,
 ): Promise<TranslationDetailed> {
-  return generateCloudTranslationImpl(text, language, onChunk)
+  return generateCloudTranslationImpl(text, language, onChunk, override)
 }
 
 export async function generateCloudTranslation(
@@ -281,8 +292,13 @@ async function generateCloudTranslationImpl(
   text: string,
   language: string,
   onChunk?: StreamHandler,
+  override?: ProviderOverride,
 ): Promise<TranslationDetailed> {
-  const { cloudProvider, cloudApiKey, cloudApiUrl, cloudModelName } = usePreferencesStore.getState()
+  const live = usePreferencesStore.getState()
+  const cloudProvider = override?.provider ?? live.cloudProvider
+  const cloudApiKey = override?.apiKey ?? live.cloudApiKey
+  const cloudApiUrl = override?.apiUrl ?? live.cloudApiUrl
+  const cloudModelName = override?.model ?? live.cloudModelName
 
   if (!cloudApiKey) {
     throw new Error('Cloud API Key is missing.')
