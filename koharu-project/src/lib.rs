@@ -10,10 +10,12 @@
 //! translation memory, prompt templates, provider profiles, and an LLM
 //! call log. See `migrations/V001__initial_schema.sql` for the schema.
 
+pub mod chapter;
 mod db;
 mod error;
 mod manifest;
 mod project;
+pub mod series;
 mod types;
 
 pub use db::{Conn, Pool};

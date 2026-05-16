@@ -7,9 +7,15 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use koharu_api::commands::{
-    ProjectCreatePayload, ProjectCreatePickerPayload, ProjectInfo, ProjectOpenPayload,
+    ChapterAddPayload, ChapterDto, ChapterIdPayload, ChapterUpdatePayload, ProjectCreatePayload,
+    ProjectCreatePickerPayload, ProjectInfo, ProjectOpenPayload, SeriesMetaDto,
+    SeriesMetaUpdatePayload,
 };
-use koharu_project::{Project, MANIFEST_FILENAME};
+use koharu_project::{
+    chapter::{self as chapter_ops, ChapterInsert, ChapterPatch},
+    series::{self as series_ops, SeriesMetaPatch},
+    Chapter, ChapterStatus, Project, SeriesMeta, MANIFEST_FILENAME,
+};
 use rfd::FileDialog;
 
 use crate::AppResources;
@@ -140,6 +146,162 @@ fn sanitize_folder_name(name: &str) -> String {
         "Untitled".to_string()
     } else {
         trimmed.to_string()
+    }
+}
+
+// ---------------------------------------------------------------
+// series_meta + chapters (Phase 2)
+// ---------------------------------------------------------------
+
+pub async fn series_meta_get(state: AppResources) -> anyhow::Result<SeriesMetaDto> {
+    let project = require_project(&state).await?;
+    let dto = tokio::task::spawn_blocking(move || -> anyhow::Result<SeriesMetaDto> {
+        let conn = project.pool().get()?;
+        Ok(series_meta_to_dto(series_ops::get(&conn)?))
+    })
+    .await??;
+    Ok(dto)
+}
+
+pub async fn series_meta_update(
+    state: AppResources,
+    payload: SeriesMetaUpdatePayload,
+) -> anyhow::Result<SeriesMetaDto> {
+    let project = require_project(&state).await?;
+    let dto = tokio::task::spawn_blocking(move || -> anyhow::Result<SeriesMetaDto> {
+        let patch = SeriesMetaPatch {
+            title: payload.title,
+            title_original: payload.title_original.map(Some),
+            synopsis: payload.synopsis.map(Some),
+            genre: payload.genre,
+            target_audience: payload.target_audience.map(Some),
+            source_language: payload.source_language,
+            target_language: payload.target_language,
+            tone: payload.tone.map(Some),
+            formality_level: payload.formality_level.map(Some),
+            style_notes: payload.style_notes.map(Some),
+            cover_image: payload.cover_image.map(Some),
+        };
+        let conn = project.pool().get()?;
+        Ok(series_meta_to_dto(series_ops::update(&conn, patch)?))
+    })
+    .await??;
+    Ok(dto)
+}
+
+pub async fn chapters_list(state: AppResources) -> anyhow::Result<Vec<ChapterDto>> {
+    let project = require_project(&state).await?;
+    let list = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<ChapterDto>> {
+        let conn = project.pool().get()?;
+        Ok(chapter_ops::list(&conn)?
+            .into_iter()
+            .map(chapter_to_dto)
+            .collect())
+    })
+    .await??;
+    Ok(list)
+}
+
+pub async fn chapter_add(
+    state: AppResources,
+    payload: ChapterAddPayload,
+) -> anyhow::Result<ChapterDto> {
+    let project = require_project(&state).await?;
+    let dto = tokio::task::spawn_blocking(move || -> anyhow::Result<ChapterDto> {
+        let conn = project.pool().get()?;
+        let inserted = chapter_ops::insert(
+            &conn,
+            ChapterInsert {
+                file_path: payload.file_path,
+                chapter_number: payload.chapter_number,
+                title: payload.title,
+                volume: payload.volume,
+            },
+        )?;
+        Ok(chapter_to_dto(inserted))
+    })
+    .await??;
+    Ok(dto)
+}
+
+pub async fn chapter_update(
+    state: AppResources,
+    payload: ChapterUpdatePayload,
+) -> anyhow::Result<Option<ChapterDto>> {
+    let project = require_project(&state).await?;
+    let dto = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<ChapterDto>> {
+        let conn = project.pool().get()?;
+        let patch = ChapterPatch {
+            chapter_number: payload.chapter_number,
+            title: payload.title.map(Some),
+            volume: payload.volume.map(Some),
+            status: payload
+                .status
+                .as_deref()
+                .and_then(ChapterStatus::parse),
+            summary: payload.summary.map(Some),
+            notes: payload.notes.map(Some),
+            page_count: payload.page_count,
+        };
+        Ok(chapter_ops::update(&conn, payload.id, patch)?.map(chapter_to_dto))
+    })
+    .await??;
+    Ok(dto)
+}
+
+pub async fn chapter_remove(
+    state: AppResources,
+    payload: ChapterIdPayload,
+) -> anyhow::Result<bool> {
+    let project = require_project(&state).await?;
+    let removed = tokio::task::spawn_blocking(move || -> anyhow::Result<bool> {
+        let conn = project.pool().get()?;
+        Ok(chapter_ops::remove(&conn, payload.id)?)
+    })
+    .await??;
+    Ok(removed)
+}
+
+async fn require_project(state: &AppResources) -> anyhow::Result<Project> {
+    state
+        .project
+        .read()
+        .await
+        .clone()
+        .context("No project is currently open")
+}
+
+fn series_meta_to_dto(m: SeriesMeta) -> SeriesMetaDto {
+    SeriesMetaDto {
+        title: m.title,
+        title_original: m.title_original,
+        synopsis: m.synopsis,
+        genre: m.genre,
+        target_audience: m.target_audience,
+        source_language: m.source_language,
+        target_language: m.target_language,
+        tone: m.tone,
+        formality_level: m.formality_level,
+        style_notes: m.style_notes,
+        cover_image: m.cover_image,
+        created_at: m.created_at.to_rfc3339(),
+        updated_at: m.updated_at.to_rfc3339(),
+    }
+}
+
+fn chapter_to_dto(c: Chapter) -> ChapterDto {
+    ChapterDto {
+        id: c.id,
+        file_path: c.file_path,
+        chapter_number: c.chapter_number,
+        title: c.title,
+        volume: c.volume,
+        status: c.status.as_str().to_string(),
+        summary: c.summary,
+        notes: c.notes,
+        page_count: c.page_count,
+        created_at: c.created_at.to_rfc3339(),
+        updated_at: c.updated_at.to_rfc3339(),
     }
 }
 

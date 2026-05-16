@@ -16,6 +16,8 @@ import {
   MenubarTrigger,
 } from '@/components/ui/menubar'
 import { useDocumentMutations } from '@/lib/query/mutations'
+import { useProjectMutations } from '@/lib/query/projectMutations'
+import { useProjectStore } from '@/lib/stores/projectStore'
 
 type MenuItem = {
   label: string
@@ -43,6 +45,34 @@ export function MenuBar() {
     exportAllInpainted,
     exportAllRendered,
   } = useDocumentMutations()
+  const projectInfo = useProjectStore((s) => s.info)
+  const { refreshCurrent, openPicker, closeProject } = useProjectMutations()
+
+  // Sync the project store with backend state on mount so the menu always
+  // reflects reality (e.g. after a hot reload).
+  useEffect(() => {
+    void refreshCurrent()
+  }, [refreshCurrent])
+
+  const projectMenuItems: MenuItem[] = [
+    {
+      label: t('menu.openProject', 'Open project…'),
+      onSelect: () => {
+        void openPicker()
+      },
+    },
+    {
+      label: t('menu.projectSettings', 'Project settings…'),
+      disabled: !projectInfo,
+    },
+    {
+      label: t('menu.closeProject', 'Close project'),
+      onSelect: () => {
+        void closeProject()
+      },
+      disabled: !projectInfo,
+    },
+  ]
 
   const fileMenuItems: MenuItem[] = [
     {
@@ -174,6 +204,57 @@ export function MenuBar() {
             </MenubarItem>
           </MenubarContent>
         </MenubarMenu>
+        <MenubarMenu>
+          <MenubarTrigger className='hover:bg-accent data-[state=open]:bg-accent rounded px-3 py-1.5 font-medium'>
+            {t('menu.project', 'Project')}
+          </MenubarTrigger>
+          <MenubarContent
+            className='min-w-44'
+            align='start'
+            sideOffset={5}
+            alignOffset={-3}
+          >
+            {projectMenuItems.map((item) =>
+              item.label === t('menu.projectSettings', 'Project settings…') ? (
+                <MenubarItem
+                  key={item.label}
+                  className='text-[13px]'
+                  disabled={item.disabled}
+                  asChild={!item.disabled}
+                >
+                  {item.disabled ? (
+                    <span>{item.label}</span>
+                  ) : (
+                    <Link href='/project' prefetch={false}>
+                      {item.label}
+                    </Link>
+                  )}
+                </MenubarItem>
+              ) : (
+                <MenubarItem
+                  key={item.label}
+                  className='text-[13px]'
+                  disabled={item.disabled}
+                  onSelect={
+                    item.onSelect
+                      ? () => {
+                          void item.onSelect?.()
+                        }
+                      : undefined
+                  }
+                >
+                  {item.label}
+                </MenubarItem>
+              ),
+            )}
+            <MenubarSeparator />
+            <MenubarItem className='text-[13px]' asChild>
+              <Link href='/project' prefetch={false}>
+                {t('menu.projectDashboard', 'Open dashboard…')}
+              </Link>
+            </MenubarItem>
+          </MenubarContent>
+        </MenubarMenu>
         {menus.map(({ label, items, triggerTestId }) => (
           <MenubarMenu key={label}>
             <MenubarTrigger
@@ -244,11 +325,24 @@ export function MenuBar() {
         </MenubarMenu>
       </Menubar>
 
-      {/* Draggable region */}
+      {/* Draggable region + project indicator */}
       <div
         data-tauri-drag-region
         className='flex h-full flex-1 items-center justify-center'
-      />
+      >
+        {projectInfo && (
+          <Link
+            href='/project'
+            prefetch={false}
+            className='text-muted-foreground hover:text-foreground pointer-events-auto text-[11px] font-medium'
+          >
+            📁 {projectInfo.name}
+            <span className='text-muted-foreground/70 ml-1'>
+              · {projectInfo.chapterCount} ch
+            </span>
+          </Link>
+        )}
+      </div>
 
       {/* Window controls for Windows */}
       {isWindowsTauri && <WindowControls />}

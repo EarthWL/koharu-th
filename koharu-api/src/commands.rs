@@ -289,6 +289,88 @@ pub struct ProjectInfo {
     pub glossary_count: u32,
 }
 
+// ------------------------------------------------------------
+// Phase 2: series metadata + chapter index payloads.
+// ------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SeriesMetaDto {
+    pub title: String,
+    pub title_original: Option<String>,
+    pub synopsis: Option<String>,
+    pub genre: Vec<String>,
+    pub target_audience: Option<String>,
+    pub source_language: String,
+    pub target_language: String,
+    pub tone: Option<String>,
+    pub formality_level: Option<String>,
+    pub style_notes: Option<String>,
+    pub cover_image: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SeriesMetaUpdatePayload {
+    pub title: Option<String>,
+    pub title_original: Option<String>,
+    pub synopsis: Option<String>,
+    pub genre: Option<Vec<String>>,
+    pub target_audience: Option<String>,
+    pub source_language: Option<String>,
+    pub target_language: Option<String>,
+    pub tone: Option<String>,
+    pub formality_level: Option<String>,
+    pub style_notes: Option<String>,
+    pub cover_image: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChapterDto {
+    pub id: i64,
+    pub file_path: String,
+    pub chapter_number: f64,
+    pub title: Option<String>,
+    pub volume: Option<i64>,
+    pub status: String,
+    pub summary: Option<String>,
+    pub notes: Option<String>,
+    pub page_count: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChapterAddPayload {
+    pub file_path: String,
+    pub chapter_number: f64,
+    pub title: Option<String>,
+    pub volume: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChapterUpdatePayload {
+    pub id: i64,
+    pub chapter_number: Option<f64>,
+    pub title: Option<String>,
+    pub volume: Option<i64>,
+    pub status: Option<String>,
+    pub summary: Option<String>,
+    pub notes: Option<String>,
+    pub page_count: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChapterIdPayload {
+    pub id: i64,
+}
+
 #[cfg(test)]
 mod tests {
     use koharu_types::{TextAlign, TextStyle};

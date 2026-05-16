@@ -40,6 +40,13 @@ pub enum Method {
     ProjectOpenPicker,
     ProjectClose,
     ProjectCurrent,
+    // Phase 2: series metadata + chapter index
+    SeriesMetaGet,
+    SeriesMetaUpdate,
+    ChaptersList,
+    ChapterAdd,
+    ChapterUpdate,
+    ChapterRemove,
 }
 
 impl Method {
@@ -77,6 +84,12 @@ impl Method {
         Method::ProjectOpenPicker,
         Method::ProjectClose,
         Method::ProjectCurrent,
+        Method::SeriesMetaGet,
+        Method::SeriesMetaUpdate,
+        Method::ChaptersList,
+        Method::ChapterAdd,
+        Method::ChapterUpdate,
+        Method::ChapterRemove,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -114,6 +127,12 @@ impl Method {
             Method::ProjectOpenPicker => "project_open_picker",
             Method::ProjectClose => "project_close",
             Method::ProjectCurrent => "project_current",
+            Method::SeriesMetaGet => "series_meta_get",
+            Method::SeriesMetaUpdate => "series_meta_update",
+            Method::ChaptersList => "chapters_list",
+            Method::ChapterAdd => "chapter_add",
+            Method::ChapterUpdate => "chapter_update",
+            Method::ChapterRemove => "chapter_remove",
         }
     }
 }
@@ -162,6 +181,12 @@ impl FromStr for Method {
             "project_open_picker" => Method::ProjectOpenPicker,
             "project_close" => Method::ProjectClose,
             "project_current" => Method::ProjectCurrent,
+            "series_meta_get" => Method::SeriesMetaGet,
+            "series_meta_update" => Method::SeriesMetaUpdate,
+            "chapters_list" => Method::ChaptersList,
+            "chapter_add" => Method::ChapterAdd,
+            "chapter_update" => Method::ChapterUpdate,
+            "chapter_remove" => Method::ChapterRemove,
             _ => anyhow::bail!("Unknown method: {s}"),
         };
         Ok(method)

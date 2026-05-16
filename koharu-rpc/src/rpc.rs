@@ -122,6 +122,12 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::ProjectOpenPicker => call0(operations::project_open_picker, state).await,
         Method::ProjectClose => call0(operations::project_close, state).await,
         Method::ProjectCurrent => call0(operations::project_current, state).await,
+        Method::SeriesMetaGet => call0(operations::series_meta_get, state).await,
+        Method::SeriesMetaUpdate => call(operations::series_meta_update, state, params).await,
+        Method::ChaptersList => call0(operations::chapters_list, state).await,
+        Method::ChapterAdd => call(operations::chapter_add, state, params).await,
+        Method::ChapterUpdate => call(operations::chapter_update, state, params).await,
+        Method::ChapterRemove => call(operations::chapter_remove, state, params).await,
     }
 }
 

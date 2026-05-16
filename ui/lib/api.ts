@@ -233,6 +233,84 @@ export const api = {
   async projectCurrent(): Promise<ProjectInfo | null> {
     return invoke('project_current') as Promise<ProjectInfo | null>
   },
+
+  // ----------------------------------------------------------------
+  // Series + chapters (Phase 2)
+  // ----------------------------------------------------------------
+  async seriesMetaGet(): Promise<SeriesMetaDto> {
+    return invoke('series_meta_get') as Promise<SeriesMetaDto>
+  },
+
+  async seriesMetaUpdate(patch: Partial<Omit<SeriesMetaDto, 'createdAt' | 'updatedAt'>>): Promise<SeriesMetaDto> {
+    return invoke('series_meta_update', patch) as Promise<SeriesMetaDto>
+  },
+
+  async chaptersList(): Promise<ChapterDto[]> {
+    return invoke('chapters_list') as Promise<ChapterDto[]>
+  },
+
+  async chapterAdd(input: {
+    filePath: string
+    chapterNumber: number
+    title?: string | null
+    volume?: number | null
+  }): Promise<ChapterDto> {
+    return invoke('chapter_add', input) as Promise<ChapterDto>
+  },
+
+  async chapterUpdate(input: {
+    id: number
+    chapterNumber?: number
+    title?: string | null
+    volume?: number | null
+    status?: ChapterStatus
+    summary?: string | null
+    notes?: string | null
+    pageCount?: number
+  }): Promise<ChapterDto | null> {
+    return invoke('chapter_update', input) as Promise<ChapterDto | null>
+  },
+
+  async chapterRemove(id: number): Promise<boolean> {
+    return invoke('chapter_remove', { id }) as Promise<boolean>
+  },
+}
+
+export type SeriesMetaDto = {
+  title: string
+  titleOriginal: string | null
+  synopsis: string | null
+  genre: string[]
+  targetAudience: string | null
+  sourceLanguage: string
+  targetLanguage: string
+  tone: string | null
+  formalityLevel: string | null
+  styleNotes: string | null
+  coverImage: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type ChapterStatus =
+  | 'pending'
+  | 'in_progress'
+  | 'translated'
+  | 'reviewed'
+  | 'done'
+
+export type ChapterDto = {
+  id: number
+  filePath: string
+  chapterNumber: number
+  title: string | null
+  volume: number | null
+  status: ChapterStatus
+  summary: string | null
+  notes: string | null
+  pageCount: number
+  createdAt: string
+  updatedAt: string
 }
 
 export type ProjectInfo = {
