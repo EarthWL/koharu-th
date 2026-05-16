@@ -246,10 +246,19 @@ export function ChatTabPanel() {
           if (e.kind === 'text-delta') {
             setStreamingText((prev) => prev + e.delta)
           } else if (e.kind === 'tool-call') {
-            // Assistant text up to this tool call is "settled" — flush
-            // to a logical break so the next text-delta in the same
-            // turn (after the tool result) starts a fresh visual chunk.
-            setStreamingText('')
+            // Don't blank the bubble — append a progress line so the
+            // user sees the model is dispatching a tool. Otherwise the
+            // bubble looks empty during tool-dispatch + round-N latency
+            // and the user thinks the chat is hung.
+            setStreamingText((prev) => {
+              const sep = prev ? '\n\n' : ''
+              return `${prev}${sep}🔧 calling ${e.call.name}…`
+            })
+          } else if (e.kind === 'tool-result') {
+            const result = e.result as { error?: string } | unknown
+            const failed =
+              result && typeof result === 'object' && 'error' in (result as any)
+            setStreamingText((prev) => prev + (failed ? ' ✗' : ' ✓'))
           } else if (e.kind === 'done') {
             // Persist each new assistant + tool message from the
             // suffix that came after our `lastUser`.
