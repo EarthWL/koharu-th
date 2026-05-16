@@ -301,7 +301,7 @@ export function ChatTabPanel() {
   }
 
   return (
-    <div className='flex h-full min-h-0 flex-col'>
+    <div className='flex h-full min-h-0 flex-1 flex-col'>
       <div className='border-border flex items-center justify-between border-b px-2 py-1.5'>
         <span className='text-muted-foreground text-[10px] font-bold tracking-wide uppercase'>
           AI Chat ({history.data?.length ?? 0})
@@ -358,7 +358,7 @@ export function ChatTabPanel() {
       )}
 
       {/* Messages */}
-      <ScrollArea className='min-w-0 flex-1' viewportRef={scrollRef}>
+      <ScrollArea className='min-h-0 min-w-0 flex-1' viewportRef={scrollRef}>
         <div className='w-full min-w-0 space-y-2 p-2'>
           {!history.data?.length ? (
             <EmptyState />
