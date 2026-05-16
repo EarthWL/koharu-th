@@ -15,6 +15,7 @@ publish.workspace = true
 koharu-api = { workspace = true }
 koharu-types = { workspace = true }
 koharu-ml = { workspace = true }
+koharu-project = { workspace = true }
 koharu-renderer = { workspace = true }
 anyhow = { workspace = true }
 image = { workspace = true }

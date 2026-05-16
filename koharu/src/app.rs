@@ -150,6 +150,7 @@ async fn build_resources(cpu: bool) -> Result<AppResources> {
         renderer,
         device: device(cpu)?,
         pipeline: Arc::new(RwLock::new(None)),
+        project: Arc::new(RwLock::new(None)),
         version: crate::version::current(),
     })
 }

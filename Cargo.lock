@@ -3906,6 +3906,7 @@ dependencies = [
  "imageproc",
  "koharu-api",
  "koharu-ml",
+ "koharu-project",
  "koharu-renderer",
  "koharu-types",
  "once_cell",

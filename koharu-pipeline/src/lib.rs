@@ -6,6 +6,7 @@ pub mod state_tx;
 use std::sync::Arc;
 
 use koharu_ml::Device;
+use koharu_project::Project;
 use koharu_renderer::facade::Renderer;
 use koharu_types::AppState;
 use tokio::sync::RwLock;
@@ -18,5 +19,8 @@ pub struct AppResources {
     pub renderer: Arc<Renderer>,
     pub device: Device,
     pub pipeline: Arc<RwLock<Option<pipeline::PipelineHandle>>>,
+    /// Currently-open series project, if any. None until the user creates
+    /// or opens one via the project_* commands.
+    pub project: Arc<RwLock<Option<Project>>>,
     pub version: &'static str,
 }

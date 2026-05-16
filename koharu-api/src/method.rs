@@ -33,6 +33,13 @@ pub enum Method {
     LlmLoad,
     LlmGenerate,
     Process,
+    // Phase 1: project lifecycle
+    ProjectCreate,
+    ProjectCreatePicker,
+    ProjectOpen,
+    ProjectOpenPicker,
+    ProjectClose,
+    ProjectCurrent,
 }
 
 impl Method {
@@ -64,6 +71,12 @@ impl Method {
         Method::LlmLoad,
         Method::LlmGenerate,
         Method::Process,
+        Method::ProjectCreate,
+        Method::ProjectCreatePicker,
+        Method::ProjectOpen,
+        Method::ProjectOpenPicker,
+        Method::ProjectClose,
+        Method::ProjectCurrent,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -95,6 +108,12 @@ impl Method {
             Method::LlmLoad => "llm_load",
             Method::LlmGenerate => "llm_generate",
             Method::Process => "process",
+            Method::ProjectCreate => "project_create",
+            Method::ProjectCreatePicker => "project_create_picker",
+            Method::ProjectOpen => "project_open",
+            Method::ProjectOpenPicker => "project_open_picker",
+            Method::ProjectClose => "project_close",
+            Method::ProjectCurrent => "project_current",
         }
     }
 }
@@ -137,6 +156,12 @@ impl FromStr for Method {
             "llm_load" => Method::LlmLoad,
             "llm_generate" => Method::LlmGenerate,
             "process" => Method::Process,
+            "project_create" => Method::ProjectCreate,
+            "project_create_picker" => Method::ProjectCreatePicker,
+            "project_open" => Method::ProjectOpen,
+            "project_open_picker" => Method::ProjectOpenPicker,
+            "project_close" => Method::ProjectClose,
+            "project_current" => Method::ProjectCurrent,
             _ => anyhow::bail!("Unknown method: {s}"),
         };
         Ok(method)

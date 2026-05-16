@@ -206,6 +206,47 @@ export const api = {
   async processCancel(): Promise<void> {
     await invoke('process_cancel')
   },
+
+  // ----------------------------------------------------------------
+  // Project lifecycle (Phase 1)
+  // ----------------------------------------------------------------
+  async projectCreate(path: string, name: string): Promise<ProjectInfo> {
+    return invoke('project_create', { path, name }) as Promise<ProjectInfo>
+  },
+
+  async projectCreatePicker(name: string): Promise<ProjectInfo | null> {
+    return invoke('project_create_picker', { name }) as Promise<ProjectInfo | null>
+  },
+
+  async projectOpen(path: string): Promise<ProjectInfo> {
+    return invoke('project_open', { path }) as Promise<ProjectInfo>
+  },
+
+  async projectOpenPicker(): Promise<ProjectInfo | null> {
+    return invoke('project_open_picker') as Promise<ProjectInfo | null>
+  },
+
+  async projectClose(): Promise<void> {
+    await invoke('project_close')
+  },
+
+  async projectCurrent(): Promise<ProjectInfo | null> {
+    return invoke('project_current') as Promise<ProjectInfo | null>
+  },
+}
+
+export type ProjectInfo = {
+  root: string
+  id: string
+  name: string
+  nameOriginal: string | null
+  schemaVersion: number
+  createdAt: string
+  updatedAt: string
+  tags: string[]
+  chapterCount: number
+  characterCount: number
+  glossaryCount: number
 }
 
 export const parseDownloadProgress = (payload: unknown): DownloadProgress =>

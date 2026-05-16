@@ -246,6 +246,49 @@ pub struct InpaintRegionParams {
     pub height: u32,
 }
 
+// ------------------------------------------------------------
+// Project lifecycle (Phase 1) — folder-anchored series projects.
+// Path is the project root directory (the folder containing
+// series.koharuproj). For the open-picker variant, the user picks
+// a `.koharuproj` file and the host resolves the parent dir.
+// ------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectCreatePayload {
+    pub path: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectOpenPayload {
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectCreatePickerPayload {
+    pub name: String,
+}
+
+/// Summary returned by project_open / project_create / project_current.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectInfo {
+    pub root: String,
+    pub id: String,
+    pub name: String,
+    pub name_original: Option<String>,
+    pub schema_version: u32,
+    pub created_at: String,
+    pub updated_at: String,
+    pub tags: Vec<String>,
+    pub chapter_count: u32,
+    pub character_count: u32,
+    pub glossary_count: u32,
+}
+
 #[cfg(test)]
 mod tests {
     use koharu_types::{TextAlign, TextStyle};
@@ -448,6 +491,7 @@ mod tests {
             font_size: Some(16.0),
             color: Some("#ffffff".to_string()),
             shader_effect: Some("italic,bold".to_string()),
+            rotation_deg: Some(0.0),
         });
         round_trip(&AddTextBlockPayload {
             index: 1,

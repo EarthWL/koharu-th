@@ -114,6 +114,14 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::LlmLoad => call(operations::llm_load, state, params).await,
         Method::LlmGenerate => call(operations::llm_generate, state, params).await,
         Method::Process => call(operations::process, state, params).await,
+        Method::ProjectCreate => call(operations::project_create, state, params).await,
+        Method::ProjectCreatePicker => {
+            call(operations::project_create_picker, state, params).await
+        }
+        Method::ProjectOpen => call(operations::project_open, state, params).await,
+        Method::ProjectOpenPicker => call0(operations::project_open_picker, state).await,
+        Method::ProjectClose => call0(operations::project_close, state).await,
+        Method::ProjectCurrent => call0(operations::project_current, state).await,
     }
 }
 
