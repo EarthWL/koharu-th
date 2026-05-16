@@ -203,6 +203,7 @@ function ChapterRow({
   const queryClient = useQueryClient()
   const activeChapterId = useProjectStore((s) => s.activeChapterId)
   const setActiveChapterId = useProjectStore((s) => s.setActiveChapterId)
+  const setSidebarTab = useProjectStore((s) => s.setSidebarTab)
   const isActive = activeChapterId === chapter.id
   const [opening, setOpening] = useState(false)
   const [openingForExtract, setOpeningForExtract] = useState(false)
@@ -216,6 +217,7 @@ function ChapterRow({
       await api.chapterOpen(chapter.id)
       setActiveChapterId(chapter.id)
       await queryClient.invalidateQueries({ queryKey: ['documents'] })
+      setSidebarTab('pages')
       onRequestExtract()
     } catch (err: any) {
       alert(err?.message ?? String(err))
@@ -230,6 +232,7 @@ function ChapterRow({
       await api.chapterOpen(chapter.id)
       setActiveChapterId(chapter.id)
       await queryClient.invalidateQueries({ queryKey: ['documents'] })
+      setSidebarTab('pages')
       router.push('/')
     } catch (err: any) {
       alert(err?.message ?? String(err))

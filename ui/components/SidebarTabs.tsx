@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
@@ -22,18 +21,10 @@ import { GlossaryTabPanel } from '@/components/sidebar/GlossaryTabPanel'
 import { PromptsTabPanel } from '@/components/sidebar/PromptsTabPanel'
 import { ProfilesTabPanel } from '@/components/sidebar/ProfilesTabPanel'
 import { ChatTabPanel } from '@/components/sidebar/ChatTabPanel'
-import { useProjectStore } from '@/lib/stores/projectStore'
+import { useProjectStore, type SidebarTabKey } from '@/lib/stores/projectStore'
 import { api } from '@/lib/api'
 
-type TabKey =
-  | 'pages'
-  | 'chapters'
-  | 'project'
-  | 'characters'
-  | 'glossary'
-  | 'prompts'
-  | 'profiles'
-  | 'chat'
+type TabKey = SidebarTabKey
 
 const TABS: {
   key: TabKey
@@ -103,7 +94,8 @@ const TABS: {
 export function SidebarTabs() {
   const { t } = useTranslation()
   const projectInfo = useProjectStore((s) => s.info)
-  const [active, setActive] = useState<TabKey>('pages')
+  const active = useProjectStore((s) => s.sidebarTab)
+  const setActive = useProjectStore((s) => s.setSidebarTab)
 
   // Surface chapter count in the chapters tab badge.
   const chapters = useQuery({
