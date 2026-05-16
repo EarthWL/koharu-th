@@ -109,6 +109,12 @@ export function MenuBar() {
       items: [
         { label: t('menu.fitWindow'), onSelect: fitCanvasToViewport },
         { label: t('menu.originalSize'), onSelect: resetCanvasScale },
+        {
+          label: t('menu.qaReview', 'QA review…'),
+          onSelect: () => {
+            window.location.href = '/qa'
+          },
+        },
       ],
     },
     {
