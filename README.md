@@ -96,6 +96,10 @@ Then open the Koharu Web UI at `http://localhost:4000`.
 
 On Windows, Koharu automatically associates `.khr` files, so you can open them by double-clicking. `.khr` files can also be opened as pictures to view the thumbnails of the contained images.
 
+### Bundled fonts
+
+Koharu-TH creates `<app-data>/Koharu/fonts/` on first launch (Windows: `%LOCALAPPDATA%\Koharu\fonts`, macOS: `~/Library/Application Support/Koharu/fonts`, Linux: `~/.local/share/Koharu/fonts`). Drop any `.ttf` / `.otf` / `.ttc` file there and it's registered alongside system fonts on next launch. Useful for shipping Thai (e.g. [Noto Sans Thai](https://fonts.google.com/noto/specimen/Noto+Sans+Thai)) or specialty manga fonts to machines that don't have them installed system-wide.
+
 ## GPU acceleration
 
 CUDA and Metal are supported for GPU acceleration, significantly improving performance on supported hardware.
@@ -193,7 +197,7 @@ git merge upstream/main        # or rebase, your call
 
 Not promises — just things I'm considering as I keep iterating on this fork.
 
-- [ ] Bundle a Thai font (e.g. Noto Sans Thai) with the app so rendering works on machines without a local Thai font
+- [x] Bundle a Thai font (e.g. Noto Sans Thai) with the app so rendering works on machines without a local Thai font — *drop the .ttf into the app's `fonts/` data dir (see [Bundled fonts](#bundled-fonts))*
 - [ ] Streaming responses from cloud providers for faster perceived translation
 - [ ] Per-document glossary / term consistency across pages
 - [ ] Translation memory / caching to avoid re-translating identical text

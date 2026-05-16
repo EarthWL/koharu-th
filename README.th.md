@@ -96,6 +96,10 @@ koharu.exe --port 4000 --headless
 
 บน Windows Koharu ผูกกับไฟล์ `.khr` ให้อัตโนมัติ เปิดด้วยการ double-click ได้เลย และไฟล์ `.khr` ยังเปิดเป็นรูปภาพเพื่อดู thumbnail ของรูปข้างในได้ด้วย
 
+### Bundle ฟอนต์เพิ่ม
+
+ตอนรันครั้งแรก Koharu-TH จะสร้างโฟลเดอร์ `<app-data>/Koharu/fonts/` ให้ (Windows: `%LOCALAPPDATA%\Koharu\fonts`, macOS: `~/Library/Application Support/Koharu/fonts`, Linux: `~/.local/share/Koharu/fonts`) — โยนไฟล์ `.ttf` / `.otf` / `.ttc` ลงไป แล้วระบบจะ register ใช้คู่กับฟอนต์ของ OS ตอนรันครั้งถัดไป มีประโยชน์มากสำหรับฟอนต์ไทย (เช่น [Noto Sans Thai](https://fonts.google.com/noto/specimen/Noto+Sans+Thai)) หรือฟอนต์มังงะเฉพาะที่ระบบไม่ได้ลงเอาไว้
+
 ## GPU acceleration
 
 รองรับทั้ง CUDA และ Metal เร่งความเร็วได้มากบนฮาร์ดแวร์ที่รองรับ

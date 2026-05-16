@@ -140,7 +140,21 @@ fn is_cjk_text(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{font_families_for_text, is_latin_only, normalize_translation_for_layout};
+    use super::{
+        font_families_for_text, is_latin_only, normalize_translation_for_layout,
+        writing_mode_for_block,
+    };
+    use crate::layout::WritingMode;
+    use koharu_types::TextBlock;
+
+    fn block(translation: &str, width: f32, height: f32) -> TextBlock {
+        TextBlock {
+            translation: Some(translation.into()),
+            width,
+            height,
+            ..Default::default()
+        }
+    }
 
     #[test]
     fn latin_detection_is_reasonable() {
@@ -158,5 +172,28 @@ mod tests {
     fn font_family_selection_returns_candidates() {
         assert!(!font_families_for_text("hello").is_empty());
         assert!(!font_families_for_text("你好").is_empty());
+        assert!(!font_families_for_text("สวัสดี").is_empty());
+        assert!(!font_families_for_text("안녕하세요").is_empty());
+    }
+
+    #[test]
+    fn thai_and_hangul_stay_horizontal_even_in_tall_bubbles() {
+        // Both Thai and Hangul render best horizontally; we never want
+        // to flip them into the CJK vertical_rl pipeline even when the
+        // bubble is much taller than wide.
+        let thai = block("สวัสดีครับ", 40.0, 200.0);
+        assert_eq!(writing_mode_for_block(&thai), WritingMode::Horizontal);
+        let hangul = block("안녕하세요", 40.0, 200.0);
+        assert_eq!(writing_mode_for_block(&hangul), WritingMode::Horizontal);
+    }
+
+    #[test]
+    fn cjk_goes_vertical_only_when_tall() {
+        let tall = block("こんにちは", 40.0, 200.0);
+        assert_eq!(tall.height > tall.width, true);
+        assert_eq!(writing_mode_for_block(&tall), WritingMode::VerticalRl);
+        // Same text in a wide bubble stays horizontal.
+        let wide = block("こんにちは", 200.0, 40.0);
+        assert_eq!(writing_mode_for_block(&wide), WritingMode::Horizontal);
     }
 }

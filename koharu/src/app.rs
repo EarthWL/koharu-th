@@ -22,6 +22,10 @@ static APP_ROOT: Lazy<PathBuf> = Lazy::new(|| {
 });
 static LIB_ROOT: Lazy<PathBuf> = Lazy::new(|| APP_ROOT.join("libs"));
 static MODEL_ROOT: Lazy<PathBuf> = Lazy::new(|| APP_ROOT.join("models"));
+/// User-droppable font directory. Any .ttf / .otf / .ttc in here is
+/// registered alongside system fonts at renderer startup. Created on
+/// first launch so the path always exists for the user to populate.
+static FONT_ROOT: Lazy<PathBuf> = Lazy::new(|| APP_ROOT.join("fonts"));
 
 #[derive(Parser)]
 #[command(version = crate::version::APP_VERSION, about)]
@@ -140,7 +144,16 @@ async fn build_resources(cpu: bool) -> Result<AppResources> {
             .context("Failed to initialize ML model")?,
     );
     let llm = Arc::new(koharu_ml::llm::facade::Model::new(cpu));
-    let renderer = Arc::new(Renderer::new().context("Failed to initialize renderer")?);
+    // Make sure the bundled-fonts directory exists so the user can drop
+    // .ttf / .otf files in (e.g. Noto Sans Thai) without manually
+    // creating the path. The first-run mkdir is non-fatal.
+    if let Err(err) = std::fs::create_dir_all(FONT_ROOT.as_path()) {
+        tracing::warn!(?err, dir = ?*FONT_ROOT, "could not create bundled-fonts dir");
+    }
+    let renderer = Arc::new(
+        Renderer::new_with_extra_font_dirs(&[FONT_ROOT.to_path_buf()])
+            .context("Failed to initialize renderer")?,
+    );
     let state = Arc::new(RwLock::new(State::default()));
 
     Ok(AppResources {

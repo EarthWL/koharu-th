@@ -172,6 +172,47 @@ impl FontBook {
         }
     }
 
+    /// Scan a directory for `.ttf` / `.otf` / `.ttc` font files and
+    /// register them with the underlying collection. Used to surface
+    /// bundled fonts (e.g. Noto Sans Thai) that the user's OS doesn't
+    /// ship with. Returns the number of files registered.
+    ///
+    /// Missing directories are not an error — we just return 0 so the
+    /// caller can blindly invoke this on every startup.
+    pub fn register_fonts_from_dir(&mut self, dir: &std::path::Path) -> usize {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return 0;
+        };
+        let mut count = 0usize;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let ext = path
+                .extension()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_ascii_lowercase());
+            match ext.as_deref() {
+                Some("ttf") | Some("otf") | Some("ttc") => {}
+                _ => continue,
+            }
+            match std::fs::read(&path) {
+                Ok(bytes) => {
+                    let blob = Blob::new(std::sync::Arc::new(bytes));
+                    let registered = self.collection.register_fonts(blob, None);
+                    if !registered.is_empty() {
+                        count += 1;
+                        tracing::info!(
+                            ?path,
+                            families = registered.len(),
+                            "registered bundled font"
+                        );
+                    }
+                }
+                Err(err) => tracing::warn!(?path, ?err, "skipping font file"),
+            }
+        }
+        count
+    }
+
     /// Returns all available font family names.
     pub fn all_families(&mut self) -> Vec<String> {
         self.collection

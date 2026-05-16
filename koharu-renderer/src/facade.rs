@@ -34,7 +34,21 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new() -> Result<Self> {
+        Self::new_with_extra_font_dirs(&[])
+    }
+
+    /// Same as `new()` but also scans each extra directory for
+    /// `.ttf` / `.otf` / `.ttc` files to register as bundled fonts.
+    /// Use this to surface fonts (e.g. Noto Sans Thai) that the user's
+    /// OS doesn't ship with.
+    pub fn new_with_extra_font_dirs(extra_dirs: &[std::path::PathBuf]) -> Result<Self> {
         let mut fontbook = FontBook::new();
+        for dir in extra_dirs {
+            let n = fontbook.register_fonts_from_dir(dir);
+            if n > 0 {
+                tracing::info!(?dir, count = n, "registered bundled fonts from dir");
+            }
+        }
         let symbol_fallbacks = load_symbol_fallbacks(&mut fontbook);
         Ok(Self {
             fontbook: Arc::new(Mutex::new(fontbook)),
