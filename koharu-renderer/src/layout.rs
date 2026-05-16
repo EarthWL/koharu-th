@@ -165,7 +165,8 @@ impl<'a> TextLayout<'a> {
         let max_height = self.max_height.unwrap_or(f32::INFINITY);
         let max_width = self.max_width.unwrap_or(f32::INFINITY);
 
-        let mut low = self.min_font_size as i32;
+        let floor = self.min_font_size as i32;
+        let mut low = floor;
         let mut high = 300;
         let mut best: Option<LayoutRun<'a>> = None;
 
@@ -181,7 +182,13 @@ impl<'a> TextLayout<'a> {
             }
         }
 
-        best.ok_or_else(|| anyhow::anyhow!("failed to layout text within constraints"))
+        if let Some(layout) = best {
+            return Ok(layout);
+        }
+        // Nothing in [floor, 300] fit the bubble cleanly. Honour the
+        // floor anyway and let the layout overflow — that's the whole
+        // point of min_font_size for Thai readability.
+        self.run_with_size(text, floor as f32)
     }
 
     fn run_with_size(&self, text: &str, font_size: f32) -> Result<LayoutRun<'a>> {

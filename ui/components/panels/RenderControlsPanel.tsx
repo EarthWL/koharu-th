@@ -756,19 +756,6 @@ export function RenderControlsPanel() {
               </Tooltip>
             ))}
           </div>
-          <NumericStepper
-            value={currentMinFontSize}
-            min={6}
-            max={48}
-            step={1}
-            placeholder='floor'
-            ariaLabel='Min font size for auto-fit'
-            disabled={!hasBlocks}
-            onChange={(v) =>
-              applyStyleToSelected({ minFontSize: v }) ||
-              applyStyleToAll({ minFontSize: v })
-            }
-          />
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -799,6 +786,45 @@ export function RenderControlsPanel() {
               )}
             </TooltipContent>
           </Tooltip>
+        </div>
+      </div>
+
+      <div className='grid w-full min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-1.5'>
+        <span className='text-muted-foreground text-[10px] font-medium tracking-wide uppercase'>
+          {t('render.minSizeLabel', 'Min size')}
+        </span>
+        <div className='flex items-center gap-1.5'>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div>
+                <NumericStepper
+                  value={currentMinFontSize}
+                  min={6}
+                  max={48}
+                  step={1}
+                  placeholder='—'
+                  ariaLabel='Min font size for auto-fit'
+                  disabled={!hasBlocks}
+                  onChange={(v) =>
+                    applyStyleToSelected({ minFontSize: v }) ||
+                    applyStyleToAll({ minFontSize: v })
+                  }
+                />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side='bottom' sideOffset={4} className='max-w-72'>
+              {t(
+                'render.minSizeHint',
+                'Auto-fit floor in pixels. Only matters when the bubble is too small for the text — without this, auto-fit can shrink to ~6 px and Thai becomes unreadable. Setting 14 forces text ≥ 14 px even if it has to overflow the bubble.',
+              )}
+            </TooltipContent>
+          </Tooltip>
+          <span className='text-muted-foreground text-[10px]'>
+            {t(
+              'render.minSizeShortHint',
+              'Empty = no floor. Only kicks in when auto-fit wants to shrink below this.',
+            )}
+          </span>
         </div>
       </div>
     </div>
