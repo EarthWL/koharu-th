@@ -12,6 +12,49 @@ itself, see [their CHANGELOG](https://github.com/mayocream/koharu/blob/main/CHAN
 
 ---
 
+## [1.0.2] — 2026-05-17
+
+Small UX cleanup pass after 1.0.1 — workflow polish across the
+Chapters → Pages handoff and the AI Chat panel.
+
+### Added
+
+- **Auto-switch to Pages tab on chapter open** — clicking Open (or the
+  Auto-setup wand) on a chapter row now flips the left sidebar to the
+  Pages tab so you land on the thumbnails of what you just opened.
+  Active sidebar tab is now persisted (lives in `projectStore`).
+- **Chat replies follow the app UI language** — system prompt reads
+  `i18n.language` and tells the model
+  `Reply to the user in <Language> unless they explicitly ask for
+  another language.` (Thai / English / Japanese / Simplified +
+  Traditional Chinese / Russian / Spanish.) Removes the old
+  "target language Thai by default" hint, which the model misread as
+  the *translation* target.
+- **"Clear" label on the chat-history wipe button** — the action
+  existed but was a 24px icon-only button in the header that
+  blended in. Now `[🗑 Clear]`, disabled when there's nothing to
+  clear or a turn is streaming.
+
+### Fixed
+
+- **Extract Entities modal overflow with many OCR pages + items** —
+  the items table + its own action bar were rendered as siblings of
+  the scroll area, stacking outside the modal's `max-h-[90vh]` and
+  pushing the Close footer off-screen. Refactored to a single scroll
+  region (description + textarea + items table) with one combined
+  footer that switches between "selected count + Toggle all + Close +
+  Apply N" and just "Close".
+- **OCR textarea inside Extract modal grew unbounded** — Tailwind v4's
+  default `field-sizing-content` let the textarea expand to hold every
+  page. Pinned to `min-h-32 max-h-48` with internal scroll.
+- **Slash-command picker lingered after Enter** — `setShowSlash`
+  only updated inside textarea `onChange`, so pressing Enter on a
+  `/command` line cleared the input but left the picker covering the
+  textarea for the whole streaming turn. Now closes immediately on
+  send.
+
+---
+
 ## [1.0.1] — 2026-05-17
 
 Patch release focused on tightening the AI Chat + LLM Profile flows
