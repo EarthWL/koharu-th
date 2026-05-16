@@ -24,7 +24,7 @@ edition = "2024"
 description = "Manga series translation studio (koharu-th fork)"
 license = "Apache-2.0"
 authors = [
-    "EarthWL <criticenz.inc3ption@gmail.com>",
+    "EarthWL (Wanadtapong Lalakorn) <wanadtapong.earth@outlook.co.th>",
     "Mayo Takanashi <mayo@linux.com>",
     "Wangchong Zhou <fffonion@gmail.com>",
 ]
