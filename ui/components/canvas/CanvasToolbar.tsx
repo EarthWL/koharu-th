@@ -199,16 +199,27 @@ function LlmStatusPopover() {
   })
   const profileList = profiles.data ?? []
 
+  // Mirror the kindOf heuristic from ProfilesTabPanel so legacy
+  // OpenRouter profiles (saved as provider='openai' before v1.0.0)
+  // resolve to the correct cloudProvider on apply.
+  const effectiveProvider = (p: ProviderProfileDto): string => {
+    if (p.provider === 'openai' && p.modelName.includes('/')) {
+      return 'openrouter'
+    }
+    return p.provider
+  }
+
   const activeProfileId = useMemo(() => {
     if (!isCloudActive) return LOCAL_VALUE
     const match = profileList.find(
-      (p) => p.provider === cloudProvider && p.modelName === cloudModelName,
+      (p) =>
+        effectiveProvider(p) === cloudProvider && p.modelName === cloudModelName,
     )
     return match ? String(match.id) : LOCAL_VALUE
   }, [isCloudActive, profileList, cloudProvider, cloudModelName])
 
   const applyProfile = async (p: ProviderProfileDto) => {
-    setCloudProvider(p.provider as any)
+    setCloudProvider(effectiveProvider(p) as any)
     setCloudModelName(p.modelName)
     if (p.apiUrl) setCloudApiUrl(p.apiUrl)
     try {

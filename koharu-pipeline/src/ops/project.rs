@@ -1648,7 +1648,14 @@ pub async fn llm_cost_stats(state: AppResources) -> anyhow::Result<LlmCostStats>
 
 fn parse_provider(s: &str) -> anyhow::Result<Provider> {
     match s {
-        "openai" | "openrouter" => Ok(Provider::Openai),
+        "openai" => Ok(Provider::Openai),
+        // Distinct variant since v1.0.0 — previously collapsed into
+        // Openai, but the UI treats OpenRouter as a first-class
+        // provider with its own model list / dispatch path. Round-trip
+        // bug: saved "openrouter" round-tripped as "openai" causing
+        // the edit modal to open the wrong tile + the wrong dispatcher
+        // to handle calls.
+        "openrouter" => Ok(Provider::Openrouter),
         "gemini" => Ok(Provider::Gemini),
         "anthropic" => Ok(Provider::Anthropic),
         other => anyhow::bail!("unknown provider: {other}"),

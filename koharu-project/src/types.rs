@@ -240,6 +240,7 @@ pub struct PromptTemplate {
 #[serde(rename_all = "lowercase")]
 pub enum Provider {
     Openai,
+    Openrouter,
     Gemini,
     Anthropic,
 }
@@ -248,6 +249,7 @@ impl Provider {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Openai => "openai",
+            Self::Openrouter => "openrouter",
             Self::Gemini => "gemini",
             Self::Anthropic => "anthropic",
         }

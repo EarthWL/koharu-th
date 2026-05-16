@@ -123,6 +123,16 @@ function kindOf(profile: ProviderProfileDto): ProviderKind {
   if (profile.provider === 'openrouter') return 'openrouter'
   const url = profile.apiUrl ?? ''
   if (/localhost|127\.0\.0\.1|0\.0\.0\.0/i.test(url)) return 'local'
+  // Legacy compat: profiles created before v1.0.0 stored OpenRouter as
+  // provider='openai' (the Rust backend used to collapse openrouter into
+  // openai). OpenRouter model IDs always look like `vendor/model`
+  // (e.g. `anthropic/claude-haiku-latest`) — the slash is the tell.
+  // Detect + route to the OpenRouter tile so the edit modal + apply
+  // dispatch land on the right code path. New saves are stored with
+  // the proper 'openrouter' value via the fixed parse_provider in Rust.
+  if (profile.provider === 'openai' && profile.modelName.includes('/')) {
+    return 'openrouter'
+  }
   return 'openai'
 }
 
@@ -152,7 +162,12 @@ export function ProfilesTabPanel() {
   const activeModel = usePreferencesStore((s) => s.cloudModelName)
 
   const apply = async (p: ProviderProfileDto) => {
-    setPrefs.setCloudProvider(p.provider as any)
+    // Use the detected kind's dbProvider so legacy mis-stored
+    // OpenRouter profiles (saved as 'openai' before v1.0.0) route to
+    // the correct dispatcher in cloudLlm.ts.
+    const detectedKind = kindOf(p)
+    const meta = KINDS.find((k) => k.kind === detectedKind)!
+    setPrefs.setCloudProvider(meta.dbProvider as any)
     setPrefs.setCloudModelName(p.modelName)
     if (p.apiUrl) setPrefs.setCloudApiUrl(p.apiUrl)
     try {
