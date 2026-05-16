@@ -800,6 +800,9 @@ pub struct ChatMessageDto {
     pub tool_call_id: Option<String>,
     /// `provider:model` that produced an assistant turn.
     pub model: Option<String>,
+    /// JSON array `[{dataUrl, mimeType, width, height}]` of images
+    /// attached to this turn. NULL when no attachments.
+    pub attachments: Option<String>,
     pub created_at: String,
 }
 
@@ -821,6 +824,7 @@ pub struct ChatMessageAddPayload {
     pub tool_calls: Option<String>,
     pub tool_call_id: Option<String>,
     pub model: Option<String>,
+    pub attachments: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]

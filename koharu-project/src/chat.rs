@@ -20,6 +20,9 @@ pub struct ChatMessage {
     pub tool_call_id: Option<String>,
     /// `provider:model` that produced an assistant turn (informational).
     pub model: Option<String>,
+    /// JSON array `[{dataUrl, mimeType, width, height}]` of images
+    /// attached by the user (multimodal turns). NULL = no attachments.
+    pub attachments: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -30,19 +33,22 @@ pub struct ChatMessageInsert {
     pub tool_calls: Option<String>,
     pub tool_call_id: Option<String>,
     pub model: Option<String>,
+    pub attachments: Option<String>,
 }
 
 pub fn insert(conn: &Conn, item: ChatMessageInsert) -> Result<ChatMessage> {
     let now = Utc::now().timestamp();
     conn.execute(
-        "INSERT INTO chat_messages (role, content, tool_calls, tool_call_id, model, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO chat_messages
+            (role, content, tool_calls, tool_call_id, model, attachments, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             item.role,
             item.content,
             item.tool_calls,
             item.tool_call_id,
             item.model,
+            item.attachments,
             now,
         ],
     )?;
@@ -53,7 +59,7 @@ pub fn insert(conn: &Conn, item: ChatMessageInsert) -> Result<ChatMessage> {
 pub fn get(conn: &Conn, id: i64) -> Result<Option<ChatMessage>> {
     let row = conn
         .query_row(
-            "SELECT id, role, content, tool_calls, tool_call_id, model, created_at
+            "SELECT id, role, content, tool_calls, tool_call_id, model, attachments, created_at
              FROM chat_messages WHERE id = ?1",
             params![id],
             row_to_msg,
@@ -80,7 +86,7 @@ pub fn list_recent(
     let limit = limit.clamp(1, 1000) as i64;
     let mut rows: Vec<ChatMessage> = if let Some(before) = before_id {
         let mut stmt = conn.prepare(
-            "SELECT id, role, content, tool_calls, tool_call_id, model, created_at
+            "SELECT id, role, content, tool_calls, tool_call_id, model, attachments, created_at
              FROM chat_messages
              WHERE id < ?1
              ORDER BY id DESC
@@ -90,7 +96,7 @@ pub fn list_recent(
             .collect::<rusqlite::Result<Vec<_>>>()?
     } else {
         let mut stmt = conn.prepare(
-            "SELECT id, role, content, tool_calls, tool_call_id, model, created_at
+            "SELECT id, role, content, tool_calls, tool_call_id, model, attachments, created_at
              FROM chat_messages
              ORDER BY id DESC
              LIMIT ?1",
@@ -119,8 +125,9 @@ fn row_to_msg(r: &rusqlite::Row<'_>) -> rusqlite::Result<ChatMessage> {
         tool_calls: r.get(3)?,
         tool_call_id: r.get(4)?,
         model: r.get(5)?,
+        attachments: r.get(6)?,
         created_at: Utc
-            .timestamp_opt(r.get::<_, i64>(6)?, 0)
+            .timestamp_opt(r.get::<_, i64>(7)?, 0)
             .single()
             .unwrap_or_else(Utc::now),
     })
@@ -150,6 +157,7 @@ mod tests {
                     tool_calls: None,
                     tool_call_id: None,
                     model: Some("openai:gpt-4o-mini".into()),
+                    attachments: None,
                 },
             )
             .unwrap();

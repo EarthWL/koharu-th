@@ -14,6 +14,7 @@
  */
 
 import { dispatchTool, listTools, type ToolDef } from './aiTools'
+import type { ChatAttachment } from '@/lib/api'
 
 const MAX_TOOL_ROUNDS = 8
 
@@ -33,6 +34,9 @@ export type ChatMessage = {
   toolCalls?: ToolCall[]
   /** Present on tool messages — the matching toolCalls[].id. */
   toolCallId?: string
+  /** Image attachments — only meaningful on user turns. Each provider
+   *  adapter converts these to its native multi-modal format. */
+  attachments?: ChatAttachment[]
 }
 
 export type ChatEvent =
@@ -49,6 +53,40 @@ export type ChatProviderConfig = {
   /** Required for OpenAI-compatible providers; ignored for native Gemini/Anthropic. */
   apiUrl: string
   model: string
+  /** Abort the in-flight request when the user clicks Stop. */
+  signal?: AbortSignal
+}
+
+/**
+ * Read a Server-Sent Events stream from a fetch Response body and
+ * yield each non-empty `data:` payload string (without the prefix).
+ * Stops at the `[DONE]` sentinel some providers emit.
+ */
+async function* readSseLines(
+  body: ReadableStream<Uint8Array>,
+): AsyncGenerator<string, void, void> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    let nl: number
+    while ((nl = buffer.indexOf('\n')) !== -1) {
+      const line = buffer.slice(0, nl).trimEnd()
+      buffer = buffer.slice(nl + 1)
+      if (!line.startsWith('data:')) continue
+      const payload = line.slice(5).trim()
+      if (!payload || payload === '[DONE]') continue
+      yield payload
+    }
+  }
+  const tail = buffer.trim()
+  if (tail.startsWith('data:')) {
+    const payload = tail.slice(5).trim()
+    if (payload && payload !== '[DONE]') yield payload
+  }
 }
 
 /** Run one turn of chat. The caller passes the full history (system +
@@ -141,7 +179,23 @@ async function callProvider(
 
 function toOpenAiMessages(msgs: ChatMessage[]) {
   return msgs.map((m) => {
-    const base: any = { role: m.role, content: m.content }
+    const base: any = { role: m.role }
+    // Multi-modal content: only meaningful on user turns. OpenAI accepts
+    // an array of {type:'text'|'image_url'} blocks when there's an image,
+    // otherwise a plain string.
+    if (m.role === 'user' && m.attachments?.length) {
+      const parts: any[] = []
+      if (m.content) parts.push({ type: 'text', text: m.content })
+      for (const a of m.attachments) {
+        parts.push({
+          type: 'image_url',
+          image_url: { url: a.dataUrl },
+        })
+      }
+      base.content = parts
+    } else {
+      base.content = m.content
+    }
     if (m.toolCalls?.length) {
       base.tool_calls = m.toolCalls.map((c) => ({
         id: c.id,
@@ -169,12 +223,13 @@ async function callOpenAiCompat(
   cfg: ChatProviderConfig,
   messages: ChatMessage[],
   tools: ToolDef[],
-  _onEvent: (e: ChatEvent) => void,
+  onEvent: (e: ChatEvent) => void,
 ): Promise<ChatMessage> {
   const base = (cfg.apiUrl || 'https://api.openai.com/v1').replace(/\/+$/, '')
-  const url = cfg.provider === 'openrouter'
-    ? 'https://openrouter.ai/api/v1/chat/completions'
-    : `${base}/chat/completions`
+  const url =
+    cfg.provider === 'openrouter'
+      ? 'https://openrouter.ai/api/v1/chat/completions'
+      : `${base}/chat/completions`
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -190,34 +245,68 @@ async function callOpenAiCompat(
     messages: toOpenAiMessages(messages),
     tools: toOpenAiTools(tools),
     tool_choice: 'auto',
-    stream: false,
+    stream: true,
   }
 
   const res = await fetch(url, {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
+    signal: cfg.signal,
   })
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => '')
-    throw new Error(`${cfg.provider} chat failed (${res.status}): ${errBody.slice(0, 400)}`)
+  if (!res.ok || !res.body) {
+    const errBody = res.body ? await res.text().catch(() => '') : ''
+    throw new Error(
+      `${cfg.provider} chat failed (${res.status}): ${errBody.slice(0, 400)}`,
+    )
   }
-  const data = await res.json()
-  const choice = data.choices?.[0]?.message
-  if (!choice) throw new Error('No assistant message in response')
 
-  const toolCalls: ToolCall[] | undefined = choice.tool_calls
-    ? choice.tool_calls.map((c: any) => ({
-        id: c.id,
-        name: c.function?.name ?? '',
-        arguments: c.function?.arguments ?? '{}',
-      }))
-    : undefined
+  let content = ''
+  // Accumulate tool_calls by streamed index. OpenAI sends partial
+  // arguments as repeated deltas; concatenate them per index.
+  const toolByIndex: Record<
+    number,
+    { id?: string; name: string; arguments: string }
+  > = {}
+
+  for await (const payload of readSseLines(res.body)) {
+    let chunk: any
+    try {
+      chunk = JSON.parse(payload)
+    } catch {
+      continue
+    }
+    const delta = chunk.choices?.[0]?.delta
+    if (!delta) continue
+    if (typeof delta.content === 'string' && delta.content.length > 0) {
+      content += delta.content
+      onEvent({ kind: 'text-delta', delta: delta.content })
+    }
+    if (Array.isArray(delta.tool_calls)) {
+      for (const tc of delta.tool_calls) {
+        const idx = tc.index ?? 0
+        const entry = (toolByIndex[idx] ??= { name: '', arguments: '' })
+        if (tc.id) entry.id = tc.id
+        if (tc.function?.name) entry.name += tc.function.name
+        if (typeof tc.function?.arguments === 'string') {
+          entry.arguments += tc.function.arguments
+        }
+      }
+    }
+  }
+
+  const toolCalls: ToolCall[] = Object.values(toolByIndex)
+    .filter((t) => t.name)
+    .map((t) => ({
+      id: t.id ?? `openai-${Math.random().toString(36).slice(2, 10)}`,
+      name: t.name,
+      arguments: t.arguments || '{}',
+    }))
 
   return {
     role: 'assistant',
-    content: choice.content ?? '',
-    toolCalls,
+    content,
+    toolCalls: toolCalls.length ? toolCalls : undefined,
   }
 }
 
@@ -258,6 +347,23 @@ function toAnthropicMessages(msgs: ChatMessage[]) {
         })
       }
       out.push({ role: 'assistant', content })
+    } else if (m.role === 'user' && m.attachments?.length) {
+      // Anthropic image block: base64 + media_type. Strip the
+      // `data:<mime>;base64,` prefix from the dataUrl.
+      const content: any[] = []
+      if (m.content) content.push({ type: 'text', text: m.content })
+      for (const a of m.attachments) {
+        const base64 = a.dataUrl.replace(/^data:[^;]+;base64,/, '')
+        content.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: a.mimeType,
+            data: base64,
+          },
+        })
+      }
+      out.push({ role: 'user', content })
     } else {
       out.push({ role: m.role, content: m.content })
     }
@@ -277,7 +383,7 @@ async function callAnthropic(
   cfg: ChatProviderConfig,
   messages: ChatMessage[],
   tools: ToolDef[],
-  _onEvent: (e: ChatEvent) => void,
+  onEvent: (e: ChatEvent) => void,
 ): Promise<ChatMessage> {
   const system =
     messages
@@ -290,6 +396,7 @@ async function callAnthropic(
     max_tokens: 4096,
     messages: toAnthropicMessages(messages),
     tools: toAnthropicTools(tools),
+    stream: true,
   }
   if (system) body.system = system
 
@@ -302,26 +409,74 @@ async function callAnthropic(
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify(body),
+    signal: cfg.signal,
   })
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => '')
-    throw new Error(`Anthropic chat failed (${res.status}): ${errBody.slice(0, 400)}`)
+  if (!res.ok || !res.body) {
+    const errBody = res.body ? await res.text().catch(() => '') : ''
+    throw new Error(
+      `Anthropic chat failed (${res.status}): ${errBody.slice(0, 400)}`,
+    )
   }
-  const data = await res.json()
-  // content is an array of blocks (text / tool_use).
-  const blocks: any[] = data.content ?? []
+
+  // Anthropic SSE: text blocks arrive as content_block_delta with
+  // {type:'text_delta', text:'...'}; tool_use blocks arrive as
+  // content_block_start with the {id, name}, then content_block_delta
+  // with {type:'input_json_delta', partial_json:'...'} that we concat.
   let text = ''
-  const toolCalls: ToolCall[] = []
-  for (const b of blocks) {
-    if (b.type === 'text') text += b.text ?? ''
-    else if (b.type === 'tool_use') {
-      toolCalls.push({
-        id: b.id,
-        name: b.name,
-        arguments: JSON.stringify(b.input ?? {}),
-      })
+  const blocks: Record<number, { type: string; id?: string; name?: string; partial: string }> = {}
+
+  for await (const payload of readSseLines(res.body)) {
+    let evt: any
+    try {
+      evt = JSON.parse(payload)
+    } catch {
+      continue
+    }
+    switch (evt.type) {
+      case 'content_block_start': {
+        const idx = evt.index ?? 0
+        const cb = evt.content_block ?? {}
+        blocks[idx] = {
+          type: cb.type ?? 'text',
+          id: cb.id,
+          name: cb.name,
+          partial: '',
+        }
+        break
+      }
+      case 'content_block_delta': {
+        const idx = evt.index ?? 0
+        const block = blocks[idx]
+        if (!block) break
+        const d = evt.delta ?? {}
+        if (d.type === 'text_delta' && typeof d.text === 'string') {
+          text += d.text
+          block.partial += d.text
+          onEvent({ kind: 'text-delta', delta: d.text })
+        } else if (
+          d.type === 'input_json_delta' &&
+          typeof d.partial_json === 'string'
+        ) {
+          block.partial += d.partial_json
+        }
+        break
+      }
+      case 'message_stop':
+      case 'message_delta':
+      case 'content_block_stop':
+      default:
+        break
     }
   }
+
+  const toolCalls: ToolCall[] = Object.values(blocks)
+    .filter((b) => b.type === 'tool_use')
+    .map((b) => ({
+      id: b.id ?? `anthropic-${Math.random().toString(36).slice(2, 10)}`,
+      name: b.name ?? '',
+      arguments: b.partial || '{}',
+    }))
+
   return {
     role: 'assistant',
     content: text,
@@ -360,6 +515,17 @@ function toGeminiContents(msgs: ChatMessage[]) {
         parts.push({ functionCall: { name: c.name, args: parsed } })
       }
       out.push({ role: 'model', parts })
+    } else if (m.role === 'user' && m.attachments?.length) {
+      // Gemini inlineData: base64 + mimeType.
+      const parts: any[] = []
+      if (m.content) parts.push({ text: m.content })
+      for (const a of m.attachments) {
+        const base64 = a.dataUrl.replace(/^data:[^;]+;base64,/, '')
+        parts.push({
+          inlineData: { mimeType: a.mimeType, data: base64 },
+        })
+      }
+      out.push({ role: 'user', parts })
     } else {
       out.push({
         role: m.role === 'assistant' ? 'model' : 'user',
@@ -386,7 +552,7 @@ async function callGemini(
   cfg: ChatProviderConfig,
   messages: ChatMessage[],
   tools: ToolDef[],
-  _onEvent: (e: ChatEvent) => void,
+  onEvent: (e: ChatEvent) => void,
 ): Promise<ChatMessage> {
   const system =
     messages
@@ -400,32 +566,45 @@ async function callGemini(
   }
   if (system) body.systemInstruction = { parts: [{ text: system }] }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent?key=${encodeURIComponent(cfg.apiKey)}`
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cfg.model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(cfg.apiKey)}`
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal: cfg.signal,
   })
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => '')
-    throw new Error(`Gemini chat failed (${res.status}): ${errBody.slice(0, 400)}`)
+  if (!res.ok || !res.body) {
+    const errBody = res.body ? await res.text().catch(() => '') : ''
+    throw new Error(
+      `Gemini chat failed (${res.status}): ${errBody.slice(0, 400)}`,
+    )
   }
-  const data = await res.json()
-  const candidate = data.candidates?.[0]
-  const parts: any[] = candidate?.content?.parts ?? []
+
   let text = ''
   const toolCalls: ToolCall[] = []
-  for (const p of parts) {
-    if (typeof p.text === 'string') text += p.text
-    else if (p.functionCall) {
-      toolCalls.push({
-        // Gemini doesn't give us an id, mint one.
-        id: `gemini-${Math.random().toString(36).slice(2, 10)}`,
-        name: p.functionCall.name,
-        arguments: JSON.stringify(p.functionCall.args ?? {}),
-      })
+
+  for await (const payload of readSseLines(res.body)) {
+    let chunk: any
+    try {
+      chunk = JSON.parse(payload)
+    } catch {
+      continue
+    }
+    const parts: any[] = chunk.candidates?.[0]?.content?.parts ?? []
+    for (const p of parts) {
+      if (typeof p.text === 'string' && p.text.length > 0) {
+        text += p.text
+        onEvent({ kind: 'text-delta', delta: p.text })
+      } else if (p.functionCall) {
+        toolCalls.push({
+          id: `gemini-${Math.random().toString(36).slice(2, 10)}`,
+          name: p.functionCall.name,
+          arguments: JSON.stringify(p.functionCall.args ?? {}),
+        })
+      }
     }
   }
+
   return {
     role: 'assistant',
     content: text,

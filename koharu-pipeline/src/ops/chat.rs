@@ -48,6 +48,7 @@ pub async fn chat_message_add(
                 tool_calls: payload.tool_calls,
                 tool_call_id: payload.tool_call_id,
                 model: payload.model,
+                attachments: payload.attachments,
             },
         )?;
         Ok(to_dto(inserted))
@@ -76,6 +77,7 @@ fn to_dto(m: ChatMessage) -> ChatMessageDto {
         tool_calls: m.tool_calls,
         tool_call_id: m.tool_call_id,
         model: m.model,
+        attachments: m.attachments,
         created_at: m.created_at.to_rfc3339(),
     }
 }

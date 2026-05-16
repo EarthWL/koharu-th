@@ -5,19 +5,23 @@ import { useQuery } from '@tanstack/react-query'
 import {
   BotIcon,
   ChevronDownIcon,
+  ImagePlusIcon,
   Loader2Icon,
+  ScanLineIcon,
   SendIcon,
   Trash2Icon,
   TriangleAlertIcon,
   UserIcon,
   WrenchIcon,
+  XIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { api, type ChatMessageDto } from '@/lib/api'
+import { api, type ChatAttachment, type ChatMessageDto } from '@/lib/api'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { useProjectStore } from '@/lib/stores/projectStore'
+import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import {
   runChatTurn,
   type ChatMessage,
@@ -26,6 +30,10 @@ import {
   expandSlash,
   SLASH_COMMANDS,
 } from '@/lib/services/chatSlashCommands'
+import {
+  blobToAttachment,
+  parseAttachments,
+} from '@/lib/services/imageAttach'
 
 const DISPLAY_LIMIT = 50
 
@@ -74,6 +82,7 @@ function rowToChatMessage(row: ChatMessageDto): ChatMessage {
     content: row.content,
     toolCalls,
     toolCallId: row.toolCallId ?? undefined,
+    attachments: parseAttachments(row.attachments),
   }
 }
 
@@ -95,15 +104,62 @@ export function ChatTabPanel() {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showSlash, setShowSlash] = useState(false)
+  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>(
+    [],
+  )
+  const [attaching, setAttaching] = useState(false)
+  /** Partial assistant text that's currently streaming in. */
+  const [streamingText, setStreamingText] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const currentDocIndex = useEditorUiStore((s) => s.currentDocumentIndex)
 
   useEffect(() => {
-    // Auto-scroll to bottom on new message
+    // Auto-scroll to bottom on new message or streamed delta
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [history.data?.length, sending])
+  }, [history.data?.length, sending, streamingText])
 
   const refresh = () => void history.refetch()
+
+  const attachCurrentPage = async () => {
+    setAttaching(true)
+    setError(null)
+    try {
+      const doc = await api.getDocument(currentDocIndex)
+      const blob = new Blob([doc.image], { type: 'image/png' })
+      const att = await blobToAttachment(blob)
+      setPendingAttachments((prev) => [...prev, att])
+    } catch (err: any) {
+      setError(err?.message ?? String(err))
+    } finally {
+      setAttaching(false)
+    }
+  }
+
+  const attachFromFile = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    setAttaching(true)
+    setError(null)
+    try {
+      const added: ChatAttachment[] = []
+      for (const f of Array.from(files)) {
+        if (!f.type.startsWith('image/')) continue
+        added.push(await blobToAttachment(f))
+      }
+      setPendingAttachments((prev) => [...prev, ...added])
+    } catch (err: any) {
+      setError(err?.message ?? String(err))
+    } finally {
+      setAttaching(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const removeAttachment = (i: number) => {
+    setPendingAttachments((prev) => prev.filter((_, idx) => idx !== i))
+  }
 
   const send = async () => {
     if (!input.trim() || sending) return
@@ -122,16 +178,24 @@ export function ChatTabPanel() {
     const slash = expandSlash(input)
     const displayContent = slash ? slash.display : input
     const sendContent = slash ? slash.prompt : input
+    const turnAttachments = pendingAttachments
 
-    // Persist user message
+    // Persist user message (with attachments if any)
     try {
-      await api.chatMessageAdd({ role: 'user', content: displayContent })
+      await api.chatMessageAdd({
+        role: 'user',
+        content: displayContent,
+        attachments: turnAttachments.length
+          ? JSON.stringify(turnAttachments)
+          : null,
+      })
     } catch (err: any) {
       setError(err?.message ?? String(err))
       setSending(false)
       return
     }
     setInput('')
+    setPendingAttachments([])
     await history.refetch()
 
     // Build the message list sent to the LLM: system + prior turns
@@ -147,20 +211,36 @@ export function ChatTabPanel() {
       .filter((r) => r.role !== 'system')
       .map(rowToChatMessage)
     // Replace the just-persisted user message's display content with
-    // the expanded prompt before sending.
-    const lastUser: ChatMessage = { role: 'user', content: sendContent }
+    // the expanded prompt before sending. Attachments travel as-is —
+    // provider adapters convert to native multi-modal blocks.
+    const lastUser: ChatMessage = {
+      role: 'user',
+      content: sendContent,
+      attachments: turnAttachments.length ? turnAttachments : undefined,
+    }
     const allMessages: ChatMessage[] = [
       { role: 'system', content: systemContent },
       ...priorRows,
       lastUser,
     ]
 
+    const controller = new AbortController()
+    abortRef.current = controller
+    setStreamingText('')
+
     try {
       await runChatTurn(
-        { provider, apiKey, apiUrl, model },
+        { provider, apiKey, apiUrl, model, signal: controller.signal },
         allMessages,
         async (e) => {
-          if (e.kind === 'done') {
+          if (e.kind === 'text-delta') {
+            setStreamingText((prev) => prev + e.delta)
+          } else if (e.kind === 'tool-call') {
+            // Assistant text up to this tool call is "settled" — flush
+            // to a logical break so the next text-delta in the same
+            // turn (after the tool result) starts a fresh visual chunk.
+            setStreamingText('')
+          } else if (e.kind === 'done') {
             // Persist each new assistant + tool message from the
             // suffix that came after our `lastUser`.
             const before = allMessages.length
@@ -178,11 +258,21 @@ export function ChatTabPanel() {
         },
       )
     } catch (err: any) {
-      setError(err?.message ?? String(err))
+      if (err?.name === 'AbortError') {
+        // User clicked Stop — don't surface as a hard error.
+      } else {
+        setError(err?.message ?? String(err))
+      }
     } finally {
+      abortRef.current = null
+      setStreamingText('')
       setSending(false)
       refresh()
     }
+  }
+
+  const stop = () => {
+    abortRef.current?.abort()
   }
 
   const clearAll = async () => {
@@ -234,9 +324,22 @@ export function ChatTabPanel() {
             history.data.map((m) => <MessageRow key={m.id} message={m} />)
           )}
           {sending && (
-            <div className='text-muted-foreground flex items-center gap-2 text-[10px]'>
-              <Loader2Icon className='size-3 animate-spin' />
-              Thinking…
+            <div className='border-border bg-card rounded-md border p-2 text-xs'>
+              <div className='text-muted-foreground mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase'>
+                <BotIcon className='size-3' />
+                assistant
+                <Loader2Icon className='ml-auto size-3 animate-spin' />
+              </div>
+              <div className='whitespace-pre-wrap break-words text-xs leading-relaxed'>
+                {streamingText}
+                <span className='ml-0.5 inline-block h-3 w-1 animate-pulse bg-current align-middle' />
+              </div>
+              <button
+                onClick={stop}
+                className='text-muted-foreground hover:text-destructive mt-1 text-[10px] underline'
+              >
+                Stop
+              </button>
             </div>
           )}
           {error && (
@@ -259,6 +362,34 @@ export function ChatTabPanel() {
             onClose={() => setShowSlash(false)}
           />
         )}
+
+        {/* Pending attachments row */}
+        {pendingAttachments.length > 0 && (
+          <div className='mb-1.5 flex flex-wrap gap-1.5'>
+            {pendingAttachments.map((a, i) => (
+              <div
+                key={i}
+                className='border-border bg-card relative h-14 w-14 overflow-hidden rounded border'
+              >
+                <img
+                  src={a.dataUrl}
+                  alt={`attachment ${i + 1}`}
+                  className='h-full w-full object-cover'
+                />
+                <button
+                  onClick={() => removeAttachment(i)}
+                  className='absolute top-0.5 right-0.5 rounded-full bg-black/70 p-0.5 text-white hover:bg-black'
+                  title='Remove'
+                >
+                  <XIcon className='size-2.5' />
+                </button>
+                <div className='absolute right-0 bottom-0 left-0 bg-black/50 px-1 py-0.5 text-center text-[8px] text-white'>
+                  {a.width}×{a.height}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <Textarea
           value={input}
           onChange={(e) => {
@@ -278,18 +409,54 @@ export function ChatTabPanel() {
           className='block min-h-14 w-full resize-none text-xs'
           disabled={sending}
         />
-        <div className='mt-1 flex items-center justify-between'>
-          <span className='text-muted-foreground text-[10px]'>
+        <div className='mt-1 flex items-center justify-between gap-1'>
+          <div className='flex items-center gap-1'>
+            <Button
+              variant='ghost'
+              size='icon-xs'
+              className='size-6'
+              disabled={attaching || currentDocIndex < 0}
+              onClick={() => void attachCurrentPage()}
+              title='Attach the current canvas page (downsized to ≤1024px JPEG)'
+            >
+              {attaching ? (
+                <Loader2Icon className='size-3 animate-spin' />
+              ) : (
+                <ScanLineIcon className='size-3' />
+              )}
+            </Button>
+            <Button
+              variant='ghost'
+              size='icon-xs'
+              className='size-6'
+              disabled={attaching}
+              onClick={() => fileInputRef.current?.click()}
+              title='Upload image file from disk'
+            >
+              <ImagePlusIcon className='size-3' />
+            </Button>
+            <input
+              ref={fileInputRef}
+              type='file'
+              accept='image/*'
+              multiple
+              hidden
+              onChange={(e) => void attachFromFile(e.target.files)}
+            />
+          </div>
+          <span className='text-muted-foreground flex-1 truncate text-[10px]'>
             {input.startsWith('/') ? (
               <>type to filter commands · ↵ to send</>
             ) : (
-              <>↵ to send · Shift+↵ for newline</>
+              <>↵ send · Shift+↵ newline</>
             )}
           </span>
           <Button
             size='sm'
             className='h-6 px-2 text-[10px]'
-            disabled={!input.trim() || sending}
+            disabled={
+              (!input.trim() && pendingAttachments.length === 0) || sending
+            }
             onClick={() => void send()}
           >
             {sending ? (
@@ -327,6 +494,7 @@ function MessageRow({ message: m }: { message: ChatMessageDto }) {
     return <ToolResultRow message={m} />
   }
   const isUser = m.role === 'user'
+  const attachments = parseAttachments(m.attachments)
   return (
     <div
       className={
@@ -343,6 +511,26 @@ function MessageRow({ message: m }: { message: ChatMessageDto }) {
       <div className='whitespace-pre-wrap break-words text-xs leading-relaxed'>
         {m.content || <span className='text-muted-foreground italic'>(empty)</span>}
       </div>
+      {attachments.length > 0 && (
+        <div className='mt-1.5 flex flex-wrap gap-1'>
+          {attachments.map((a, i) => (
+            <a
+              key={i}
+              href={a.dataUrl}
+              target='_blank'
+              rel='noreferrer'
+              className='border-border hover:ring-primary/40 block h-16 w-16 overflow-hidden rounded border transition hover:ring-2'
+              title={`${a.width}×${a.height} · click to enlarge`}
+            >
+              <img
+                src={a.dataUrl}
+                alt={`attachment ${i + 1}`}
+                className='h-full w-full object-cover'
+              />
+            </a>
+          ))}
+        </div>
+      )}
       {m.toolCalls && <ToolCallsBadge raw={m.toolCalls} />}
     </div>
   )

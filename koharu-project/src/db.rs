@@ -37,6 +37,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "chat_messages",
         sql: include_str!("../migrations/V003__chat_messages.sql"),
     },
+    Migration {
+        version: 4,
+        name: "chat_attachments",
+        sql: include_str!("../migrations/V004__chat_attachments.sql"),
+    },
 ];
 
 /// Open (or create) the database at `path`, install required PRAGMAs,

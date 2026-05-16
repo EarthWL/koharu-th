@@ -513,6 +513,8 @@ export const api = {
     toolCalls?: string | null
     toolCallId?: string | null
     model?: string | null
+    /** JSON-stringified array of {dataUrl, mimeType, width, height}. */
+    attachments?: string | null
   }): Promise<ChatMessageDto> {
     return invoke('chat_message_add', input) as Promise<ChatMessageDto>
   },
@@ -539,7 +541,17 @@ export type ChatMessageDto = {
   toolCallId: string | null
   /** `provider:model` that produced this message. */
   model: string | null
+  /** JSON string of attachments array [{dataUrl, mimeType, width, height}]. */
+  attachments: string | null
   createdAt: string
+}
+
+export type ChatAttachment = {
+  /** data:image/jpeg;base64,… */
+  dataUrl: string
+  mimeType: string
+  width: number
+  height: number
 }
 
 export type WebFetchResult = {
