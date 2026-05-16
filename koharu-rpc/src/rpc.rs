@@ -16,7 +16,7 @@ use koharu_pipeline::operations;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::sync::{broadcast, mpsc};
 
-use crate::shared::{SharedResources, get_resources};
+use crate::shared::{SharedResources, get_resources_wait};
 
 #[derive(Debug, Deserialize)]
 struct RawIncoming {
@@ -257,7 +257,17 @@ async fn handle_socket(socket: WebSocket, state: WsState) {
         let resources = state.resources.clone();
 
         tokio::spawn(async move {
-            let response = match get_resources(&resources) {
+            // Wait up to 20s for AppResources to be initialised. The UI
+            // connects to /ws immediately on launch but model / CUDA /
+            // pipeline init takes a couple of seconds — without this
+            // wait, the very first RPC of the session pops a scary
+            // "Resources not initialized" error in the UI.
+            let response = match get_resources_wait(
+                &resources,
+                Duration::from_secs(20),
+            )
+            .await
+            {
                 Ok(res) => {
                     let parsed_method: Result<Method> = raw.method.parse();
                     let method = match parsed_method {

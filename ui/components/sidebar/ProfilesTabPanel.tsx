@@ -227,8 +227,15 @@ export function ProfilesTabPanel() {
             </div>
           ) : (
             list.map((p) => {
+              // Compare against the effective provider (kindOf maps
+              // legacy openrouter-as-openai correctly) so Apply lights
+              // up the Active badge even on mis-stored legacy rows.
+              const effectiveDbProvider = KINDS.find(
+                (k) => k.kind === kindOf(p),
+              )!.dbProvider
               const isActive =
-                p.provider === activeProvider && p.modelName === activeModel
+                effectiveDbProvider === activeProvider &&
+                p.modelName === activeModel
               return (
               <div
                 key={p.id}
