@@ -2,6 +2,42 @@ import { usePreferencesStore } from '../stores/preferencesStore'
 import { useProjectStore } from '../stores/projectStore'
 import { api } from '../api'
 
+/** Token counts as reported by the provider. `null` = provider didn't return them. */
+export type TokenUsage = {
+  promptTokens: number | null
+  completionTokens: number | null
+}
+
+/** Provider response decoded into text + usage. */
+export type CloudResult = {
+  text: string
+  usage: TokenUsage | null
+}
+
+/**
+ * Log a single cloud-LLM call to the project DB. No-op when no project
+ * is open. Best-effort: never throws — failures are logged to console.
+ */
+function logCallSafe(args: {
+  useCase: string
+  success: boolean
+  usage: TokenUsage | null
+  durationMs: number
+  errorMessage?: string
+}) {
+  if (!useProjectStore.getState().info) return
+  void api
+    .llmCallLog({
+      useCase: args.useCase,
+      success: args.success,
+      promptTokens: args.usage?.promptTokens ?? null,
+      completionTokens: args.usage?.completionTokens ?? null,
+      durationMs: args.durationMs,
+      errorMessage: args.errorMessage ?? null,
+    })
+    .catch((err) => console.warn('[cloudLlm] llmCallLog failed', err))
+}
+
 /**
  * If a project is open, ask the backend to render the prompt with full
  * 3-layer context (series meta + main characters + smart-filtered
@@ -16,9 +52,15 @@ async function tryProjectPrompt(
   const project = useProjectStore.getState().info
   if (!project) return null
   try {
+    const activeChapterId = useProjectStore.getState().activeChapterId
     const rendered = await api.promptRender({
       useCase: 'translate',
       sourceText: text,
+      // Pass chapter id so the backend auto-injects summaries of the
+      // last 2 chapters as rolling context. Null when user hasn't picked
+      // an active chapter -- rolling context just stays empty.
+      chapterId: activeChapterId ?? undefined,
+      rollingChapterCount: 2,
     })
     void language // project's target_language already feeds the template
     return { prompt: rendered.prompt, glossaryHitIds: rendered.glossaryHitIds }
@@ -79,23 +121,36 @@ export async function generateCloudTranslation(text: string, language: string): 
   }
 
   const projectPrompt = await tryProjectPrompt(text, language)
+  const t0 = performance.now()
   const prompt = projectPrompt?.prompt ??
     `You are a professional manga translator. Translate the following text to ${language}.
 The translation should sound natural, conversational, and appropriate for comic book characters, keeping the original tone and context intact.
 Only return the translation, no extra text:\n\n${text}`
 
-  let result: string
-  if (cloudProvider === 'openai') {
-    result = await fetchOpenAI(prompt, cloudApiKey, cloudApiUrl, cloudModelName)
-  } else if (cloudProvider === 'openrouter') {
-    result = await fetchOpenRouter(prompt, cloudApiKey, cloudModelName)
-  } else if (cloudProvider === 'gemini') {
-    result = await fetchGemini(prompt, cloudApiKey, cloudModelName)
-  } else if (cloudProvider === 'anthropic') {
-    result = await fetchAnthropic(prompt, cloudApiKey, cloudModelName)
-  } else {
-    throw new Error(`Unsupported cloud provider: ${cloudProvider}`)
+  let raw: CloudResult
+  try {
+    if (cloudProvider === 'openai') {
+      raw = await fetchOpenAI(prompt, cloudApiKey, cloudApiUrl, cloudModelName)
+    } else if (cloudProvider === 'openrouter') {
+      raw = await fetchOpenRouter(prompt, cloudApiKey, cloudModelName)
+    } else if (cloudProvider === 'gemini') {
+      raw = await fetchGemini(prompt, cloudApiKey, cloudModelName)
+    } else if (cloudProvider === 'anthropic') {
+      raw = await fetchAnthropic(prompt, cloudApiKey, cloudModelName)
+    } else {
+      throw new Error(`Unsupported cloud provider: ${cloudProvider}`)
+    }
+  } catch (err: any) {
+    logCallSafe({
+      useCase: 'translate',
+      success: false,
+      usage: null,
+      durationMs: Math.round(performance.now() - t0),
+      errorMessage: err?.message ?? String(err),
+    })
+    throw err
   }
+  const result = raw.text
 
   // Bump glossary usage after a successful generation so the dashboard
   // reflects which entries are actually pulling weight.
@@ -117,17 +172,12 @@ Only return the translation, no extra text:\n\n${text}`
     })
   }
 
-  // Log the call for cost tracking. Token counts aren't always available
-  // from raw chat-completion responses without parsing, so we pass null
-  // and let later phases enrich.
-  if (useProjectStore.getState().info) {
-    void api
-      .llmCallLog({
-        useCase: 'translate',
-        success: !!result,
-      })
-      .catch((err) => console.warn('[cloudLlm] llmCallLog failed', err))
-  }
+  logCallSafe({
+    useCase: 'translate',
+    success: !!result,
+    usage: raw.usage,
+    durationMs: Math.round(performance.now() - t0),
+  })
 
   return result
 }
@@ -169,21 +219,39 @@ export async function extractEntitiesFromText(
     sourceText,
   })
 
-  let raw: string
-  if (cloudProvider === 'openai') {
-    raw = await fetchOpenAI(rendered.prompt, cloudApiKey, cloudApiUrl, cloudModelName, true)
-  } else if (cloudProvider === 'openrouter') {
-    raw = await fetchOpenRouter(rendered.prompt, cloudApiKey, cloudModelName, true)
-  } else if (cloudProvider === 'gemini') {
-    raw = await fetchGemini(rendered.prompt, cloudApiKey, cloudModelName, true)
-  } else if (cloudProvider === 'anthropic') {
-    raw = await fetchAnthropic(rendered.prompt, cloudApiKey, cloudModelName, true)
-  } else {
-    throw new Error(`Unsupported cloud provider: ${cloudProvider}`)
+  const t0 = performance.now()
+  let raw: CloudResult
+  try {
+    if (cloudProvider === 'openai') {
+      raw = await fetchOpenAI(rendered.prompt, cloudApiKey, cloudApiUrl, cloudModelName, true)
+    } else if (cloudProvider === 'openrouter') {
+      raw = await fetchOpenRouter(rendered.prompt, cloudApiKey, cloudModelName, true)
+    } else if (cloudProvider === 'gemini') {
+      raw = await fetchGemini(rendered.prompt, cloudApiKey, cloudModelName, true)
+    } else if (cloudProvider === 'anthropic') {
+      raw = await fetchAnthropic(rendered.prompt, cloudApiKey, cloudModelName, true)
+    } else {
+      throw new Error(`Unsupported cloud provider: ${cloudProvider}`)
+    }
+  } catch (err: any) {
+    logCallSafe({
+      useCase: 'extract_entities',
+      success: false,
+      usage: null,
+      durationMs: Math.round(performance.now() - t0),
+      errorMessage: err?.message ?? String(err),
+    })
+    throw err
   }
+  logCallSafe({
+    useCase: 'extract_entities',
+    success: true,
+    usage: raw.usage,
+    durationMs: Math.round(performance.now() - t0),
+  })
 
   // Extract the JSON array even if the model wrapped it in prose.
-  const trimmed = raw.trim()
+  const trimmed = raw.text.trim()
   const start = trimmed.indexOf('[')
   const end = trimmed.lastIndexOf(']')
   if (start === -1 || end === -1 || end < start) {
@@ -229,18 +297,37 @@ Input:
 ${blocksJson}`
 
   let resultJson = ''
-
-  if (cloudProvider === 'openai') {
-    resultJson = await fetchOpenAI(prompt, cloudApiKey, cloudApiUrl, cloudModelName, true)
-  } else if (cloudProvider === 'openrouter') {
-    resultJson = await fetchOpenRouter(prompt, cloudApiKey, cloudModelName, true)
-  } else if (cloudProvider === 'gemini') {
-    resultJson = await fetchGemini(prompt, cloudApiKey, cloudModelName, true)
-  } else if (cloudProvider === 'anthropic') {
-    resultJson = await fetchAnthropic(prompt, cloudApiKey, cloudModelName, true)
-  } else {
-    throw new Error(`Unsupported cloud provider: ${cloudProvider}`)
+  const t0 = performance.now()
+  let raw: CloudResult
+  try {
+    if (cloudProvider === 'openai') {
+      raw = await fetchOpenAI(prompt, cloudApiKey, cloudApiUrl, cloudModelName, true)
+    } else if (cloudProvider === 'openrouter') {
+      raw = await fetchOpenRouter(prompt, cloudApiKey, cloudModelName, true)
+    } else if (cloudProvider === 'gemini') {
+      raw = await fetchGemini(prompt, cloudApiKey, cloudModelName, true)
+    } else if (cloudProvider === 'anthropic') {
+      raw = await fetchAnthropic(prompt, cloudApiKey, cloudModelName, true)
+    } else {
+      throw new Error(`Unsupported cloud provider: ${cloudProvider}`)
+    }
+  } catch (err: any) {
+    logCallSafe({
+      useCase: 'translate',
+      success: false,
+      usage: null,
+      durationMs: Math.round(performance.now() - t0),
+      errorMessage: err?.message ?? String(err),
+    })
+    throw err
   }
+  logCallSafe({
+    useCase: 'translate',
+    success: true,
+    usage: raw.usage,
+    durationMs: Math.round(performance.now() - t0),
+  })
+  resultJson = raw.text
 
   // Try to find a JSON array within the response if it's wrapped in other text
   let jsonString = resultJson.trim()
@@ -285,23 +372,49 @@ export async function callCloudOnce(args: {
   apiUrl: string
   model: string
   jsonMode?: boolean
+  /** Use-case string for cost log. Defaults to "translate". */
+  useCase?: string
 }): Promise<string> {
-  const { prompt, provider, apiKey, apiUrl, model, jsonMode = false } = args
-  switch (provider) {
-    case 'openai':
-      return fetchOpenAI(prompt, apiKey, apiUrl, model, jsonMode)
-    case 'openrouter':
-      return fetchOpenRouter(prompt, apiKey, model, jsonMode)
-    case 'gemini':
-      return fetchGemini(prompt, apiKey, model, jsonMode)
-    case 'anthropic':
-      return fetchAnthropic(prompt, apiKey, model, jsonMode)
-    default:
-      throw new Error(`Unsupported cloud provider: ${provider}`)
+  const { prompt, provider, apiKey, apiUrl, model, jsonMode = false, useCase = 'translate' } = args
+  const t0 = performance.now()
+  let result: CloudResult
+  try {
+    switch (provider) {
+      case 'openai':
+        result = await fetchOpenAI(prompt, apiKey, apiUrl, model, jsonMode)
+        break
+      case 'openrouter':
+        result = await fetchOpenRouter(prompt, apiKey, model, jsonMode)
+        break
+      case 'gemini':
+        result = await fetchGemini(prompt, apiKey, model, jsonMode)
+        break
+      case 'anthropic':
+        result = await fetchAnthropic(prompt, apiKey, model, jsonMode)
+        break
+      default:
+        throw new Error(`Unsupported cloud provider: ${provider}`)
+    }
+  } catch (err: any) {
+    logCallSafe({
+      useCase,
+      success: false,
+      usage: null,
+      durationMs: Math.round(performance.now() - t0),
+      errorMessage: err?.message ?? String(err),
+    })
+    throw err
   }
+  logCallSafe({
+    useCase,
+    success: true,
+    usage: result.usage,
+    durationMs: Math.round(performance.now() - t0),
+  })
+  return result.text
 }
 
-async function fetchOpenAI(prompt: string, apiKey: string, apiUrl: string, model: string, isJsonMode = false): Promise<string> {
+async function fetchOpenAI(prompt: string, apiKey: string, apiUrl: string, model: string, isJsonMode = false): Promise<CloudResult> {
   // Use user's custom url or trailing slash cleanup
   const baseUrl = apiUrl.replace(/\/+$/, '')
   const endpoint = `${baseUrl}/chat/completions`
@@ -331,10 +444,16 @@ async function fetchOpenAI(prompt: string, apiKey: string, apiUrl: string, model
   }
 
   const data = await res.json()
-  return data.choices[0]?.message?.content?.trim() || ''
+  return {
+    text: data.choices[0]?.message?.content?.trim() || '',
+    usage: {
+      promptTokens: data.usage?.prompt_tokens ?? null,
+      completionTokens: data.usage?.completion_tokens ?? null,
+    },
+  }
 }
 
-async function fetchOpenRouter(prompt: string, apiKey: string, model: string, isJsonMode = false): Promise<string> {
+async function fetchOpenRouter(prompt: string, apiKey: string, model: string, isJsonMode = false): Promise<CloudResult> {
   // OpenRouter speaks OpenAI's chat-completions dialect. We send the
   // optional HTTP-Referer / X-Title headers it uses for app attribution.
   const endpoint = 'https://openrouter.ai/api/v1/chat/completions'
@@ -368,10 +487,16 @@ async function fetchOpenRouter(prompt: string, apiKey: string, model: string, is
   }
 
   const data = await res.json()
-  return data.choices?.[0]?.message?.content?.trim() || ''
+  return {
+    text: data.choices?.[0]?.message?.content?.trim() || '',
+    usage: {
+      promptTokens: data.usage?.prompt_tokens ?? null,
+      completionTokens: data.usage?.completion_tokens ?? null,
+    },
+  }
 }
 
-async function fetchGemini(prompt: string, apiKey: string, model: string, isJsonMode = false): Promise<string> {
+async function fetchGemini(prompt: string, apiKey: string, model: string, isJsonMode = false): Promise<CloudResult> {
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
   
   const body: any = {
@@ -397,10 +522,16 @@ async function fetchGemini(prompt: string, apiKey: string, model: string, isJson
   }
 
   const data = await res.json()
-  return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ''
+  return {
+    text: data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '',
+    usage: {
+      promptTokens: data.usageMetadata?.promptTokenCount ?? null,
+      completionTokens: data.usageMetadata?.candidatesTokenCount ?? null,
+    },
+  }
 }
 
-async function fetchAnthropic(prompt: string, apiKey: string, model: string, isJsonMode = false): Promise<string> {
+async function fetchAnthropic(prompt: string, apiKey: string, model: string, isJsonMode = false): Promise<CloudResult> {
   const endpoint = 'https://api.anthropic.com/v1/messages'
 
   // Notice Anthropic endpoint via browser usually hits CORS.
@@ -428,5 +559,11 @@ async function fetchAnthropic(prompt: string, apiKey: string, model: string, isJ
   }
 
   const data = await res.json()
-  return data.content?.[0]?.text?.trim() || ''
+  return {
+    text: data.content?.[0]?.text?.trim() || '',
+    usage: {
+      promptTokens: data.usage?.input_tokens ?? null,
+      completionTokens: data.usage?.output_tokens ?? null,
+    },
+  }
 }

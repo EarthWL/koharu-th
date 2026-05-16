@@ -9,11 +9,14 @@ import {
   FolderPlusIcon,
   Loader2Icon,
   LogOutIcon,
+  PinIcon,
+  PinOffIcon,
   PlusIcon,
   SparklesIcon,
   Trash2Icon,
 } from 'lucide-react'
 import { summarizeChapter } from '@/lib/services/summarizeChapter'
+import { loadCurrentWorkspaceText } from '@/lib/services/chapterText'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -390,6 +393,7 @@ function ChaptersSection() {
           <table className='w-full text-left text-xs'>
             <thead className='bg-muted/50 text-muted-foreground'>
               <tr>
+                <th className='w-8 px-2 py-2 font-medium' title='Pin as active'></th>
                 <th className='px-3 py-2 font-medium'>#</th>
                 <th className='px-3 py-2 font-medium'>File</th>
                 <th className='px-3 py-2 font-medium'>Title</th>
@@ -431,6 +435,9 @@ function ChapterRow({
   const [summarising, setSummarising] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [summaryDraft, setSummaryDraft] = useState(chapter.summary ?? '')
+  const activeChapterId = useProjectStore((s) => s.activeChapterId)
+  const setActiveChapterId = useProjectStore((s) => s.setActiveChapterId)
+  const isActive = activeChapterId === chapter.id
 
   // Sync local draft when chapter row reloads.
   if (summaryDraft === '' && chapter.summary && !open) {
@@ -438,13 +445,20 @@ function ChapterRow({
   }
 
   const runSummarise = async () => {
-    const text = prompt(
-      'Paste the chapter text the summary should be based on.\n(Or close this dialog and paste in the editor below.)',
-    )
-    if (!text || !text.trim()) return
     setSummarising(true)
     setError(null)
     try {
+      // Pull text from whatever .khr is currently loaded in the editor.
+      // (No backend round-trip to read this chapter's .khr from disk yet —
+      // user opens the chapter they want to summarise via File → Open
+      // first, then triggers this button.)
+      const text = await loadCurrentWorkspaceText()
+      if (!text.trim()) {
+        setError(
+          'No text in the open documents. Open the chapter .khr in the editor, run OCR, then try again.',
+        )
+        return
+      }
       const summary = await summarizeChapter(chapter.id, text)
       setSummaryDraft(summary)
       onChanged()
@@ -464,7 +478,28 @@ function ChapterRow({
 
   return (
     <>
-      <tr className='border-border border-t hover:bg-accent/30'>
+      <tr
+        className={`border-border border-t hover:bg-accent/30 ${isActive ? 'bg-primary/5' : ''}`}
+      >
+        <td className='px-3 py-2'>
+          <button
+            onClick={() =>
+              setActiveChapterId(isActive ? null : chapter.id)
+            }
+            className='hover:text-primary'
+            title={
+              isActive
+                ? 'Unpin — translations will no longer pull this chapter as rolling context anchor'
+                : 'Pin as active chapter — rolling context (previous chapter summaries) will be injected into translation prompts'
+            }
+          >
+            {isActive ? (
+              <PinIcon className='text-primary size-3.5' />
+            ) : (
+              <PinOffIcon className='text-muted-foreground size-3.5' />
+            )}
+          </button>
+        </td>
         <td className='px-3 py-2'>{chapter.chapterNumber}</td>
         <td className='text-muted-foreground truncate px-3 py-2'>
           {chapter.filePath}
@@ -529,7 +564,7 @@ function ChapterRow({
       </tr>
       {open && (
         <tr className='bg-muted/30'>
-          <td colSpan={6} className='px-3 py-3'>
+          <td colSpan={7} className='px-3 py-3'>
             {error && (
               <div className='border-destructive/40 bg-destructive/10 text-destructive mb-2 rounded-md border p-2 text-xs'>
                 {error}

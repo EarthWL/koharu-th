@@ -129,6 +129,57 @@ pub fn remove(conn: &Conn, id: i64) -> Result<bool> {
     Ok(changed > 0)
 }
 
+/// Return concatenated summaries of the N chapters that come strictly
+/// *before* `before_chapter_id` in chapter_number order. Used as the
+/// `rolling_summary` prompt variable.
+///
+/// Empty summaries are skipped. If `before_chapter_id` doesn't exist in
+/// the DB the call returns an empty string.
+pub fn rolling_summary(conn: &Conn, before_chapter_id: i64, count: u32) -> Result<String> {
+    let before_number: Option<f64> = conn
+        .query_row(
+            "SELECT chapter_number FROM chapters WHERE id = ?1",
+            params![before_chapter_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let Some(before_number) = before_number else {
+        return Ok(String::new());
+    };
+
+    let mut stmt = conn.prepare(
+        "SELECT chapter_number, COALESCE(title, ''), summary
+         FROM chapters
+         WHERE chapter_number < ?1
+           AND summary IS NOT NULL
+           AND TRIM(summary) <> ''
+         ORDER BY chapter_number DESC
+         LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![before_number, count], |r| {
+        Ok((
+            r.get::<_, f64>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+        ))
+    })?;
+
+    let mut entries: Vec<(f64, String, String)> = rows.collect::<rusqlite::Result<_>>()?;
+    // We pulled them newest-first to honour LIMIT; reverse for natural reading order.
+    entries.reverse();
+    let formatted: Vec<String> = entries
+        .into_iter()
+        .map(|(num, title, summary)| {
+            if title.is_empty() {
+                format!("Ch. {num}: {summary}")
+            } else {
+                format!("Ch. {num} \"{title}\": {summary}")
+            }
+        })
+        .collect();
+    Ok(formatted.join("\n"))
+}
+
 fn row_to_chapter(r: &rusqlite::Row<'_>) -> rusqlite::Result<Chapter> {
     let status_str: String = r.get(5)?;
     Ok(Chapter {
@@ -212,5 +263,58 @@ mod tests {
         assert!(remove(&conn, inserted.id).unwrap());
         assert!(!remove(&conn, inserted.id).unwrap());
         assert_eq!(list(&conn).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn rolling_summary_picks_prior_chapters_in_order() {
+        let dir = tempdir().unwrap();
+        let p = Project::create(dir.path(), "Test", "0").unwrap();
+        let conn = p.pool().get().unwrap();
+
+        let make = |num: f64, title: &str, summary: Option<&str>| {
+            let c = insert(
+                &conn,
+                ChapterInsert {
+                    file_path: format!("chapters/{num}.khr"),
+                    chapter_number: num,
+                    title: Some(title.into()),
+                    volume: None,
+                },
+            )
+            .unwrap();
+            if let Some(s) = summary {
+                update(
+                    &conn,
+                    c.id,
+                    ChapterPatch {
+                        summary: Some(Some(s.into())),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            }
+            c.id
+        };
+
+        let _c1 = make(1.0, "Beginning", Some("Kenta arrives."));
+        let _c2 = make(2.0, "Meeting", Some("Kenta meets Sato."));
+        let _c3 = make(3.0, "Conflict", None); // no summary -> skipped
+        let c4 = make(4.0, "Climax", Some("They fight the demon."));
+
+        let s = rolling_summary(&conn, c4, 2).unwrap();
+        // Should pick chapters 1 and 2 (skipping 3 which has no summary),
+        // newest first by LIMIT, then reversed → reading order ch1 then ch2.
+        assert!(s.contains("Ch. 1"));
+        assert!(s.contains("Ch. 2"));
+        assert!(!s.contains("Ch. 3"));
+        assert!(!s.contains("Ch. 4"));
+        let p1 = s.find("Ch. 1").unwrap();
+        let p2 = s.find("Ch. 2").unwrap();
+        assert!(p1 < p2, "older chapters should appear first");
+
+        // count=1 → only ch2 (the most recent with summary before ch4)
+        let s1 = rolling_summary(&conn, c4, 1).unwrap();
+        assert!(s1.contains("Ch. 2"));
+        assert!(!s1.contains("Ch. 1"));
     }
 }

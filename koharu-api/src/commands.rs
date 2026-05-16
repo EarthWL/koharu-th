@@ -556,11 +556,19 @@ pub struct PromptRenderPayload {
     pub use_case: String,
     pub source_text: String,
     pub template_name: Option<String>,
-    /// Optional pre-built rolling-summary string (UI may pass last-N
-    /// chapter summaries it already fetched). If empty, no summary is
-    /// injected.
+    /// Optional pre-built rolling-summary string. If both this and
+    /// `chapter_id` are empty, no summary is injected.
     #[serde(default)]
     pub rolling_summary: String,
+    /// When set (and `rolling_summary` is empty), the backend auto-fetches
+    /// summaries of the N chapters before this one via
+    /// `chapter::rolling_summary`.
+    #[serde(default)]
+    pub chapter_id: Option<i64>,
+    /// Number of prior chapters to include in the auto-fetched summary.
+    /// Ignored when `chapter_id` is None. Defaults to 2 if not set.
+    #[serde(default)]
+    pub rolling_chapter_count: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

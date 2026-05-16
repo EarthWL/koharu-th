@@ -330,23 +330,33 @@ export function MenuBar() {
         data-tauri-drag-region
         className='flex h-full flex-1 items-center justify-center'
       >
-        {projectInfo && (
-          <Link
-            href='/project'
-            prefetch={false}
-            className='text-muted-foreground hover:text-foreground pointer-events-auto text-[11px] font-medium'
-          >
-            📁 {projectInfo.name}
-            <span className='text-muted-foreground/70 ml-1'>
-              · {projectInfo.chapterCount} ch
-            </span>
-          </Link>
-        )}
+        {projectInfo && <ProjectIndicator />}
       </div>
 
       {/* Window controls for Windows */}
       {isWindowsTauri && <WindowControls />}
     </div>
+  )
+}
+
+function ProjectIndicator() {
+  const projectInfo = useProjectStore((s) => s.info)
+  const activeChapterId = useProjectStore((s) => s.activeChapterId)
+  if (!projectInfo) return null
+  return (
+    <Link
+      href='/project'
+      prefetch={false}
+      className='text-muted-foreground hover:text-foreground pointer-events-auto text-[11px] font-medium'
+    >
+      📁 {projectInfo.name}
+      <span className='text-muted-foreground/70 ml-1'>
+        · {projectInfo.chapterCount} ch
+      </span>
+      {activeChapterId !== null && (
+        <span className='text-primary/80 ml-1'>· 📍 active</span>
+      )}
+    </Link>
   )
 }
 

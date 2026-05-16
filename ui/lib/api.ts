@@ -351,6 +351,8 @@ export const api = {
     sourceText: string
     templateName?: string
     rollingSummary?: string
+    chapterId?: number | null
+    rollingChapterCount?: number
   }): Promise<PromptRenderResult> {
     return invoke('prompt_render', input) as Promise<PromptRenderResult>
   },

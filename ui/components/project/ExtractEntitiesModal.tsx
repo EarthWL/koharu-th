@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Loader2Icon, SparklesIcon } from 'lucide-react'
+import { DownloadIcon, Loader2Icon, SparklesIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -17,6 +17,7 @@ import {
   extractEntitiesFromText,
   type ExtractedEntity,
 } from '@/lib/services/cloudLlm'
+import { loadCurrentWorkspaceText } from '@/lib/services/chapterText'
 import { api, type GlossaryCategory } from '@/lib/api'
 
 type Proposed = ExtractedEntity & {
@@ -78,10 +79,28 @@ export function ExtractEntitiesModal({
   const [text, setText] = useState(initialText)
   const [items, setItems] = useState<Proposed[] | null>(null)
   const [loading, setLoading] = useState(false)
+  const [loadingDocs, setLoadingDocs] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [applying, setApplying] = useState(false)
 
   if (!open) return null
+
+  const loadFromWorkspace = async () => {
+    setLoadingDocs(true)
+    setError(null)
+    try {
+      const loaded = await loadCurrentWorkspaceText()
+      if (!loaded) {
+        setError('No text in the loaded documents. Run OCR first.')
+        return
+      }
+      setText(loaded)
+    } catch (e: any) {
+      setError(e?.message || String(e))
+    } finally {
+      setLoadingDocs(false)
+    }
+  }
 
   const runExtract = async () => {
     if (!text.trim()) return
@@ -153,10 +172,23 @@ export function ExtractEntitiesModal({
           <Textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder='Paste source text here (raw script, OCR output, etc.)…'
+            placeholder='Paste source text here, or load from the currently-loaded pages.'
             className='min-h-32 text-xs'
           />
-          <div className='flex items-center justify-end gap-2'>
+          <div className='flex items-center justify-between gap-2'>
+            <Button
+              variant='outline'
+              size='sm'
+              disabled={loadingDocs}
+              onClick={() => void loadFromWorkspace()}
+            >
+              {loadingDocs ? (
+                <Loader2Icon className='size-3.5 animate-spin' />
+              ) : (
+                <DownloadIcon className='size-3.5' />
+              )}
+              Load from open pages
+            </Button>
             <Button
               variant='default'
               size='sm'

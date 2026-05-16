@@ -570,11 +570,22 @@ pub async fn prompt_render(
             .collect();
         let glossary_entries = glossary_ops::list(&conn)?;
 
+        // Resolve the rolling summary: explicit string wins; otherwise
+        // auto-fetch from the chapter index when chapter_id is given.
+        let rolling_summary: String = if !payload.rolling_summary.is_empty() {
+            payload.rolling_summary.clone()
+        } else if let Some(cid) = payload.chapter_id {
+            let n = payload.rolling_chapter_count.unwrap_or(2);
+            chapter_ops::rolling_summary(&conn, cid, n)?
+        } else {
+            String::new()
+        };
+
         let ctx = prompt_ops::build_context(
             &series,
             &main_chars,
             &glossary_entries,
-            &payload.rolling_summary,
+            &rolling_summary,
             &payload.source_text,
         );
         let prompt = prompt_ops::render_template(&template.template, &ctx)?;

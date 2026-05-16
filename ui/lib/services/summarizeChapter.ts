@@ -41,6 +41,7 @@ export async function summarizeChapter(
     apiUrl: cloudApiUrl,
     model: cloudModelName,
     jsonMode: false,
+    useCase: 'summarize_chapter',
   })
 
   await api.chapterUpdate({ id: chapterId, summary })
