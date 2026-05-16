@@ -329,6 +329,20 @@ export const api = {
     return invoke('chapter_remove', { id }) as Promise<boolean>
   },
 
+  /** Export a chapter as a `.cbz` (Comic Book ZIP). Backend pops a
+   *  save dialog; uses pages from render/ if present, else source/. */
+  async chapterExportCbz(id: number): Promise<{
+    path: string | null
+    pageCount: number
+    usedRender: boolean
+  }> {
+    return invoke('chapter_export_cbz', { id }) as Promise<{
+      path: string | null
+      pageCount: number
+      usedRender: boolean
+    }>
+  },
+
   // ----------------------------------------------------------------
   // Characters + glossary (Phase 3)
   // ----------------------------------------------------------------
@@ -437,6 +451,60 @@ export const api = {
       targetLang,
       minSimilarity,
     }) as Promise<{ entry: TmEntryDto; similarity: number } | null>
+  },
+
+  // ── TM embeddings (semantic search) ─────────────────────────────
+
+  async tmPendingEmbeddings(input: {
+    model: string
+    limit?: number
+  }): Promise<{ id: number; sourceText: string }[]> {
+    return invoke('tm_pending_embeddings', input) as Promise<
+      { id: number; sourceText: string }[]
+    >
+  },
+
+  async tmPendingCount(model: string): Promise<number> {
+    return invoke('tm_pending_count', { model }) as Promise<number>
+  },
+
+  async tmSetEmbedding(input: {
+    id: number
+    embedding: number[]
+    model: string
+  }): Promise<void> {
+    await invoke('tm_set_embedding', input)
+  },
+
+  async tmLookupSemantic(input: {
+    embedding: number[]
+    model: string
+    targetLang: string
+    topK?: number
+    minSimilarity?: number
+  }): Promise<{ entry: TmEntryDto; similarity: number }[]> {
+    return invoke('tm_lookup_semantic', input) as Promise<
+      { entry: TmEntryDto; similarity: number }[]
+    >
+  },
+
+  /** Export the project's translation memory as a TMX 1.4 file
+   *  (interchange format for Trados / OmegaT / MemoQ / …). */
+  async tmExportTmx(): Promise<{ path: string | null; entries: number }> {
+    return invoke('tm_export_tmx') as Promise<{
+      path: string | null
+      entries: number
+    }>
+  },
+
+  /** Import TMX file from disk. Duplicates by (source, target_lang) are
+   *  skipped. Uses the series' source/target languages as the language
+   *  filter so off-target units are dropped. */
+  async tmImportTmx(): Promise<{ inserted: number; skipped: number }> {
+    return invoke('tm_import_tmx') as Promise<{
+      inserted: number
+      skipped: number
+    }>
   },
 
   async tmInsert(input: {

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import {
+  ArchiveIcon,
   CheckIcon,
   FolderPlusIcon,
   ImagePlusIcon,
@@ -206,6 +207,7 @@ function ChapterRow({
   const [opening, setOpening] = useState(false)
   const [openingForExtract, setOpeningForExtract] = useState(false)
   const [addingPages, setAddingPages] = useState(false)
+  const [exportingCbz, setExportingCbz] = useState(false)
   const [justAdded, setJustAdded] = useState<number | null>(null)
 
   const openAndExtract = async () => {
@@ -257,6 +259,24 @@ function ChapterRow({
   const changeStatus = async (status: ChapterStatus) => {
     await api.chapterUpdate({ id: chapter.id, status })
     onChanged()
+  }
+
+  const exportCbz = async () => {
+    setExportingCbz(true)
+    try {
+      const r = await api.chapterExportCbz(chapter.id)
+      if (r.path) {
+        alert(
+          `Exported ${r.pageCount} page(s) (${
+            r.usedRender ? 'rendered' : 'raw source'
+          }) → ${r.path}`,
+        )
+      }
+    } catch (err: any) {
+      alert(err?.message ?? String(err))
+    } finally {
+      setExportingCbz(false)
+    }
   }
 
   const remove = async () => {
@@ -377,6 +397,20 @@ function ChapterRow({
             <Loader2Icon className='size-3 animate-spin' />
           ) : (
             <WandSparklesIcon className='size-3' />
+          )}
+        </Button>
+        <Button
+          variant='outline'
+          size='sm'
+          className='h-6 px-1.5 text-[10px]'
+          disabled={exportingCbz || chapter.pageCount === 0}
+          onClick={() => void exportCbz()}
+          title='Export chapter as .cbz (rendered pages if available, else source)'
+        >
+          {exportingCbz ? (
+            <Loader2Icon className='size-3 animate-spin' />
+          ) : (
+            <ArchiveIcon className='size-3' />
           )}
         </Button>
         <Select

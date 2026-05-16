@@ -137,6 +137,9 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::ChapterOpen => call(operations::chapter_open, state, params).await,
         Method::ChapterUpdate => call(operations::chapter_update, state, params).await,
         Method::ChapterRemove => call(operations::chapter_remove, state, params).await,
+        Method::ChapterExportCbz => {
+            call(operations::chapter_export_cbz, state, params).await
+        }
         Method::CharactersList => call0(operations::characters_list, state).await,
         Method::CharacterAdd => call(operations::character_add, state, params).await,
         Method::CharacterUpdate => call(operations::character_update, state, params).await,
@@ -159,6 +162,16 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::TmLookup => call(operations::tm_lookup, state, params).await,
         Method::TmLookupFuzzy => call(operations::tm_lookup_fuzzy, state, params).await,
         Method::TmInsert => call(operations::tm_insert, state, params).await,
+        Method::TmExportTmx => call0(operations::tm_export_tmx, state).await,
+        Method::TmImportTmx => call0(operations::tm_import_tmx, state).await,
+        Method::TmPendingEmbeddings => {
+            call(operations::tm_pending_embeddings, state, params).await
+        }
+        Method::TmPendingCount => call(operations::tm_pending_count, state, params).await,
+        Method::TmSetEmbedding => call(operations::tm_set_embedding, state, params).await,
+        Method::TmLookupSemantic => {
+            call(operations::tm_lookup_semantic, state, params).await
+        }
         Method::ProviderProfilesList => {
             call0(operations::provider_profiles_list, state).await
         }

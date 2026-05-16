@@ -11,6 +11,7 @@
 //! call log. See `migrations/V001__initial_schema.sql` for the schema.
 
 pub mod backup;
+pub mod cbz;
 pub mod chapter;
 pub mod character;
 pub mod chat;
@@ -25,6 +26,8 @@ pub mod recent;
 pub mod secret;
 pub mod series;
 pub mod tm;
+pub mod tm_tmx;
+pub mod tm_vector;
 mod types;
 
 pub use db::{Conn, Pool};

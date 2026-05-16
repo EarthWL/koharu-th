@@ -114,6 +114,44 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     }),
   },
   {
+    name: 'tm-semantic',
+    argsHint: '<source text>',
+    description:
+      'Semantic TM lookup — find paraphrases / similar sentences already translated (beyond exact / Jaccard match).',
+    build: (text) => ({
+      display: `/tm-semantic ${text}`,
+      prompt: [
+        text
+          ? `Call tm_lookup_semantic with sourceText=${JSON.stringify(text)}, topK=8 to find semantically-similar TM entries.`
+          : 'I forgot the source text — ask me what to look up.',
+        'Present results as a markdown table: similarity · source · cached target · chapter (if known).',
+        'If nothing crosses min_similarity, suggest I lower the threshold or run the embedding backfill first.',
+      ].join('\n'),
+    }),
+  },
+  {
+    name: 'check-thai',
+    description:
+      'Review Thai translations on the open chapter for spelling, grammar, naturalness, and propose fixes.',
+    build: (extra) => ({
+      display: `/check-thai ${extra}`,
+      prompt: [
+        'Review the Thai translations in the currently-open chapter for:',
+        '- Spelling errors (สะกดผิด)',
+        '- Grammar / particle misuse (ผิดไวยากรณ์)',
+        '- Naturalness (ฟังดูไม่เป็นธรรมชาติ)',
+        '- Consistency in tone (โทนไม่สม่ำเสมอ)',
+        '',
+        'Steps:',
+        '1. Call qc_chapter_consistency to also surface glossary mismatches.',
+        '2. Walk through each translated block and flag the issues above.',
+        '3. Present a markdown table: page · block · original Thai · proposed Thai · issue type.',
+        '4. On my approval, call update_text_block one at a time to apply each fix.',
+        extra ? `\nExtra context: ${extra}` : '',
+      ].join('\n'),
+    }),
+  },
+  {
     name: 'qc-consistency',
     description:
       'Scan the open chapter for glossary / character name mismatches and propose fixes.',

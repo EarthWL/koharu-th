@@ -405,6 +405,17 @@ pub struct ChapterIdPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct ChapterExportCbzResult {
+    /// Absolute path of the .cbz written, or null when the user
+    /// cancelled the save dialog.
+    pub path: Option<String>,
+    pub page_count: u32,
+    /// True if pages came from `render/`; false if we fell back to `source/`.
+    pub used_render: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ChapterImportResult {
     /// Number of new chapter rows added.
     pub added: u32,
@@ -694,6 +705,80 @@ pub struct TmEntryDto {
     pub model: Option<String>,
     pub is_approved: bool,
     pub created_at: String,
+}
+
+// ------------------------------------------------------------
+// TM semantic-search (embeddings)
+// ------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmPendingEmbeddingsPayload {
+    /// The embedding model id we plan to embed with (entries with a
+    /// different `embedding_model` are also returned as pending so
+    /// the user can re-backfill when switching models).
+    pub model: String,
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmPendingEmbeddingItem {
+    pub id: i64,
+    pub source_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmPendingCountPayload {
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmSetEmbeddingPayload {
+    pub id: i64,
+    pub embedding: Vec<f32>,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmLookupSemanticPayload {
+    pub embedding: Vec<f32>,
+    pub model: String,
+    pub target_lang: String,
+    /// Default 5.
+    pub top_k: Option<u32>,
+    /// Cosine threshold below which entries are dropped. 0.0..1.0,
+    /// default 0.75. (~0.85 for "very close" semantic matches.)
+    pub min_similarity: Option<f32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmSemanticHit {
+    pub entry: TmEntryDto,
+    pub similarity: f32,
+}
+
+// ------------------------------------------------------------
+// TMX (Translation Memory eXchange) import/export
+// ------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmxExportResult {
+    /// Absolute path written, or null if cancelled.
+    pub path: Option<String>,
+    pub entries: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmxImportResult {
+    pub inserted: u32,
+    pub skipped: u32,
 }
 
 // ------------------------------------------------------------

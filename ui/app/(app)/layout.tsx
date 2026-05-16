@@ -2,6 +2,7 @@
 
 import { MenuBar } from '@/components/MenuBar'
 import { WelcomeGate } from '@/components/Welcome'
+import { CommandPalette } from '@/components/CommandPalette'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -9,6 +10,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <MenuBar />
       {children}
       <WelcomeGate />
+      <CommandPalette />
     </div>
   )
 }

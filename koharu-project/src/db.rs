@@ -42,6 +42,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "chat_attachments",
         sql: include_str!("../migrations/V004__chat_attachments.sql"),
     },
+    Migration {
+        version: 5,
+        name: "tm_embeddings",
+        sql: include_str!("../migrations/V005__tm_embeddings.sql"),
+    },
 ];
 
 /// Open (or create) the database at `path`, install required PRAGMAs,

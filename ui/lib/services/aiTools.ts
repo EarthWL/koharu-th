@@ -10,6 +10,11 @@
  */
 
 import { api } from '@/lib/api'
+import {
+  activeEmbeddingsConfig,
+  effectiveModel,
+  embedBatch,
+} from '@/lib/services/embeddings'
 
 export type JsonSchema = Record<string, unknown>
 
@@ -246,6 +251,26 @@ const TOOLS: ToolDef[] = [
     },
     handler: (args) => api.tmLookup(args.sourceText, args.targetLang),
   },
+  {
+    name: 'tm_lookup_semantic',
+    description:
+      'Semantic TM lookup via embeddings — finds paraphrases / similar source phrases beyond exact/fuzzy match. Requires the user to have run "Embed TM for semantic search" first. Returns top-K entries with cosine similarity scores.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['sourceText', 'targetLang'],
+      properties: {
+        sourceText: { type: 'string' },
+        targetLang: { type: 'string' },
+        topK: { type: 'integer', description: 'Default 5.' },
+        minSimilarity: {
+          type: 'number',
+          description: '0.0..1.0, default 0.75. 0.85+ is "very close".',
+        },
+      },
+    },
+    handler: (args) => runSemanticLookup(args),
+  },
 
   // ── Text block edit (for QC fixes) ────────────────────────────
   {
@@ -323,6 +348,43 @@ type QcReport = {
   charactersChecked: number
   mismatches: QcMismatch[]
   summary: string
+}
+
+async function runSemanticLookup(args: {
+  sourceText: string
+  targetLang: string
+  topK?: number
+  minSimilarity?: number
+}): Promise<unknown> {
+  const cfg = activeEmbeddingsConfig()
+  if (!cfg) {
+    return {
+      error:
+        'No active cloud LLM profile — apply one in the Profiles tab to enable embeddings.',
+    }
+  }
+  if (cfg.provider === 'anthropic' && !cfg.apiKey) {
+    return {
+      error:
+        'Anthropic has no embeddings API. Apply an OpenAI / OpenRouter / Local profile to use semantic search.',
+    }
+  }
+  const model = effectiveModel(cfg)
+  let vectors: number[][]
+  try {
+    vectors = await embedBatch(cfg, [args.sourceText])
+  } catch (err: any) {
+    return { error: err?.message ?? String(err) }
+  }
+  const vec = vectors[0]
+  if (!vec) return { error: 'Embeddings call returned no vector.' }
+  return api.tmLookupSemantic({
+    embedding: vec,
+    model,
+    targetLang: args.targetLang,
+    topK: args.topK,
+    minSimilarity: args.minSimilarity,
+  })
 }
 
 async function runQcConsistency(): Promise<QcReport> {

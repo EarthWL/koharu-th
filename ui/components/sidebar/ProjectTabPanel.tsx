@@ -2,7 +2,15 @@
 
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArchiveIcon, Loader2Icon, LogOutIcon } from 'lucide-react'
+import {
+  ArchiveIcon,
+  DownloadIcon,
+  Loader2Icon,
+  LogOutIcon,
+  SparklesIcon,
+  UploadIcon,
+} from 'lucide-react'
+import { runTmEmbeddingBackfill } from '@/lib/services/tmBackfill'
 import { CostDashboard } from '@/components/project/CostDashboard'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
@@ -24,6 +32,11 @@ export function ProjectTabPanel() {
   const [draft, setDraft] = useState<Partial<SeriesMetaDto>>({})
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [embedding, setEmbedding] = useState<{
+    done: number
+    total: number
+    label: string
+  } | null>(null)
 
   useEffect(() => {
     if (seriesMeta.data) {
@@ -195,6 +208,77 @@ export function ProjectTabPanel() {
               <ArchiveIcon className='size-3' />
               Backup project…
             </Button>
+            <Button
+              variant='outline'
+              size='sm'
+              className='h-7 w-full text-[10px]'
+              disabled={embedding !== null}
+              onClick={async () => {
+                setEmbedding({ done: 0, total: 0, label: 'starting…' })
+                try {
+                  const r = await runTmEmbeddingBackfill((p) => setEmbedding(p))
+                  alert(
+                    `Embedded ${r.embedded} TM entries with ${r.model}. Semantic lookup is now available.`,
+                  )
+                } catch (e: any) {
+                  alert(e?.message ?? String(e))
+                } finally {
+                  setEmbedding(null)
+                }
+              }}
+              title='Embed TM source texts with the active profile so semantic search can find paraphrases (not just exact / Jaccard matches).'
+            >
+              {embedding ? (
+                <Loader2Icon className='size-3 animate-spin' />
+              ) : (
+                <SparklesIcon className='size-3' />
+              )}
+              {embedding
+                ? `TM embed ${embedding.done}/${embedding.total}`
+                : 'Embed TM for semantic search'}
+            </Button>
+            <div className='grid grid-cols-2 gap-1.5'>
+              <Button
+                variant='outline'
+                size='sm'
+                className='h-7 text-[10px]'
+                onClick={async () => {
+                  try {
+                    const r = await api.tmExportTmx()
+                    if (r.path) {
+                      alert(`Exported ${r.entries} TM entries → ${r.path}`)
+                    }
+                  } catch (e: any) {
+                    alert(e?.message ?? String(e))
+                  }
+                }}
+                title='Export translation memory as TMX (Trados / OmegaT / MemoQ)'
+              >
+                <DownloadIcon className='size-3' />
+                TM → TMX
+              </Button>
+              <Button
+                variant='outline'
+                size='sm'
+                className='h-7 text-[10px]'
+                onClick={async () => {
+                  try {
+                    const r = await api.tmImportTmx()
+                    if (r.inserted || r.skipped) {
+                      alert(
+                        `Inserted ${r.inserted}, skipped ${r.skipped} duplicate(s).`,
+                      )
+                    }
+                  } catch (e: any) {
+                    alert(e?.message ?? String(e))
+                  }
+                }}
+                title='Import TMX file into translation memory'
+              >
+                <UploadIcon className='size-3' />
+                Import TMX
+              </Button>
+            </div>
             <Button
               variant='ghost'
               size='sm'

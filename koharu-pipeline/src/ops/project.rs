@@ -575,6 +575,69 @@ pub async fn chapter_update(
     Ok(dto)
 }
 
+/// Pop a save-file dialog and export the given chapter as a `.cbz`
+/// (Comic Book ZIP). Pages come from the chapter's `render/` folder
+/// if present, else from `source/`. Includes ComicInfo.xml sidecar.
+pub async fn chapter_export_cbz(
+    state: AppResources,
+    payload: ChapterIdPayload,
+) -> anyhow::Result<koharu_api::commands::ChapterExportCbzResult> {
+    use koharu_api::commands::ChapterExportCbzResult;
+    use koharu_project::cbz;
+
+    let project = require_project(&state).await?;
+
+    // Look up chapter to suggest a sensible default filename.
+    let (chapter, series) = {
+        let conn = project.pool().get()?;
+        let chapter = chapter_ops::get(&conn, payload.id)?
+            .ok_or_else(|| anyhow::anyhow!("chapter {} not found", payload.id))?;
+        let series = series_ops::get(&conn)?;
+        (chapter, series)
+    };
+
+    let default_name = format!(
+        "{} - ch{}.cbz",
+        sanitize_folder_name(&series.title),
+        format_chapter_for_filename(chapter.chapter_number),
+    );
+
+    let chosen = tokio::task::spawn_blocking(move || {
+        FileDialog::new()
+            .add_filter("Comic Book Zip", &["cbz"])
+            .set_file_name(&default_name)
+            .save_file()
+    })
+    .await?;
+    let Some(out_path) = chosen else {
+        return Ok(ChapterExportCbzResult {
+            path: None,
+            page_count: 0,
+            used_render: false,
+        });
+    };
+
+    let project_root = project.root().to_path_buf();
+    let result = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+        Ok(cbz::export_chapter(&project_root, &chapter, &series, &out_path)?)
+    })
+    .await??;
+
+    Ok(ChapterExportCbzResult {
+        path: Some(result.path.to_string_lossy().into_owned()),
+        page_count: result.page_count as u32,
+        used_render: result.used_render,
+    })
+}
+
+fn format_chapter_for_filename(n: f64) -> String {
+    if (n.fract()).abs() < f64::EPSILON {
+        format!("{:03}", n as i64)
+    } else {
+        format!("{:0>5.2}", n)
+    }
+}
+
 pub async fn chapter_remove(
     state: AppResources,
     payload: ChapterIdPayload,
@@ -1018,6 +1081,207 @@ pub async fn tm_insert(
     })
     .await??;
     Ok(dto)
+}
+
+// ---------------------------------------------------------------
+// TM embeddings (semantic search backfill + lookup)
+// ---------------------------------------------------------------
+
+pub async fn tm_pending_embeddings(
+    state: AppResources,
+    payload: koharu_api::commands::TmPendingEmbeddingsPayload,
+) -> anyhow::Result<Vec<koharu_api::commands::TmPendingEmbeddingItem>> {
+    use koharu_api::commands::TmPendingEmbeddingItem;
+    let project = require_project(&state).await?;
+    let list = tokio::task::spawn_blocking(
+        move || -> anyhow::Result<Vec<TmPendingEmbeddingItem>> {
+            let conn = project.pool().get()?;
+            let rows = koharu_project::tm_vector::list_pending_embeddings(
+                &conn,
+                &payload.model,
+                payload.limit.unwrap_or(64),
+            )?;
+            Ok(rows
+                .into_iter()
+                .map(|(id, source_text)| TmPendingEmbeddingItem {
+                    id,
+                    source_text,
+                })
+                .collect())
+        },
+    )
+    .await??;
+    Ok(list)
+}
+
+pub async fn tm_pending_count(
+    state: AppResources,
+    payload: koharu_api::commands::TmPendingCountPayload,
+) -> anyhow::Result<i64> {
+    let project = require_project(&state).await?;
+    let n = tokio::task::spawn_blocking(move || -> anyhow::Result<i64> {
+        let conn = project.pool().get()?;
+        Ok(koharu_project::tm_vector::count_pending_embeddings(
+            &conn,
+            &payload.model,
+        )?)
+    })
+    .await??;
+    Ok(n)
+}
+
+pub async fn tm_set_embedding(
+    state: AppResources,
+    payload: koharu_api::commands::TmSetEmbeddingPayload,
+) -> anyhow::Result<()> {
+    let project = require_project(&state).await?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        let conn = project.pool().get()?;
+        koharu_project::tm_vector::set_embedding(
+            &conn,
+            payload.id,
+            &payload.embedding,
+            &payload.model,
+        )?;
+        Ok(())
+    })
+    .await??;
+    Ok(())
+}
+
+pub async fn tm_lookup_semantic(
+    state: AppResources,
+    payload: koharu_api::commands::TmLookupSemanticPayload,
+) -> anyhow::Result<Vec<koharu_api::commands::TmSemanticHit>> {
+    use koharu_api::commands::{TmEntryDto, TmSemanticHit};
+    let project = require_project(&state).await?;
+    let hits = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<TmSemanticHit>> {
+        let conn = project.pool().get()?;
+        let rows = koharu_project::tm_vector::lookup_semantic(
+            &conn,
+            &payload.embedding,
+            &payload.model,
+            &payload.target_lang,
+            payload.top_k.unwrap_or(5) as usize,
+            payload.min_similarity.unwrap_or(0.75),
+        )?;
+        Ok(rows
+            .into_iter()
+            .map(|(e, sim)| TmSemanticHit {
+                entry: TmEntryDto {
+                    id: e.id,
+                    source_text: e.source_text,
+                    target_text: e.target_text,
+                    source_lang: e.source_lang,
+                    target_lang: e.target_lang,
+                    chapter_id: e.chapter_id,
+                    page_index: e.page_index,
+                    text_block_index: e.text_block_index,
+                    provider: e.provider,
+                    model: e.model,
+                    is_approved: e.is_approved,
+                    created_at: e.created_at.to_rfc3339(),
+                },
+                similarity: sim,
+            })
+            .collect())
+    })
+    .await??;
+    Ok(hits)
+}
+
+// ---------------------------------------------------------------
+// TMX import/export (CAT-tool interchange)
+// ---------------------------------------------------------------
+
+pub async fn tm_export_tmx(
+    state: AppResources,
+) -> anyhow::Result<koharu_api::commands::TmxExportResult> {
+    use koharu_api::commands::TmxExportResult;
+    let project = require_project(&state).await?;
+
+    let chosen = tokio::task::spawn_blocking(|| {
+        FileDialog::new()
+            .add_filter("Translation Memory eXchange", &["tmx"])
+            .set_file_name("translation_memory.tmx")
+            .save_file()
+    })
+    .await?;
+    let Some(out_path) = chosen else {
+        return Ok(TmxExportResult {
+            path: None,
+            entries: 0,
+        });
+    };
+
+    let (src_lang, tgt_lang) = {
+        let conn = project.pool().get()?;
+        let series = series_ops::get(&conn)?;
+        (series.source_language, series.target_language)
+    };
+
+    let project2 = project.clone();
+    let out_path2 = out_path.clone();
+    let count = tokio::task::spawn_blocking(move || -> anyhow::Result<usize> {
+        let conn = project2.pool().get()?;
+        Ok(koharu_project::tm_tmx::export_to_tmx(
+            &conn,
+            &out_path2,
+            Some(&tgt_lang),
+            &src_lang,
+        )?)
+    })
+    .await??;
+
+    Ok(TmxExportResult {
+        path: Some(out_path.to_string_lossy().into_owned()),
+        entries: count as u32,
+    })
+}
+
+pub async fn tm_import_tmx(
+    state: AppResources,
+) -> anyhow::Result<koharu_api::commands::TmxImportResult> {
+    use koharu_api::commands::TmxImportResult;
+    let project = require_project(&state).await?;
+
+    let chosen = tokio::task::spawn_blocking(|| {
+        FileDialog::new()
+            .add_filter("Translation Memory eXchange", &["tmx"])
+            .pick_file()
+    })
+    .await?;
+    let Some(in_path) = chosen else {
+        return Ok(TmxImportResult {
+            inserted: 0,
+            skipped: 0,
+        });
+    };
+
+    let (src_lang, tgt_lang) = {
+        let conn = project.pool().get()?;
+        let series = series_ops::get(&conn)?;
+        (series.source_language, series.target_language)
+    };
+
+    let project2 = project.clone();
+    let in_path2 = in_path.clone();
+    let result = tokio::task::spawn_blocking(move || -> anyhow::Result<(usize, usize)> {
+        let mut conn = project2.pool().get()?;
+        let r = koharu_project::tm_tmx::import_from_tmx(
+            &mut conn,
+            &in_path2,
+            &src_lang,
+            &tgt_lang,
+        )?;
+        Ok((r.inserted, r.skipped))
+    })
+    .await??;
+
+    Ok(TmxImportResult {
+        inserted: result.0 as u32,
+        skipped: result.1 as u32,
+    })
 }
 
 // ---------------------------------------------------------------
