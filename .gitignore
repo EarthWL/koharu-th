@@ -49,3 +49,6 @@ temp/
 tmp/
 playwright-report/
 test-results/
+
+# Claude Code session files (local-only, never useful in git)
+.claude/
