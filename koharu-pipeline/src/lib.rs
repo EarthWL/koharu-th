@@ -22,5 +22,9 @@ pub struct AppResources {
     /// Currently-open series project, if any. None until the user creates
     /// or opens one via the project_* commands.
     pub project: Arc<RwLock<Option<Project>>>,
+    /// Path of the recent-projects JSON file. Always inside
+    /// <app-data>/Koharu/. Resolved at app startup so tests / headless
+    /// runs can override it.
+    pub recent_projects_path: std::path::PathBuf,
     pub version: &'static str,
 }

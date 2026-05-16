@@ -274,6 +274,20 @@ pub struct ProjectCreatePickerPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct RecentProjectDto {
+    pub path: String,
+    pub name: String,
+    pub last_opened_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentProjectRemovePayload {
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectBackupResult {
     /// Absolute path of the zip file written, or null if the user
     /// cancelled the save-file dialog.

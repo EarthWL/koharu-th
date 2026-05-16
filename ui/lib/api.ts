@@ -244,6 +244,14 @@ export const api = {
     }>
   },
 
+  async recentProjectsList(): Promise<RecentProjectDto[]> {
+    return invoke('recent_projects_list') as Promise<RecentProjectDto[]>
+  },
+
+  async recentProjectsRemove(path: string): Promise<boolean> {
+    return invoke('recent_projects_remove', { path }) as Promise<boolean>
+  },
+
   // ----------------------------------------------------------------
   // Series + chapters (Phase 2)
   // ----------------------------------------------------------------
@@ -664,6 +672,12 @@ export type ChapterDto = {
   pageCount: number
   createdAt: string
   updatedAt: string
+}
+
+export type RecentProjectDto = {
+  path: string
+  name: string
+  lastOpenedAt: number
 }
 
 export type ProjectInfo = {

@@ -125,6 +125,10 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::ProjectBackupPicker => {
             call0(operations::project_backup_picker, state).await
         }
+        Method::RecentProjectsList => call0(operations::recent_projects_list, state).await,
+        Method::RecentProjectsRemove => {
+            call(operations::recent_projects_remove, state, params).await
+        }
         Method::SeriesMetaGet => call0(operations::series_meta_get, state).await,
         Method::SeriesMetaUpdate => call(operations::series_meta_update, state, params).await,
         Method::ChaptersList => call0(operations::chapters_list, state).await,

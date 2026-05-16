@@ -11,7 +11,8 @@ use koharu_api::commands::{
     CharacterDto, CharacterIdPayload, CharacterUpdatePayload, GlossaryAddPayload,
     GlossaryBumpUsagePayload, GlossaryDto, GlossaryIdPayload, GlossaryUpdatePayload,
     GlossaryBulkAddPayload, GlossaryBulkAddResult, LlmCallLogPayload, LlmCostStats,
-    NameAliasDto, ProjectBackupResult, ProjectCreatePayload,
+    NameAliasDto, ProjectBackupResult, ProjectCreatePayload, RecentProjectDto,
+    RecentProjectRemovePayload,
     ProjectCreatePickerPayload, ProjectInfo, ProjectOpenPayload, PromptRenderPayload,
     PromptRenderResult, PromptTemplateAddPayload, PromptTemplateDto, PromptTemplateIdPayload,
     PromptTemplateUpdatePayload, ProviderProfileAddPayload, ProviderProfileDto,
@@ -26,6 +27,7 @@ use koharu_project::{
     glossary::{self as glossary_ops, GlossaryInsert, GlossaryPatch},
     profile::{self as profile_ops, ProfileInsert, ProfilePatch},
     prompt::{self as prompt_ops, PromptTemplateInsert, PromptTemplatePatch},
+    recent::{self as recent_ops, RecentProject},
     secret as secret_ops,
     series::{self as series_ops, SeriesMetaPatch},
     tm::{self as tm_ops, TmEntry, TmInsert as TmInsertItem},
@@ -52,6 +54,7 @@ pub async fn project_create(
     .await??;
 
     let info = build_info(&project)?;
+    push_recent_safe(&state, &project);
     *state.project.write().await = Some(project);
     Ok(info)
 }
@@ -80,6 +83,7 @@ pub async fn project_create_picker(
     .await??;
 
     let info = build_info(&project)?;
+    push_recent_safe(&state, &project);
     *state.project.write().await = Some(project);
     Ok(Some(info))
 }
@@ -95,6 +99,7 @@ pub async fn project_open(
     .await??;
 
     let info = build_info(&project)?;
+    push_recent_safe(&state, &project);
     *state.project.write().await = Some(project);
     Ok(info)
 }
@@ -117,8 +122,55 @@ pub async fn project_open_picker(state: AppResources) -> anyhow::Result<Option<P
     .await??;
 
     let info = build_info(&project)?;
+    push_recent_safe(&state, &project);
     *state.project.write().await = Some(project);
     Ok(Some(info))
+}
+
+/// Push the now-open project to the top of the recent-projects list.
+/// Best-effort: a write failure is logged but never aborts the open.
+fn push_recent_safe(state: &AppResources, project: &Project) {
+    let entry = RecentProject {
+        path: project.root().to_path_buf(),
+        name: project.manifest().name.clone(),
+        last_opened_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0),
+    };
+    if let Err(err) = recent_ops::push(&state.recent_projects_path, entry) {
+        tracing::warn!(?err, "recent_projects push failed");
+    }
+}
+
+pub async fn recent_projects_list(
+    state: AppResources,
+) -> anyhow::Result<Vec<RecentProjectDto>> {
+    let path = state.recent_projects_path.clone();
+    let list = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<RecentProjectDto>> {
+        Ok(recent_ops::list(&path)?
+            .into_iter()
+            .map(|r| RecentProjectDto {
+                path: r.path.to_string_lossy().into_owned(),
+                name: r.name,
+                last_opened_at: r.last_opened_at,
+            })
+            .collect())
+    })
+    .await??;
+    Ok(list)
+}
+
+pub async fn recent_projects_remove(
+    state: AppResources,
+    payload: RecentProjectRemovePayload,
+) -> anyhow::Result<bool> {
+    let store = state.recent_projects_path.clone();
+    let removed = tokio::task::spawn_blocking(move || -> anyhow::Result<bool> {
+        Ok(recent_ops::remove(&store, std::path::Path::new(&payload.path))?)
+    })
+    .await??;
+    Ok(removed)
 }
 
 pub async fn project_backup_picker(

@@ -20,6 +20,7 @@ mod manifest;
 pub mod profile;
 mod project;
 pub mod prompt;
+pub mod recent;
 pub mod secret;
 pub mod series;
 pub mod tm;
