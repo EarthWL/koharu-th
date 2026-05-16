@@ -393,7 +393,7 @@ export function ChatTabPanel() {
       </ScrollArea>
 
       {/* Input */}
-      <div className='border-border relative border-t p-2'>
+      <div className='border-border relative shrink-0 border-t p-2'>
         {showSlash && (
           <SlashPicker
             query={input.slice(1).split(' ')[0] ?? ''}

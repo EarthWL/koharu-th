@@ -120,9 +120,13 @@ export function SidebarTabs() {
   }
 
   return (
-    <div className='bg-muted/50 flex h-full min-h-0 w-full flex-row border-r'>
-      {/* Vertical icon strip on the left edge */}
-      <div className='border-border bg-background/60 flex w-10 shrink-0 flex-col border-r py-1'>
+    <div className='bg-muted/50 flex h-full min-h-0 w-full flex-row overflow-hidden border-r'>
+      {/* Vertical icon strip on the left edge.
+       *  - h-full + flex-col stacks the buttons from the top
+       *  - overflow-y-auto + min-h-0 means the strip scrolls internally
+       *    if the window ever gets tall enough to need it; doesn't push
+       *    the panel layout around when content next to it changes height. */}
+      <div className='border-border bg-background/60 flex h-full w-10 min-h-0 shrink-0 flex-col overflow-y-auto border-r py-1'>
         {TABS.map(({ key, icon: Icon, labelKey, fallback, needsProject }) => {
           const disabled = needsProject && !projectInfo
           const badge =
