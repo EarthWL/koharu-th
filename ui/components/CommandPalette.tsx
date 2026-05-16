@@ -37,10 +37,13 @@ export function CommandPalette() {
   const setActiveChapterId = useProjectStore((s) => s.setActiveChapterId)
   const setPrefs = usePreferencesStore.getState()
 
-  // Global hotkey listener.
+  // Global hotkey listener. Match on `e.code` (physical key, layout-
+  // independent) instead of `e.key` — on a Thai (or other non-Latin)
+  // keyboard layout, Ctrl+K produces `e.key === 'ษ'` and the old
+  // `key.toLowerCase() === 'k'` check silently never fired.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      if ((e.metaKey || e.ctrlKey) && e.code === 'KeyK') {
         e.preventDefault()
         setOpen((v) => !v)
       } else if (e.key === 'Escape' && open) {
