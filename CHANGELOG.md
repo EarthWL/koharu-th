@@ -12,6 +12,35 @@ itself, see [their CHANGELOG](https://github.com/mayocream/koharu/blob/main/CHAN
 
 ---
 
+## [1.1.1] — 2026-05-18
+
+Hotfix for a cosmetic version-check bug introduced by 1.1.0's
+release pipeline.
+
+### Fixed
+
+- **About page kept showing "Update available (1.1.0)" on a freshly-
+  installed 1.1.0 build.** Root cause: Rust's `app_version` is fed by
+  `git_version!` which returns the `git describe --tags` form
+  (`"v1.1.0"`, with the `v` prefix). The About page compared that
+  string directly against GitHub's `tag_name` *after* stripping the
+  leading `v` (`"1.1.0"`), so `"v1.1.0" !== "1.1.0"` and the badge
+  flipped to "outdated" against itself. Fix normalises both sides
+  (strip leading `v` AND any `-N-gXXXXXXX[-dirty]` git-describe
+  suffix) before comparing, so a tagged release build matches the
+  GitHub release for the same tag — and a build N commits past the
+  tag still resolves to "latest" since there is no newer published
+  release to upgrade to.
+
+### Rebuild
+
+- Per-GPU binaries (Turing / Ampere / Ada / Blackwell) re-cut from
+  the same toolchain as 1.1.0 — only the About page TypeScript
+  changed; no Rust crate version bumps beyond the workspace
+  re-stamp from 1.1.0 → 1.1.1.
+
+---
+
 ## [1.1.0] — 2026-05-18
 
 Detect / OCR engine overhaul + first cross-platform Storage panel.
