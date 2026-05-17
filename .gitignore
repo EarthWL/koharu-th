@@ -28,6 +28,11 @@ dist-ssr
 
 target/
 
+# Per-GPU release artifacts staged by scripts/build-all-gpus.sh.
+# Uploaded to GitHub releases directly via `gh release create`; never
+# committed (266MB+ of binaries per release).
+release-out/
+
 # Datasets
 data/
 

@@ -41,7 +41,23 @@ export default function AboutPage() {
             const data = await res.json()
             const latest = data.tag_name?.replace(/^v/, '') || data.name
             setLatestVersion(latest)
-            setVersionStatus(version === latest ? 'latest' : 'outdated')
+            // Normalise both sides before comparing:
+            //   - Rust's app_version uses `git_version!` which returns
+            //     `git describe --tags --always --dirty=-dirty`, e.g.
+            //     "v1.1.0", "v1.1.0-3-ga1b2c3d", or "v1.1.0-3-ga1b2c3d-dirty".
+            //   - GitHub's tag_name is just "v1.1.0".
+            // Strip leading "v" and any git-describe suffix so a tagged
+            // release build compares equal to the matching GH release.
+            // If the local build is N commits past the tag the base
+            // version still matches and we treat that as "latest"
+            // (there's no newer published release to upgrade to).
+            const normalize = (v: string) =>
+              v
+                .replace(/^v/, '')
+                .replace(/-\d+-g[0-9a-f]+(?:-dirty)?$/, '')
+            setVersionStatus(
+              normalize(version) === normalize(latest) ? 'latest' : 'outdated',
+            )
           } else {
             setVersionStatus('error')
           }
