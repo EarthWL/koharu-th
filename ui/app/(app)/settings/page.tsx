@@ -48,6 +48,9 @@ export default function SettingsPage() {
     (s) => s.setOcrCloudProfileId,
   )
   const projectInfo = useProjectStore((s) => s.info)
+  const cloudProvider = usePreferencesStore((s) => s.cloudProvider)
+  const cloudModelName = usePreferencesStore((s) => s.cloudModelName)
+  const cloudApiKey = usePreferencesStore((s) => s.cloudApiKey)
   // Only load the profile list when the user is actually looking at
   // Engines + has cloud OCR selected. List is cheap (one SQL row per
   // profile) but no point churning it otherwise.
@@ -57,9 +60,37 @@ export default function SettingsPage() {
     enabled: !!projectInfo && ocrEngine === 'cloud',
     staleTime: 30_000,
   })
+  // Same heuristic as ProfilesTabPanel.kindOf — legacy OpenRouter
+  // profiles created before commit d6a97bb6 were saved with
+  // provider='openai' (Rust backend used to collapse the variant).
+  // The model id retains the `vendor/model` slash, which is the tell.
+  // Without this, the filter rejects perfectly-valid OpenRouter
+  // vision profiles (Gemini via OpenRouter etc.) and the user sees
+  // "no vision profile" even though their AI Chat works fine with
+  // the same profile.
+  const effectiveProvider = (p: { provider: string; modelName: string }) =>
+    p.provider === 'openai' && p.modelName.includes('/')
+      ? 'openrouter'
+      : p.provider
   const visionProfiles = (profiles.data ?? []).filter(
-    (p) => supportsVision(p.provider, p.modelName).supported,
+    (p) =>
+      supportsVision(effectiveProvider(p), p.modelName).supported,
   )
+  // Active translation profile counts too — the "(Use the active
+  // translation profile)" option in the dropdown uses it. So the
+  // "no vision profile" warning is only meaningful if NEITHER a
+  // saved profile NOR the live one would work.
+  const activeIsVision =
+    !!cloudApiKey &&
+    !!cloudModelName &&
+    cloudProvider !== 'none' &&
+    supportsVision(
+      effectiveProvider({
+        provider: cloudProvider,
+        modelName: cloudModelName,
+      }),
+      cloudModelName,
+    ).supported
 
   useEffect(() => {
     if (!isTauri()) return
@@ -235,13 +266,14 @@ export default function SettingsPage() {
                 </p>
                 {ocrEngine === 'cloud' &&
                   profiles.data &&
-                  visionProfiles.length === 0 && (
+                  visionProfiles.length === 0 &&
+                  !activeIsVision && (
                     <p className='text-amber-600 dark:text-amber-400 mt-2 text-xs'>
-                      ⚠ No vision-capable profile saved yet. Open Sidebar →
+                      ⚠ No vision-capable profile available. Open Sidebar →
                       Profiles, add an OpenAI / Claude / Gemini / OpenRouter
                       profile with a vision-capable model (e.g. gpt-4o,
-                      claude-3.5-sonnet, gemini-2.0-flash), then come back
-                      here.
+                      claude-3.5-sonnet, gemini-2.0-flash) and click Apply,
+                      then come back here.
                     </p>
                   )}
               </div>

@@ -175,15 +175,40 @@ type VisionArgs = {
 
 type VisionResult = { text: string; usage: TokenUsage | null }
 
+/** Effective provider for dispatch. Mirrors ProfilesTabPanel.kindOf —
+ *  profiles created before commit d6a97bb6 stored OpenRouter as
+ *  provider='openai' because the Rust backend used to collapse the
+ *  variant. Detect by the `vendor/model` slash and route correctly so
+ *  the legacy profile hits openrouter.ai (with its proper API key
+ *  shape) instead of api.openai.com (which would 401). */
+function effectiveProvider(profile: ProviderProfileDto): string {
+  if (
+    profile.provider === 'openai' &&
+    profile.modelName.includes('/')
+  ) {
+    return 'openrouter'
+  }
+  return profile.provider
+}
+
 async function dispatchVisionRequest(args: VisionArgs): Promise<VisionResult> {
-  switch (args.profile.provider) {
+  // Use a corrected provider for the dispatch decision so legacy
+  // profiles work; keep the original on args.profile so user-visible
+  // surfaces (the resolved-profile object the caller sees) match
+  // what's in the DB.
+  const provider = effectiveProvider(args.profile)
+  const corrected: VisionArgs =
+    provider === args.profile.provider
+      ? args
+      : { ...args, profile: { ...args.profile, provider } }
+  switch (provider) {
     case 'openai':
     case 'openrouter':
-      return callOpenAiCompatVision(args)
+      return callOpenAiCompatVision(corrected)
     case 'anthropic':
-      return callAnthropicVision(args)
+      return callAnthropicVision(corrected)
     case 'gemini':
-      return callGeminiVision(args)
+      return callGeminiVision(corrected)
     default:
       throw new Error(
         `Cloud Vision OCR isn't implemented for provider '${args.profile.provider}'.`,
@@ -363,18 +388,28 @@ export async function resolveOcrCloudProfile(
     }
   }
   // 2. Fallback: synthesize a profile-shaped object from the active
-  //    translation profile + its in-memory key.
+  //    translation profile + its in-memory key. Apply the same legacy
+  //    OpenRouter-as-openai heuristic so a user whose active profile
+  //    is an old OpenRouter row still gets recognised as vision.
+  const effectiveActive =
+    activeProvider === 'openai' && activeModelName.includes('/')
+      ? 'openrouter'
+      : activeProvider
   if (
     activeProvider &&
     activeProvider !== 'none' &&
     activeModelName &&
     activeApiKey &&
-    supportsVision(activeProvider, activeModelName).supported
+    supportsVision(effectiveActive, activeModelName).supported
   ) {
     const synthetic: ProviderProfileDto = {
       id: -1,
       name: 'Active translation profile',
-      provider: activeProvider,
+      // Use the heuristic-corrected provider so the dispatcher routes
+      // correctly even when the source pref is the legacy 'openai'-
+      // with-slash form (dispatcher itself also applies the same
+      // heuristic — belt-and-suspenders).
+      provider: effectiveActive,
       apiUrl: null,
       modelName: activeModelName,
       apiKeyRef: null,
