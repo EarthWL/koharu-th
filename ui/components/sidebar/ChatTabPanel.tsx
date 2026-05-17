@@ -37,6 +37,7 @@ import {
 import { supportsVision } from '@/lib/services/visionSupport'
 import i18n from '@/lib/i18n'
 import { toArrayBuffer } from '@/lib/util'
+import { ChatMarkdown } from '@/components/sidebar/chat-markdown'
 
 const DISPLAY_LIMIT = 50
 
@@ -419,8 +420,8 @@ export function ChatTabPanel() {
                 assistant
                 <Loader2Icon className='ml-auto size-3 animate-spin' />
               </div>
-              <div className='whitespace-pre-wrap break-words text-xs leading-relaxed'>
-                {streamingText}
+              <div className='min-w-0'>
+                <ChatMarkdown>{streamingText}</ChatMarkdown>
                 <span className='ml-0.5 inline-block h-3 w-1 animate-pulse bg-current align-middle' />
               </div>
               <button
@@ -614,8 +615,16 @@ function MessageRow({ message: m }: { message: ChatMessageDto }) {
       {(m.content ||
         !m.toolCalls ||
         (typeof m.toolCalls === 'string' && m.toolCalls === 'null')) && (
-        <div className='whitespace-pre-wrap break-words text-xs leading-relaxed'>
-          {m.content || (
+        <div className='min-w-0'>
+          {m.content ? (
+            isUser ? (
+              <div className='select-text break-words whitespace-pre-wrap text-xs leading-relaxed'>
+                {m.content}
+              </div>
+            ) : (
+              <ChatMarkdown>{m.content}</ChatMarkdown>
+            )
+          ) : (
             <span className='text-muted-foreground italic'>
               {m.role === 'assistant' ? '(no reply)' : '(empty)'}
             </span>
@@ -683,7 +692,7 @@ function ToolResultRow({ message: m }: { message: ChatMessageDto }) {
         tool result · {m.toolCallId?.slice(0, 12) ?? ''}
       </button>
       {open && (
-        <pre className='mt-1 max-h-48 overflow-auto rounded bg-black/30 p-1.5 text-[10px]'>
+        <pre className='mt-1 max-h-48 overflow-auto rounded bg-black/30 p-1.5 text-[10px] select-text whitespace-pre-wrap break-all'>
           {m.content}
         </pre>
       )}
