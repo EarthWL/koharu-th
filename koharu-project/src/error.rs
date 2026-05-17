@@ -41,6 +41,9 @@ pub enum Error {
         #[source]
         source: rusqlite::Error,
     },
+
+    #[error("not found: {0}")]
+    NotFound(String),
 }
 
 impl Error {

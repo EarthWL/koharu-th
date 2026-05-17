@@ -47,6 +47,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "tm_embeddings",
         sql: include_str!("../migrations/V005__tm_embeddings.sql"),
     },
+    Migration {
+        version: 6,
+        name: "translation_queue",
+        sql: include_str!("../migrations/V006__translation_queue.sql"),
+    },
 ];
 
 /// Open (or create) the database at `path`, install required PRAGMAs,

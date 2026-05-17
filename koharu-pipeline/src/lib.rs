@@ -19,6 +19,11 @@ pub struct AppResources {
     pub renderer: Arc<Renderer>,
     pub device: Device,
     pub pipeline: Arc<RwLock<Option<pipeline::PipelineHandle>>>,
+    /// Worker driving the persistent translation queue. None when no
+    /// queue worker is currently running — `queue_ensure_running` starts
+    /// one if needed (e.g. just after the user enqueues a new chapter,
+    /// or on app start if there are leftover pending entries).
+    pub queue_worker: Arc<RwLock<Option<ops::QueueWorkerHandle>>>,
     /// Currently-open series project, if any. None until the user creates
     /// or opens one via the project_* commands.
     pub project: Arc<RwLock<Option<Project>>>,

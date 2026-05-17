@@ -22,6 +22,7 @@ mod manifest;
 pub mod profile;
 mod project;
 pub mod prompt;
+pub mod queue;
 pub mod recent;
 pub mod secret;
 pub mod series;

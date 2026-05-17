@@ -635,7 +635,27 @@ export const api = {
   async webFetchUrl(url: string): Promise<WebFetchResult> {
     return invoke('web_fetch_url', { url }) as Promise<WebFetchResult>
   },
+
+  // ── Translation queue ────────────────────────────────────────
+
+  async queueList(): Promise<QueueEntryDto[]> {
+    return invoke('queue_list') as Promise<QueueEntryDto[]>
+  },
+
+  async queueEnqueue(chapterId: number): Promise<QueueEntryDto> {
+    return invoke('queue_enqueue', { chapterId }) as Promise<QueueEntryDto>
+  },
+
+  async queueCancel(id: number): Promise<void> {
+    await invoke('queue_cancel', { id })
+  },
+
+  async queueClearFinished(): Promise<{ removed: number }> {
+    return invoke('queue_clear_finished') as Promise<{ removed: number }>
+  },
 }
+
+export type { QueueStatus, QueueEntryDto } from '@/lib/rpc-types'
 
 export type ChatMessageDto = {
   id: number

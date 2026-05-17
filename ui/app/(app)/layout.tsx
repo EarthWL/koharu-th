@@ -3,6 +3,7 @@
 import { MenuBar } from '@/components/MenuBar'
 import { WelcomeGate } from '@/components/Welcome'
 import { CommandPalette } from '@/components/CommandPalette'
+import { QueueWidget } from '@/components/QueueWidget'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -11,6 +12,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {children}
       <WelcomeGate />
       <CommandPalette />
+      <QueueWidget />
     </div>
   )
 }

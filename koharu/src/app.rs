@@ -163,6 +163,7 @@ async fn build_resources(cpu: bool) -> Result<AppResources> {
         renderer,
         device: device(cpu)?,
         pipeline: Arc::new(RwLock::new(None)),
+        queue_worker: Arc::new(RwLock::new(None)),
         project: Arc::new(RwLock::new(None)),
         recent_projects_path: APP_ROOT.join("recent-projects.json"),
         version: crate::version::current(),

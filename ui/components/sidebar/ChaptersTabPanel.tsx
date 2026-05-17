@@ -8,6 +8,7 @@ import {
   CheckIcon,
   FolderPlusIcon,
   ImagePlusIcon,
+  ListPlusIcon,
   Loader2Icon,
   PinIcon,
   PinOffIcon,
@@ -29,6 +30,7 @@ import {
 import { api, type ChapterDto, type ChapterStatus } from '@/lib/api'
 import { useProjectStore } from '@/lib/stores/projectStore'
 import { ExtractEntitiesModal } from '@/components/project/ExtractEntitiesModal'
+import { useEnqueueChapter, useQueueList } from '@/lib/query/queue'
 
 const STATUS_OPTIONS: { value: ChapterStatus; label: string }[] = [
   { value: 'pending', label: 'Pending' },
@@ -204,6 +206,13 @@ function ChapterRow({
   const activeChapterId = useProjectStore((s) => s.activeChapterId)
   const setActiveChapterId = useProjectStore((s) => s.setActiveChapterId)
   const setSidebarTab = useProjectStore((s) => s.setSidebarTab)
+  const enqueue = useEnqueueChapter()
+  const queueList = useQueueList()
+  const isQueued = !!queueList.data?.some(
+    (e) =>
+      e.chapterId === chapter.id &&
+      (e.status === 'pending' || e.status === 'running'),
+  )
   const isActive = activeChapterId === chapter.id
   const [opening, setOpening] = useState(false)
   const [openingForExtract, setOpeningForExtract] = useState(false)
@@ -400,6 +409,28 @@ function ChapterRow({
             <Loader2Icon className='size-3 animate-spin' />
           ) : (
             <WandSparklesIcon className='size-3' />
+          )}
+        </Button>
+        <Button
+          variant='outline'
+          size='sm'
+          className='h-6 px-1.5 text-[10px]'
+          disabled={
+            enqueue.isPending || chapter.pageCount === 0 || isQueued
+          }
+          onClick={() => enqueue.mutate(chapter.id)}
+          title={
+            chapter.pageCount === 0
+              ? 'ยังไม่มีรูปหน้า — กด “+ Pages” อัปโหลดก่อน'
+              : isQueued
+                ? 'อยู่ในคิวแปลแล้ว'
+                : 'เพิ่ม chapter นี้เข้าคิวแปลอัตโนมัติ (background)'
+          }
+        >
+          {enqueue.isPending ? (
+            <Loader2Icon className='size-3 animate-spin' />
+          ) : (
+            <ListPlusIcon className='size-3' />
           )}
         </Button>
         <Button

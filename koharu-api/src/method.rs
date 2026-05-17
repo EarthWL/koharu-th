@@ -96,6 +96,11 @@ pub enum Method {
     ChatMessageAdd,
     ChatMessagesClear,
     WebFetchUrl,
+    // Translation queue
+    QueueList,
+    QueueEnqueue,
+    QueueCancel,
+    QueueClearFinished,
 }
 
 impl Method {
@@ -182,6 +187,10 @@ impl Method {
         Method::ChatMessageAdd,
         Method::ChatMessagesClear,
         Method::WebFetchUrl,
+        Method::QueueList,
+        Method::QueueEnqueue,
+        Method::QueueCancel,
+        Method::QueueClearFinished,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -268,6 +277,10 @@ impl Method {
             Method::ChatMessageAdd => "chat_message_add",
             Method::ChatMessagesClear => "chat_messages_clear",
             Method::WebFetchUrl => "web_fetch_url",
+            Method::QueueList => "queue_list",
+            Method::QueueEnqueue => "queue_enqueue",
+            Method::QueueCancel => "queue_cancel",
+            Method::QueueClearFinished => "queue_clear_finished",
         }
     }
 }
@@ -365,6 +378,10 @@ impl FromStr for Method {
             "chat_message_add" => Method::ChatMessageAdd,
             "chat_messages_clear" => Method::ChatMessagesClear,
             "web_fetch_url" => Method::WebFetchUrl,
+            "queue_list" => Method::QueueList,
+            "queue_enqueue" => Method::QueueEnqueue,
+            "queue_cancel" => Method::QueueCancel,
+            "queue_clear_finished" => Method::QueueClearFinished,
             _ => anyhow::bail!("Unknown method: {s}"),
         };
         Ok(method)

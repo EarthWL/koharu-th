@@ -90,6 +90,30 @@ export type RpcMethodMap = {
     void,
   ]
   process_cancel: [void, void]
+  // ── Translation queue ────────────────────────────────────────
+  queue_list: [void, QueueEntryDto[]]
+  queue_enqueue: [{ chapterId: number }, QueueEntryDto]
+  queue_cancel: [{ id: number }, void]
+  queue_clear_finished: [void, { removed: number }]
+}
+
+export type QueueStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+
+export type QueueEntryDto = {
+  id: number
+  chapterId: number
+  status: QueueStatus
+  totalPages: number
+  donePages: number
+  errorMessage: string | null
+  enqueuedAt: number
+  startedAt: number | null
+  finishedAt: number | null
 }
 
 export type DownloadProgress = {

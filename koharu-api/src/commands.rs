@@ -1242,3 +1242,42 @@ mod tests {
         });
     }
 }
+
+// ── Translation queue ────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueEnqueuePayload {
+    /// `chapters.id` to translate. The entry runs as soon as the
+    /// worker reaches it (after any earlier pending entries).
+    pub chapter_id: i64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueIdPayload {
+    /// `translation_queue.id` of the entry to act on (cancel etc.).
+    pub id: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueEntryDto {
+    pub id: i64,
+    pub chapter_id: i64,
+    pub status: String,
+    pub total_pages: i64,
+    pub done_pages: i64,
+    pub error_message: Option<String>,
+    pub enqueued_at: i64,
+    pub started_at: Option<i64>,
+    pub finished_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueClearResult {
+    /// Number of finished (completed/failed/cancelled) entries removed.
+    pub removed: usize,
+}
+

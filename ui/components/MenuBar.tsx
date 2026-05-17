@@ -20,6 +20,7 @@ import { useProjectMutations } from '@/lib/query/projectMutations'
 import { useProjectStore } from '@/lib/stores/projectStore'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { checkForUpdates } from '@/lib/services/updateCheck'
 
 type MenuItem = {
   label: string
@@ -158,7 +159,36 @@ export function MenuBar() {
     },
   ]
 
+  const runUpdateCheck = async () => {
+    let current = '0.0.0'
+    try {
+      current = (await api.appVersion()) ?? '0.0.0'
+    } catch {}
+    const result = await checkForUpdates(current)
+    if (result.kind === 'up-to-date') {
+      alert(
+        `You're on the latest version (${result.currentVersion}).\nLatest release: ${result.latestVersion}`,
+      )
+      return
+    }
+    if (result.kind === 'error') {
+      alert(`Couldn't check for updates: ${result.message}`)
+      return
+    }
+    const open = confirm(
+      `Update available!\n\n` +
+        `Current: ${result.currentVersion}\n` +
+        `Latest:  ${result.latestVersion}\n\n` +
+        `Open the release page to download?`,
+    )
+    if (open) openExternal(result.releaseUrl)
+  }
+
   const helpMenuItems: MenuItem[] = [
+    {
+      label: t('menu.checkForUpdates', 'Check for updates…'),
+      onSelect: () => void runUpdateCheck(),
+    },
     {
       label: t('menu.github', 'GitHub'),
       onSelect: () =>

@@ -4,6 +4,7 @@ mod edit;
 mod llm;
 mod process;
 mod project;
+pub mod queue;
 mod utils;
 mod vision;
 
@@ -13,5 +14,7 @@ pub use edit::*;
 pub use llm::*;
 pub use process::*;
 pub use project::*;
+pub use queue::{cancel_active, ensure_running as queue_ensure_running, queue_cancel,
+    queue_clear_finished, queue_enqueue, queue_list, QueueWorkerHandle};
 pub use utils::{InpaintRegionExt, load_documents};
 pub use vision::*;

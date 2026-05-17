@@ -103,6 +103,7 @@ pub async fn project_open(
     let info = build_info(&project)?;
     push_recent_safe(&state, &project);
     *state.project.write().await = Some(project);
+    after_project_open(state).await;
     Ok(info)
 }
 
@@ -126,7 +127,41 @@ pub async fn project_open_picker(state: AppResources) -> anyhow::Result<Option<P
     let info = build_info(&project)?;
     push_recent_safe(&state, &project);
     *state.project.write().await = Some(project);
+    after_project_open(state).await;
     Ok(Some(info))
+}
+
+/// Recovery hook fired whenever a project opens: reset any queue entry
+/// stuck in `running` (we crashed mid-pipeline last session) and kick
+/// the worker if there are pending entries left over.
+async fn after_project_open(state: AppResources) {
+    let project = match state.project.read().await.clone() {
+        Some(p) => p,
+        None => return,
+    };
+    // Reset orphaned 'running' rows back to 'pending' so the worker
+    // will pick them up. Best-effort — log and continue on failure.
+    let p = project.clone();
+    let reset = tokio::task::spawn_blocking(move || -> anyhow::Result<usize> {
+        let conn = p.pool().get()?;
+        Ok(koharu_project::queue::reset_orphan_running(&conn)?)
+    })
+    .await;
+    match reset {
+        Ok(Ok(n)) if n > 0 => {
+            tracing::info!(reset_count = n, "queue: re-queued orphaned running entries");
+        }
+        Ok(Ok(_)) => {}
+        Ok(Err(err)) => {
+            tracing::warn!("queue: failed to reset orphan running entries: {err:#}");
+        }
+        Err(err) => {
+            tracing::warn!("queue: orphan-reset task panicked: {err}");
+        }
+    }
+    if let Err(err) = super::queue_ensure_running(state).await {
+        tracing::warn!("queue: ensure_running on project open failed: {err:#}");
+    }
 }
 
 /// Push the now-open project to the top of the recent-projects list.
