@@ -533,7 +533,7 @@ export const useDocumentMutations = () => {
             skipOcr: true,
           })
         } else {
-          const { detectorEngine } = usePreferencesStore.getState()
+          const { detectorEngine, animeYoloVariant } = usePreferencesStore.getState()
           await api.process({
             index: resolvedIndex,
             llmModelId: selectedModel,
@@ -543,6 +543,7 @@ export const useDocumentMutations = () => {
             fontFamily,
             ocrEngine,
             detectorEngine,
+            animeYoloVariant,
           })
         }
       } catch (error) {
@@ -579,7 +580,7 @@ export const useDocumentMutations = () => {
       total: totalPages,
     })
     try {
-      const { detectorEngine } = usePreferencesStore.getState()
+      const { detectorEngine, animeYoloVariant } = usePreferencesStore.getState()
       await api.process({
         llmModelId: selectedModel,
         language: selectedLanguage,
@@ -588,6 +589,7 @@ export const useDocumentMutations = () => {
         fontFamily,
         ocrEngine: effectiveEngine,
         detectorEngine,
+        animeYoloVariant,
       })
     } catch (error) {
       console.error('Failed to start processing:', error)

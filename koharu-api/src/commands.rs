@@ -1,4 +1,6 @@
-use koharu_types::{DetectorEngine, OcrEngine, TextBlock, TextShaderEffect, TextStrokeStyle};
+use koharu_types::{
+    AnimeYoloVariant, DetectorEngine, OcrEngine, TextBlock, TextShaderEffect, TextStrokeStyle,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -130,6 +132,9 @@ pub struct ProcessRequest {
     /// (`comic_text_detector`). UI sets this from
     /// `preferencesStore.detectorEngine`.
     pub detector_engine: Option<DetectorEngine>,
+    /// Size variant for Anime Text YOLO. Only honoured when
+    /// `detector_engine == Some(AnimeYolo)`. `None` ⇒ N (nano, ~10MB).
+    pub anime_yolo_variant: Option<AnimeYoloVariant>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

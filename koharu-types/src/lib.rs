@@ -63,6 +63,42 @@ impl DetectorEngine {
     }
 }
 
+/// Size variant for the Anime Text YOLO detector. Only meaningful
+/// when `DetectorEngine::AnimeYolo` is selected. Mirrors
+/// `koharu_ml::anime_text::AnimeTextYoloVariant`.
+///
+/// Bigger variants = better recall, slower inference + larger
+/// download. Approximate sizes:
+///   N (nano)        ~10MB
+///   S (small)       ~30MB
+///   M (medium)      ~80MB
+///   L (large)       ~150MB
+///   X (extra large) ~250MB
+#[derive(
+    Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum AnimeYoloVariant {
+    #[default]
+    N,
+    S,
+    M,
+    L,
+    X,
+}
+
+impl AnimeYoloVariant {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AnimeYoloVariant::N => "n",
+            AnimeYoloVariant::S => "s",
+            AnimeYoloVariant::M => "m",
+            AnimeYoloVariant::L => "l",
+            AnimeYoloVariant::X => "x",
+        }
+    }
+}
+
 use std::{path::PathBuf, sync::Arc};
 
 use ::image::GenericImageView;

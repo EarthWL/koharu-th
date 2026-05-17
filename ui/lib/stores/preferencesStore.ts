@@ -35,6 +35,10 @@ export type OcrEngine = 'mit48px' | 'manga' | 'cloud'
  */
 export type DetectorEngine = 'default' | 'anime_yolo'
 
+/** Size variant for the Anime Text YOLO detector (~10MB to ~250MB).
+ *  Bigger = better recall, slower, larger first-use download. */
+export type AnimeYoloVariant = 'n' | 's' | 'm' | 'l' | 'x'
+
 /** Per-provider wire config. Each provider keeps its own slot so the
  *  user can switch providers without re-pasting keys. */
 export type ProviderConfig = {
@@ -116,6 +120,11 @@ type PreferencesState = {
   detectorEngine: DetectorEngine
   setDetectorEngine: (engine: DetectorEngine) => void
 
+  /** Size variant for Anime Text YOLO. Only honoured when
+   *  `detectorEngine === 'anime_yolo'`. */
+  animeYoloVariant: AnimeYoloVariant
+  setAnimeYoloVariant: (variant: AnimeYoloVariant) => void
+
   resetPreferences: () => void
 }
 
@@ -132,6 +141,7 @@ const initialPreferences = {
   ocrCloudProfileId: null as number | null,
   activeProfileId: null as number | null,
   detectorEngine: 'default' as DetectorEngine,
+  animeYoloVariant: 'n' as AnimeYoloVariant,
 }
 
 /**
@@ -216,6 +226,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       setOcrCloudProfileId: (id) => set({ ocrCloudProfileId: id }),
       setActiveProfileId: (id) => set({ activeProfileId: id }),
       setDetectorEngine: (engine) => set({ detectorEngine: engine }),
+      setAnimeYoloVariant: (variant) => set({ animeYoloVariant: variant }),
       resetPreferences: () => set({ ...initialPreferences }),
     }),
     {

@@ -49,6 +49,8 @@ export default function SettingsPage() {
   )
   const detectorEngine = usePreferencesStore((s) => s.detectorEngine)
   const setDetectorEngine = usePreferencesStore((s) => s.setDetectorEngine)
+  const animeYoloVariant = usePreferencesStore((s) => s.animeYoloVariant)
+  const setAnimeYoloVariant = usePreferencesStore((s) => s.setAnimeYoloVariant)
   const projectInfo = useProjectStore((s) => s.info)
   const cloudProvider = usePreferencesStore((s) => s.cloudProvider)
   const cloudModelName = usePreferencesStore((s) => s.cloudModelName)
@@ -212,13 +214,48 @@ export default function SettingsPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value='default'>
-                        Default (comic_text_detector · DBNet + UNet, tuned for in-bubble text)
+                        Default (comic_text_detector)
                       </SelectItem>
                       <SelectItem value='anime_yolo'>
-                        Anime Text YOLO (mayocream/anime-text-yolo · catches SFX / titles, ~10MB first-use download)
+                        Anime Text YOLO
                       </SelectItem>
                     </SelectContent>
                   </Select>
+
+                  {detectorEngine === 'anime_yolo' && (
+                    <>
+                      <label className='text-muted-foreground'>
+                        {t('settings.engineDetectorVariant', 'YOLO variant')}
+                      </label>
+                      <Select
+                        value={animeYoloVariant}
+                        onValueChange={(v) =>
+                          setAnimeYoloVariant(v as 'n' | 's' | 'm' | 'l' | 'x')
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value='n'>
+                            N · nano · ~10MB · fastest
+                          </SelectItem>
+                          <SelectItem value='s'>
+                            S · small · ~30MB
+                          </SelectItem>
+                          <SelectItem value='m'>
+                            M · medium · ~80MB
+                          </SelectItem>
+                          <SelectItem value='l'>
+                            L · large · ~150MB
+                          </SelectItem>
+                          <SelectItem value='x'>
+                            X · xlarge · ~250MB · best recall
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </>
+                  )}
 
                   <label className='text-muted-foreground'>
                     {t('settings.engineOcr', 'OCR')}
@@ -277,6 +314,15 @@ export default function SettingsPage() {
                     </>
                   )}
                 </div>
+
+                {detectorEngine === 'anime_yolo' && (
+                  <p className='text-muted-foreground/70 mt-3 text-xs'>
+                    {t(
+                      'settings.engineDetectorAnimeYoloHint',
+                      'Anime Text YOLO (mayocream/anime-text-yolo, YOLO12) is tuned for anime/manga text and catches SFX, stylised titles, and out-of-bubble text the default detector misses. Bubble mask still comes from the default detector (YOLO has no bubble branch). Switching variant reloads the model on next Process — pick N for speed, X for max recall.',
+                    )}
+                  </p>
+                )}
                 <p className='text-muted-foreground/70 mt-3 text-xs'>
                   {ocrEngine === 'cloud'
                     ? t(

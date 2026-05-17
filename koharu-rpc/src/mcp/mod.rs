@@ -464,6 +464,7 @@ impl KoharuMcp {
                 skip_ocr: None,
                 skip_detect: None,
                 detector_engine: None,
+                anime_yolo_variant: None,
             },
         )
         .await

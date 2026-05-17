@@ -267,6 +267,7 @@ async fn process_entry(
             // Queue uses default detector — if user wants AnimeText
             // YOLO in batch, read it from project prefs here.
             detector_engine: None,
+            anime_yolo_variant: None,
         },
     )
     .await?;

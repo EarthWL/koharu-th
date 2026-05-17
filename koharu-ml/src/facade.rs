@@ -1,8 +1,9 @@
 use anyhow::Result;
 use image::{DynamicImage, GenericImageView};
 use koharu_types::{Document, DetectorEngine, FontPrediction, OcrEngine, SerializableDynamicImage};
+use tokio::sync::Mutex;
 
-use crate::anime_text::AnimeTextDetector;
+use crate::anime_text::{AnimeTextDetector, AnimeTextYoloVariant};
 use crate::comic_text_detector::{self, ComicTextDetector};
 use crate::font_detector::{self, FontDetector};
 use crate::lama::{self, Lama};
@@ -76,10 +77,14 @@ pub struct Model {
     /// users stay on the default Mit48px engine, no reason to pay the
     /// VRAM / startup cost for a model nobody asked for.
     ocr_manga: tokio::sync::OnceCell<MangaOcr>,
-    /// Lazily loaded on first use — AnimeTextYOLO N variant is small
-    /// (~10MB) but still no reason to download / hold in memory when
-    /// the user stays on the default detector.
-    detector_anime: tokio::sync::OnceCell<AnimeTextDetector>,
+    /// Lazily loaded on first use — AnimeTextYOLO N variant is ~10MB,
+    /// X variant ~250MB. We hold one loaded variant at a time
+    /// (Mutex<Option<(variant, detector)>>) instead of caching all
+    /// five — switching variants reloads the new one and drops the
+    /// old, which keeps VRAM bounded but means switching has a
+    /// one-time cost. Users typically pick a size and stick with it,
+    /// so this is the right tradeoff.
+    detector_anime: Mutex<Option<(AnimeTextYoloVariant, std::sync::Arc<AnimeTextDetector>)>>,
     /// Stashed so the lazy MangaOcr / AnimeTextDetector loaders know
     /// whether to use CPU.
     use_cpu: bool,
@@ -93,7 +98,7 @@ impl Model {
             dialog_detector: ComicTextDetector::load(use_cpu).await?,
             ocr_mit48px: Mit48pxOcr::load(use_cpu).await?,
             ocr_manga: tokio::sync::OnceCell::new(),
-            detector_anime: tokio::sync::OnceCell::new(),
+            detector_anime: Mutex::new(None),
             use_cpu,
             lama: Lama::load(use_cpu).await?,
             font_detector: FontDetector::load(use_cpu).await?,
@@ -106,10 +111,25 @@ impl Model {
             .await
     }
 
-    async fn anime_text_detector(&self) -> Result<&AnimeTextDetector> {
-        self.detector_anime
-            .get_or_try_init(|| AnimeTextDetector::load(self.use_cpu))
-            .await
+    async fn anime_text_detector(
+        &self,
+        variant: AnimeTextYoloVariant,
+    ) -> Result<std::sync::Arc<AnimeTextDetector>> {
+        let mut guard = self.detector_anime.lock().await;
+        match guard.as_ref() {
+            Some((cached, det)) if *cached == variant => Ok(det.clone()),
+            _ => {
+                tracing::info!(
+                    variant = variant.as_str(),
+                    "loading AnimeText YOLO variant (reloading or first use)"
+                );
+                let det = std::sync::Arc::new(
+                    AnimeTextDetector::load_variant(variant, self.use_cpu).await?,
+                );
+                *guard = Some((variant, det.clone()));
+                Ok(det)
+            }
+        }
     }
 
     /// Detect text blocks and fonts in a document with the default
@@ -117,7 +137,7 @@ impl Model {
     /// `detect_with` for callers that haven't been threaded the
     /// engine preference yet.
     pub async fn detect(&self, doc: &mut Document) -> Result<()> {
-        self.detect_with(doc, DetectorEngine::default()).await
+        self.detect_with(doc, DetectorEngine::default(), None).await
     }
 
     /// Detect text blocks + bubble mask + fonts using the chosen
@@ -126,18 +146,24 @@ impl Model {
     /// AnimeTextYolo fetch). Always populates the bubble `segment`
     /// from the default detector — Anime Text YOLO has no bubble
     /// branch, so we keep using the default for that signal.
+    ///
+    /// `anime_yolo_variant` only matters when `engine` is `AnimeYolo`;
+    /// None defaults to the smallest (N) variant.
     pub async fn detect_with(
         &self,
         doc: &mut Document,
         engine: DetectorEngine,
+        anime_yolo_variant: Option<AnimeTextYoloVariant>,
     ) -> Result<()> {
+        let variant = anime_yolo_variant.unwrap_or(AnimeTextYoloVariant::N);
         let effective = match engine {
             DetectorEngine::Default => DetectorEngine::Default,
-            DetectorEngine::AnimeYolo => match self.anime_text_detector().await {
+            DetectorEngine::AnimeYolo => match self.anime_text_detector(variant).await {
                 Ok(_) => DetectorEngine::AnimeYolo,
                 Err(err) => {
                     tracing::warn!(
-                        "AnimeText YOLO failed to load ({err:#}); falling back to default detector"
+                        "AnimeText YOLO {} failed to load ({err:#}); falling back to default detector",
+                        variant.as_str()
                     );
                     DetectorEngine::Default
                 }
@@ -160,7 +186,10 @@ impl Model {
                 let default_detection = self.dialog_detector.inference(&doc.image)?;
                 doc.segment =
                     Some(DynamicImage::ImageLuma8(default_detection.mask).into());
-                let yolo = self.anime_text_detector().await.expect("checked above");
+                let yolo = self
+                    .anime_text_detector(variant)
+                    .await
+                    .expect("checked above");
                 let anime = yolo.inference(&doc.image)?;
                 doc.text_blocks = anime.text_blocks;
             }

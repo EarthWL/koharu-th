@@ -27,7 +27,8 @@ use image::{
     imageops::{self, FilterType},
 };
 use koharu_types::TextBlock;
-use serde::{Deserialize, Serialize};
+pub use koharu_types::AnimeYoloVariant as AnimeTextYoloVariant;
+use serde::Serialize;
 use tracing::instrument;
 
 use crate::{define_models, device, loading};
@@ -51,51 +52,26 @@ define_models! {
     Yolo12x => ("mayocream/anime-text-yolo", "yolo12x_animetext.safetensors"),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum AnimeTextYoloVariant {
-    N,
-    S,
-    M,
-    L,
-    X,
-}
-
-impl AnimeTextYoloVariant {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::N => "n",
-            Self::S => "s",
-            Self::M => "m",
-            Self::L => "l",
-            Self::X => "x",
-        }
-    }
-
-    fn manifest(self) -> Manifest {
-        match self {
-            Self::N => Manifest::Yolo12n,
-            Self::S => Manifest::Yolo12s,
-            Self::M => Manifest::Yolo12m,
-            Self::L => Manifest::Yolo12l,
-            Self::X => Manifest::Yolo12x,
-        }
-    }
-
-    fn scale(self) -> Yolo12Scale {
-        match self {
-            Self::N => Yolo12Scale::N,
-            Self::S => Yolo12Scale::S,
-            Self::M => Yolo12Scale::M,
-            Self::L => Yolo12Scale::L,
-            Self::X => Yolo12Scale::X,
-        }
+/// Map the shared types-side `AnimeYoloVariant` to our model
+/// manifest + Yolo12 scale. Kept here so the rest of the codebase
+/// only depends on `koharu_types::AnimeYoloVariant`.
+fn manifest_for(v: AnimeTextYoloVariant) -> Manifest {
+    match v {
+        AnimeTextYoloVariant::N => Manifest::Yolo12n,
+        AnimeTextYoloVariant::S => Manifest::Yolo12s,
+        AnimeTextYoloVariant::M => Manifest::Yolo12m,
+        AnimeTextYoloVariant::L => Manifest::Yolo12l,
+        AnimeTextYoloVariant::X => Manifest::Yolo12x,
     }
 }
 
-impl std::fmt::Display for AnimeTextYoloVariant {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
+fn scale_for(v: AnimeTextYoloVariant) -> Yolo12Scale {
+    match v {
+        AnimeTextYoloVariant::N => Yolo12Scale::N,
+        AnimeTextYoloVariant::S => Yolo12Scale::S,
+        AnimeTextYoloVariant::M => Yolo12Scale::M,
+        AnimeTextYoloVariant::L => Yolo12Scale::L,
+        AnimeTextYoloVariant::X => Yolo12Scale::X,
     }
 }
 
@@ -143,14 +119,17 @@ impl AnimeTextDetector {
         cpu: bool,
     ) -> Result<Self> {
         let device = device(cpu)?;
-        let scale = variant.scale();
+        let scale = scale_for(variant);
         let model =
-            loading::load_mmaped_safetensors(variant.manifest().get(), &device, move |vb| {
+            loading::load_mmaped_safetensors(manifest_for(variant).get(), &device, move |vb| {
                 Yolo12::load(vb, scale, NUM_CLASSES)
             })
             .await
             .with_context(|| {
-                format!("failed to load anime text YOLO {} weights", variant)
+                format!(
+                    "failed to load anime text YOLO {} weights",
+                    variant.as_str()
+                )
             })?;
 
         Ok(Self {
@@ -189,7 +168,7 @@ impl AnimeTextDetector {
         tracing::info!(
             width = image.width(),
             height = image.height(),
-            variant = %self.variant,
+            variant = self.variant.as_str(),
             detections = regions.len(),
             total_ms = started.elapsed().as_millis(),
             "anime text YOLO timings"
