@@ -12,6 +12,106 @@ itself, see [their CHANGELOG](https://github.com/mayocream/koharu/blob/main/CHAN
 
 ---
 
+## [1.1.0] — 2026-05-18
+
+Detect / OCR engine overhaul + first cross-platform Storage panel.
+You can now pick a non-default detector and OCR engine and have the
+choice actually stick across every button that runs them, tune
+Anime YOLO sensitivity per project with a Settings slider, and
+reclaim 1-3 GB of cache from inside the app — or have the Windows
+uninstaller offer to do it for you on the way out.
+
+### Added
+
+- **Anime Text YOLO detector as opt-in alternative** to the default
+  comic_text_detector. Tuned for anime / manga; catches SFX, stylised
+  titles, and out-of-bubble text the default detector misses. Ported
+  cleanly from upstream onto our own `define_models!` + `loading::*`
+  patterns (no ZLUDA workarounds). Bubble mask still comes from the
+  default detector (YOLO has no bubble branch).
+- **5 size variants for Anime Text YOLO** (`mayocream/anime-text-yolo`):
+  N (nano, ~10 MB) → X (xlarge, ~250 MB). Variant selector lives in
+  Settings → Detector and only appears when Anime YOLO is active.
+  Variant-aware lazy load — switching variant re-downloads weights on
+  next Process.
+- **Confidence slider for Anime Text YOLO** (Settings → Detector,
+  range 0.05–0.95 step 0.05, default 0.25 matching upstream). Slider
+  shows `More (noisy) ↔ Fewer (strict)` labels so the direction is
+  obvious without reading the hint. Reset link appears when off-
+  default. Backend clamps to [0.05, 0.95] mirroring frontend clamp.
+- **Settings → Storage panel.** Lists every on-disk artefact koharu
+  manages outside user project folders: CUDA runtime libraries
+  (~1-1.5 GB), AI model cache (~0.5-2 GB), custom fonts (user data),
+  recent-projects list. Each row shows size + file count + on-disk
+  path + a per-row Clear button with confirm dialog. Bonus
+  "Preferences → Reset to defaults" row that calls
+  `resetPreferences()` (touches localStorage, not on-disk files).
+- **NSIS uninstaller cleanup hook (Windows).** On uninstall the
+  default Tauri uninstaller now asks whether to also remove
+  `%LOCALAPPDATA%\Koharu\` (cached AI models + CUDA libs + fonts +
+  prefs). Default = No so re-installing later reuses the cache.
+  Four safety belts: refuses if `$LOCALAPPDATA` is empty, requires
+  at least one Koharu-specific marker file to exist before any
+  destructive op, deletes by named subfolder (not the parent
+  recursively), and finishes with a non-recursive `RMDir` that only
+  succeeds when the parent is empty. Bounded blast radius — cannot
+  follow a hypothetical parent-level junction the way an unguarded
+  `RMDir /r "$LOCALAPPDATA\Koharu"` could.
+- **Cloud Vision OCR sends per-bubble crops** instead of one full
+  page + bbox list. Each request part is one image containing
+  exactly one bubble (with 8% context padding), eliminating the
+  text-to-index mapping problem that broke cheap vision models like
+  `gemini-2.5-flash-lite` on busy pages (was emitting partials for
+  late bubbles, then dumping entire panels into one slot). Token
+  cost ~2× on OpenAI/Anthropic, ~18× on Gemini at gemini-2.5-flash-lite
+  pricing — still pennies per page; correctness >> cost.
+
+### Fixed
+
+- **Standalone Detect button bypassed the engine preference.** User
+  could pick Anime Text YOLO in Settings and the button kept running
+  default comic_text_detector silently — no weight download, no
+  visible warning. `api.detect(index)` only sent the index. New
+  `DetectPayload { index, detector_engine?, anime_yolo_variant?,
+  anime_yolo_confidence? }` threads the prefs end-to-end (frontend
+  → pipeline → facade). Same shape later applied to OCR.
+- **Standalone OCR button bypassed the engine preference.** User
+  picked Manga OCR for a Japanese page; backend defaulted to
+  MIT-48px regardless, MIT-48px couldn't read vertical text, output
+  was single-char garbage (`j`, `l`, `l`, `t`). New `OcrPayload {
+  index, ocr_engine? }` threads the choice through; backend's
+  existing graceful-fallback (Manga OCR fails to load → MIT-48px)
+  is preserved.
+- **Cloud Vision OCR misaligned text after the user deleted
+  bubbles.** Initial fix attempted on-image numbered overlays;
+  small models still confused once page got busy. Final fix: send
+  per-bubble crops (see Added). The crops approach is also more
+  robust to faint SFX since each bubble gets a dedicated 384px
+  image rather than competing for resolution inside a 1024px page.
+
+### Tuning
+
+- Anime Text YOLO defaults held at upstream's `confidence=0.25`,
+  `nms=0.50` (NMS bumped 0.45 → 0.50 to merge near-overlapping
+  vertical SFX). Users who hit over-detection raise the new slider
+  to 0.35–0.45.
+
+### Internal / repo
+
+- New `koharu-pipeline/src/ops/storage.rs` with `app_storage_stats`
+  and `app_storage_clear` ops; backed by a `StorageEntry` /
+  `StorageClearTarget` DTO pair in koharu-api. RPC methods
+  `app_storage_stats` + `app_storage_clear` registered, but MCP
+  intentionally skips both — admin-only ops shouldn't be agent-
+  controlled.
+- `AppResources` carries `lib_root` / `model_root` / `font_root`
+  paths so storage ops can't get the path wrong vs what the runtime
+  actually uses.
+- `koharu-pipeline` adds direct `walkdir = "2"` dep for recursive
+  size measurement (was already transitive).
+
+---
+
 ## [1.0.3] — 2026-05-17
 
 Chat-panel quality pass + first portable Windows release. The big
