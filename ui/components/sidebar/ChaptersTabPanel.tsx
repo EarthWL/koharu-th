@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArchiveIcon,
   CheckIcon,
+  EraserIcon,
   FolderPlusIcon,
   ImagePlusIcon,
   ListPlusIcon,
@@ -218,6 +219,7 @@ function ChapterRow({
   const [openingForExtract, setOpeningForExtract] = useState(false)
   const [addingPages, setAddingPages] = useState(false)
   const [exportingCbz, setExportingCbz] = useState(false)
+  const [clearingPages, setClearingPages] = useState(false)
   const [justAdded, setJustAdded] = useState<number | null>(null)
 
   const openAndExtract = async () => {
@@ -288,6 +290,33 @@ function ChapterRow({
       alert(err?.message ?? String(err))
     } finally {
       setExportingCbz(false)
+    }
+  }
+
+  const clearPages = async () => {
+    if (chapter.pageCount === 0) return
+    if (
+      !confirm(
+        `ลบรูปทั้งหมด ${chapter.pageCount} ไฟล์ออกจาก "${
+          chapter.title ?? chapter.folderPath
+        }"?\n\nไฟล์จะถูกลบจากโฟลเดอร์ source/ ของ chapter (ไม่ recoverable).\nChapter row + characters + glossary + TM จะคงอยู่.`,
+      )
+    ) {
+      return
+    }
+    setClearingPages(true)
+    try {
+      const r = await api.chapterClearPages(chapter.id)
+      if (r.failed > 0) {
+        alert(
+          `ลบสำเร็จ ${r.removed} ไฟล์ แต่มี ${r.failed} ไฟล์ลบไม่ได้ (อาจถูก lock โดย OS preview / โปรแกรมอื่น). ดู log ฝั่ง Rust สำหรับรายละเอียด.`,
+        )
+      }
+      onChanged()
+    } catch (err: any) {
+      alert(err?.message ?? String(err))
+    } finally {
+      setClearingPages(false)
     }
   }
 
@@ -462,6 +491,24 @@ function ChapterRow({
             ))}
           </SelectContent>
         </Select>
+        <Button
+          variant='ghost'
+          size='icon-xs'
+          className='size-6'
+          title={
+            chapter.pageCount === 0
+              ? 'ไม่มีรูปหน้าให้ลบ'
+              : `ลบรูปทั้งหมด (${chapter.pageCount}) ออกจาก source/ ของ chapter นี้ — chapter row, characters, glossary, TM ยังอยู่`
+          }
+          disabled={clearingPages || chapter.pageCount === 0}
+          onClick={() => void clearPages()}
+        >
+          {clearingPages ? (
+            <Loader2Icon className='size-3 animate-spin' />
+          ) : (
+            <EraserIcon className='size-3' />
+          )}
+        </Button>
         <Button
           variant='ghost'
           size='icon-xs'

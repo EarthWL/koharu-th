@@ -427,6 +427,17 @@ pub struct ChapterIdPayload {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct ChapterClearPagesResult {
+    /// Number of files successfully deleted from `source/`.
+    pub removed: u32,
+    /// Number of files we failed to delete (logged on the Rust side).
+    /// Usually 0 — a non-zero count typically means a file was locked
+    /// by another process (e.g. the OS preview pane).
+    pub failed: u32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ChapterPagePayload {
     pub chapter_id: i64,
     /// 0-based index into the chapter's `source/` directory after the

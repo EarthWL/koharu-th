@@ -143,6 +143,9 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         }
         Method::ChapterUpdate => call(operations::chapter_update, state, params).await,
         Method::ChapterRemove => call(operations::chapter_remove, state, params).await,
+        Method::ChapterClearPages => {
+            call(operations::chapter_clear_pages, state, params).await
+        }
         Method::ChapterExportCbz => {
             call(operations::chapter_export_cbz, state, params).await
         }

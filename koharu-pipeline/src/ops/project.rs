@@ -731,6 +731,48 @@ pub async fn chapter_remove(
     Ok(removed)
 }
 
+/// Delete every file in the chapter's `source/` folder. Used by the
+/// UI's "Clear pages" button — typically when the user accidentally
+/// uploaded duplicates and wants to start over without removing the
+/// chapter row itself (keeps characters / glossary / TM intact).
+/// Does NOT touch `render/` or any other subfolder.
+pub async fn chapter_clear_pages(
+    state: AppResources,
+    payload: ChapterIdPayload,
+) -> anyhow::Result<koharu_api::commands::ChapterClearPagesResult> {
+    let project = require_project(&state).await?;
+    let result = tokio::task::spawn_blocking(
+        move || -> anyhow::Result<koharu_api::commands::ChapterClearPagesResult> {
+            let conn = project.pool().get()?;
+            let chapter = chapter_ops::get(&conn, payload.id)?.ok_or_else(|| {
+                anyhow::anyhow!("chapter {} not found", payload.id)
+            })?;
+            let pages = chapter_ops::list_source_pages(project.root(), &chapter)?;
+            let mut removed = 0usize;
+            let mut failures: Vec<String> = Vec::new();
+            for path in &pages {
+                match std::fs::remove_file(path) {
+                    Ok(()) => removed += 1,
+                    Err(e) => {
+                        tracing::warn!(?path, "chapter_clear_pages: remove failed: {e}");
+                        failures.push(format!("{}: {e}", path.display()));
+                    }
+                }
+            }
+            // Refresh page_count whether everything succeeded or not —
+            // some files may have been deleted, the count should reflect
+            // disk reality.
+            chapter_ops::refresh_page_count(&conn, project.root(), payload.id)?;
+            Ok(koharu_api::commands::ChapterClearPagesResult {
+                removed: removed as u32,
+                failed: failures.len() as u32,
+            })
+        },
+    )
+    .await??;
+    Ok(result)
+}
+
 // ---------------------------------------------------------------
 // characters + glossary (Phase 3)
 // ---------------------------------------------------------------

@@ -354,6 +354,21 @@ export const api = {
     return invoke('chapter_remove', { id }) as Promise<boolean>
   },
 
+  /** Delete every file in the chapter's `source/` folder (does NOT
+   *  touch `render/`, characters, glossary, or any other DB data —
+   *  just the page files on disk). Used by the "Clear pages" button
+   *  when the user has uploaded duplicates and wants to start over
+   *  without losing the chapter row + its translation context. */
+  async chapterClearPages(id: number): Promise<{
+    removed: number
+    failed: number
+  }> {
+    return invoke('chapter_clear_pages', { id }) as Promise<{
+      removed: number
+      failed: number
+    }>
+  },
+
   /** Read one page's raw bytes from a chapter's source/ folder without
    *  loading the chapter into editor state. Used by the AI Chat's
    *  vision tools so the model can browse any page of any chapter
