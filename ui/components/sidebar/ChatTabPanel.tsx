@@ -206,8 +206,24 @@ export function ChatTabPanel() {
       setError('Cloud LLM not selected — pick a profile from the LLM badge or Profiles tab.')
       return
     }
-    if (!apiKey && provider !== 'openrouter') {
-      setError('No API key for active profile.')
+    if (!apiKey) {
+      // OpenRouter used to be allowed through without a key because the
+      // model picker works key-less for browsing — but chat completion
+      // always requires Authorization. Letting the request through just
+      // produced a confusing 401.
+      setError(
+        `No API key for the active "${provider}" profile. Open the Profiles tab, edit the profile, paste the key from ${
+          provider === 'openrouter'
+            ? 'https://openrouter.ai/keys'
+            : provider === 'openai'
+              ? 'https://platform.openai.com/api-keys'
+              : provider === 'anthropic'
+                ? 'https://console.anthropic.com/settings/keys'
+                : provider === 'gemini'
+                  ? 'https://aistudio.google.com/apikey'
+                  : 'your provider'
+        }, and click Save (which also re-applies it).`,
+      )
       return
     }
     setSending(true)
