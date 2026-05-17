@@ -156,7 +156,11 @@ async fn run_pipeline_inner(
 
             match step {
                 PipelineStep::Detect => res.ml.detect(&mut snapshot).await?,
-                PipelineStep::Ocr => res.ml.ocr(&mut snapshot).await?,
+                PipelineStep::Ocr => {
+                    res.ml
+                        .ocr_with(&mut snapshot, req.ocr_engine.unwrap_or_default())
+                        .await?
+                }
                 PipelineStep::Inpaint => res.ml.inpaint(&mut snapshot).await?,
                 PipelineStep::LlmGenerate => {
                     res.llm

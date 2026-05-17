@@ -5,6 +5,12 @@ import { persist } from 'zustand/middleware'
 
 export type CloudProvider = 'none' | 'openai' | 'openrouter' | 'gemini' | 'anthropic'
 
+/** OCR engine choice — mirrors `koharu_types::OcrEngine`. Mit48px is
+ *  the default (what the app has shipped with since fork); Manga is a
+ *  Japanese-tuned encoder-decoder, sometimes better on handwritten /
+ *  stylised Japanese, lazy-loaded on first use (~100MB download). */
+export type OcrEngine = 'mit48px' | 'manga'
+
 /** Per-provider wire config. Each provider keeps its own slot so the
  *  user can switch providers without re-pasting keys. */
 export type ProviderConfig = {
@@ -63,6 +69,11 @@ type PreferencesState = {
 
   cloudTargetLanguage: string
   setCloudTargetLanguage: (language: string) => void
+
+  /** Active OCR engine for the process pipeline. */
+  ocrEngine: OcrEngine
+  setOcrEngine: (engine: OcrEngine) => void
+
   resetPreferences: () => void
 }
 
@@ -75,6 +86,7 @@ const initialPreferences = {
   cloudApiUrl: DEFAULT_CONFIGS.openai.apiUrl,
   cloudModelName: '',
   cloudTargetLanguage: 'Thai',
+  ocrEngine: 'mit48px' as OcrEngine,
 }
 
 /**
@@ -155,6 +167,7 @@ export const usePreferencesStore = create<PreferencesState>()(
 
       setCloudTargetLanguage: (language) =>
         set({ cloudTargetLanguage: language }),
+      setOcrEngine: (engine) => set({ ocrEngine: engine }),
       resetPreferences: () => set({ ...initialPreferences }),
     }),
     {

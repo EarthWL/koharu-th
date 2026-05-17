@@ -1,10 +1,11 @@
 use anyhow::Result;
-use image::DynamicImage;
-use koharu_types::{Document, FontPrediction, SerializableDynamicImage};
+use image::{DynamicImage, GenericImageView};
+use koharu_types::{Document, FontPrediction, OcrEngine, SerializableDynamicImage};
 
 use crate::comic_text_detector::{self, ComicTextDetector};
 use crate::font_detector::{self, FontDetector};
 use crate::lama::{self, Lama};
+use crate::manga_ocr::MangaOcr;
 use crate::mit48px_ocr::{self, Mit48pxOcr};
 
 const NEAR_BLACK_THRESHOLD: u8 = 12;
@@ -69,7 +70,13 @@ fn normalize_font_prediction(prediction: &mut FontPrediction) {
 
 pub struct Model {
     dialog_detector: ComicTextDetector,
-    ocr: Mit48pxOcr,
+    ocr_mit48px: Mit48pxOcr,
+    /// Lazily loaded on first use — Manga OCR is ~100MB and most
+    /// users stay on the default Mit48px engine, no reason to pay the
+    /// VRAM / startup cost for a model nobody asked for.
+    ocr_manga: tokio::sync::OnceCell<MangaOcr>,
+    /// Stashed so the lazy MangaOcr loader knows whether to use CPU.
+    use_cpu: bool,
     lama: Lama,
     font_detector: FontDetector,
 }
@@ -78,10 +85,18 @@ impl Model {
     pub async fn new(use_cpu: bool) -> Result<Self> {
         Ok(Self {
             dialog_detector: ComicTextDetector::load(use_cpu).await?,
-            ocr: Mit48pxOcr::load(use_cpu).await?,
+            ocr_mit48px: Mit48pxOcr::load(use_cpu).await?,
+            ocr_manga: tokio::sync::OnceCell::new(),
+            use_cpu,
             lama: Lama::load(use_cpu).await?,
             font_detector: FontDetector::load(use_cpu).await?,
         })
+    }
+
+    async fn manga_ocr(&self) -> Result<&MangaOcr> {
+        self.ocr_manga
+            .get_or_try_init(|| MangaOcr::load(self.use_cpu))
+            .await
     }
 
     /// Detect text blocks and fonts in a document.
@@ -115,20 +130,76 @@ impl Model {
         Ok(())
     }
 
-    /// Run OCR on all text blocks in the document.
-    /// Updates `doc.text_blocks` with recognized text.
+    /// Run OCR on all text blocks in the document with the default
+    /// engine (Mit48px). Kept as a thin wrapper around `ocr_with` so
+    /// existing call sites that haven't been threaded the engine
+    /// preference yet keep working.
     pub async fn ocr(&self, doc: &mut Document) -> Result<()> {
+        self.ocr_with(doc, OcrEngine::default()).await
+    }
+
+    /// Run OCR on all text blocks using the chosen engine. Falls back
+    /// to Mit48px if the requested engine fails to load (e.g. network
+    /// down for the first-time MangaOcr fetch). Caller doesn't need
+    /// to know about the fallback — text is still populated.
+    pub async fn ocr_with(&self, doc: &mut Document, engine: OcrEngine) -> Result<()> {
         if doc.text_blocks.is_empty() {
             return Ok(());
         }
 
-        let predictions = self
-            .ocr
-            .inference_text_blocks(&doc.image, &doc.text_blocks)?;
+        let effective_engine = match engine {
+            OcrEngine::Mit48px => OcrEngine::Mit48px,
+            OcrEngine::Manga => match self.manga_ocr().await {
+                Ok(_) => OcrEngine::Manga,
+                Err(err) => {
+                    tracing::warn!(
+                        "Manga OCR failed to load ({err:#}); falling back to Mit48px"
+                    );
+                    OcrEngine::Mit48px
+                }
+            },
+        };
 
-        for prediction in predictions {
-            if let Some(block) = doc.text_blocks.get_mut(prediction.block_index) {
-                block.text = Some(prediction.text);
+        match effective_engine {
+            OcrEngine::Mit48px => {
+                let predictions = self
+                    .ocr_mit48px
+                    .inference_text_blocks(&doc.image, &doc.text_blocks)?;
+                for prediction in predictions {
+                    if let Some(block) = doc.text_blocks.get_mut(prediction.block_index) {
+                        block.text = Some(prediction.text);
+                    }
+                }
+            }
+            OcrEngine::Manga => {
+                // MangaOcr.inference takes pre-cropped per-block
+                // images and returns texts in input order — different
+                // shape from Mit48pxOcr which slices internally. We
+                // do the cropping here so the rest of the pipeline
+                // doesn't care which engine is active.
+                let ocr = self
+                    .manga_ocr()
+                    .await
+                    .expect("checked above");
+                let crops: Vec<DynamicImage> = doc
+                    .text_blocks
+                    .iter()
+                    .map(|b| {
+                        let (w, h) = doc.image.dimensions();
+                        // Defensive clamp — detector occasionally
+                        // emits bboxes that touch / cross the image
+                        // edge by a fractional pixel.
+                        let x = (b.x as u32).min(w.saturating_sub(1));
+                        let y = (b.y as u32).min(h.saturating_sub(1));
+                        let bw = (b.width as u32).min(w.saturating_sub(x)).max(1);
+                        let bh = (b.height as u32).min(h.saturating_sub(y)).max(1);
+                        doc.image.crop_imm(x, y, bw, bh)
+                    })
+                    .collect();
+                let texts = ocr.inference(&crops)?;
+                for (block, text) in doc.text_blocks.iter_mut().zip(texts) {
+                    block.text = Some(text);
+                }
             }
         }
 
@@ -195,6 +266,9 @@ impl Model {
 pub async fn prefetch() -> Result<()> {
     comic_text_detector::prefetch().await?;
     mit48px_ocr::prefetch().await?;
+    // Manga OCR is lazy-loaded at first use (it's optional), so we
+    // intentionally skip prefetching it. Users who pick it from
+    // Settings → Engines pay the one-time download then.
     lama::prefetch().await?;
     font_detector::prefetch().await?;
 

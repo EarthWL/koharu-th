@@ -254,6 +254,10 @@ async fn process_entry(
             shader_effect: None,
             shader_stroke: None,
             font_family: None,
+            // Queue worker uses backend default OCR engine — when we
+            // grow per-project engine preferences, read from the
+            // project DB here instead.
+            ocr_engine: None,
         },
     )
     .await?;

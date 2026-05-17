@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/select'
 import { invoke, isTauri } from '@/lib/backend'
 import type { DeviceInfo } from '@/lib/rpc-types'
+import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 
 const THEME_OPTIONS = [
   { value: 'light', icon: SunIcon, labelKey: 'settings.themeLight' },
@@ -36,6 +37,8 @@ export default function SettingsPage() {
     [i18n.options.resources],
   )
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo>()
+  const ocrEngine = usePreferencesStore((s) => s.ocrEngine)
+  const setOcrEngine = usePreferencesStore((s) => s.setOcrEngine)
 
   useEffect(() => {
     if (!isTauri()) return
@@ -125,6 +128,51 @@ export default function SettingsPage() {
                   ))}
                 </SelectContent>
               </Select>
+            </section>
+
+            {/* Engines Section */}
+            <section className='mb-8'>
+              <h2 className='text-foreground mb-1 text-sm font-bold'>
+                {t('settings.engines', 'Engines')}
+              </h2>
+              <p className='text-muted-foreground mb-4 text-sm'>
+                {t(
+                  'settings.enginesDescription',
+                  'Pick which ML model handles each pipeline stage. Most stages only have one option today — more will land in future releases.',
+                )}
+              </p>
+
+              <div className='bg-card border-border rounded-lg border p-4'>
+                <div className='grid grid-cols-[max-content_1fr] items-center gap-x-6 gap-y-3 text-sm'>
+                  <label className='text-muted-foreground'>
+                    {t('settings.engineOcr', 'OCR')}
+                  </label>
+                  <Select
+                    value={ocrEngine}
+                    onValueChange={(v) =>
+                      setOcrEngine(v as 'mit48px' | 'manga')
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='mit48px'>
+                        MIT-48px (default · multilingual)
+                      </SelectItem>
+                      <SelectItem value='manga'>
+                        Manga OCR (Japanese-tuned, ~100MB first-use download)
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <p className='text-muted-foreground/70 mt-3 text-xs'>
+                  {t(
+                    'settings.engineOcrHint',
+                    'MIT-48px is the production default and handles Latin / CJK / Thai. Manga OCR (mayocream/manga-ocr) is tuned for Japanese handwriting + stylised SFX; first switch downloads ~100MB of weights.',
+                  )}
+                </p>
+              </div>
             </section>
 
             {/* Device Section */}

@@ -6,6 +6,37 @@ pub use effect::TextShaderEffect;
 pub use font::{FontPrediction, NamedFontPrediction, TextDirection};
 pub use image::SerializableDynamicImage;
 
+/// Selectable OCR engine. The current default `Mit48px` is what the
+/// app has shipped with since fork; `Manga` is a Japanese-tuned
+/// encoder-decoder (mayocream/manga-ocr) — often better at handwritten
+/// or stylised Japanese, sometimes worse at SFX / latin.
+#[derive(
+    Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum OcrEngine {
+    #[default]
+    Mit48px,
+    Manga,
+}
+
+impl OcrEngine {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            OcrEngine::Mit48px => "mit48px",
+            OcrEngine::Manga => "manga",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "mit48px" | "mit48" | "mit" => Some(OcrEngine::Mit48px),
+            "manga" | "manga_ocr" | "mangaocr" => Some(OcrEngine::Manga),
+            _ => None,
+        }
+    }
+}
+
 use std::{path::PathBuf, sync::Arc};
 
 use ::image::GenericImageView;

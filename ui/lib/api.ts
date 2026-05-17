@@ -233,6 +233,9 @@ export const api = {
     shaderEffect?: RenderEffect
     shaderStroke?: RenderStroke
     fontFamily?: string
+    /** OCR engine for the OCR pipeline step. Backend defaults to
+     *  Mit48px if omitted. */
+    ocrEngine?: 'mit48px' | 'manga'
   }): Promise<void> {
     await invoke('process', options)
   },

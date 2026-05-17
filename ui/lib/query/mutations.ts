@@ -434,6 +434,7 @@ export const useDocumentMutations = () => {
         total: 5,
       })
       try {
+        const { ocrEngine } = usePreferencesStore.getState()
         await api.process({
           index: resolvedIndex,
           llmModelId: selectedModel,
@@ -441,6 +442,7 @@ export const useDocumentMutations = () => {
           shaderEffect: renderEffect,
           shaderStroke: renderStroke,
           fontFamily,
+          ocrEngine,
         })
       } catch (error) {
         console.error('Failed to start processing:', error)
@@ -455,7 +457,7 @@ export const useDocumentMutations = () => {
     const { selectedModel, selectedLanguage } = useLlmUiStore.getState()
     const { renderEffect, renderStroke, totalPages } =
       useEditorUiStore.getState()
-    const { fontFamily } = usePreferencesStore.getState()
+    const { fontFamily, ocrEngine } = usePreferencesStore.getState()
     const { startOperation, finishOperation } = useOperationStore.getState()
     if (!totalPages) return
     startOperation({
@@ -471,6 +473,7 @@ export const useDocumentMutations = () => {
         shaderEffect: renderEffect,
         shaderStroke: renderStroke,
         fontFamily,
+        ocrEngine,
       })
     } catch (error) {
       console.error('Failed to start processing:', error)

@@ -1,4 +1,4 @@
-use koharu_types::{TextBlock, TextShaderEffect, TextStrokeStyle};
+use koharu_types::{OcrEngine, TextBlock, TextShaderEffect, TextStrokeStyle};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -111,6 +111,9 @@ pub struct ProcessRequest {
     pub shader_effect: Option<TextShaderEffect>,
     pub shader_stroke: Option<TextStrokeStyle>,
     pub font_family: Option<String>,
+    /// Engine to use for the OCR step. `None` ⇒ backend default
+    /// (Mit48px). UI sets this from `preferencesStore.ocrEngine`.
+    pub ocr_engine: Option<OcrEngine>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
