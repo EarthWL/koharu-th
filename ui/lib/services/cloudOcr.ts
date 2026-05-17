@@ -1,7 +1,16 @@
 /**
- * Cloud Vision OCR — send a manga page + its detected text-block
- * coordinates to a vision-capable cloud LLM, get back the recognised
- * text per block.
+ * Cloud Vision OCR — send a manga page's detected text-bubble crops
+ * to a vision-capable cloud LLM, get back the recognised text per
+ * bubble.
+ *
+ * Strategy: crop each detected bubble (with a small context margin)
+ * client-side and send the crops as a multi-image request. The
+ * previous "send full page + bbox list" / "send annotated page"
+ * approaches both relied on the model to map text → index, which
+ * small/cheap vision models (e.g. gemini-2.5-flash-lite) get wrong
+ * once the page has many bubbles or the user has manually deleted
+ * some boxes. With crops the mapping is unambiguous: image[i] →
+ * texts[i], no reasoning required.
  *
  * Why frontend-only: cloudLlm.ts already speaks all four providers'
  * multi-modal request formats. Porting that to Rust would duplicate
@@ -13,7 +22,10 @@
  * - Doesn't run inside the background `translation_queue` worker
  *   (worker has no path to the TS dispatch layer; it always uses the
  *   default local engine).
- * - Single request per page — no per-block streaming.
+ * - Single request per page — all crops batched into one call so
+ *   token accounting stays simple. Pages with >40-ish bubbles may
+ *   bump up against provider-side image-count limits; that case is
+ *   rare enough to leave for now.
  *
  * Token usage is logged to `llm_call_log` with `use_case='ocr'` so
  * the Cost Dashboard shows OCR spend alongside Translation + Chat.
@@ -34,65 +46,66 @@ export type CloudOcrResult = {
   usage: TokenUsage | null
 }
 
-const OCR_PROMPT_PREFIX = `You are an OCR engine for a manga / comic page.
+/** Each bubble is cropped with this much padding (fraction of the
+ *  bubble's own width/height) so the model can see a bit of the
+ *  surrounding bubble shape — helps with vertical-text orientation
+ *  cues and avoids clipping characters whose bbox was tight. */
+const CROP_MARGIN = 0.08
+/** Long edge of each crop's JPEG. Keeps token cost bounded while
+ *  staying large enough to read fine kana on stylised SFX. */
+const CROP_MAX_DIMENSION = 384
+const CROP_JPEG_QUALITY = 0.9
 
-I have ANNOTATED the page with NUMBERED red rectangles. Each rectangle
-is one text region; the number in the corner is its index. For EACH
-numbered region, extract the text inside it EXACTLY as written
-(preserve line breaks).
+const OCR_PROMPT = `You are an OCR engine for manga / comic text.
 
-CRITICAL: match by NUMBER, not by reading order. The numbers do NOT
-follow manga reading order — they follow the order they were detected.
-A region labelled "5" must map to index 5 in your output even if you
-would naturally read it 1st or 12th.
+I am giving you N image crops. Each crop contains ONE text region
+(a speech bubble, SFX, title, caption, etc.). Process them in the
+order received.
 
-If a numbered region is unreadable, empty, or you genuinely cannot
-locate it, return "" for that index. Do NOT skip indices; the output
-array length MUST equal the number of regions.
+For EACH crop, extract the text inside it EXACTLY as written —
+preserve line breaks, preserve the original script (do NOT
+romanise, do NOT translate, do NOT explain).
 
-Do NOT translate, do NOT explain, do NOT add commentary. Output
-STRICTLY a JSON object of the shape:
+Output STRICTLY a JSON object of the shape:
 
-{"blocks": ["<text in region 0>", "<text in region 1>", ...]}
+{"blocks": ["<text in crop 0>", "<text in crop 1>", ...]}
 
-For reference, here are the coordinates of each numbered region
-(x, y, width, height) in pixels:`
+The output array length MUST equal the number of crops. Use an empty
+string "" only for a crop that is genuinely unreadable or empty.`
 
-function fmtBlocks(blocks: TextBlock[]): string {
-  return blocks
-    .map(
-      (b, i) =>
-        `  ${i}: [${Math.round(b.x)}, ${Math.round(b.y)}, ${Math.round(b.width)}, ${Math.round(b.height)}]`,
-    )
-    .join('\n')
-}
+type CropImage = { dataUrl: string; mimeType: string }
 
 /**
- * Burn numbered red rectangles onto the page image so the vision LLM
- * can unambiguously match its OCR output to our text-block indices.
- *
- * Without this, the model OCRs in its own natural reading order
- * (typically top-right for Japanese manga) and the texts[] returned
- * end up offset / swapped from our input order — particularly bad
- * after the user manually deletes some boxes, where the index gap is
- * invisible in the un-annotated image. With numbered overlays the
- * mapping is visual and unambiguous.
- *
- * Annotations are scaled to match the downsized image so labels stay
- * a readable size at the 1024px-max attachment resolution.
+ * Crop one bubble out of the page bitmap into a downsized JPEG data
+ * URL. Padding is added so the model sees a little context (bubble
+ * outline / neighbouring whitespace), which improves OCR for
+ * stylised vertical SFX where the tight bbox can clip strokes.
  */
-async function annotatePageWithBoxes(
-  image: Uint8Array,
-  blocks: TextBlock[],
-): Promise<{ dataUrl: string; mimeType: string }> {
-  const MAX_DIMENSION = 1024
-  const JPEG_QUALITY = 0.9 // a touch higher than the chat attach default — annotations should stay crisp
-  const blob = new Blob([toArrayBuffer(image)])
-  const bitmap = await createImageBitmap(blob)
-  const { width: srcW, height: srcH } = bitmap
-  const scale = Math.min(1, MAX_DIMENSION / Math.max(srcW, srcH))
-  const dstW = Math.max(1, Math.round(srcW * scale))
-  const dstH = Math.max(1, Math.round(srcH * scale))
+async function cropBubble(
+  bitmap: ImageBitmap,
+  block: TextBlock,
+): Promise<CropImage> {
+  const padX = block.width * CROP_MARGIN
+  const padY = block.height * CROP_MARGIN
+  const sx = Math.max(0, Math.floor(block.x - padX))
+  const sy = Math.max(0, Math.floor(block.y - padY))
+  const sw = Math.min(
+    bitmap.width - sx,
+    Math.ceil(block.width + padX * 2),
+  )
+  const sh = Math.min(
+    bitmap.height - sy,
+    Math.ceil(block.height + padY * 2),
+  )
+  // Defensive: if the bbox is degenerate (zero/negative), produce a
+  // 1×1 transparent stub so the request still has the right count.
+  // The caller surfaces "" for that index via parseBlocks.
+  const cropW = Math.max(1, sw)
+  const cropH = Math.max(1, sh)
+
+  const scale = Math.min(1, CROP_MAX_DIMENSION / Math.max(cropW, cropH))
+  const dstW = Math.max(1, Math.round(cropW * scale))
+  const dstH = Math.max(1, Math.round(cropH * scale))
 
   const canvas =
     typeof OffscreenCanvas !== 'undefined'
@@ -107,56 +120,22 @@ async function annotatePageWithBoxes(
     | CanvasRenderingContext2D
     | OffscreenCanvasRenderingContext2D
     | null
-  if (!ctx) throw new Error('annotatePageWithBoxes: no 2D context')
-  ctx.drawImage(bitmap, 0, 0, dstW, dstH)
-  bitmap.close?.()
-
-  // Scale-aware visuals so labels stay readable at any page size.
-  const strokePx = Math.max(2, Math.round(3 * scale * 1.6))
-  const labelFontPx = Math.max(14, Math.round(28 * scale))
-  ctx.lineWidth = strokePx
-  ctx.strokeStyle = '#ff2d55' // strong red, distinguishable from page ink
-  ctx.font = `bold ${labelFontPx}px sans-serif`
-  ctx.textBaseline = 'top'
-
-  for (let i = 0; i < blocks.length; i++) {
-    const b = blocks[i]
-    const x = b.x * scale
-    const y = b.y * scale
-    const w = b.width * scale
-    const h = b.height * scale
-    ctx.strokeRect(x, y, w, h)
-
-    const label = String(i)
-    const padding = Math.max(2, Math.round(4 * scale))
-    const metrics = ctx.measureText(label)
-    const tagW = metrics.width + padding * 2
-    const tagH = labelFontPx + padding * 2
-    // Pin tag to top-left of the box. Clamp so it stays on-canvas
-    // (top edge boxes would otherwise render the tag off-screen).
-    const tagX = Math.max(0, Math.min(dstW - tagW, x))
-    const tagY = Math.max(0, Math.min(dstH - tagH, y))
-    ctx.fillStyle = '#ff2d55'
-    ctx.fillRect(tagX, tagY, tagW, tagH)
-    ctx.fillStyle = '#ffffff'
-    ctx.fillText(label, tagX + padding, tagY + padding)
-  }
+  if (!ctx) throw new Error('cropBubble: no 2D context')
+  ctx.drawImage(bitmap, sx, sy, cropW, cropH, 0, 0, dstW, dstH)
 
   let outBlob: Blob
   if ('convertToBlob' in canvas) {
     outBlob = await canvas.convertToBlob({
       type: 'image/jpeg',
-      quality: JPEG_QUALITY,
+      quality: CROP_JPEG_QUALITY,
     })
   } else {
     outBlob = await new Promise<Blob>((resolve, reject) => {
       ;(canvas as HTMLCanvasElement).toBlob(
         (b) =>
-          b
-            ? resolve(b)
-            : reject(new Error('annotatePageWithBoxes: toBlob returned null')),
+          b ? resolve(b) : reject(new Error('cropBubble: toBlob returned null')),
         'image/jpeg',
-        JPEG_QUALITY,
+        CROP_JPEG_QUALITY,
       )
     })
   }
@@ -252,22 +231,24 @@ export async function ocrPageViaCloud(
     return { texts: [], usage: null }
   }
 
-  // Burn numbered red boxes onto the page so the LLM can match by
-  // VISIBLE LABEL rather than coordinate reasoning. The previous
-  // "send raw page + bbox list" approach drifted whenever the model's
-  // natural reading order didn't match our detection order — especially
-  // visible after the user manually deletes a few boxes.
-  const { dataUrl, mimeType } = await annotatePageWithBoxes(image, textBlocks)
-  const prompt = `${OCR_PROMPT_PREFIX}\n${fmtBlocks(textBlocks)}`
+  // Decode the page once, then crop every bubble out of the same
+  // bitmap. Cheaper than re-decoding for each block.
+  const blob = new Blob([toArrayBuffer(image)])
+  const bitmap = await createImageBitmap(blob)
+  let crops: CropImage[]
+  try {
+    crops = await Promise.all(textBlocks.map((b) => cropBubble(bitmap, b)))
+  } finally {
+    bitmap.close?.()
+  }
 
   const start = Date.now()
   try {
     const { text, usage } = await dispatchVisionRequest({
       profile,
       apiKey,
-      prompt,
-      imageDataUrl: dataUrl,
-      mimeType,
+      prompt: OCR_PROMPT,
+      crops,
     })
     logCallSafe({
       success: true,
@@ -298,8 +279,10 @@ type VisionArgs = {
   profile: ProviderProfileDto
   apiKey: string
   prompt: string
-  imageDataUrl: string
-  mimeType: string
+  /** All bubble crops for this page, in text-block order. Each
+   *  provider's call function unpacks these into its own image-part
+   *  shape. */
+  crops: CropImage[]
 }
 
 type VisionResult = { text: string; usage: TokenUsage | null }
@@ -362,20 +345,19 @@ async function callOpenAiCompatVision(args: VisionArgs): Promise<VisionResult> {
     headers['HTTP-Referer'] = 'https://koharu.local'
     headers['X-Title'] = 'Koharu OCR'
   }
+  // text first, then one image_url per crop in order. "low" detail
+  // is plenty for ~384px bubble crops and roughly halves token cost
+  // vs "high".
+  const content: any[] = [{ type: 'text', text: args.prompt }]
+  for (const c of args.crops) {
+    content.push({
+      type: 'image_url',
+      image_url: { url: c.dataUrl, detail: 'low' },
+    })
+  }
   const body = {
     model: args.profile.modelName,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: args.prompt },
-          {
-            type: 'image_url',
-            image_url: { url: args.imageDataUrl, detail: 'high' },
-          },
-        ],
-      },
-    ],
+    messages: [{ role: 'user', content }],
     response_format: { type: 'json_object' },
     temperature: 0,
   }
@@ -402,22 +384,19 @@ async function callOpenAiCompatVision(args: VisionArgs): Promise<VisionResult> {
 }
 
 async function callAnthropicVision(args: VisionArgs): Promise<VisionResult> {
-  const base64 = args.imageDataUrl.replace(/^data:[^;]+;base64,/, '')
+  const content: any[] = []
+  for (const c of args.crops) {
+    const base64 = c.dataUrl.replace(/^data:[^;]+;base64,/, '')
+    content.push({
+      type: 'image',
+      source: { type: 'base64', media_type: c.mimeType, data: base64 },
+    })
+  }
+  content.push({ type: 'text', text: args.prompt })
   const body = {
     model: args.profile.modelName,
     max_tokens: 4096,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: { type: 'base64', media_type: args.mimeType, data: base64 },
-          },
-          { type: 'text', text: args.prompt },
-        ],
-      },
-    ],
+    messages: [{ role: 'user', content }],
   }
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -451,17 +430,15 @@ async function callAnthropicVision(args: VisionArgs): Promise<VisionResult> {
 }
 
 async function callGeminiVision(args: VisionArgs): Promise<VisionResult> {
-  const base64 = args.imageDataUrl.replace(/^data:[^;]+;base64,/, '')
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(args.profile.modelName)}:generateContent?key=${encodeURIComponent(args.apiKey)}`
+  const parts: any[] = []
+  for (const c of args.crops) {
+    const base64 = c.dataUrl.replace(/^data:[^;]+;base64,/, '')
+    parts.push({ inlineData: { mimeType: c.mimeType, data: base64 } })
+  }
+  parts.push({ text: args.prompt })
   const body = {
-    contents: [
-      {
-        parts: [
-          { inlineData: { mimeType: args.mimeType, data: base64 } },
-          { text: args.prompt },
-        ],
-      },
-    ],
+    contents: [{ parts }],
     generationConfig: {
       responseMimeType: 'application/json',
       temperature: 0,
@@ -479,8 +456,8 @@ async function callGeminiVision(args: VisionArgs): Promise<VisionResult> {
     )
   }
   const json = await res.json()
-  const parts: any[] = json.candidates?.[0]?.content?.parts ?? []
-  const text = parts
+  const respParts: any[] = json.candidates?.[0]?.content?.parts ?? []
+  const text = respParts
     .filter((p) => typeof p.text === 'string')
     .map((p) => p.text)
     .join('')
