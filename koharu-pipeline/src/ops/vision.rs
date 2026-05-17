@@ -1,4 +1,4 @@
-use koharu_api::commands::{DetectPayload, IndexPayload, RenderPayload};
+use koharu_api::commands::{DetectPayload, IndexPayload, OcrPayload, RenderPayload};
 use tracing::instrument;
 
 use crate::{AppResources, state_tx};
@@ -19,9 +19,12 @@ pub async fn detect(state: AppResources, payload: DetectPayload) -> anyhow::Resu
 }
 
 #[instrument(level = "info", skip_all)]
-pub async fn ocr(state: AppResources, payload: IndexPayload) -> anyhow::Result<()> {
+pub async fn ocr(state: AppResources, payload: OcrPayload) -> anyhow::Result<()> {
     let mut snapshot = state_tx::read_doc(&state.state, payload.index).await?;
-    state.ml.ocr(&mut snapshot).await?;
+    state
+        .ml
+        .ocr_with(&mut snapshot, payload.ocr_engine.unwrap_or_default())
+        .await?;
     state_tx::update_doc(&state.state, payload.index, snapshot).await
 }
 

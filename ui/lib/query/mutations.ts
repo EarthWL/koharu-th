@@ -411,7 +411,13 @@ export const useDocumentMutations = () => {
             await api.updateTextBlocks(resolvedIndex, updated)
           }
         } else {
-          await api.ocr(resolvedIndex)
+          // Local OCR — thread the engine choice through so the user's
+          // Settings → OCR pick (Manga OCR vs MIT-48px) actually
+          // applies. Same bug pattern as standalone Detect: without
+          // this the backend silently defaults to MIT-48px and the
+          // user sees garbage for Japanese vertical text even though
+          // they explicitly chose Manga OCR.
+          await api.ocr(resolvedIndex, { ocrEngine })
         }
         await invalidateCurrentDocument(queryClient, resolvedIndex)
         await invalidateThumbnailAtIndex(queryClient, resolvedIndex)

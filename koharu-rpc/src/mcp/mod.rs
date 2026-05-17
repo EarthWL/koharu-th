@@ -14,7 +14,7 @@ use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 use koharu_api::commands::{
     AddTextBlockPayload, ChapterCreatePayload, ChapterIdPayload,
     ChapterUpdatePayload, CharacterAddPayload, CharacterIdPayload, CharacterUpdatePayload,
-    DetectPayload, WebFetchPayload,
+    DetectPayload, OcrPayload, WebFetchPayload,
     ExportDocumentParams, FileEntry, GlossaryAddPayload, GlossaryBulkAddPayload,
     GlossaryBumpUsagePayload, GlossaryIdPayload, GlossaryUpdatePayload, IndexPayload,
     InpaintPartialPayload, InpaintRegion, InpaintRegionParams, LlmCallLogPayload,
@@ -336,9 +336,15 @@ impl KoharuMcp {
     )]
     async fn ocr(&self, Parameters(p): Parameters<IndexPayload>) -> Result<String, String> {
         let res = self.resources()?;
-        operations::ocr(res.clone(), p)
-            .await
-            .map_err(|e| e.to_string())?;
+        operations::ocr(
+            res.clone(),
+            OcrPayload {
+                index: p.index,
+                ocr_engine: None,
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
 
         let doc = operations::get_document(res, p)
             .await

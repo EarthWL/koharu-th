@@ -450,6 +450,17 @@ pub struct DetectPayload {
     pub anime_yolo_confidence: Option<f32>,
 }
 
+/// Standalone `ocr` op payload. Optional `ocr_engine` — when omitted
+/// backend uses MIT-48px (the default), so existing callers (MCP,
+/// etc.) that send just `{index}` keep working bit-identical.
+/// Mirrors DetectPayload's shape.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OcrPayload {
+    pub index: usize,
+    pub ocr_engine: Option<OcrEngine>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ChapterClearPagesResult {

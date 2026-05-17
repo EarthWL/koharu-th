@@ -127,8 +127,21 @@ export const api = {
     })
   },
 
-  async ocr(index: number): Promise<void> {
-    await invoke('ocr', { index })
+  async ocr(
+    index: number,
+    options?: {
+      /** Local OCR engine. Backend defaults to MIT-48px if omitted.
+       *  `manga` uses mayocream/manga-ocr (~100MB first-use download,
+       *  tuned for Japanese SFX + vertical handwriting). `cloud` is
+       *  handled in the frontend dispatch layer (see ocrPageViaCloud),
+       *  NOT here — passing 'cloud' would be a programming error. */
+      ocrEngine?: 'mit48px' | 'manga'
+    },
+  ): Promise<void> {
+    await invoke('ocr', {
+      index,
+      ...options,
+    })
   },
 
   async inpaint(index: number): Promise<void> {
