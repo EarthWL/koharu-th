@@ -264,6 +264,10 @@ async fn process_entry(
             // #3 for the backend-port plan that would change this.
             skip_ocr: None,
             skip_detect: None,
+            // Queue uses default detector (no YOLO merge) for now.
+            // If user demands queue + YOLO-merge, read this from
+            // project preferences here.
+            merge_yolo_detect: None,
         },
     )
     .await?;

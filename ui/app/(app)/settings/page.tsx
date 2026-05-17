@@ -47,6 +47,8 @@ export default function SettingsPage() {
   const setOcrCloudProfileId = usePreferencesStore(
     (s) => s.setOcrCloudProfileId,
   )
+  const mergeYoloDetect = usePreferencesStore((s) => s.mergeYoloDetect)
+  const setMergeYoloDetect = usePreferencesStore((s) => s.setMergeYoloDetect)
   const projectInfo = useProjectStore((s) => s.info)
   const cloudProvider = usePreferencesStore((s) => s.cloudProvider)
   const cloudModelName = usePreferencesStore((s) => s.cloudModelName)
@@ -196,6 +198,26 @@ export default function SettingsPage() {
 
               <div className='bg-card border-border rounded-lg border p-4'>
                 <div className='grid grid-cols-[max-content_1fr] items-center gap-x-6 gap-y-3 text-sm'>
+                  <label className='text-muted-foreground'>
+                    {t('settings.engineDetector', 'Detector')}
+                  </label>
+                  <label className='flex items-center gap-2'>
+                    <input
+                      type='checkbox'
+                      checked={mergeYoloDetect}
+                      onChange={(e) =>
+                        setMergeYoloDetect(e.target.checked)
+                      }
+                      className='size-4'
+                    />
+                    <span className='text-foreground text-xs'>
+                      {t(
+                        'settings.detectorMergeYolo',
+                        'Also use YOLO bboxes (experimental — may catch SFX / title text DBNet misses, but can add false positives)',
+                      )}
+                    </span>
+                  </label>
+
                   <label className='text-muted-foreground'>
                     {t('settings.engineOcr', 'OCR')}
                   </label>
