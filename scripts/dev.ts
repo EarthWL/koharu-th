@@ -118,7 +118,34 @@ async function setupCl() {
   )
 }
 
+/**
+ * Strip the local home directory + workspace root out of the source
+ * paths that Rust bakes into the binary for panic backtraces. Without
+ * this, a release build contains hundreds of paths like
+ * `C:\Users\<your-username>\.cargo\registry\src\...`, leaking your OS
+ * username to anyone who downloads the binary.
+ *
+ * Paths are computed at build time (not committed) so different
+ * contributors don't have to share filesystem layouts.
+ */
+function setupRemapPathPrefix() {
+  const home = os.homedir()
+  // Workspace root is two levels up from scripts/dev.ts
+  const workspace = path.resolve(__dirname, '..')
+  const flags = [
+    `--remap-path-prefix=${path.join(home, '.cargo')}=/cargo`,
+    `--remap-path-prefix=${home}=/home`,
+    `--remap-path-prefix=${workspace}=/koharu`,
+  ]
+  const existing = process.env.RUSTFLAGS ?? ''
+  process.env.RUSTFLAGS = existing
+    ? `${existing} ${flags.join(' ')}`
+    : flags.join(' ')
+}
+
 async function dev() {
+  setupRemapPathPrefix()
+
   if (os.type() === 'Windows_NT') {
     // First, try to check if nvcc is available
     await checkNvcc()
