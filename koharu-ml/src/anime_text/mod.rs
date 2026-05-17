@@ -39,8 +39,13 @@ pub const HF_REPO: &str = "mayocream/anime-text-yolo";
 const INPUT_SIZE: u32 = 640;
 const NUM_CLASSES: usize = 1;
 const DEFAULT_VARIANT: AnimeTextYoloVariant = AnimeTextYoloVariant::N;
-const DEFAULT_CONFIDENCE_THRESHOLD: f32 = 0.25;
-const DEFAULT_NMS_THRESHOLD: f32 = 0.45;
+// Upstream uses 0.25 / 0.45 — at 0.25 the YOLO over-detects on manga,
+// splitting glyphs and surfacing every faint ink blob. 0.40 matches the
+// default DBNet detector's recall band and cuts most noise without
+// dropping legitimate SFX. NMS bumped to 0.50 so near-overlapping boxes
+// (typical of stylised vertical SFX) merge instead of stacking.
+const DEFAULT_CONFIDENCE_THRESHOLD: f32 = 0.40;
+const DEFAULT_NMS_THRESHOLD: f32 = 0.50;
 const LETTERBOX_COLOR: u8 = 114;
 const DETECTOR_NAME: &str = "anime-text-yolo";
 
