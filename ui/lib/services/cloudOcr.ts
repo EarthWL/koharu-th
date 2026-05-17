@@ -24,7 +24,6 @@ import type { TextBlock } from '@/types'
 import { useProjectStore } from '@/lib/stores/projectStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { toArrayBuffer } from '@/lib/util'
-import { blobToAttachment } from '@/lib/services/imageAttach'
 import type { TokenUsage } from '@/lib/services/cloudLlm'
 import { supportsVision } from '@/lib/services/visionSupport'
 
@@ -35,27 +34,142 @@ export type CloudOcrResult = {
   usage: TokenUsage | null
 }
 
-const OCR_PROMPT_PREFIX = `You are an OCR engine for a manga / comic page. The image
-shows a single page; I am giving you the coordinates of pre-detected
-text bubbles. For EACH bubble, extract the text inside it EXACTLY as
-written (preserve line breaks if any). Do NOT translate, do NOT
-explain, do NOT add commentary. Output STRICTLY a JSON object of the
-shape:
+const OCR_PROMPT_PREFIX = `You are an OCR engine for a manga / comic page.
 
-{"blocks": ["<text in bubble 0>", "<text in bubble 1>", ...]}
+I have ANNOTATED the page with NUMBERED red rectangles. Each rectangle
+is one text region; the number in the corner is its index. For EACH
+numbered region, extract the text inside it EXACTLY as written
+(preserve line breaks).
 
-The array length must match the number of bubbles below. Use an empty
-string "" if a bubble is unreadable or empty.
+CRITICAL: match by NUMBER, not by reading order. The numbers do NOT
+follow manga reading order — they follow the order they were detected.
+A region labelled "5" must map to index 5 in your output even if you
+would naturally read it 1st or 12th.
 
-Bubbles (0-indexed, coords are [x, y, width, height] in pixels):`
+If a numbered region is unreadable, empty, or you genuinely cannot
+locate it, return "" for that index. Do NOT skip indices; the output
+array length MUST equal the number of regions.
+
+Do NOT translate, do NOT explain, do NOT add commentary. Output
+STRICTLY a JSON object of the shape:
+
+{"blocks": ["<text in region 0>", "<text in region 1>", ...]}
+
+For reference, here are the coordinates of each numbered region
+(x, y, width, height) in pixels:`
 
 function fmtBlocks(blocks: TextBlock[]): string {
   return blocks
     .map(
       (b, i) =>
-        `  ${i}. [${Math.round(b.x)}, ${Math.round(b.y)}, ${Math.round(b.width)}, ${Math.round(b.height)}]`,
+        `  ${i}: [${Math.round(b.x)}, ${Math.round(b.y)}, ${Math.round(b.width)}, ${Math.round(b.height)}]`,
     )
     .join('\n')
+}
+
+/**
+ * Burn numbered red rectangles onto the page image so the vision LLM
+ * can unambiguously match its OCR output to our text-block indices.
+ *
+ * Without this, the model OCRs in its own natural reading order
+ * (typically top-right for Japanese manga) and the texts[] returned
+ * end up offset / swapped from our input order — particularly bad
+ * after the user manually deletes some boxes, where the index gap is
+ * invisible in the un-annotated image. With numbered overlays the
+ * mapping is visual and unambiguous.
+ *
+ * Annotations are scaled to match the downsized image so labels stay
+ * a readable size at the 1024px-max attachment resolution.
+ */
+async function annotatePageWithBoxes(
+  image: Uint8Array,
+  blocks: TextBlock[],
+): Promise<{ dataUrl: string; mimeType: string }> {
+  const MAX_DIMENSION = 1024
+  const JPEG_QUALITY = 0.9 // a touch higher than the chat attach default — annotations should stay crisp
+  const blob = new Blob([toArrayBuffer(image)])
+  const bitmap = await createImageBitmap(blob)
+  const { width: srcW, height: srcH } = bitmap
+  const scale = Math.min(1, MAX_DIMENSION / Math.max(srcW, srcH))
+  const dstW = Math.max(1, Math.round(srcW * scale))
+  const dstH = Math.max(1, Math.round(srcH * scale))
+
+  const canvas =
+    typeof OffscreenCanvas !== 'undefined'
+      ? new OffscreenCanvas(dstW, dstH)
+      : (() => {
+          const c = document.createElement('canvas')
+          c.width = dstW
+          c.height = dstH
+          return c
+        })()
+  const ctx = canvas.getContext('2d') as
+    | CanvasRenderingContext2D
+    | OffscreenCanvasRenderingContext2D
+    | null
+  if (!ctx) throw new Error('annotatePageWithBoxes: no 2D context')
+  ctx.drawImage(bitmap, 0, 0, dstW, dstH)
+  bitmap.close?.()
+
+  // Scale-aware visuals so labels stay readable at any page size.
+  const strokePx = Math.max(2, Math.round(3 * scale * 1.6))
+  const labelFontPx = Math.max(14, Math.round(28 * scale))
+  ctx.lineWidth = strokePx
+  ctx.strokeStyle = '#ff2d55' // strong red, distinguishable from page ink
+  ctx.font = `bold ${labelFontPx}px sans-serif`
+  ctx.textBaseline = 'top'
+
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i]
+    const x = b.x * scale
+    const y = b.y * scale
+    const w = b.width * scale
+    const h = b.height * scale
+    ctx.strokeRect(x, y, w, h)
+
+    const label = String(i)
+    const padding = Math.max(2, Math.round(4 * scale))
+    const metrics = ctx.measureText(label)
+    const tagW = metrics.width + padding * 2
+    const tagH = labelFontPx + padding * 2
+    // Pin tag to top-left of the box. Clamp so it stays on-canvas
+    // (top edge boxes would otherwise render the tag off-screen).
+    const tagX = Math.max(0, Math.min(dstW - tagW, x))
+    const tagY = Math.max(0, Math.min(dstH - tagH, y))
+    ctx.fillStyle = '#ff2d55'
+    ctx.fillRect(tagX, tagY, tagW, tagH)
+    ctx.fillStyle = '#ffffff'
+    ctx.fillText(label, tagX + padding, tagY + padding)
+  }
+
+  let outBlob: Blob
+  if ('convertToBlob' in canvas) {
+    outBlob = await canvas.convertToBlob({
+      type: 'image/jpeg',
+      quality: JPEG_QUALITY,
+    })
+  } else {
+    outBlob = await new Promise<Blob>((resolve, reject) => {
+      ;(canvas as HTMLCanvasElement).toBlob(
+        (b) =>
+          b
+            ? resolve(b)
+            : reject(new Error('annotatePageWithBoxes: toBlob returned null')),
+        'image/jpeg',
+        JPEG_QUALITY,
+      )
+    })
+  }
+
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () =>
+      reject(reader.error ?? new Error('FileReader failed'))
+    reader.readAsDataURL(outBlob)
+  })
+
+  return { dataUrl, mimeType: 'image/jpeg' }
 }
 
 /** Parse the model's JSON output back into a per-block array. Robust
@@ -90,17 +204,6 @@ function parseBlocks(raw: string, expected: number): (string | null)[] {
     out.push(typeof v === 'string' ? v : null)
   }
   return out
-}
-
-async function imageBytesToDataUrl(image: Uint8Array): Promise<{
-  dataUrl: string
-  mimeType: string
-}> {
-  // Reuse blobToAttachment for downsize + JPEG re-encode so token
-  // cost is bounded and provider limits aren't tripped by huge pages.
-  const blob = new Blob([toArrayBuffer(image)])
-  const att = await blobToAttachment(blob)
-  return { dataUrl: att.dataUrl, mimeType: att.mimeType }
 }
 
 function logCallSafe(args: {
@@ -149,7 +252,12 @@ export async function ocrPageViaCloud(
     return { texts: [], usage: null }
   }
 
-  const { dataUrl, mimeType } = await imageBytesToDataUrl(image)
+  // Burn numbered red boxes onto the page so the LLM can match by
+  // VISIBLE LABEL rather than coordinate reasoning. The previous
+  // "send raw page + bbox list" approach drifted whenever the model's
+  // natural reading order didn't match our detection order — especially
+  // visible after the user manually deletes a few boxes.
+  const { dataUrl, mimeType } = await annotatePageWithBoxes(image, textBlocks)
   const prompt = `${OCR_PROMPT_PREFIX}\n${fmtBlocks(textBlocks)}`
 
   const start = Date.now()
