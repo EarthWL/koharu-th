@@ -354,7 +354,56 @@ export const useDocumentMutations = () => {
         cancellable: true,
       })
       try {
-        await api.ocr(resolvedIndex)
+        const {
+          ocrEngine,
+          ocrCloudProfileId,
+          cloudProvider,
+          cloudModelName,
+          cloudApiKey,
+        } = usePreferencesStore.getState()
+        if (ocrEngine === 'cloud') {
+          // Standalone OCR button → also respect Cloud Vision choice.
+          // Run detect first if no text_blocks yet (user expectation is
+          // "OCR this page" — they shouldn't have to remember to click
+          // Detect themselves), then dispatch to the cloud profile.
+          console.info('[ocr] taking cloud OCR branch')
+          const profiles = await api.providerProfilesList()
+          const resolved = await resolveOcrCloudProfile(
+            ocrCloudProfileId,
+            profiles,
+            cloudProvider,
+            cloudModelName,
+            cloudApiKey,
+          )
+          if (!resolved) {
+            throw new Error(
+              'Cloud Vision OCR is selected but no vision-capable profile is available. Configure one in Sidebar → Profiles or change OCR engine in Settings.',
+            )
+          }
+          let doc = await api.getDocument(resolvedIndex)
+          if (doc.textBlocks.length === 0) {
+            // Auto-detect first so user doesn't need to click Detect
+            // separately when they hit standalone OCR.
+            await api.detect(resolvedIndex)
+            doc = await api.getDocument(resolvedIndex)
+          }
+          if (doc.textBlocks.length > 0) {
+            const { texts } = await ocrPageViaCloud(
+              resolved.profile,
+              resolved.apiKey,
+              doc.image,
+              doc.textBlocks,
+            )
+            const updated = doc.textBlocks.map((b, i) => ({
+              ...b,
+              text: texts[i] ?? b.text,
+            }))
+            await api.updateTextBlocks(resolvedIndex, updated)
+          }
+        } else {
+          console.info(`[ocr] taking local OCR branch (${ocrEngine})`)
+          await api.ocr(resolvedIndex)
+        }
         await invalidateCurrentDocument(queryClient, resolvedIndex)
         await invalidateThumbnailAtIndex(queryClient, resolvedIndex)
       } finally {
@@ -445,7 +494,21 @@ export const useDocumentMutations = () => {
         total: 5,
       })
       try {
+        // Temporary debug breadcrumb so the user can see which branch
+        // processImage took. Remove once Cloud Vision OCR is confirmed
+        // working end-to-end.
+        console.info(
+          '[processImage] entered',
+          JSON.stringify({
+            resolvedIndex,
+            ocrEngine,
+            ocrCloudProfileId,
+            cloudProvider,
+            hasApiKey: !!cloudApiKey,
+          }),
+        )
         if (ocrEngine === 'cloud') {
+          console.info('[processImage] taking cloud OCR branch')
           // Cloud Vision OCR: detect first ourselves, OCR via cloud,
           // then ask the Rust pipeline to skip both steps and just
           // run inpaint + translate + render on the populated blocks.
@@ -462,14 +525,28 @@ export const useDocumentMutations = () => {
               'Cloud Vision OCR is selected but no vision-capable profile is available. Configure one in Sidebar → Profiles or change OCR engine in Settings.',
             )
           }
+          console.info(
+            '[processImage] cloud profile resolved',
+            JSON.stringify({
+              profileId: resolved.profile.id,
+              provider: resolved.profile.provider,
+              model: resolved.profile.modelName,
+            }),
+          )
           await api.detect(resolvedIndex)
           const doc = await api.getDocument(resolvedIndex)
+          console.info(
+            `[processImage] detected ${doc.textBlocks.length} text blocks on page ${resolvedIndex}`,
+          )
           if (doc.textBlocks.length > 0) {
             const { texts } = await ocrPageViaCloud(
               resolved.profile,
               resolved.apiKey,
               doc.image,
               doc.textBlocks,
+            )
+            console.info(
+              `[processImage] cloud OCR returned ${texts.filter(Boolean).length}/${texts.length} non-empty texts`,
             )
             const updated = doc.textBlocks.map((b, i) => ({
               ...b,
@@ -488,6 +565,7 @@ export const useDocumentMutations = () => {
             skipOcr: true,
           })
         } else {
+          console.info(`[processImage] taking local OCR branch (${ocrEngine})`)
           await api.process({
             index: resolvedIndex,
             llmModelId: selectedModel,
