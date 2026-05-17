@@ -290,6 +290,22 @@ When backporting, cite the upstream SHA in the commit body (see `git log --grep=
 
 Not promises — just things being considered as the fork keeps iterating.
 
+**Shipped — 1.1.x (detector + OCR engine + storage management):**
+
+- [x] **Anime Text YOLO** as opt-in detector alternative (`mayocream/anime-text-yolo`) — catches SFX, stylised titles, and out-of-bubble text the default detector misses. 5 size variants N → X (~10 MB → ~250 MB), lazy-loaded per pick.
+- [x] **Confidence slider** for Anime YOLO in Settings (0.05 – 0.95, default 0.25). Reset link when off-default.
+- [x] **Standalone Detect / OCR buttons respect the engine preference** — earlier the buttons silently used the backend default regardless of the Settings pick. Now `DetectPayload` / `OcrPayload` thread the choice end-to-end.
+- [x] **Cloud Vision OCR sends per-bubble crops** instead of one full page + bbox list — small models like `gemini-2.5-flash-lite` can no longer mis-map text between bubbles, including after the user manually deletes some boxes.
+- [x] **Settings → Storage panel** lists every on-disk artefact koharu manages outside project folders (CUDA libs, AI model cache, custom fonts, recent-projects list) with size + path + per-row Clear button. Bonus "Preferences → Reset to defaults".
+- [x] **Windows NSIS uninstaller hook** offers to also remove `%LOCALAPPDATA%\Koharu\` (cached models + CUDA libs) on uninstall. 4 safety belts: refuses if `$LOCALAPPDATA` is empty, requires marker files before any destructive op, deletes by named subfolder (not parent recursively), final non-recursive parent removal only succeeds if folder is empty. Bounded blast radius — cannot follow a parent-level junction the way an unguarded `RMDir /r` could.
+
+**Shipped — 1.0.3 (chat polish + first portable release):**
+
+- [x] Markdown rendering in AI Chat (tables, code fences, lists, blockquotes — same renderer for streaming + persisted)
+- [x] Chat text selectable / copyable (was globally `select-none` for canvas pan)
+- [x] Token usage logged for every chat round (`use_case='chat'` in cost dashboard, per-provider parsing)
+- [x] Portable Windows release — `.msi`, `.exe` (NSIS), and `.zip` artifacts; maintainer's local filesystem paths scrubbed out of the binary
+
 **Shipped — Tier 1 (UX wins on AI Chat):**
 
 - [x] Vision in AI Chat — attach the current canvas page or any image, multi-modal blocks across all 4 providers
@@ -320,13 +336,23 @@ Not promises — just things being considered as the fork keeps iterating.
 - [x] Folder-based chapters (`source/` + `render/`) with auto-wrap of legacy single-file chapters
 - [x] MCP server with ~60 tools covering the full project surface
 
-**Not shipped yet (next considerations):**
+**1.2.x — planned (sync with upstream backend changes):**
+
+- [ ] **PTX JIT for CUDA** — adopt upstream's single-binary approach (compute 8.0 base + forward-JIT PTX) so we ship one installer for RTX 30xx/40xx/50xx instead of one per generation. Trade-off: drops RTX 20xx (Turing 7.5) GPU acceleration; those users get CPU fallback.
+- [ ] **Vulkan backend** — pull upstream's cross-vendor Vulkan path for OCR + local LLM inference. Lets AMD / Intel GPUs get partial acceleration without ZLUDA.
+- [ ] **ZLUDA (experimental, Windows)** — re-add upstream's CUDA-compat layer for AMD GPUs on Windows. We explicitly stripped this during the fork; bringing it back gives AMD users a path to Detect / Inpaint acceleration too.
+- [ ] **GitHub Actions release matrix** — currently disabled to save macOS minutes (10× cost) and because upstream's matrix CI was too eager. Re-enable with a per-cap split job once the upstream PTX path lands and we're back to one binary per platform.
+
+**Not shipped yet (other considerations):**
 
 - [ ] Batch chapter translation queue (background worker, multi-chapter progress)
+- [ ] Pre-built macOS releases (code compiles + has custom Metal kernels; not yet distributed)
+- [ ] Pre-built Linux releases (CI groundwork in place)
 - [ ] Cloud sync for project folders (Google Drive / Dropbox / S3)
 - [ ] Multi-project workspace with shared TM / glossary pool across series
 - [ ] Translator collaboration (multi-user, comments, approve workflow)
-- [ ] Thai OCR (current OCR is JP-only via manga-ocr)
+- [ ] Thai OCR (current OCR is JP-only via manga-ocr; cloud Vision OCR works for Thai today)
+- [ ] Cloud Vision OCR inside the batch queue (frontend dispatch only right now; queue falls back to MIT-48px)
 
 ## Known limitations
 
