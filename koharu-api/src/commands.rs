@@ -135,6 +135,10 @@ pub struct ProcessRequest {
     /// Size variant for Anime Text YOLO. Only honoured when
     /// `detector_engine == Some(AnimeYolo)`. `None` ⇒ N (nano, ~10MB).
     pub anime_yolo_variant: Option<AnimeYoloVariant>,
+    /// Confidence threshold override for Anime Text YOLO. `None` ⇒
+    /// module default (0.25). Clamped backend-side to [0.05, 0.95].
+    /// Only honoured when `detector_engine == Some(AnimeYolo)`.
+    pub anime_yolo_confidence: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -443,6 +447,7 @@ pub struct DetectPayload {
     pub index: usize,
     pub detector_engine: Option<DetectorEngine>,
     pub anime_yolo_variant: Option<AnimeYoloVariant>,
+    pub anime_yolo_confidence: Option<f32>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]

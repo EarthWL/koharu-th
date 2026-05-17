@@ -268,6 +268,7 @@ async fn process_entry(
             // YOLO in batch, read it from project prefs here.
             detector_engine: None,
             anime_yolo_variant: None,
+            anime_yolo_confidence: None,
         },
     )
     .await?;

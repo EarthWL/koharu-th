@@ -116,6 +116,9 @@ export const api = {
       /** AnimeText YOLO size variant. Only honoured when detectorEngine is
        *  'anime_yolo'. */
       animeYoloVariant?: 'n' | 's' | 'm' | 'l' | 'x'
+      /** Confidence threshold override for Anime Text YOLO. Backend
+       *  clamps to [0.05, 0.95]; defaults to 0.25 (upstream). */
+      animeYoloConfidence?: number
     },
   ): Promise<void> {
     await invoke('detect', {
@@ -266,6 +269,9 @@ export const api = {
     /** AnimeText YOLO size variant. N (nano, ~10MB) → X (xlarge,
      *  ~250MB). Only honoured when detectorEngine is 'anime_yolo'. */
     animeYoloVariant?: 'n' | 's' | 'm' | 'l' | 'x'
+    /** Confidence threshold override for Anime Text YOLO. Backend
+     *  clamps to [0.05, 0.95]; defaults to 0.25 (upstream). */
+    animeYoloConfidence?: number
   }): Promise<void> {
     await invoke('process', options)
   },

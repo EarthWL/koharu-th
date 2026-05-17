@@ -167,6 +167,7 @@ async fn run_pipeline_inner(
                                 &mut snapshot,
                                 req.detector_engine.unwrap_or_default(),
                                 req.anime_yolo_variant,
+                                req.anime_yolo_confidence,
                             )
                             .await?;
                     }

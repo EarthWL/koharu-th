@@ -311,6 +311,7 @@ impl KoharuMcp {
                 index: p.index,
                 detector_engine: None,
                 anime_yolo_variant: None,
+                anime_yolo_confidence: None,
             },
         )
         .await
@@ -472,6 +473,7 @@ impl KoharuMcp {
                 skip_detect: None,
                 detector_engine: None,
                 anime_yolo_variant: None,
+                anime_yolo_confidence: None,
             },
         )
         .await

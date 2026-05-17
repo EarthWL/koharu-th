@@ -333,11 +333,12 @@ export const useDocumentMutations = () => {
         cancellable: true,
       })
       try {
-        const { detectorEngine, animeYoloVariant } =
+        const { detectorEngine, animeYoloVariant, animeYoloConfidence } =
           usePreferencesStore.getState()
         await api.detect(resolvedIndex, {
           detectorEngine,
           animeYoloVariant,
+          animeYoloConfidence,
         })
         await invalidateCurrentDocument(queryClient, resolvedIndex)
         await invalidateThumbnailAtIndex(queryClient, resolvedIndex)
@@ -367,6 +368,7 @@ export const useDocumentMutations = () => {
           cloudApiKey,
           detectorEngine,
           animeYoloVariant,
+          animeYoloConfidence,
         } = usePreferencesStore.getState()
         if (ocrEngine === 'cloud') {
           // Standalone OCR button → also respect Cloud Vision choice.
@@ -388,7 +390,11 @@ export const useDocumentMutations = () => {
           }
           let doc = await api.getDocument(resolvedIndex)
           if (doc.textBlocks.length === 0) {
-            await api.detect(resolvedIndex, { detectorEngine, animeYoloVariant })
+            await api.detect(resolvedIndex, {
+              detectorEngine,
+              animeYoloVariant,
+              animeYoloConfidence,
+            })
             doc = await api.getDocument(resolvedIndex)
           }
           if (doc.textBlocks.length > 0) {
@@ -490,6 +496,7 @@ export const useDocumentMutations = () => {
         cloudApiKey,
         detectorEngine,
         animeYoloVariant,
+        animeYoloConfidence,
       } = usePreferencesStore.getState()
       const { startOperation, finishOperation } = useOperationStore.getState()
       startOperation({
@@ -516,7 +523,11 @@ export const useDocumentMutations = () => {
               'Cloud Vision OCR is selected but no vision-capable profile is available. Configure one in Sidebar → Profiles or change OCR engine in Settings.',
             )
           }
-          await api.detect(resolvedIndex, { detectorEngine, animeYoloVariant })
+          await api.detect(resolvedIndex, {
+            detectorEngine,
+            animeYoloVariant,
+            animeYoloConfidence,
+          })
           const doc = await api.getDocument(resolvedIndex)
           if (doc.textBlocks.length > 0) {
             const { texts } = await ocrPageViaCloud(
@@ -552,6 +563,7 @@ export const useDocumentMutations = () => {
             ocrEngine,
             detectorEngine,
             animeYoloVariant,
+            animeYoloConfidence,
           })
         }
       } catch (error) {
@@ -588,7 +600,8 @@ export const useDocumentMutations = () => {
       total: totalPages,
     })
     try {
-      const { detectorEngine, animeYoloVariant } = usePreferencesStore.getState()
+      const { detectorEngine, animeYoloVariant, animeYoloConfidence } =
+        usePreferencesStore.getState()
       await api.process({
         llmModelId: selectedModel,
         language: selectedLanguage,
@@ -598,6 +611,7 @@ export const useDocumentMutations = () => {
         ocrEngine: effectiveEngine,
         detectorEngine,
         animeYoloVariant,
+        animeYoloConfidence,
       })
     } catch (error) {
       console.error('Failed to start processing:', error)

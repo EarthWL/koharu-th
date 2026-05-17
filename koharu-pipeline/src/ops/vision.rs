@@ -12,6 +12,7 @@ pub async fn detect(state: AppResources, payload: DetectPayload) -> anyhow::Resu
             &mut snapshot,
             payload.detector_engine.unwrap_or_default(),
             payload.anime_yolo_variant,
+            payload.anime_yolo_confidence,
         )
         .await?;
     state_tx::update_doc(&state.state, payload.index, snapshot).await

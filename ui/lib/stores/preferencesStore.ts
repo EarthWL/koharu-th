@@ -125,6 +125,14 @@ type PreferencesState = {
   animeYoloVariant: AnimeYoloVariant
   setAnimeYoloVariant: (variant: AnimeYoloVariant) => void
 
+  /** Confidence threshold for Anime Text YOLO. Lower = more detections
+   *  (and more noise); higher = fewer, stricter detections. Upstream
+   *  default is 0.25 — over-detection kicks in below 0.30, missed SFX
+   *  above 0.55. Only honoured when `detectorEngine === 'anime_yolo'`.
+   *  Backend clamps to [0.05, 0.95]. */
+  animeYoloConfidence: number
+  setAnimeYoloConfidence: (confidence: number) => void
+
   resetPreferences: () => void
 }
 
@@ -142,6 +150,7 @@ const initialPreferences = {
   activeProfileId: null as number | null,
   detectorEngine: 'default' as DetectorEngine,
   animeYoloVariant: 'n' as AnimeYoloVariant,
+  animeYoloConfidence: 0.25,
 }
 
 /**
@@ -227,6 +236,9 @@ export const usePreferencesStore = create<PreferencesState>()(
       setActiveProfileId: (id) => set({ activeProfileId: id }),
       setDetectorEngine: (engine) => set({ detectorEngine: engine }),
       setAnimeYoloVariant: (variant) => set({ animeYoloVariant: variant }),
+      setAnimeYoloConfidence: (confidence) =>
+        // Mirror backend clamp so the persisted value stays in range.
+        set({ animeYoloConfidence: Math.min(0.95, Math.max(0.05, confidence)) }),
       resetPreferences: () => set({ ...initialPreferences }),
     }),
     {

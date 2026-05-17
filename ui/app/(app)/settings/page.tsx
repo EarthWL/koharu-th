@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Slider } from '@/components/ui/slider'
 import { invoke, isTauri } from '@/lib/backend'
 import type { DeviceInfo } from '@/lib/rpc-types'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
@@ -51,6 +52,10 @@ export default function SettingsPage() {
   const setDetectorEngine = usePreferencesStore((s) => s.setDetectorEngine)
   const animeYoloVariant = usePreferencesStore((s) => s.animeYoloVariant)
   const setAnimeYoloVariant = usePreferencesStore((s) => s.setAnimeYoloVariant)
+  const animeYoloConfidence = usePreferencesStore((s) => s.animeYoloConfidence)
+  const setAnimeYoloConfidence = usePreferencesStore(
+    (s) => s.setAnimeYoloConfidence,
+  )
   const projectInfo = useProjectStore((s) => s.info)
   const cloudProvider = usePreferencesStore((s) => s.cloudProvider)
   const cloudModelName = usePreferencesStore((s) => s.cloudModelName)
@@ -258,6 +263,40 @@ export default function SettingsPage() {
                           </SelectItem>
                         </SelectContent>
                       </Select>
+
+                      <label className='text-muted-foreground self-start pt-2'>
+                        {t('settings.engineDetectorConfidence', 'Confidence')}
+                      </label>
+                      <div className='flex flex-col gap-2 pt-1.5'>
+                        <div className='flex items-center gap-3'>
+                          <Slider
+                            min={5}
+                            max={95}
+                            step={5}
+                            value={[Math.round(animeYoloConfidence * 100)]}
+                            onValueChange={(vals) =>
+                              setAnimeYoloConfidence((vals[0] ?? 25) / 100)
+                            }
+                            className='flex-1'
+                          />
+                          <span className='text-foreground w-12 text-right font-mono text-xs tabular-nums'>
+                            {animeYoloConfidence.toFixed(2)}
+                          </span>
+                          {Math.abs(animeYoloConfidence - 0.25) > 0.001 && (
+                            <button
+                              type='button'
+                              onClick={() => setAnimeYoloConfidence(0.25)}
+                              className='text-muted-foreground hover:text-foreground text-xs underline-offset-2 hover:underline'
+                            >
+                              {t('settings.reset', 'Reset')}
+                            </button>
+                          )}
+                        </div>
+                        <div className='text-muted-foreground/60 flex justify-between text-[10px] uppercase tracking-wide'>
+                          <span>{t('settings.confidenceMoreDetections', 'More (noisy)')}</span>
+                          <span>{t('settings.confidenceFewerDetections', 'Fewer (strict)')}</span>
+                        </div>
+                      </div>
                     </>
                   )}
                 </div>
@@ -266,7 +305,7 @@ export default function SettingsPage() {
                   <p className='text-muted-foreground/70 mt-4 border-t border-border/60 pt-3 text-xs leading-relaxed'>
                     {t(
                       'settings.engineDetectorAnimeYoloHint',
-                      'Anime Text YOLO (mayocream/anime-text-yolo, YOLO12) is tuned for anime/manga text and catches SFX, stylised titles, and out-of-bubble text the default detector misses. Bubble mask still comes from the default detector (YOLO has no bubble branch). Switching variant reloads the model on next Process — pick N for speed, X for max recall.',
+                      'Anime Text YOLO (mayocream/anime-text-yolo, YOLO12) is tuned for anime/manga text and catches SFX, stylised titles, and out-of-bubble text the default detector misses. Bubble mask still comes from the default detector (YOLO has no bubble branch). Switching variant reloads the model on next Process — pick N for speed, X for max recall. Raise Confidence (~0.35–0.45) to cut over-detection on noisy pages; lower it to rescue faint SFX.',
                     )}
                   </p>
                 )}

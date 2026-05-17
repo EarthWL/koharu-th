@@ -137,7 +137,8 @@ impl Model {
     /// `detect_with` for callers that haven't been threaded the
     /// engine preference yet.
     pub async fn detect(&self, doc: &mut Document) -> Result<()> {
-        self.detect_with(doc, DetectorEngine::default(), None).await
+        self.detect_with(doc, DetectorEngine::default(), None, None)
+            .await
     }
 
     /// Detect text blocks + bubble mask + fonts using the chosen
@@ -149,11 +150,16 @@ impl Model {
     ///
     /// `anime_yolo_variant` only matters when `engine` is `AnimeYolo`;
     /// None defaults to the smallest (N) variant.
+    ///
+    /// `anime_yolo_confidence` overrides Anime Text YOLO's confidence
+    /// threshold (None = module default 0.25). Clamped to a sane range;
+    /// only consulted when the YOLO branch actually runs.
     pub async fn detect_with(
         &self,
         doc: &mut Document,
         engine: DetectorEngine,
         anime_yolo_variant: Option<AnimeTextYoloVariant>,
+        anime_yolo_confidence: Option<f32>,
     ) -> Result<()> {
         let variant = anime_yolo_variant.unwrap_or(AnimeTextYoloVariant::N);
         let effective = match engine {
@@ -190,7 +196,14 @@ impl Model {
                     .anime_text_detector(variant)
                     .await
                     .expect("checked above");
-                let anime = yolo.inference(&doc.image)?;
+                let conf = anime_yolo_confidence
+                    .unwrap_or(crate::anime_text::DEFAULT_CONFIDENCE_THRESHOLD)
+                    .clamp(0.05, 0.95);
+                let anime = yolo.inference_with_thresholds(
+                    &doc.image,
+                    conf,
+                    crate::anime_text::DEFAULT_NMS_THRESHOLD,
+                )?;
                 doc.text_blocks = anime.text_blocks;
             }
         }
