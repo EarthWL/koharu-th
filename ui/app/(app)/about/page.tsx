@@ -59,7 +59,7 @@ export default function AboutPage() {
 
   return (
     <div className='bg-muted flex flex-1 flex-col overflow-hidden'>
-      <ScrollArea className='flex-1'>
+      <ScrollArea className='min-h-0 min-w-0 flex-1'>
         <div className='px-4 py-6'>
           <div className='relative mx-auto max-w-xl'>
             {/* Header with back button */}

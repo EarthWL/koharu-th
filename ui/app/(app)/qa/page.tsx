@@ -150,7 +150,7 @@ export default function QaPage() {
         </Button>
       </header>
 
-      <ScrollArea className='flex-1'>
+      <ScrollArea className='min-h-0 min-w-0 flex-1'>
         <div className='p-4'>
           {totalPages === 0 ? (
             <p className='text-muted-foreground text-center text-sm'>
