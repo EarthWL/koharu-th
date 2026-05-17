@@ -83,7 +83,7 @@ export function ChaptersTabPanel() {
           onCreated={refresh}
         />
       </div>
-      <ScrollArea className='flex-1'>
+      <ScrollArea className='min-h-0 min-w-0 flex-1'>
         <div className='space-y-1 p-2'>
           {chapters.isLoading ? (
             <p className='text-muted-foreground p-4 text-center text-xs'>

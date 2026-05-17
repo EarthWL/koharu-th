@@ -204,7 +204,7 @@ export function ProfilesTabPanel() {
           <PlusIcon className='size-3.5' />
         </Button>
       </div>
-      <ScrollArea className='min-w-0 flex-1'>
+      <ScrollArea className='min-h-0 min-w-0 flex-1'>
         <div className='w-full min-w-0 space-y-1 p-2'>
           {profiles.isLoading ? (
             <p className='text-muted-foreground p-2 text-center text-xs'>

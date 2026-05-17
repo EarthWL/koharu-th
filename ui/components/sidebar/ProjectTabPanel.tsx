@@ -89,7 +89,7 @@ export function ProjectTabPanel() {
           {info.root}
         </div>
       </div>
-      <ScrollArea className='flex-1'>
+      <ScrollArea className='min-h-0 min-w-0 flex-1'>
         <div className='space-y-3 p-2'>
           {seriesMeta.isLoading ? (
             <p className='text-muted-foreground p-2 text-center text-xs'>
