@@ -114,6 +114,18 @@ pub struct ProcessRequest {
     /// Engine to use for the OCR step. `None` ⇒ backend default
     /// (Mit48px). UI sets this from `preferencesStore.ocrEngine`.
     pub ocr_engine: Option<OcrEngine>,
+    /// Skip the OCR step entirely — frontend caller has already
+    /// populated `text_blocks[].text` (e.g. via Cloud Vision OCR done
+    /// in TypeScript). Used when `ocrEngine` is `'cloud'` on the
+    /// frontend: it OCRs first, then asks Rust to run
+    /// [skip detect] → [skip OCR] → inpaint → translate → render.
+    pub skip_ocr: Option<bool>,
+    /// Skip the detect step. Frontend uses this in tandem with
+    /// `skip_ocr=true` when doing Cloud Vision OCR — it already
+    /// called `detect` directly and populated text_blocks, so
+    /// re-running detect inside the pipeline would overwrite the
+    /// cloud-OCR'd text.
+    pub skip_detect: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

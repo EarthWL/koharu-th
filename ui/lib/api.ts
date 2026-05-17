@@ -236,6 +236,13 @@ export const api = {
     /** OCR engine for the OCR pipeline step. Backend defaults to
      *  Mit48px if omitted. */
     ocrEngine?: 'mit48px' | 'manga'
+    /** When `true`, the Rust pipeline skips the OCR step entirely
+     *  — the caller is expected to have populated text_blocks[].text
+     *  already (e.g. via Cloud Vision OCR done in TypeScript). */
+    skipOcr?: boolean
+    /** Skip the detect step (frontend ran it directly already, often
+     *  in tandem with `skipOcr` for the Cloud Vision OCR flow). */
+    skipDetect?: boolean
   }): Promise<void> {
     await invoke('process', options)
   },

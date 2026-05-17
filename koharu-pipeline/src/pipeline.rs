@@ -155,11 +155,25 @@ async fn run_pipeline_inner(
             let mut snapshot = state_tx::read_doc(&res.state, doc_index).await?;
 
             match step {
-                PipelineStep::Detect => res.ml.detect(&mut snapshot).await?,
+                PipelineStep::Detect => {
+                    if req.skip_detect.unwrap_or(false) {
+                        // Frontend ran detect itself (typically because
+                        // it's about to do Cloud Vision OCR and
+                        // doesn't want the pipeline to overwrite the
+                        // OCR'd text_blocks). Skip.
+                    } else {
+                        res.ml.detect(&mut snapshot).await?;
+                    }
+                }
                 PipelineStep::Ocr => {
-                    res.ml
-                        .ocr_with(&mut snapshot, req.ocr_engine.unwrap_or_default())
-                        .await?
+                    if req.skip_ocr.unwrap_or(false) {
+                        // Frontend already populated text_blocks[].text
+                        // (Cloud Vision OCR done in TS). Skip silently.
+                    } else {
+                        res.ml
+                            .ocr_with(&mut snapshot, req.ocr_engine.unwrap_or_default())
+                            .await?;
+                    }
                 }
                 PipelineStep::Inpaint => res.ml.inpaint(&mut snapshot).await?,
                 PipelineStep::LlmGenerate => {

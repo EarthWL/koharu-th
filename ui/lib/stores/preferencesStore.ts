@@ -5,11 +5,20 @@ import { persist } from 'zustand/middleware'
 
 export type CloudProvider = 'none' | 'openai' | 'openrouter' | 'gemini' | 'anthropic'
 
-/** OCR engine choice — mirrors `koharu_types::OcrEngine`. Mit48px is
- *  the default (what the app has shipped with since fork); Manga is a
- *  Japanese-tuned encoder-decoder, sometimes better on handwritten /
- *  stylised Japanese, lazy-loaded on first use (~100MB download). */
-export type OcrEngine = 'mit48px' | 'manga'
+/**
+ * OCR engine choice.
+ *
+ * Local engines mirror `koharu_types::OcrEngine`:
+ * - `mit48px` — default, what the app has shipped with since fork
+ * - `manga` — Japanese-tuned encoder-decoder, lazy-loaded ~100MB
+ *
+ * The `cloud` variant is frontend-only: the Rust pipeline gets
+ * `skip_ocr: true` and the UI runs OCR via a saved cloud profile
+ * (see `ocrCloudProfileId`) using `services/cloudOcr.ts`. Tokens are
+ * logged to `llm_call_log` with `use_case='ocr'` just like translation
+ * + chat calls — the cost dashboard sees them.
+ */
+export type OcrEngine = 'mit48px' | 'manga' | 'cloud'
 
 /** Per-provider wire config. Each provider keeps its own slot so the
  *  user can switch providers without re-pasting keys. */
@@ -74,6 +83,12 @@ type PreferencesState = {
   ocrEngine: OcrEngine
   setOcrEngine: (engine: OcrEngine) => void
 
+  /** When `ocrEngine === 'cloud'`, ID of the provider profile to use
+   *  for OCR calls. `null` means "fall back to the active translation
+   *  profile" — useful if the user has only one cloud profile. */
+  ocrCloudProfileId: number | null
+  setOcrCloudProfileId: (id: number | null) => void
+
   resetPreferences: () => void
 }
 
@@ -87,6 +102,7 @@ const initialPreferences = {
   cloudModelName: '',
   cloudTargetLanguage: 'Thai',
   ocrEngine: 'mit48px' as OcrEngine,
+  ocrCloudProfileId: null as number | null,
 }
 
 /**
@@ -168,6 +184,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       setCloudTargetLanguage: (language) =>
         set({ cloudTargetLanguage: language }),
       setOcrEngine: (engine) => set({ ocrEngine: engine }),
+      setOcrCloudProfileId: (id) => set({ ocrCloudProfileId: id }),
       resetPreferences: () => set({ ...initialPreferences }),
     }),
     {

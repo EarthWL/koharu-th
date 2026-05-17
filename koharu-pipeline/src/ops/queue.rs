@@ -258,6 +258,12 @@ async fn process_entry(
             // grow per-project engine preferences, read from the
             // project DB here instead.
             ocr_engine: None,
+            // Cloud Vision OCR is frontend-orchestrated, so the queue
+            // worker never sets skip_ocr / skip_detect — local OCR
+            // always runs in batch. See roadmap_next_features Tier B
+            // #3 for the backend-port plan that would change this.
+            skip_ocr: None,
+            skip_detect: None,
         },
     )
     .await?;

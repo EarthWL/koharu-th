@@ -22,6 +22,10 @@ import {
 import { invoke, isTauri } from '@/lib/backend'
 import type { DeviceInfo } from '@/lib/rpc-types'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '@/lib/api'
+import { supportsVision } from '@/lib/services/visionSupport'
+import { useProjectStore } from '@/lib/stores/projectStore'
 
 const THEME_OPTIONS = [
   { value: 'light', icon: SunIcon, labelKey: 'settings.themeLight' },
@@ -39,6 +43,23 @@ export default function SettingsPage() {
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo>()
   const ocrEngine = usePreferencesStore((s) => s.ocrEngine)
   const setOcrEngine = usePreferencesStore((s) => s.setOcrEngine)
+  const ocrCloudProfileId = usePreferencesStore((s) => s.ocrCloudProfileId)
+  const setOcrCloudProfileId = usePreferencesStore(
+    (s) => s.setOcrCloudProfileId,
+  )
+  const projectInfo = useProjectStore((s) => s.info)
+  // Only load the profile list when the user is actually looking at
+  // Engines + has cloud OCR selected. List is cheap (one SQL row per
+  // profile) but no point churning it otherwise.
+  const profiles = useQuery({
+    queryKey: ['project', 'profiles'],
+    queryFn: () => api.providerProfilesList(),
+    enabled: !!projectInfo && ocrEngine === 'cloud',
+    staleTime: 30_000,
+  })
+  const visionProfiles = (profiles.data ?? []).filter(
+    (p) => supportsVision(p.provider, p.modelName).supported,
+  )
 
   useEffect(() => {
     if (!isTauri()) return
@@ -150,7 +171,7 @@ export default function SettingsPage() {
                   <Select
                     value={ocrEngine}
                     onValueChange={(v) =>
-                      setOcrEngine(v as 'mit48px' | 'manga')
+                      setOcrEngine(v as 'mit48px' | 'manga' | 'cloud')
                     }
                   >
                     <SelectTrigger>
@@ -158,20 +179,71 @@ export default function SettingsPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value='mit48px'>
-                        MIT-48px (default · multilingual)
+                        MIT-48px (default · multilingual, local)
                       </SelectItem>
                       <SelectItem value='manga'>
-                        Manga OCR (Japanese-tuned, ~100MB first-use download)
+                        Manga OCR (Japanese-tuned, local, ~100MB first-use download)
+                      </SelectItem>
+                      <SelectItem value='cloud'>
+                        Cloud Vision (uses a saved LLM profile · counts tokens)
                       </SelectItem>
                     </SelectContent>
                   </Select>
+
+                  {ocrEngine === 'cloud' && (
+                    <>
+                      <label className='text-muted-foreground'>
+                        {t('settings.engineOcrCloudProfile', 'Vision profile')}
+                      </label>
+                      <Select
+                        value={
+                          ocrCloudProfileId == null
+                            ? 'active'
+                            : String(ocrCloudProfileId)
+                        }
+                        onValueChange={(v) =>
+                          setOcrCloudProfileId(v === 'active' ? null : Number(v))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value='active'>
+                            (Use the active translation profile)
+                          </SelectItem>
+                          {visionProfiles.map((p) => (
+                            <SelectItem key={p.id} value={String(p.id)}>
+                              {p.name} · {p.provider} · {p.modelName}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </>
+                  )}
                 </div>
                 <p className='text-muted-foreground/70 mt-3 text-xs'>
-                  {t(
-                    'settings.engineOcrHint',
-                    'MIT-48px is the production default and handles Latin / CJK / Thai. Manga OCR (mayocream/manga-ocr) is tuned for Japanese handwriting + stylised SFX; first switch downloads ~100MB of weights.',
-                  )}
+                  {ocrEngine === 'cloud'
+                    ? t(
+                        'settings.engineOcrCloudHint',
+                        'Cloud Vision OCR sends the page image + bubble coordinates to the selected vision-capable LLM and asks for the text per bubble. Quality is usually best, but every page costs tokens. Use for hard pages; pick a local engine for batch translation in the queue (batch never uses Cloud Vision — it falls back to MIT-48px). Calls are logged to the Cost Dashboard as use_case=ocr.',
+                      )
+                    : t(
+                        'settings.engineOcrHint',
+                        'MIT-48px is the production default and handles Latin / CJK / Thai. Manga OCR (mayocream/manga-ocr) is tuned for Japanese handwriting + stylised SFX; first switch downloads ~100MB of weights.',
+                      )}
                 </p>
+                {ocrEngine === 'cloud' &&
+                  profiles.data &&
+                  visionProfiles.length === 0 && (
+                    <p className='text-amber-600 dark:text-amber-400 mt-2 text-xs'>
+                      ⚠ No vision-capable profile saved yet. Open Sidebar →
+                      Profiles, add an OpenAI / Claude / Gemini / OpenRouter
+                      profile with a vision-capable model (e.g. gpt-4o,
+                      claude-3.5-sonnet, gemini-2.0-flash), then come back
+                      here.
+                    </p>
+                  )}
               </div>
             </section>
 

@@ -11,6 +11,10 @@ import { useOperationStore } from '@/lib/stores/operationStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { queryKeys } from '@/lib/query/keys'
 import {
+  ocrPageViaCloud,
+  resolveOcrCloudProfile,
+} from '@/lib/services/cloudOcr'
+import {
   clearMaskSync,
   enqueueBrushPatch,
   enqueueMaskSync,
@@ -425,7 +429,14 @@ export const useDocumentMutations = () => {
         index ?? useEditorUiStore.getState().currentDocumentIndex
       const { selectedModel, selectedLanguage } = useLlmUiStore.getState()
       const { renderEffect, renderStroke } = useEditorUiStore.getState()
-      const { fontFamily } = usePreferencesStore.getState()
+      const {
+        fontFamily,
+        ocrEngine,
+        ocrCloudProfileId,
+        cloudProvider,
+        cloudModelName,
+        cloudApiKey,
+      } = usePreferencesStore.getState()
       const { startOperation, finishOperation } = useOperationStore.getState()
       startOperation({
         type: 'process-current',
@@ -434,16 +445,59 @@ export const useDocumentMutations = () => {
         total: 5,
       })
       try {
-        const { ocrEngine } = usePreferencesStore.getState()
-        await api.process({
-          index: resolvedIndex,
-          llmModelId: selectedModel,
-          language: selectedLanguage,
-          shaderEffect: renderEffect,
-          shaderStroke: renderStroke,
-          fontFamily,
-          ocrEngine,
-        })
+        if (ocrEngine === 'cloud') {
+          // Cloud Vision OCR: detect first ourselves, OCR via cloud,
+          // then ask the Rust pipeline to skip both steps and just
+          // run inpaint + translate + render on the populated blocks.
+          const profiles = await api.providerProfilesList()
+          const resolved = await resolveOcrCloudProfile(
+            ocrCloudProfileId,
+            profiles,
+            cloudProvider,
+            cloudModelName,
+            cloudApiKey,
+          )
+          if (!resolved) {
+            throw new Error(
+              'Cloud Vision OCR is selected but no vision-capable profile is available. Configure one in Sidebar → Profiles or change OCR engine in Settings.',
+            )
+          }
+          await api.detect(resolvedIndex)
+          const doc = await api.getDocument(resolvedIndex)
+          if (doc.textBlocks.length > 0) {
+            const { texts } = await ocrPageViaCloud(
+              resolved.profile,
+              resolved.apiKey,
+              doc.image,
+              doc.textBlocks,
+            )
+            const updated = doc.textBlocks.map((b, i) => ({
+              ...b,
+              text: texts[i] ?? b.text,
+            }))
+            await api.updateTextBlocks(resolvedIndex, updated)
+          }
+          await api.process({
+            index: resolvedIndex,
+            llmModelId: selectedModel,
+            language: selectedLanguage,
+            shaderEffect: renderEffect,
+            shaderStroke: renderStroke,
+            fontFamily,
+            skipDetect: true,
+            skipOcr: true,
+          })
+        } else {
+          await api.process({
+            index: resolvedIndex,
+            llmModelId: selectedModel,
+            language: selectedLanguage,
+            shaderEffect: renderEffect,
+            shaderStroke: renderStroke,
+            fontFamily,
+            ocrEngine,
+          })
+        }
       } catch (error) {
         console.error('Failed to start processing:', error)
         finishOperation()
@@ -460,6 +514,17 @@ export const useDocumentMutations = () => {
     const { fontFamily, ocrEngine } = usePreferencesStore.getState()
     const { startOperation, finishOperation } = useOperationStore.getState()
     if (!totalPages) return
+    // Cloud Vision OCR runs page-by-page from the frontend (no Rust
+    // worker support yet — see roadmap Tier B #3) which would burn
+    // tokens fast across many pages. Fall back to MIT-48px for batch
+    // and let the user know once.
+    const effectiveEngine: 'mit48px' | 'manga' =
+      ocrEngine === 'cloud' ? 'mit48px' : ocrEngine
+    if (ocrEngine === 'cloud') {
+      console.info(
+        '[processAll] Cloud Vision OCR is not used for batch — falling back to MIT-48px. Use Process current for individual pages with Cloud Vision.',
+      )
+    }
     startOperation({
       type: 'process-all',
       cancellable: true,
@@ -473,7 +538,7 @@ export const useDocumentMutations = () => {
         shaderEffect: renderEffect,
         shaderStroke: renderStroke,
         fontFamily,
-        ocrEngine,
+        ocrEngine: effectiveEngine,
       })
     } catch (error) {
       console.error('Failed to start processing:', error)
