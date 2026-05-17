@@ -117,7 +117,27 @@ async fn prefetch() -> Result<()> {
 }
 
 async fn build_resources(cpu: bool) -> Result<AppResources> {
-    if cuda_is_available() {
+    // Try the requested device (usually GPU) first. If anything in the
+    // GPU init path fails — dylib download, preload, ML model init on
+    // the wrong compute cap, driver mismatch — fall back to CPU once
+    // and surface a warning. Better than crashing the whole app for
+    // someone whose card the binary wasn't built for (e.g. RTX 50xx
+    // when CUDA_COMPUTE_CAP only included Turing).
+    if !cpu {
+        match build_resources_inner(false).await {
+            Ok(res) => return Ok(res),
+            Err(err) => {
+                tracing::warn!(
+                    "GPU initialization failed: {err:#}. Falling back to CPU mode for this session."
+                );
+            }
+        }
+    }
+    build_resources_inner(true).await
+}
+
+async fn build_resources_inner(cpu: bool) -> Result<AppResources> {
+    if !cpu && cuda_is_available() {
         ensure_dylibs(LIB_ROOT.to_path_buf())
             .await
             .context("Failed to ensure dynamic libraries")?;

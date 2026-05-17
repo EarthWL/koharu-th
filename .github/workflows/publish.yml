@@ -7,7 +7,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  CUDA_COMPUTE_CAP: 75
+  CUDA_COMPUTE_CAP: "75;86;89;120"
 
 jobs:
   crates-io:

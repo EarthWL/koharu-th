@@ -7,7 +7,12 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  CUDA_COMPUTE_CAP: 75
+  # Multi-target: Turing (RTX 20xx), Ampere (RTX 30xx), Ada (RTX 40xx),
+  # Blackwell (RTX 50xx). One binary that runs on all four families.
+  # Older cards (Pascal SM 6.x and earlier) are intentionally excluded
+  # to keep the bundle size sane; cudarc/candle won't load them anyway
+  # on modern CUDA toolkits.
+  CUDA_COMPUTE_CAP: "75;86;89;120"
 
 jobs:
   build:

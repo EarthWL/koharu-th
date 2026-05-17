@@ -119,6 +119,43 @@ async function setupCl() {
 }
 
 /**
+ * Auto-detect the installed NVIDIA GPU's compute capability via
+ * `nvidia-smi` and set `CUDA_COMPUTE_CAP` so candle's CUDA kernels are
+ * compiled for the *right* SM target instead of whatever the build
+ * scripts default to.
+ *
+ * Without this:
+ *   - PTX forward-compat means kernels from an older SM still run on
+ *     a newer GPU (via runtime JIT by the driver), but slower than
+ *     native cubin.
+ *   - cubin-only kernels (some cuBLAS / cuDNN paths) just don't run
+ *     at all on architectures they weren't compiled for — which is
+ *     how someone on an RTX 50xx (Blackwell, SM 12.0) ends up with a
+ *     binary built for Turing (SM 7.5) silently failing.
+ *
+ * Respects an existing CUDA_COMPUTE_CAP env var if set (lets CI /
+ * power users pin a multi-target string like "75;86;89;120").
+ */
+async function setupComputeCap() {
+  if (process.env.CUDA_COMPUTE_CAP) return
+  try {
+    const { stdout } = await exec(
+      'nvidia-smi --query-gpu=compute_cap --format=csv,noheader',
+      { env: process.env },
+    )
+    const cap = stdout.split('\n')[0]?.trim()
+    if (cap && /^\d+\.\d+$/.test(cap)) {
+      process.env.CUDA_COMPUTE_CAP = cap
+      console.log(`Detected GPU compute capability: ${cap} (CUDA_COMPUTE_CAP set)`)
+    }
+  } catch {
+    // nvidia-smi missing or failed — let candle's build script fall
+    // back to its own default. Not fatal because the CPU code path
+    // still works.
+  }
+}
+
+/**
  * Strip the local home directory + workspace root out of the source
  * paths that Rust bakes into the binary for panic backtraces. Without
  * this, a release build contains hundreds of paths like
@@ -161,6 +198,10 @@ async function dev() {
 
     // Setup cl.exe path
     await setupCl()
+
+    // Detect this machine's GPU compute capability for native kernel
+    // compilation. Must come after CUDA setup so nvidia-smi is on PATH.
+    await setupComputeCap()
   }
 
   const args = process.argv.slice(2)
