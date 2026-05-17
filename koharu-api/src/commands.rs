@@ -434,6 +434,17 @@ pub struct ChapterIdPayload {
     pub id: i64,
 }
 
+/// Standalone `detect` op payload. Optional engine/variant — when
+/// omitted backend uses defaults, so existing callers (MCP, etc.)
+/// that send just `{index}` keep working bit-identical.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectPayload {
+    pub index: usize,
+    pub detector_engine: Option<DetectorEngine>,
+    pub anime_yolo_variant: Option<AnimeYoloVariant>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ChapterClearPagesResult {

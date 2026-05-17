@@ -14,7 +14,7 @@ use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 use koharu_api::commands::{
     AddTextBlockPayload, ChapterCreatePayload, ChapterIdPayload,
     ChapterUpdatePayload, CharacterAddPayload, CharacterIdPayload, CharacterUpdatePayload,
-    WebFetchPayload,
+    DetectPayload, WebFetchPayload,
     ExportDocumentParams, FileEntry, GlossaryAddPayload, GlossaryBulkAddPayload,
     GlossaryBumpUsagePayload, GlossaryIdPayload, GlossaryUpdatePayload, IndexPayload,
     InpaintPartialPayload, InpaintRegion, InpaintRegionParams, LlmCallLogPayload,
@@ -305,9 +305,16 @@ impl KoharuMcp {
     )]
     async fn detect(&self, Parameters(p): Parameters<IndexPayload>) -> Result<String, String> {
         let res = self.resources()?;
-        operations::detect(res.clone(), p)
-            .await
-            .map_err(|e| e.to_string())?;
+        operations::detect(
+            res.clone(),
+            DetectPayload {
+                index: p.index,
+                detector_engine: None,
+                anime_yolo_variant: None,
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
 
         let doc = operations::get_document(res, p)
             .await

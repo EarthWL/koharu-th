@@ -105,8 +105,23 @@ export const api = {
     return invoke('export_all_rendered')
   },
 
-  async detect(index: number): Promise<void> {
-    await invoke('detect', { index })
+  async detect(
+    index: number,
+    options?: {
+      /** Detector engine. Backend defaults to `default` (comic_text_detector)
+       *  if omitted. `anime_yolo` uses mayocream/anime-text-yolo (YOLO12) —
+       *  better at SFX + out-of-bubble text but lazy-downloads weights on
+       *  first use. */
+      detectorEngine?: 'default' | 'anime_yolo'
+      /** AnimeText YOLO size variant. Only honoured when detectorEngine is
+       *  'anime_yolo'. */
+      animeYoloVariant?: 'n' | 's' | 'm' | 'l' | 'x'
+    },
+  ): Promise<void> {
+    await invoke('detect', {
+      index,
+      ...options,
+    })
   },
 
   async ocr(index: number): Promise<void> {

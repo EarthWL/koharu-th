@@ -333,7 +333,12 @@ export const useDocumentMutations = () => {
         cancellable: true,
       })
       try {
-        await api.detect(resolvedIndex)
+        const { detectorEngine, animeYoloVariant } =
+          usePreferencesStore.getState()
+        await api.detect(resolvedIndex, {
+          detectorEngine,
+          animeYoloVariant,
+        })
         await invalidateCurrentDocument(queryClient, resolvedIndex)
         await invalidateThumbnailAtIndex(queryClient, resolvedIndex)
         useEditorUiStore.getState().setShowRenderedImage(false)
@@ -360,6 +365,8 @@ export const useDocumentMutations = () => {
           cloudProvider,
           cloudModelName,
           cloudApiKey,
+          detectorEngine,
+          animeYoloVariant,
         } = usePreferencesStore.getState()
         if (ocrEngine === 'cloud') {
           // Standalone OCR button → also respect Cloud Vision choice.
@@ -381,7 +388,7 @@ export const useDocumentMutations = () => {
           }
           let doc = await api.getDocument(resolvedIndex)
           if (doc.textBlocks.length === 0) {
-            await api.detect(resolvedIndex)
+            await api.detect(resolvedIndex, { detectorEngine, animeYoloVariant })
             doc = await api.getDocument(resolvedIndex)
           }
           if (doc.textBlocks.length > 0) {
@@ -481,6 +488,8 @@ export const useDocumentMutations = () => {
         cloudProvider,
         cloudModelName,
         cloudApiKey,
+        detectorEngine,
+        animeYoloVariant,
       } = usePreferencesStore.getState()
       const { startOperation, finishOperation } = useOperationStore.getState()
       startOperation({
@@ -507,7 +516,7 @@ export const useDocumentMutations = () => {
               'Cloud Vision OCR is selected but no vision-capable profile is available. Configure one in Sidebar → Profiles or change OCR engine in Settings.',
             )
           }
-          await api.detect(resolvedIndex)
+          await api.detect(resolvedIndex, { detectorEngine, animeYoloVariant })
           const doc = await api.getDocument(resolvedIndex)
           if (doc.textBlocks.length > 0) {
             const { texts } = await ocrPageViaCloud(
@@ -533,7 +542,6 @@ export const useDocumentMutations = () => {
             skipOcr: true,
           })
         } else {
-          const { detectorEngine, animeYoloVariant } = usePreferencesStore.getState()
           await api.process({
             index: resolvedIndex,
             llmModelId: selectedModel,
