@@ -19,7 +19,7 @@ resolver = "3"
 # Reset to 1.0.0 — the fork is a series-translation studio rather than a
 # patch of upstream 0.37.0 (added series project, agentic AI chat,
 # 5-provider LLM profiles, MCP expansion, vector TM, CBZ export, …).
-version = "1.0.2"
+version = "1.0.3"
 edition = "2024"
 description = "Manga series translation studio (koharu-th fork)"
 license = "Apache-2.0"

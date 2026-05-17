@@ -1,6 +1,6 @@
 # Koharu-TH
 
-[![Version](https://img.shields.io/badge/version-1.0.2-blue.svg)](https://github.com/EarthWL/koharu-th/releases)
+[![Version](https://img.shields.io/badge/version-1.0.3-blue.svg)](https://github.com/EarthWL/koharu-th/releases)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE-GPL)
 [![Sub-crates: Apache 2.0](https://img.shields.io/badge/sub--crates-Apache--2.0-blue.svg)](LICENSE-APACHE)
 [![Based on](https://img.shields.io/badge/based%20on-mayocream%2Fkoharu%200.37.0-purple.svg)](https://github.com/mayocream/koharu)

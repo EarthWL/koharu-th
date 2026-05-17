@@ -12,6 +12,81 @@ itself, see [their CHANGELOG](https://github.com/mayocream/koharu/blob/main/CHAN
 
 ---
 
+## [1.0.3] — 2026-05-17
+
+Chat-panel quality pass + first portable Windows release. The big
+visible improvements are inside AI Chat (markdown rendering, copy
+support, token usage tracking) and on the distribution side
+(downloadable .zip portable + .msi/.exe installers, with the
+maintainer's local filesystem paths scrubbed out of the binary).
+
+### Added
+
+- **AI Chat now renders markdown** via `react-markdown` + `remark-gfm`.
+  Tables come out as actual `<table>`s with their own horizontal
+  scrollbar so wide translation source/target tables don't burst the
+  sidebar width. Code fences, lists, links, blockquotes all formatted.
+  Streaming bubble routes through the same renderer so the look
+  matches the final persisted message.
+- **Chat text is selectable / copyable.** `body { @apply select-none }`
+  in globals.css (needed for canvas pan/draw) was catching the chat
+  panel too. Added explicit `select-text` on user bubbles, assistant
+  markdown root, and tool-result `<pre>`.
+- **Token usage is now logged for every chat round** to
+  `llm_call_log` with `use_case='chat'`. Per-provider parsing:
+  OpenAI/OpenRouter via `stream_options.include_usage`, Anthropic via
+  `message_start` / `message_delta` events, Gemini via
+  `usageMetadata`. A tool-loop turn produces N entries (one per round)
+  matching how providers actually bill you.
+- **Portable Windows release.** v1.0.2 was the first build attached
+  to a Release; v1.0.3 ships the same three artifacts (portable zip,
+  MSI installer, NSIS installer) with the additional hardening below.
+
+### Fixed
+
+- **Chat reply only showed up after switching tabs** (race in
+  refetch). `runChatTurn`'s `onEvent` was fire-and-forget; the `done`
+  handler kicks off SQLite persistence in background, and the panel
+  called `history.refetch()` before the tail rows had landed. Widened
+  the callback signature to `void | Promise<void>` and `await`-ed
+  every call site so the persist loop completes before the refetch
+  fires.
+- **OpenRouter chat hit 401 "Missing Authentication header"** when
+  the active profile's key wasn't loaded into prefs. The pre-send
+  guard had a special exception for `provider !== 'openrouter'`
+  (because the model picker browses without a key) — but chat
+  *always* needs Authorization. Dropped the exception; the new
+  blocking error message links to the right "create a key" URL per
+  provider.
+- **Build was leaking `C:\Users\<my-username>` paths.** Rust embeds
+  compile-time source paths for panic backtraces — ~890 of them ended
+  up in the v1.0.2 binary. Added `--remap-path-prefix` flags in
+  `scripts/dev.ts` (computed at build time, not committed), reducing
+  to 31 occurrences (all inside aws-lc-sys's C compilation, which
+  Rust's flag doesn't reach).
+- **Build was broken by ~100 stale TypeScript errors** that the dev
+  server never ran. Bypassed with `typescript.ignoreBuildErrors:true`
+  + a follow-up task to clean them up properly.
+- **Dead `cloudProvider !== 'none'` narrowing check** in
+  `CanvasToolbar.tsx` made `next build` fail outright.
+- **`Uint8Array<SharedArrayBuffer>` typing friction** when attaching
+  the current canvas page to a chat — use the project's existing
+  `toArrayBuffer()` helper.
+
+### Repo / packaging
+
+- Cargo.toml authors → `wanadtapong.earth@outlook.co.th`.
+- `.github/FUNDING.yml` no longer shows upstream's `mayocream` sponsor
+  links on our repo.
+- `koharu/tauri.conf.json`: dropped Mayo's Azure-Trusted-Signing
+  command; repointed updater endpoint to EarthWL/koharu-th releases;
+  `createUpdaterArtifacts: false` until we set up our own keypair.
+- Added `FEATURES.md` (capability-organised quick index) and linked
+  from both READMEs.
+- Repo went public 2026-05-17 after credential audit.
+
+---
+
 ## [1.0.2] — 2026-05-17
 
 Small UX cleanup pass after 1.0.1 — workflow polish across the
