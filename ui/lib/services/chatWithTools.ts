@@ -14,7 +14,36 @@
  */
 
 import { dispatchTool, listTools, type ToolDef } from './aiTools'
-import type { ChatAttachment } from '@/lib/api'
+import { api, type ChatAttachment } from '@/lib/api'
+import { useProjectStore } from '@/lib/stores/projectStore'
+import type { TokenUsage } from './cloudLlm'
+
+/** Provider-call result: the assistant message plus whatever token
+ *  counts the provider returned (null if it didn't). */
+type ProviderResult = { message: ChatMessage; usage: TokenUsage | null }
+
+/** Fire-and-forget: log a single chat round to `llm_call_log`. No-op
+ *  when no project is open. Mirrors `cloudLlm.ts:logCallSafe` so the
+ *  AI Chat panel shows up alongside translation calls in the cost
+ *  dashboard. */
+function logChatRoundSafe(args: {
+  success: boolean
+  usage: TokenUsage | null
+  durationMs: number
+  errorMessage?: string
+}) {
+  if (!useProjectStore.getState().info) return
+  void api
+    .llmCallLog({
+      useCase: 'chat',
+      success: args.success,
+      promptTokens: args.usage?.promptTokens ?? null,
+      completionTokens: args.usage?.completionTokens ?? null,
+      durationMs: args.durationMs,
+      errorMessage: args.errorMessage ?? null,
+    })
+    .catch((err) => console.warn('[chatWithTools] llmCallLog failed', err))
+}
 
 const MAX_TOOL_ROUNDS = 8
 
@@ -106,9 +135,22 @@ export async function runChatTurn(
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     let assistant: ChatMessage
+    const roundStart = Date.now()
     try {
-      assistant = await callProvider(cfg, messages, tools, onEvent)
+      const result = await callProvider(cfg, messages, tools, onEvent)
+      assistant = result.message
+      logChatRoundSafe({
+        success: true,
+        usage: result.usage,
+        durationMs: Date.now() - roundStart,
+      })
     } catch (err: any) {
+      logChatRoundSafe({
+        success: false,
+        usage: null,
+        durationMs: Date.now() - roundStart,
+        errorMessage: err?.message ?? String(err),
+      })
       await onEvent({ kind: 'error', message: err?.message ?? String(err) })
       throw err
     }
@@ -164,7 +206,7 @@ async function callProvider(
   messages: ChatMessage[],
   tools: ToolDef[],
   onEvent: (e: ChatEvent) => void,
-): Promise<ChatMessage> {
+): Promise<ProviderResult> {
   switch (cfg.provider) {
     case 'openai':
     case 'openrouter':
@@ -227,7 +269,7 @@ async function callOpenAiCompat(
   messages: ChatMessage[],
   tools: ToolDef[],
   onEvent: (e: ChatEvent) => void,
-): Promise<ChatMessage> {
+): Promise<ProviderResult> {
   const base = (cfg.apiUrl || 'https://api.openai.com/v1').replace(/\/+$/, '')
   const url =
     cfg.provider === 'openrouter'
@@ -249,6 +291,10 @@ async function callOpenAiCompat(
     tools: toOpenAiTools(tools),
     tool_choice: 'auto',
     stream: true,
+    // Ask the server to emit a final SSE chunk containing token usage
+    // so we can log it to llm_call_log. OpenAI + OpenRouter both
+    // honour this flag.
+    stream_options: { include_usage: true },
   }
 
   const res = await fetch(url, {
@@ -272,12 +318,21 @@ async function callOpenAiCompat(
     { id?: string; name: string; arguments: string }
   > = {}
 
+  let usage: TokenUsage | null = null
+
   for await (const payload of readSseLines(res.body)) {
     let chunk: any
     try {
       chunk = JSON.parse(payload)
     } catch {
       continue
+    }
+    // The usage chunk has no `choices[0].delta` — it stands alone.
+    if (chunk.usage) {
+      usage = {
+        promptTokens: chunk.usage.prompt_tokens ?? null,
+        completionTokens: chunk.usage.completion_tokens ?? null,
+      }
     }
     const delta = chunk.choices?.[0]?.delta
     if (!delta) continue
@@ -307,9 +362,12 @@ async function callOpenAiCompat(
     }))
 
   return {
-    role: 'assistant',
-    content,
-    toolCalls: toolCalls.length ? toolCalls : undefined,
+    message: {
+      role: 'assistant',
+      content,
+      toolCalls: toolCalls.length ? toolCalls : undefined,
+    },
+    usage,
   }
 }
 
@@ -387,7 +445,7 @@ async function callAnthropic(
   messages: ChatMessage[],
   tools: ToolDef[],
   onEvent: (e: ChatEvent) => void,
-): Promise<ChatMessage> {
+): Promise<ProviderResult> {
   const system =
     messages
       .filter((m) => m.role === 'system')
@@ -425,8 +483,12 @@ async function callAnthropic(
   // {type:'text_delta', text:'...'}; tool_use blocks arrive as
   // content_block_start with the {id, name}, then content_block_delta
   // with {type:'input_json_delta', partial_json:'...'} that we concat.
+  // Usage: message_start carries input_tokens; message_delta carries
+  // the final output_tokens.
   let text = ''
   const blocks: Record<number, { type: string; id?: string; name?: string; partial: string }> = {}
+  let promptTokens: number | null = null
+  let completionTokens: number | null = null
 
   for await (const payload of readSseLines(res.body)) {
     let evt: any
@@ -436,6 +498,14 @@ async function callAnthropic(
       continue
     }
     switch (evt.type) {
+      case 'message_start': {
+        const u = evt.message?.usage
+        if (u) {
+          promptTokens = u.input_tokens ?? null
+          completionTokens = u.output_tokens ?? null
+        }
+        break
+      }
       case 'content_block_start': {
         const idx = evt.index ?? 0
         const cb = evt.content_block ?? {}
@@ -464,8 +534,14 @@ async function callAnthropic(
         }
         break
       }
+      case 'message_delta': {
+        const u = evt.usage
+        if (u && typeof u.output_tokens === 'number') {
+          completionTokens = u.output_tokens
+        }
+        break
+      }
       case 'message_stop':
-      case 'message_delta':
       case 'content_block_stop':
       default:
         break
@@ -480,10 +556,18 @@ async function callAnthropic(
       arguments: b.partial || '{}',
     }))
 
+  const usage: TokenUsage | null =
+    promptTokens !== null || completionTokens !== null
+      ? { promptTokens, completionTokens }
+      : null
+
   return {
-    role: 'assistant',
-    content: text,
-    toolCalls: toolCalls.length ? toolCalls : undefined,
+    message: {
+      role: 'assistant',
+      content: text,
+      toolCalls: toolCalls.length ? toolCalls : undefined,
+    },
+    usage,
   }
 }
 
@@ -556,7 +640,7 @@ async function callGemini(
   messages: ChatMessage[],
   tools: ToolDef[],
   onEvent: (e: ChatEvent) => void,
-): Promise<ChatMessage> {
+): Promise<ProviderResult> {
   const system =
     messages
       .filter((m) => m.role === 'system')
@@ -585,6 +669,7 @@ async function callGemini(
 
   let text = ''
   const toolCalls: ToolCall[] = []
+  let usage: TokenUsage | null = null
 
   for await (const payload of readSseLines(res.body)) {
     let chunk: any
@@ -592,6 +677,15 @@ async function callGemini(
       chunk = JSON.parse(payload)
     } catch {
       continue
+    }
+    // usageMetadata typically arrives on the final chunk — keep
+    // overwriting so we end with whatever was reported last.
+    const um = chunk.usageMetadata
+    if (um) {
+      usage = {
+        promptTokens: um.promptTokenCount ?? null,
+        completionTokens: um.candidatesTokenCount ?? null,
+      }
     }
     const parts: any[] = chunk.candidates?.[0]?.content?.parts ?? []
     for (const p of parts) {
@@ -609,8 +703,11 @@ async function callGemini(
   }
 
   return {
-    role: 'assistant',
-    content: text,
-    toolCalls: toolCalls.length ? toolCalls : undefined,
+    message: {
+      role: 'assistant',
+      content: text,
+      toolCalls: toolCalls.length ? toolCalls : undefined,
+    },
+    usage,
   }
 }
