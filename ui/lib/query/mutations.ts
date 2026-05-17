@@ -533,7 +533,6 @@ export const useDocumentMutations = () => {
             skipOcr: true,
           })
         } else {
-          const { mergeYoloDetect } = usePreferencesStore.getState()
           await api.process({
             index: resolvedIndex,
             llmModelId: selectedModel,
@@ -542,7 +541,6 @@ export const useDocumentMutations = () => {
             shaderStroke: renderStroke,
             fontFamily,
             ocrEngine,
-            mergeYoloDetect,
           })
         }
       } catch (error) {
@@ -579,7 +577,6 @@ export const useDocumentMutations = () => {
       total: totalPages,
     })
     try {
-      const { mergeYoloDetect } = usePreferencesStore.getState()
       await api.process({
         llmModelId: selectedModel,
         language: selectedLanguage,
@@ -587,7 +584,6 @@ export const useDocumentMutations = () => {
         shaderStroke: renderStroke,
         fontFamily,
         ocrEngine: effectiveEngine,
-        mergeYoloDetect,
       })
     } catch (error) {
       console.error('Failed to start processing:', error)

@@ -463,7 +463,6 @@ impl KoharuMcp {
                 ocr_engine: None,
                 skip_ocr: None,
                 skip_detect: None,
-                merge_yolo_detect: None,
             },
         )
         .await

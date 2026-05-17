@@ -243,9 +243,6 @@ export const api = {
     /** Skip the detect step (frontend ran it directly already, often
      *  in tandem with `skipOcr` for the Cloud Vision OCR flow). */
     skipDetect?: boolean
-    /** Experimental: merge YOLOv5 bbox output into the DBNet
-     *  detection result. See Settings → Engines → Detector. */
-    mergeYoloDetect?: boolean
   }): Promise<void> {
     await invoke('process', options)
   },

@@ -126,12 +126,6 @@ pub struct ProcessRequest {
     /// re-running detect inside the pipeline would overwrite the
     /// cloud-OCR'd text.
     pub skip_detect: Option<bool>,
-    /// Experimental: after the normal DBNet detect, also decode
-    /// YOLOv5's own bbox output (which the pipeline normally
-    /// discards after extracting features) and merge any boxes
-    /// DBNet missed. Targets SFX / title text that's not in a
-    /// standard speech bubble. Default OFF.
-    pub merge_yolo_detect: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

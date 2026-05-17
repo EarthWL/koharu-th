@@ -97,14 +97,6 @@ type PreferencesState = {
   activeProfileId: number | null
   setActiveProfileId: (id: number | null) => void
 
-  /** Experimental: after the normal DBNet detect pass, also decode
-   *  YOLOv5's own bbox output (normally thrown away after feature
-   *  extraction) and merge any boxes DBNet missed. Targets SFX +
-   *  stylised title text that DBNet's per-pixel segmentation tends
-   *  to miss. Default OFF; user opts in via Settings → Engines. */
-  mergeYoloDetect: boolean
-  setMergeYoloDetect: (enabled: boolean) => void
-
   resetPreferences: () => void
 }
 
@@ -120,7 +112,6 @@ const initialPreferences = {
   ocrEngine: 'mit48px' as OcrEngine,
   ocrCloudProfileId: null as number | null,
   activeProfileId: null as number | null,
-  mergeYoloDetect: false,
 }
 
 /**
@@ -204,7 +195,6 @@ export const usePreferencesStore = create<PreferencesState>()(
       setOcrEngine: (engine) => set({ ocrEngine: engine }),
       setOcrCloudProfileId: (id) => set({ ocrCloudProfileId: id }),
       setActiveProfileId: (id) => set({ activeProfileId: id }),
-      setMergeYoloDetect: (enabled) => set({ mergeYoloDetect: enabled }),
       resetPreferences: () => set({ ...initialPreferences }),
     }),
     {

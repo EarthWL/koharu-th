@@ -1,7 +1,6 @@
 mod dbnet;
 mod postprocess;
 mod unet;
-mod yolo_decode;
 mod yolo_v5;
 
 use std::cmp;
@@ -91,77 +90,6 @@ impl ComicTextDetector {
         };
 
         postprocess::build_detection(image, maps)
-    }
-
-    /// Experimental: run the normal DBNet detection, then ALSO decode
-    /// YOLOv5's own bbox output (which the regular `forward` throws
-    /// away after extracting features) and add any boxes DBNet missed.
-    /// Enabled via the `merge_yolo_detect` setting in Settings →
-    /// Engines.
-    ///
-    /// Targets the pain point of stylised SFX / title text / chapter
-    /// markers that aren't standard in-bubble text — DBNet's per-pixel
-    /// segmentation misses these, but YOLO's object-detection head was
-    /// trained alongside the same dataset and *might* still catch some.
-    ///
-    /// Falls back to the rearranged-tiled path silently when needed
-    /// (we don't merge YOLO output across tiles in v1 — coordinate
-    /// math is fiddly and the rearranged case is only triggered for
-    /// extreme aspect ratios).
-    #[instrument(level = "debug", skip_all)]
-    pub fn inference_with_yolo_merge(
-        &self,
-        image: &DynamicImage,
-    ) -> anyhow::Result<ComicTextDetection> {
-        let detect_size = self.detect_size();
-        // Tiled / rearranged path doesn't currently support YOLO
-        // merge — would need per-tile coord mapping + cross-tile NMS.
-        // Punt to default behaviour for that case.
-        if let Some(maps) =
-            self.try_rearranged_maps(image, detect_size, DET_REARRANGE_MAX_BATCHES)?
-        {
-            tracing::debug!(
-                "yolo merge: rearranged-tile path not supported, falling back to plain DBNet"
-            );
-            return postprocess::build_detection(image, maps);
-        }
-
-        let original_dimensions = image.dimensions();
-        let (image_tensor, resized_dimensions) = preprocess(image, &self.device, detect_size)?;
-
-        // Capture YOLO predictions this time around (regular forward
-        // throws them away). Hand-roll the same backbone+neck+head
-        // call sequence the regular forward does.
-        let (yolo_predictions, features) = self.yolo.forward(&image_tensor)?;
-        let (mask, features) = self.unet.forward(
-            &features[0],
-            &features[1],
-            &features[2],
-            &features[3],
-            &features[4],
-        )?;
-        let shrink_thresh =
-            self.dbnet
-                .forward(&features[0], &features[1], &features[2])?;
-
-        let maps =
-            postprocess_maps(&mask, &shrink_thresh, original_dimensions, resized_dimensions)?;
-        let mut detection = postprocess::build_detection(image, maps)?;
-
-        let yolo_boxes = yolo_decode::decode_predictions(
-            &yolo_predictions,
-            detect_size,
-            original_dimensions,
-            /* conf_threshold */ 0.30,
-            /* iou_threshold */ 0.45,
-            /* keep_classes — keep both, comic-text-detector class
-             * order isn't well documented and SFX may fall under
-             * either text or bubble depending on training labels */
-            None,
-        )?;
-        merge_yolo_into_detection(&mut detection, &yolo_boxes);
-
-        Ok(detection)
     }
 
     #[instrument(level = "debug", skip_all)]
@@ -342,73 +270,6 @@ impl ComicTextDetector {
 }
 
 #[instrument(level = "debug", skip_all)]
-/// Add YOLO-discovered bboxes into the DBNet detection result,
-/// skipping any that already substantially overlap an existing
-/// text_block (so we don't double-process the same bubble).
-///
-/// New blocks are tagged `detector: "yolo-merge"` so the QA review
-/// can show which detector caught each block.
-fn merge_yolo_into_detection(
-    detection: &mut postprocess::ComicTextDetection,
-    yolo_boxes: &[yolo_decode::YoloBox],
-) {
-    // IoU threshold for "already covered by DBNet". 0.30 is permissive
-    // — we'd rather skip a YOLO box than create a near-duplicate.
-    const OVERLAP_IOU: f32 = 0.30;
-
-    let mut added = 0usize;
-    for yb in yolo_boxes {
-        let mut covered = false;
-        for existing in &detection.text_blocks {
-            let ex1 = existing.x;
-            let ey1 = existing.y;
-            let ex2 = existing.x + existing.width;
-            let ey2 = existing.y + existing.height;
-            let ix1 = yb.x1.max(ex1);
-            let iy1 = yb.y1.max(ey1);
-            let ix2 = yb.x2.min(ex2);
-            let iy2 = yb.y2.min(ey2);
-            let iw = (ix2 - ix1).max(0.0);
-            let ih = (iy2 - iy1).max(0.0);
-            let inter = iw * ih;
-            let union = yb.area() + existing.width * existing.height - inter;
-            let iou = if union > 0.0 { inter / union } else { 0.0 };
-            if iou > OVERLAP_IOU {
-                covered = true;
-                break;
-            }
-        }
-        if covered {
-            continue;
-        }
-        // Synthesize a TextBlock from the YOLO bbox. Polygon is just
-        // the bbox corners since YOLO doesn't give us text-line
-        // geometry; downstream renderers tolerate this.
-        let quad: [[f32; 2]; 4] = [
-            [yb.x1, yb.y1],
-            [yb.x2, yb.y1],
-            [yb.x2, yb.y2],
-            [yb.x1, yb.y2],
-        ];
-        let mut block = koharu_types::TextBlock::default();
-        block.x = yb.x1;
-        block.y = yb.y1;
-        block.width = yb.width();
-        block.height = yb.height();
-        block.confidence = yb.confidence;
-        block.line_polygons = Some(vec![quad]);
-        block.detector = Some(format!("yolo-merge:c{}", yb.class_id));
-        detection.text_blocks.push(block);
-        added += 1;
-    }
-    if added > 0 {
-        tracing::debug!(
-            "yolo merge: added {} new text_blocks from YOLO not covered by DBNet",
-            added
-        );
-    }
-}
-
 fn preprocess(
     image: &DynamicImage,
     device: &Device,

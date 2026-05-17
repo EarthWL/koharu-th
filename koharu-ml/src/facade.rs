@@ -102,22 +102,7 @@ impl Model {
     /// Detect text blocks and fonts in a document.
     /// Sets `doc.text_blocks` (with font predictions/styles) and `doc.segment`.
     pub async fn detect(&self, doc: &mut Document) -> Result<()> {
-        self.detect_with(doc, false).await
-    }
-
-    /// Same as `detect`, but with an optional experimental
-    /// "merge YOLO bboxes" pass. When `merge_yolo` is true, runs the
-    /// regular DBNet detection then also decodes YOLOv5's own bbox
-    /// output (which DBNet's pipeline normally throws away) and adds
-    /// any boxes DBNet missed — targets SFX / stylised title text
-    /// that DBNet's per-pixel segmentation tends to miss.
-    pub async fn detect_with(&self, doc: &mut Document, merge_yolo: bool) -> Result<()> {
-        let detection = if merge_yolo {
-            self.dialog_detector
-                .inference_with_yolo_merge(&doc.image)?
-        } else {
-            self.dialog_detector.inference(&doc.image)?
-        };
+        let detection = self.dialog_detector.inference(&doc.image)?;
         doc.text_blocks = detection.text_blocks;
         doc.segment = Some(DynamicImage::ImageLuma8(detection.mask).into());
 
