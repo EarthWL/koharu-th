@@ -421,7 +421,7 @@ function LlmStatusPopover() {
                   Cloud AI is active
                 </p>
                 <p>
-                  {cloudProvider !== 'none' && cloudModelName ? (
+                  {cloudModelName ? (
                     <>
                       <span className='font-medium'>
                         {PROVIDER_LABEL[cloudProvider] ?? cloudProvider}
