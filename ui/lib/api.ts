@@ -339,6 +339,19 @@ export const api = {
   },
 
   // ----------------------------------------------------------------
+  // Storage management (Settings → Storage panel + NSIS uninstall hook)
+  // ----------------------------------------------------------------
+  async appStorageStats(): Promise<AppStorageStats> {
+    return invoke('app_storage_stats') as Promise<AppStorageStats>
+  },
+
+  async appStorageClear(
+    targets: StorageClearTarget[],
+  ): Promise<AppStorageClearResult> {
+    return invoke('app_storage_clear', { targets }) as Promise<AppStorageClearResult>
+  },
+
+  // ----------------------------------------------------------------
   // Series + chapters (Phase 2)
   // ----------------------------------------------------------------
   async seriesMetaGet(): Promise<SeriesMetaDto> {
@@ -1022,6 +1035,42 @@ export type RecentProjectDto = {
   path: string
   name: string
   lastOpenedAt: number
+}
+
+export type StorageClearTarget =
+  | 'libsCuda'
+  | 'modelsHf'
+  | 'fontsCustom'
+  | 'recentProjects'
+
+export type StorageEntry = {
+  /** Absolute path on disk — shown in UI so user sees what'll be touched. */
+  path: string
+  exists: boolean
+  sizeBytes: number
+  fileCount: number
+}
+
+export type AppStorageStats = {
+  /** Runtime CUDA+cuDNN dylibs. Safe to clear; re-downloaded on next GPU launch. */
+  libsCuda: StorageEntry
+  /** HuggingFace model cache (Anime YOLO, Manga OCR, etc.). Safe to clear; re-fetched on first inference. */
+  modelsHf: StorageEntry
+  /** User-dropped custom fonts. Confirm before clearing — user data. */
+  fontsCustom: StorageEntry
+  /** recent-projects.json (UI convenience). Project folders themselves unaffected. */
+  recentProjects: StorageEntry
+}
+
+export type StorageClearError = {
+  target: StorageClearTarget
+  message: string
+}
+
+export type AppStorageClearResult = {
+  cleared: StorageClearTarget[]
+  freedBytes: number
+  errors: StorageClearError[]
 }
 
 export type ProjectInfo = {

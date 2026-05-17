@@ -186,6 +186,9 @@ async fn build_resources_inner(cpu: bool) -> Result<AppResources> {
         queue_worker: Arc::new(RwLock::new(None)),
         project: Arc::new(RwLock::new(None)),
         recent_projects_path: APP_ROOT.join("recent-projects.json"),
+        lib_root: LIB_ROOT.to_path_buf(),
+        model_root: MODEL_ROOT.to_path_buf(),
+        font_root: FONT_ROOT.to_path_buf(),
         version: crate::version::current(),
     })
 }

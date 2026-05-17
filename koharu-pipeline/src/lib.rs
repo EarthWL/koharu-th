@@ -31,5 +31,17 @@ pub struct AppResources {
     /// <app-data>/Koharu/. Resolved at app startup so tests / headless
     /// runs can override it.
     pub recent_projects_path: std::path::PathBuf,
+    /// `<app-data>/Koharu/libs` — runtime-downloaded CUDA + cuDNN
+    /// dylibs. Owned by `ensure_dylibs`; the Storage panel reports
+    /// size + offers to clear it. Set at app startup so the storage
+    /// op doesn't have to re-derive the path.
+    pub lib_root: std::path::PathBuf,
+    /// `<app-data>/Koharu/models` — HuggingFace model cache (Anime
+    /// YOLO, Manga OCR, etc.). Owned by koharu_ml's set_cache_dir.
+    pub model_root: std::path::PathBuf,
+    /// `<app-data>/Koharu/fonts` — user-dropped custom fonts. Reported
+    /// in Storage panel with an extra-confirm warning since removing
+    /// it loses user assets.
+    pub font_root: std::path::PathBuf,
     pub version: &'static str,
 }

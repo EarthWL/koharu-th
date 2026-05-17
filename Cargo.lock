@@ -3947,6 +3947,7 @@ dependencies = [
  "strum",
  "tokio",
  "tracing",
+ "walkdir",
 ]
 
 [[package]]

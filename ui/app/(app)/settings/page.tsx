@@ -23,8 +23,8 @@ import { Slider } from '@/components/ui/slider'
 import { invoke, isTauri } from '@/lib/backend'
 import type { DeviceInfo } from '@/lib/rpc-types'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
-import { useQuery } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { api, type StorageClearTarget, type StorageEntry } from '@/lib/api'
 import { supportsVision } from '@/lib/services/visionSupport'
 import { useProjectStore } from '@/lib/stores/projectStore'
 
@@ -426,6 +426,9 @@ export default function SettingsPage() {
               </section>
             )}
 
+            {/* Storage Section */}
+            <StorageSection />
+
             {/* Divider */}
             <div className='border-border mb-8 border-t' />
 
@@ -444,5 +447,216 @@ export default function SettingsPage() {
         </div>
       </ScrollArea>
     </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────
+// Storage Section
+// ────────────────────────────────────────────────────────────────
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)))
+  const value = bytes / Math.pow(1024, i)
+  return `${value.toFixed(value >= 10 || i === 0 ? 0 : 1)} ${units[i]}`
+}
+
+type RowSpec = {
+  target: StorageClearTarget
+  label: string
+  /** Short description shown under the label. */
+  description: string
+  /** Set true for targets that delete user-created data — UI shows
+   *  amber warning text + uses a stricter confirm. */
+  destructive?: boolean
+}
+
+const STORAGE_ROWS: RowSpec[] = [
+  {
+    target: 'libsCuda',
+    label: 'CUDA runtime libraries',
+    description:
+      'Downloaded automatically on first GPU launch. Re-downloaded if cleared.',
+  },
+  {
+    target: 'modelsHf',
+    label: 'AI model cache',
+    description:
+      'Anime YOLO, Manga OCR, comic_text_detector, LaMa, font detector. Re-fetched on first inference.',
+  },
+  {
+    target: 'fontsCustom',
+    label: 'Custom fonts',
+    description:
+      'TTF/OTF files you dropped into the Koharu/fonts folder. Removing loses these fonts.',
+    destructive: true,
+  },
+  {
+    target: 'recentProjects',
+    label: 'Recent projects list',
+    description:
+      'The "recently opened" list shown on the home screen. Project folders themselves are untouched.',
+  },
+]
+
+function StorageSection() {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const resetPreferences = usePreferencesStore((s) => s.resetPreferences)
+  const stats = useQuery({
+    queryKey: ['app', 'storage', 'stats'],
+    queryFn: () => api.appStorageStats(),
+    enabled: isTauri(),
+    staleTime: 5_000,
+  })
+  const [busy, setBusy] = useState<StorageClearTarget | 'prefs' | null>(null)
+  const [lastResult, setLastResult] = useState<string | null>(null)
+
+  const clear = async (target: StorageClearTarget, spec: RowSpec) => {
+    const entry = stats.data?.[target]
+    const sizeText = entry?.exists
+      ? formatBytes(entry.sizeBytes)
+      : 'no data on disk'
+    const verb = spec.destructive
+      ? `permanently delete ${spec.label} (${sizeText})`
+      : `clear ${spec.label} (${sizeText})`
+    if (!confirm(`Are you sure you want to ${verb}?`)) return
+    setBusy(target)
+    setLastResult(null)
+    try {
+      const res = await api.appStorageClear([target])
+      const ok = res.cleared.includes(target)
+      const err = res.errors.find((e) => e.target === target)
+      if (ok) {
+        setLastResult(
+          `Cleared ${spec.label} — freed ${formatBytes(res.freedBytes)}.`,
+        )
+      } else if (err) {
+        setLastResult(`Failed to clear ${spec.label}: ${err.message}`)
+      }
+      await queryClient.invalidateQueries({ queryKey: ['app', 'storage'] })
+    } catch (e: any) {
+      setLastResult(`Failed to clear ${spec.label}: ${e?.message ?? e}`)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const resetPrefs = () => {
+    if (
+      !confirm(
+        'Reset all preferences to defaults? Cloud API keys, OCR/detector choices, language, theme, and brush settings will revert. Project data is unaffected.',
+      )
+    )
+      return
+    setBusy('prefs')
+    setLastResult(null)
+    try {
+      resetPreferences()
+      setLastResult('Preferences reset to defaults.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <section className='mb-8'>
+      <h2 className='text-foreground mb-1 text-sm font-bold'>
+        {t('settings.storage', 'Storage')}
+      </h2>
+      <p className='text-muted-foreground mb-4 text-sm'>
+        {t(
+          'settings.storageDescription',
+          "On-disk data koharu manages outside your project folders. Project files (.khr / chapter pages / SQLite) are never touched by anything here.",
+        )}
+      </p>
+
+      <div className='bg-card border-border rounded-lg border p-4'>
+        <div className='space-y-3 text-sm'>
+          {STORAGE_ROWS.map((spec) => {
+            const entry: StorageEntry | undefined = stats.data?.[spec.target]
+            const isBusy = busy === spec.target
+            return (
+              <div
+                key={spec.target}
+                className='border-border/60 flex items-start justify-between gap-3 border-b pb-3 last:border-b-0 last:pb-0'
+              >
+                <div className='min-w-0 flex-1'>
+                  <div className='text-foreground font-medium'>
+                    {spec.label}
+                    {spec.destructive && (
+                      <span className='ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400'>
+                        user data
+                      </span>
+                    )}
+                  </div>
+                  <div className='text-muted-foreground/80 mt-0.5 text-xs leading-relaxed'>
+                    {spec.description}
+                  </div>
+                  {entry && (
+                    <div className='text-muted-foreground/60 mt-1 font-mono text-[10px] break-all'>
+                      {entry.path}
+                    </div>
+                  )}
+                </div>
+                <div className='flex shrink-0 flex-col items-end gap-1'>
+                  <span className='text-foreground font-mono text-xs tabular-nums'>
+                    {entry?.exists
+                      ? formatBytes(entry.sizeBytes)
+                      : '—'}
+                  </span>
+                  <button
+                    type='button'
+                    disabled={!entry?.exists || isBusy}
+                    onClick={() => clear(spec.target, spec)}
+                    className='text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:hover:text-muted-foreground text-xs underline-offset-2 hover:underline disabled:no-underline'
+                  >
+                    {isBusy ? 'Clearing…' : 'Clear'}
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+
+          {/* Preferences reset — lives outside the Rust storage API
+              because it touches browser localStorage, not <app-data>. */}
+          <div className='border-border/60 flex items-start justify-between gap-3 border-t pt-3'>
+            <div className='min-w-0 flex-1'>
+              <div className='text-foreground font-medium'>
+                Preferences
+                <span className='ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400'>
+                  user data
+                </span>
+              </div>
+              <div className='text-muted-foreground/80 mt-0.5 text-xs leading-relaxed'>
+                Cloud API keys, OCR / detector choices, theme, language, brush, and other UI prefs. Stored in browser localStorage; project files unaffected.
+              </div>
+            </div>
+            <div className='flex shrink-0 flex-col items-end gap-1'>
+              <button
+                type='button'
+                disabled={busy === 'prefs'}
+                onClick={resetPrefs}
+                className='text-muted-foreground hover:text-foreground disabled:opacity-40 text-xs underline-offset-2 hover:underline'
+              >
+                {busy === 'prefs' ? 'Resetting…' : 'Reset to defaults'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {lastResult && (
+          <p className='text-muted-foreground mt-3 border-t border-border/60 pt-3 text-xs'>
+            {lastResult}
+          </p>
+        )}
+        {stats.isError && (
+          <p className='text-amber-600 dark:text-amber-400 mt-3 text-xs'>
+            Could not read storage stats — backend may not be ready yet.
+          </p>
+        )}
+      </div>
+    </section>
   )
 }

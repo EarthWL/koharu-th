@@ -461,6 +461,92 @@ pub struct OcrPayload {
     pub ocr_engine: Option<OcrEngine>,
 }
 
+// ────────────────────────────────────────────────────────────────
+// App storage management (Settings → Storage panel + uninstaller)
+// ────────────────────────────────────────────────────────────────
+
+/// One on-disk artefact group the user can inspect or clear from the
+/// Settings → Storage panel. Sizes are computed by walking the folder
+/// (cheap — these are flat trees with <1k files).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageEntry {
+    /// Absolute path on disk. UI shows it so user knows what'll be
+    /// touched.
+    pub path: String,
+    /// True if the folder/file actually exists on disk right now.
+    pub exists: bool,
+    /// Total bytes used. 0 if `!exists`.
+    pub size_bytes: u64,
+    /// Number of files inside (1 for a single-file artefact like
+    /// recent-projects.json, recursive count for folders).
+    pub file_count: u64,
+}
+
+/// Snapshot of every koharu-managed artefact under `%LOCALAPPDATA%/Koharu`.
+/// User-chosen project folders are intentionally absent — those are
+/// out of scope for any cleanup we offer.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStorageStats {
+    /// Runtime-downloaded CUDA + cuDNN dylibs (~1-1.5 GB). Safe to
+    /// remove — re-downloaded on next GPU launch.
+    pub libs_cuda: StorageEntry,
+    /// HuggingFace model cache: Anime YOLO, Manga OCR, comic_text_detector,
+    /// LaMa, font_detector, mit48px (~500 MB – 2 GB). Safe to remove —
+    /// re-fetched on first inference.
+    pub models_hf: StorageEntry,
+    /// User-dropped custom fonts. Removing this loses user assets,
+    /// so the UI requires extra confirmation for this target.
+    pub fonts_custom: StorageEntry,
+    /// recent-projects.json (UI convenience list). Removing only forgets
+    /// the recent list — actual project folders are untouched.
+    pub recent_projects: StorageEntry,
+}
+
+/// Which artefact group to clear. Maps 1:1 to AppStorageStats fields.
+/// Frontend can request several in one call (e.g. user hits "Reset
+/// everything except fonts").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum StorageClearTarget {
+    LibsCuda,
+    ModelsHf,
+    FontsCustom,
+    RecentProjects,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStorageClearPayload {
+    pub targets: Vec<StorageClearTarget>,
+}
+
+/// What was actually deleted. Errors per-target are surfaced so the
+/// UI can show a partial-success toast (e.g. "Cleared models (1.2 GB
+/// freed); CUDA libs locked by another process — try again after
+/// quit").
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStorageClearResult {
+    /// Targets that were successfully cleared (folder removed or
+    /// already absent).
+    pub cleared: Vec<StorageClearTarget>,
+    /// Total bytes freed across all cleared targets (best-effort —
+    /// measured before delete).
+    pub freed_bytes: u64,
+    /// Per-target errors (target name + error message). Empty on full
+    /// success.
+    pub errors: Vec<StorageClearError>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageClearError {
+    pub target: StorageClearTarget,
+    pub message: String,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ChapterClearPagesResult {

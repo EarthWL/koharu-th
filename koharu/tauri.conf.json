@@ -44,7 +44,12 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "createUpdaterArtifacts": false
+    "createUpdaterArtifacts": false,
+    "windows": {
+      "nsis": {
+        "installerHooks": "./installer-hooks.nsi"
+      }
+    }
   },
   "plugins": {
     "updater": {
