@@ -410,6 +410,28 @@ pub struct ChapterIdPayload {
     pub id: i64,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChapterPagePayload {
+    pub chapter_id: i64,
+    /// 0-based index into the chapter's `source/` directory after the
+    /// pages are sorted by filename. Matches the same ordering the
+    /// editor uses when the chapter is opened.
+    pub page_index: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChapterPageBytes {
+    #[serde(with = "serde_bytes")]
+    pub data: Vec<u8>,
+    /// Filename of the page on disk (e.g. "001.png") so the caller can
+    /// infer mime / show it as a label.
+    pub filename: String,
+    pub page_index: usize,
+    pub total_pages: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ChapterExportCbzResult {

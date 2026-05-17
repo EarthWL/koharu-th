@@ -344,6 +344,30 @@ export const api = {
     return invoke('chapter_remove', { id }) as Promise<boolean>
   },
 
+  /** Read one page's raw bytes from a chapter's source/ folder without
+   *  loading the chapter into editor state. Used by the AI Chat's
+   *  vision tools so the model can browse any page of any chapter
+   *  without disrupting what the human is currently editing. */
+  async chapterGetPageBytes(
+    chapterId: number,
+    pageIndex: number,
+  ): Promise<{
+    data: Uint8Array
+    filename: string
+    pageIndex: number
+    totalPages: number
+  }> {
+    return invoke('chapter_get_page_bytes', {
+      chapterId,
+      pageIndex,
+    }) as Promise<{
+      data: Uint8Array
+      filename: string
+      pageIndex: number
+      totalPages: number
+    }>
+  },
+
   /** Export a chapter as a `.cbz` (Comic Book ZIP). Backend pops a
    *  save dialog; uses pages from render/ if present, else source/. */
   async chapterExportCbz(id: number): Promise<{

@@ -13,7 +13,12 @@
  * runaway agents.
  */
 
-import { dispatchTool, listTools, type ToolDef } from './aiTools'
+import {
+  dispatchTool,
+  isImageToolResult,
+  listTools,
+  type ToolDef,
+} from './aiTools'
 import { api, type ChatAttachment } from '@/lib/api'
 import { useProjectStore } from '@/lib/stores/projectStore'
 import type { TokenUsage } from './cloudLlm'
@@ -162,6 +167,18 @@ export async function runChatTurn(
     }
 
     // Dispatch each requested tool and append results.
+    //
+    // For image-returning tools (view_current_page, view_chapter_page):
+    // the tool message itself stays text (caption / "[see next
+    // message]") so model knows what it asked for, and a single
+    // synthetic user message at the end of the round carries ALL the
+    // image attachments. This keeps the tool messages grouped right
+    // after the assistant's tool_calls — OpenAI requires every
+    // tool_call_id to be answered before any non-tool message
+    // appears. The synthetic user message is in-memory only; we don't
+    // persist it because tool images are ephemeral analysis context.
+    const pendingImages: ChatAttachment[] = []
+    const pendingImageAlts: string[] = []
     for (const call of assistant.toolCalls) {
       await onEvent({ kind: 'tool-call', call })
       let args: unknown = {}
@@ -173,10 +190,33 @@ export async function runChatTurn(
       }
       const result = await dispatchTool(call.name, args)
       await onEvent({ kind: 'tool-result', toolCallId: call.id, result })
+
+      if (isImageToolResult(result)) {
+        messages.push({
+          role: 'tool',
+          toolCallId: call.id,
+          content: `[image returned: ${result.alt}. See the follow-up message for the actual image.]`,
+        })
+        pendingImages.push({
+          dataUrl: `data:${result.mimeType};base64,${result.base64}`,
+          mimeType: result.mimeType,
+          width: 0,
+          height: 0,
+        })
+        pendingImageAlts.push(result.alt)
+      } else {
+        messages.push({
+          role: 'tool',
+          toolCallId: call.id,
+          content: safeStringify(result),
+        })
+      }
+    }
+    if (pendingImages.length > 0) {
       messages.push({
-        role: 'tool',
-        toolCallId: call.id,
-        content: safeStringify(result),
+        role: 'user',
+        content: `(tool-returned images, in order: ${pendingImageAlts.join('; ')})`,
+        attachments: pendingImages,
       })
     }
   }

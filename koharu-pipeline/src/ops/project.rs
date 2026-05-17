@@ -549,6 +549,51 @@ fn dedupe_in_dir(dir: &std::path::Path, name: &str) -> String {
     format!("{stem}-{ts}{ext}")
 }
 
+/// Read a single page from a chapter's `source/` subfolder, by index
+/// in the sorted-by-filename order. Does NOT mutate any state — useful
+/// for the AI Chat's vision tools that need to look at any page of any
+/// chapter without disturbing what the human is currently editing.
+pub async fn chapter_get_page_bytes(
+    state: AppResources,
+    payload: koharu_api::commands::ChapterPagePayload,
+) -> anyhow::Result<koharu_api::commands::ChapterPageBytes> {
+    let project = require_project(&state).await?;
+    let result = tokio::task::spawn_blocking(
+        move || -> anyhow::Result<koharu_api::commands::ChapterPageBytes> {
+            let conn = project.pool().get()?;
+            let chapter = chapter_ops::get(&conn, payload.chapter_id)?.ok_or_else(|| {
+                anyhow::anyhow!("chapter {} not found", payload.chapter_id)
+            })?;
+            let pages = chapter_ops::list_source_pages(project.root(), &chapter)?;
+            let total = pages.len();
+            if payload.page_index >= total {
+                anyhow::bail!(
+                    "page index {} out of range (chapter {} has {} pages)",
+                    payload.page_index,
+                    payload.chapter_id,
+                    total
+                );
+            }
+            let path = &pages[payload.page_index];
+            let data = std::fs::read(path)
+                .map_err(|e| anyhow::anyhow!("read {}: {}", path.display(), e))?;
+            let filename = path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("page")
+                .to_string();
+            Ok(koharu_api::commands::ChapterPageBytes {
+                data,
+                filename,
+                page_index: payload.page_index,
+                total_pages: total,
+            })
+        },
+    )
+    .await??;
+    Ok(result)
+}
+
 /// Open all pages from a chapter's `source/` subfolder into the editor.
 /// Replaces the currently-loaded documents.
 pub async fn chapter_open(

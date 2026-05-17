@@ -138,6 +138,9 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::ChapterCreate => call(operations::chapter_create, state, params).await,
         Method::ChapterAddPages => call(operations::chapter_add_pages, state, params).await,
         Method::ChapterOpen => call(operations::chapter_open, state, params).await,
+        Method::ChapterGetPageBytes => {
+            call(operations::chapter_get_page_bytes, state, params).await
+        }
         Method::ChapterUpdate => call(operations::chapter_update, state, params).await,
         Method::ChapterRemove => call(operations::chapter_remove, state, params).await,
         Method::ChapterExportCbz => {

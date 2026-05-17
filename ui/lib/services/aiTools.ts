@@ -15,6 +15,50 @@ import {
   effectiveModel,
   embedBatch,
 } from '@/lib/services/embeddings'
+import { blobToAttachment } from '@/lib/services/imageAttach'
+import { useEditorUiStore } from '@/lib/stores/editorUiStore'
+import { toArrayBuffer } from '@/lib/util'
+
+/**
+ * Sentinel-tagged tool result for image-returning tools. The chat
+ * loop recognises this shape and routes the bytes into the model's
+ * native multi-modal channel (Anthropic tool_result with image block,
+ * Gemini functionResponse with inlineData, OpenAI-compat synthetic
+ * follow-up user message) instead of stringifying to JSON.
+ */
+export type ImageToolResult = {
+  _kind: 'image'
+  /** `image/jpeg` after downsizing; original mime if pass-through. */
+  mimeType: string
+  /** Base64-encoded image bytes (no `data:` prefix). */
+  base64: string
+  /** Short human-readable label rendered alongside the image —
+   *  becomes the tool_result text body so the model has a caption. */
+  alt: string
+}
+
+export function isImageToolResult(x: unknown): x is ImageToolResult {
+  return (
+    typeof x === 'object' &&
+    x !== null &&
+    (x as any)._kind === 'image' &&
+    typeof (x as any).base64 === 'string'
+  )
+}
+
+/** Convert raw page bytes into a downsized, model-friendly ImageToolResult. */
+async function bytesToImageResult(
+  bytes: Uint8Array,
+  alt: string,
+): Promise<ImageToolResult> {
+  // blobToAttachment downsizes to ≤1024px + JPEG q85 (same constants
+  // we use for user-attached images). Reuse so vision-tool images are
+  // sized identically.
+  const blob = new Blob([toArrayBuffer(bytes)])
+  const att = await blobToAttachment(blob)
+  const base64 = att.dataUrl.replace(/^data:[^;]+;base64,/, '')
+  return { _kind: 'image', mimeType: att.mimeType, base64, alt }
+}
 
 export type JsonSchema = Record<string, unknown>
 
@@ -325,6 +369,59 @@ const TOOLS: ToolDef[] = [
       },
     },
     handler: (args) => api.webFetchUrl(args.url),
+  },
+
+  // ── Vision: let the model browse pages on its own ─────────────
+  {
+    name: 'view_current_page',
+    description:
+      'Return the image of the page the human is currently looking at in the editor canvas. Useful when the user says things like "translate this page" or "what does the speech bubble in the top-right say" without first attaching the image themselves. Image is downsized to ≤1024px JPEG.',
+    parameters: empty(),
+    handler: async () => {
+      const idx = useEditorUiStore.getState().currentDocumentIndex
+      try {
+        const doc = await api.getDocument(idx)
+        return await bytesToImageResult(
+          doc.image,
+          `current canvas page (index ${idx})`,
+        )
+      } catch (err: any) {
+        return { error: err?.message ?? String(err) }
+      }
+    },
+  },
+  {
+    name: 'view_chapter_page',
+    description:
+      "Read one page image from any chapter in the open project. Lets you page through a chapter to find the panel you want without disturbing the human's editor. `pageIndex` is 0-based into the chapter's source/ folder sorted by filename. Returns an error if the chapter has no pages or the index is out of range. Use `chapters_list` to discover chapter IDs + page counts first.",
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['chapterId', 'pageIndex'],
+      properties: {
+        chapterId: { type: 'number', description: 'Chapter row id.' },
+        pageIndex: {
+          type: 'number',
+          description: '0-based page index within the chapter.',
+        },
+      },
+    },
+    handler: async (args) => {
+      const chapterId = Number(args.chapterId)
+      const pageIndex = Number(args.pageIndex)
+      if (!Number.isFinite(chapterId) || !Number.isFinite(pageIndex)) {
+        return { error: 'chapterId and pageIndex must be numbers' }
+      }
+      try {
+        const page = await api.chapterGetPageBytes(chapterId, pageIndex)
+        return await bytesToImageResult(
+          page.data,
+          `chapter ${chapterId} · page ${page.pageIndex + 1}/${page.totalPages} (${page.filename})`,
+        )
+      } catch (err: any) {
+        return { error: err?.message ?? String(err) }
+      }
+    },
   },
 ]
 
