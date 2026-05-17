@@ -145,8 +145,16 @@ async function setupComputeCap() {
     )
     const cap = stdout.split('\n')[0]?.trim()
     if (cap && /^\d+\.\d+$/.test(cap)) {
-      process.env.CUDA_COMPUTE_CAP = cap
-      console.log(`Detected GPU compute capability: ${cap} (CUDA_COMPUTE_CAP set)`)
+      // bindgen_cuda's build script parses CUDA_COMPUTE_CAP as a bare
+      // integer (no dot) — "75", "86", "120". nvidia-smi reports the
+      // human-friendly dotted form ("7.5", "8.6", "12.0"). Strip the
+      // dot before exporting, otherwise the build panics with
+      // ParseIntError.
+      const intCap = cap.replace('.', '')
+      process.env.CUDA_COMPUTE_CAP = intCap
+      console.log(
+        `Detected GPU compute capability: ${cap} → CUDA_COMPUTE_CAP=${intCap}`,
+      )
     }
   } catch {
     // nvidia-smi missing or failed — let candle's build script fall
