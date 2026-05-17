@@ -32,14 +32,20 @@ function BarChart({
 }: {
   rows: { key: string; label: string; value: number; sub?: string }[]
 }) {
-  const max = Math.max(0, ...rows.map((r) => r.value))
-  if (max === 0 || rows.length === 0) {
+  if (rows.length === 0) {
     return (
       <p className='text-muted-foreground text-center text-[10px]'>
         No data yet
       </p>
     )
   }
+  // When every row's value is 0 (typically: user hasn't set per-1M
+  // cost rates on their profiles yet, so estimated_cost_usd is 0 for
+  // every call), still render the rows with labels + counts so the
+  // user can SEE breakdown by profile / chapter / use case. Bars just
+  // collapse to 0% width. Avoids the misleading "No data yet" state
+  // when there's clearly data — just no cost figure.
+  const max = Math.max(0, ...rows.map((r) => r.value))
   return (
     <div className='space-y-1'>
       {rows.map((r) => (
@@ -58,7 +64,7 @@ function BarChart({
           <div className='bg-muted h-1.5 overflow-hidden rounded'>
             <div
               className='bg-primary h-full transition-all'
-              style={{ width: `${(r.value / max) * 100}%` }}
+              style={{ width: max > 0 ? `${(r.value / max) * 100}%` : '0%' }}
             />
           </div>
         </div>
