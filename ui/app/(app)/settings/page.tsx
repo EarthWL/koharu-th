@@ -198,10 +198,14 @@ export default function SettingsPage() {
                 )}
               </p>
 
-              <div className='bg-card border-border rounded-lg border p-4'>
+              {/* Detector sub-card — engine + variant + hint live together */}
+              <div className='bg-card border-border mb-3 rounded-lg border p-4'>
+                <h3 className='text-foreground mb-3 text-xs font-semibold uppercase tracking-wide'>
+                  {t('settings.engineDetector', 'Detector')}
+                </h3>
                 <div className='grid grid-cols-[max-content_1fr] items-center gap-x-6 gap-y-3 text-sm'>
                   <label className='text-muted-foreground'>
-                    {t('settings.engineDetector', 'Detector')}
+                    {t('settings.engineDetectorEngine', 'Engine')}
                   </label>
                   <Select
                     value={detectorEngine}
@@ -225,7 +229,7 @@ export default function SettingsPage() {
                   {detectorEngine === 'anime_yolo' && (
                     <>
                       <label className='text-muted-foreground'>
-                        {t('settings.engineDetectorVariant', 'YOLO variant')}
+                        {t('settings.engineDetectorVariant', 'Variant')}
                       </label>
                       <Select
                         value={animeYoloVariant}
@@ -256,9 +260,26 @@ export default function SettingsPage() {
                       </Select>
                     </>
                   )}
+                </div>
 
+                {detectorEngine === 'anime_yolo' && (
+                  <p className='text-muted-foreground/70 mt-4 border-t border-border/60 pt-3 text-xs leading-relaxed'>
+                    {t(
+                      'settings.engineDetectorAnimeYoloHint',
+                      'Anime Text YOLO (mayocream/anime-text-yolo, YOLO12) is tuned for anime/manga text and catches SFX, stylised titles, and out-of-bubble text the default detector misses. Bubble mask still comes from the default detector (YOLO has no bubble branch). Switching variant reloads the model on next Process — pick N for speed, X for max recall.',
+                    )}
+                  </p>
+                )}
+              </div>
+
+              {/* OCR sub-card */}
+              <div className='bg-card border-border rounded-lg border p-4'>
+                <h3 className='text-foreground mb-3 text-xs font-semibold uppercase tracking-wide'>
+                  {t('settings.engineOcr', 'OCR')}
+                </h3>
+                <div className='grid grid-cols-[max-content_1fr] items-center gap-x-6 gap-y-3 text-sm'>
                   <label className='text-muted-foreground'>
-                    {t('settings.engineOcr', 'OCR')}
+                    {t('settings.engineOcrEngine', 'Engine')}
                   </label>
                   <Select
                     value={ocrEngine}
@@ -315,15 +336,7 @@ export default function SettingsPage() {
                   )}
                 </div>
 
-                {detectorEngine === 'anime_yolo' && (
-                  <p className='text-muted-foreground/70 mt-3 text-xs'>
-                    {t(
-                      'settings.engineDetectorAnimeYoloHint',
-                      'Anime Text YOLO (mayocream/anime-text-yolo, YOLO12) is tuned for anime/manga text and catches SFX, stylised titles, and out-of-bubble text the default detector misses. Bubble mask still comes from the default detector (YOLO has no bubble branch). Switching variant reloads the model on next Process — pick N for speed, X for max recall.',
-                    )}
-                  </p>
-                )}
-                <p className='text-muted-foreground/70 mt-3 text-xs'>
+                <p className='text-muted-foreground/70 mt-4 border-t border-border/60 pt-3 text-xs leading-relaxed'>
                   {ocrEngine === 'cloud'
                     ? t(
                         'settings.engineOcrCloudHint',
@@ -338,7 +351,7 @@ export default function SettingsPage() {
                   profiles.data &&
                   visionProfiles.length === 0 &&
                   !activeIsVision && (
-                    <p className='text-amber-600 dark:text-amber-400 mt-2 text-xs'>
+                    <p className='text-amber-600 dark:text-amber-400 mt-2 text-xs leading-relaxed'>
                       ⚠ No vision-capable profile available. Open Sidebar →
                       Profiles, add an OpenAI / Claude / Gemini / OpenRouter
                       profile with a vision-capable model (e.g. gpt-4o,
