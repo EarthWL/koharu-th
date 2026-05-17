@@ -13,9 +13,9 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
+  // Next 16 dropped the `eslint` config key — lint is no longer part
+  // of `next build` by default. Kept this block deliberately empty as
+  // a marker; running ESLint is a separate step now if we want it.
 }
 
 export default nextConfig
