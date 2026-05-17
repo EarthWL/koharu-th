@@ -21,6 +21,7 @@ import {
 } from './aiTools'
 import { api, type ChatAttachment } from '@/lib/api'
 import { useProjectStore } from '@/lib/stores/projectStore'
+import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import type { TokenUsage } from './cloudLlm'
 
 /** Provider-call result: the assistant message plus whatever token
@@ -38,9 +39,13 @@ function logChatRoundSafe(args: {
   errorMessage?: string
 }) {
   if (!useProjectStore.getState().info) return
+  const profileId = usePreferencesStore.getState().activeProfileId
+  const chapterId = useProjectStore.getState().activeChapterId
   void api
     .llmCallLog({
       useCase: 'chat',
+      profileId,
+      chapterId,
       success: args.success,
       promptTokens: args.usage?.promptTokens ?? null,
       completionTokens: args.usage?.completionTokens ?? null,

@@ -89,6 +89,14 @@ type PreferencesState = {
   ocrCloudProfileId: number | null
   setOcrCloudProfileId: (id: number | null) => void
 
+  /** ID of the currently-applied translation profile, set whenever
+   *  user clicks Apply on a saved profile (Profiles sidebar, LLM
+   *  badge on toolbar, Command Palette, or auto-apply on Save).
+   *  Threaded into `llm_call_log.profile_id` so the Cost Dashboard
+   *  can group by profile. `null` when no profile is active. */
+  activeProfileId: number | null
+  setActiveProfileId: (id: number | null) => void
+
   resetPreferences: () => void
 }
 
@@ -103,6 +111,7 @@ const initialPreferences = {
   cloudTargetLanguage: 'Thai',
   ocrEngine: 'mit48px' as OcrEngine,
   ocrCloudProfileId: null as number | null,
+  activeProfileId: null as number | null,
 }
 
 /**
@@ -185,6 +194,7 @@ export const usePreferencesStore = create<PreferencesState>()(
         set({ cloudTargetLanguage: language }),
       setOcrEngine: (engine) => set({ ocrEngine: engine }),
       setOcrCloudProfileId: (id) => set({ ocrCloudProfileId: id }),
+      setActiveProfileId: (id) => set({ activeProfileId: id }),
       resetPreferences: () => set({ ...initialPreferences }),
     }),
     {

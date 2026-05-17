@@ -22,6 +22,7 @@
 import { api, type ProviderProfileDto } from '@/lib/api'
 import type { TextBlock } from '@/types'
 import { useProjectStore } from '@/lib/stores/projectStore'
+import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { toArrayBuffer } from '@/lib/util'
 import { blobToAttachment } from '@/lib/services/imageAttach'
 import type { TokenUsage } from '@/lib/services/cloudLlm'
@@ -107,11 +108,25 @@ function logCallSafe(args: {
   usage: TokenUsage | null
   durationMs: number
   errorMessage?: string
+  /** ID of the saved profile that did the OCR. Pass `null` for the
+   *  synthetic "(Use active translation profile)" path — we'll fall
+   *  back to whatever profile the user has Applied. */
+  profileId: number | null
 }) {
   if (!useProjectStore.getState().info) return
+  // For the synthetic active-translation fallback, the resolved
+  // profile has id=-1 which isn't a real row; the real one to credit
+  // is preferencesStore.activeProfileId.
+  const profileId =
+    args.profileId != null && args.profileId > 0
+      ? args.profileId
+      : usePreferencesStore.getState().activeProfileId
+  const chapterId = useProjectStore.getState().activeChapterId
   void api
     .llmCallLog({
       useCase: 'ocr',
+      profileId,
+      chapterId,
       success: args.success,
       promptTokens: args.usage?.promptTokens ?? null,
       completionTokens: args.usage?.completionTokens ?? null,
@@ -146,7 +161,12 @@ export async function ocrPageViaCloud(
       imageDataUrl: dataUrl,
       mimeType,
     })
-    logCallSafe({ success: true, usage, durationMs: Date.now() - start })
+    logCallSafe({
+      success: true,
+      usage,
+      durationMs: Date.now() - start,
+      profileId: profile.id,
+    })
     return { texts: parseBlocks(text, textBlocks.length), usage }
   } catch (err: any) {
     logCallSafe({
@@ -154,6 +174,7 @@ export async function ocrPageViaCloud(
       usage: null,
       durationMs: Date.now() - start,
       errorMessage: err?.message ?? String(err),
+      profileId: profile.id,
     })
     throw err
   }

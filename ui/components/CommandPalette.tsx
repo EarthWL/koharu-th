@@ -86,6 +86,7 @@ export function CommandPalette() {
     close()
     setPrefs.setCloudProvider(p.provider as any)
     setPrefs.setCloudModelName(p.modelName)
+    setPrefs.setActiveProfileId(p.id)
     if (p.apiUrl) setPrefs.setCloudApiUrl(p.apiUrl)
     try {
       const { apiKey } = await api.providerProfileSecretGet(p.id)

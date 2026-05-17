@@ -64,9 +64,13 @@ function logCallSafe(args: {
   errorMessage?: string
 }) {
   if (!useProjectStore.getState().info) return
+  const profileId = usePreferencesStore.getState().activeProfileId
+  const chapterId = useProjectStore.getState().activeChapterId
   void api
     .llmCallLog({
       useCase: args.useCase,
+      profileId,
+      chapterId,
       success: args.success,
       promptTokens: args.usage?.promptTokens ?? null,
       completionTokens: args.usage?.completionTokens ?? null,

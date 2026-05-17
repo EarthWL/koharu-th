@@ -169,6 +169,7 @@ export function ProfilesTabPanel() {
     const meta = KINDS.find((k) => k.kind === detectedKind)!
     setPrefs.setCloudProvider(meta.dbProvider as any)
     setPrefs.setCloudModelName(p.modelName)
+    setPrefs.setActiveProfileId(p.id)
     if (p.apiUrl) setPrefs.setCloudApiUrl(p.apiUrl)
     try {
       const { apiKey } = await api.providerProfileSecretGet(p.id)
@@ -568,10 +569,13 @@ function ProfileFormModal({
         apiUrl: apiUrl.trim() || null,
         apiKey: apiKey.trim() || null,
       }
+      let savedId: number
       if (initial) {
         await api.providerProfileUpdate({ id: initial.id, ...payload })
+        savedId = initial.id
       } else {
-        await api.providerProfileAdd(payload)
+        const saved = await api.providerProfileAdd(payload)
+        savedId = saved.id
       }
       // Auto-apply the just-saved profile to the live preferences
       // store. Without this, a fresh "Add" leaves cloudApiKey empty
@@ -581,6 +585,7 @@ function ProfileFormModal({
       const prefs = usePreferencesStore.getState()
       prefs.setCloudProvider(meta.dbProvider as any)
       prefs.setCloudModelName(payload.modelName)
+      prefs.setActiveProfileId(savedId)
       if (payload.apiUrl) prefs.setCloudApiUrl(payload.apiUrl)
       if (payload.apiKey) prefs.setCloudApiKey(payload.apiKey)
       onSaved()

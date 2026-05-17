@@ -221,6 +221,7 @@ function LlmStatusPopover() {
   const applyProfile = async (p: ProviderProfileDto) => {
     setCloudProvider(effectiveProvider(p) as any)
     setCloudModelName(p.modelName)
+    usePreferencesStore.getState().setActiveProfileId(p.id)
     if (p.apiUrl) setCloudApiUrl(p.apiUrl)
     try {
       const { apiKey } = await api.providerProfileSecretGet(p.id)
@@ -233,6 +234,7 @@ function LlmStatusPopover() {
   const onEngineChange = (value: string) => {
     if (value === LOCAL_VALUE) {
       setCloudProvider('none' as any)
+      usePreferencesStore.getState().setActiveProfileId(null)
       return
     }
     const id = Number(value)
