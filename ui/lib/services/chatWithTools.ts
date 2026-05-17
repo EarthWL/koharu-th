@@ -96,7 +96,10 @@ async function* readSseLines(
 export async function runChatTurn(
   cfg: ChatProviderConfig,
   history: ChatMessage[],
-  onEvent: (e: ChatEvent) => void,
+  // Handler may be async — `done` in particular kicks off persistence
+  // of the new tail to SQLite, and we MUST await it so callers don't
+  // refetch the chat history before those rows land in the DB.
+  onEvent: (e: ChatEvent) => void | Promise<void>,
 ): Promise<ChatMessage[]> {
   let messages = [...history]
   const tools = listTools()
@@ -106,19 +109,19 @@ export async function runChatTurn(
     try {
       assistant = await callProvider(cfg, messages, tools, onEvent)
     } catch (err: any) {
-      onEvent({ kind: 'error', message: err?.message ?? String(err) })
+      await onEvent({ kind: 'error', message: err?.message ?? String(err) })
       throw err
     }
     messages.push(assistant)
 
     if (!assistant.toolCalls || assistant.toolCalls.length === 0) {
-      onEvent({ kind: 'done', finalMessages: messages })
+      await onEvent({ kind: 'done', finalMessages: messages })
       return messages
     }
 
     // Dispatch each requested tool and append results.
     for (const call of assistant.toolCalls) {
-      onEvent({ kind: 'tool-call', call })
+      await onEvent({ kind: 'tool-call', call })
       let args: unknown = {}
       try {
         args = call.arguments ? JSON.parse(call.arguments) : {}
@@ -127,7 +130,7 @@ export async function runChatTurn(
         args = { _raw: call.arguments }
       }
       const result = await dispatchTool(call.name, args)
-      onEvent({ kind: 'tool-result', toolCallId: call.id, result })
+      await onEvent({ kind: 'tool-result', toolCallId: call.id, result })
       messages.push({
         role: 'tool',
         toolCallId: call.id,
@@ -140,7 +143,7 @@ export async function runChatTurn(
     role: 'assistant',
     content: `_(stopped after ${MAX_TOOL_ROUNDS} tool rounds — too many)_`,
   })
-  onEvent({ kind: 'done', finalMessages: messages })
+  await onEvent({ kind: 'done', finalMessages: messages })
   return messages
 }
 
