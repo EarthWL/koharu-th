@@ -71,6 +71,11 @@ export type ChatMessage = {
   /** Image attachments — only meaningful on user turns. Each provider
    *  adapter converts these to its native multi-modal format. */
   attachments?: ChatAttachment[]
+  /** Set on synthetic messages we generated mid-turn (e.g. follow-up
+   *  user message that carries images from a `view_current_page` tool
+   *  result). Callers must NOT persist these to `chat_messages` —
+   *  they're in-memory analysis context, not user-facing history. */
+  _synthetic?: boolean
 }
 
 export type ChatEvent =
@@ -217,6 +222,7 @@ export async function runChatTurn(
         role: 'user',
         content: `(tool-returned images, in order: ${pendingImageAlts.join('; ')})`,
         attachments: pendingImages,
+        _synthetic: true,
       })
     }
   }

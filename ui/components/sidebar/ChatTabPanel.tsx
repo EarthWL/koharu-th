@@ -307,10 +307,15 @@ export function ChatTabPanel() {
             setStreamingText((prev) => prev + (failed ? ' ✗' : ' ✓'))
           } else if (e.kind === 'done') {
             // Persist each new assistant + tool message from the
-            // suffix that came after our `lastUser`.
+            // suffix that came after our `lastUser`. Skip messages
+            // tagged `_synthetic` — those are tool-image follow-ups
+            // the chat loop generated for the model's eyes only and
+            // shouldn't appear in user-facing chat history (would
+            // also dump base64 image bytes into SQLite).
             const before = allMessages.length
             const tail = e.finalMessages.slice(before)
             for (const m of tail) {
+              if (m._synthetic) continue
               await api.chatMessageAdd({
                 role: m.role,
                 content: m.content,
