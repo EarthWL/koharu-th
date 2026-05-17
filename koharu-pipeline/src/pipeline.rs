@@ -162,7 +162,12 @@ async fn run_pipeline_inner(
                         // doesn't want the pipeline to overwrite the
                         // OCR'd text_blocks). Skip.
                     } else {
-                        res.ml.detect(&mut snapshot).await?;
+                        res.ml
+                            .detect_with(
+                                &mut snapshot,
+                                req.detector_engine.unwrap_or_default(),
+                            )
+                            .await?;
                     }
                 }
                 PipelineStep::Ocr => {

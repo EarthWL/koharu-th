@@ -243,6 +243,11 @@ export const api = {
     /** Skip the detect step (frontend ran it directly already, often
      *  in tandem with `skipOcr` for the Cloud Vision OCR flow). */
     skipDetect?: boolean
+    /** Detector engine for the Detect pipeline step. Backend defaults
+     *  to `default` (comic_text_detector) if omitted. `anime_yolo`
+     *  uses mayocream/anime-text-yolo (YOLO12) — better at SFX +
+     *  out-of-bubble text but lazy-downloads ~10MB on first use. */
+    detectorEngine?: 'default' | 'anime_yolo'
   }): Promise<void> {
     await invoke('process', options)
   },

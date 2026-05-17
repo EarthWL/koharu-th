@@ -20,6 +20,23 @@ pub enum OcrEngine {
     Manga,
 }
 
+/// Selectable text-region detector. `Default` keeps the current
+/// `comic_text_detector` (DBNet + UNet + YOLOv5 backbone trio, tuned
+/// for in-bubble text); `AnimeYolo` swaps in YOLO12 trained
+/// specifically on anime/manga text (mayocream/anime-text-yolo) —
+/// designed to catch SFX / stylised titles / out-of-bubble text
+/// that the default misses. Lazy-loaded ~10MB on first use of the
+/// N (nano) variant.
+#[derive(
+    Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum DetectorEngine {
+    #[default]
+    Default,
+    AnimeYolo,
+}
+
 impl OcrEngine {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -33,6 +50,15 @@ impl OcrEngine {
             "mit48px" | "mit48" | "mit" => Some(OcrEngine::Mit48px),
             "manga" | "manga_ocr" | "mangaocr" => Some(OcrEngine::Manga),
             _ => None,
+        }
+    }
+}
+
+impl DetectorEngine {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DetectorEngine::Default => "default",
+            DetectorEngine::AnimeYolo => "anime_yolo",
         }
     }
 }

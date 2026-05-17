@@ -1,4 +1,4 @@
-use koharu_types::{OcrEngine, TextBlock, TextShaderEffect, TextStrokeStyle};
+use koharu_types::{DetectorEngine, OcrEngine, TextBlock, TextShaderEffect, TextStrokeStyle};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -126,6 +126,10 @@ pub struct ProcessRequest {
     /// re-running detect inside the pipeline would overwrite the
     /// cloud-OCR'd text.
     pub skip_detect: Option<bool>,
+    /// Engine to use for the Detect step. `None` ⇒ backend default
+    /// (`comic_text_detector`). UI sets this from
+    /// `preferencesStore.detectorEngine`.
+    pub detector_engine: Option<DetectorEngine>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

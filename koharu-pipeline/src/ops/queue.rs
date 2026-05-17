@@ -264,6 +264,9 @@ async fn process_entry(
             // #3 for the backend-port plan that would change this.
             skip_ocr: None,
             skip_detect: None,
+            // Queue uses default detector — if user wants AnimeText
+            // YOLO in batch, read it from project prefs here.
+            detector_engine: None,
         },
     )
     .await?;

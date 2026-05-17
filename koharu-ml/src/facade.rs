@@ -1,7 +1,8 @@
 use anyhow::Result;
 use image::{DynamicImage, GenericImageView};
-use koharu_types::{Document, FontPrediction, OcrEngine, SerializableDynamicImage};
+use koharu_types::{Document, DetectorEngine, FontPrediction, OcrEngine, SerializableDynamicImage};
 
+use crate::anime_text::AnimeTextDetector;
 use crate::comic_text_detector::{self, ComicTextDetector};
 use crate::font_detector::{self, FontDetector};
 use crate::lama::{self, Lama};
@@ -75,7 +76,12 @@ pub struct Model {
     /// users stay on the default Mit48px engine, no reason to pay the
     /// VRAM / startup cost for a model nobody asked for.
     ocr_manga: tokio::sync::OnceCell<MangaOcr>,
-    /// Stashed so the lazy MangaOcr loader knows whether to use CPU.
+    /// Lazily loaded on first use — AnimeTextYOLO N variant is small
+    /// (~10MB) but still no reason to download / hold in memory when
+    /// the user stays on the default detector.
+    detector_anime: tokio::sync::OnceCell<AnimeTextDetector>,
+    /// Stashed so the lazy MangaOcr / AnimeTextDetector loaders know
+    /// whether to use CPU.
     use_cpu: bool,
     lama: Lama,
     font_detector: FontDetector,
@@ -87,6 +93,7 @@ impl Model {
             dialog_detector: ComicTextDetector::load(use_cpu).await?,
             ocr_mit48px: Mit48pxOcr::load(use_cpu).await?,
             ocr_manga: tokio::sync::OnceCell::new(),
+            detector_anime: tokio::sync::OnceCell::new(),
             use_cpu,
             lama: Lama::load(use_cpu).await?,
             font_detector: FontDetector::load(use_cpu).await?,
@@ -99,12 +106,65 @@ impl Model {
             .await
     }
 
-    /// Detect text blocks and fonts in a document.
-    /// Sets `doc.text_blocks` (with font predictions/styles) and `doc.segment`.
+    async fn anime_text_detector(&self) -> Result<&AnimeTextDetector> {
+        self.detector_anime
+            .get_or_try_init(|| AnimeTextDetector::load(self.use_cpu))
+            .await
+    }
+
+    /// Detect text blocks and fonts in a document with the default
+    /// detector (`comic_text_detector`). Thin wrapper around
+    /// `detect_with` for callers that haven't been threaded the
+    /// engine preference yet.
     pub async fn detect(&self, doc: &mut Document) -> Result<()> {
-        let detection = self.dialog_detector.inference(&doc.image)?;
-        doc.text_blocks = detection.text_blocks;
-        doc.segment = Some(DynamicImage::ImageLuma8(detection.mask).into());
+        self.detect_with(doc, DetectorEngine::default()).await
+    }
+
+    /// Detect text blocks + bubble mask + fonts using the chosen
+    /// detector engine. Falls back to the default if the requested
+    /// engine fails to load (e.g. network down for the first-time
+    /// AnimeTextYolo fetch). Always populates the bubble `segment`
+    /// from the default detector — Anime Text YOLO has no bubble
+    /// branch, so we keep using the default for that signal.
+    pub async fn detect_with(
+        &self,
+        doc: &mut Document,
+        engine: DetectorEngine,
+    ) -> Result<()> {
+        let effective = match engine {
+            DetectorEngine::Default => DetectorEngine::Default,
+            DetectorEngine::AnimeYolo => match self.anime_text_detector().await {
+                Ok(_) => DetectorEngine::AnimeYolo,
+                Err(err) => {
+                    tracing::warn!(
+                        "AnimeText YOLO failed to load ({err:#}); falling back to default detector"
+                    );
+                    DetectorEngine::Default
+                }
+            },
+        };
+
+        match effective {
+            DetectorEngine::Default => {
+                let detection = self.dialog_detector.inference(&doc.image)?;
+                doc.text_blocks = detection.text_blocks;
+                doc.segment = Some(DynamicImage::ImageLuma8(detection.mask).into());
+            }
+            DetectorEngine::AnimeYolo => {
+                // Run BOTH: AnimeTextYOLO for the text bboxes (its
+                // strong suit — SFX / titles / out-of-bubble), AND
+                // the default detector for the bubble mask (the YOLO
+                // model has no bubble branch and `inpaint` needs a
+                // mask). The default detector's text_blocks are
+                // discarded in favour of YOLO's.
+                let default_detection = self.dialog_detector.inference(&doc.image)?;
+                doc.segment =
+                    Some(DynamicImage::ImageLuma8(default_detection.mask).into());
+                let yolo = self.anime_text_detector().await.expect("checked above");
+                let anime = yolo.inference(&doc.image)?;
+                doc.text_blocks = anime.text_blocks;
+            }
+        }
 
         if !doc.text_blocks.is_empty() {
             let images: Vec<DynamicImage> = doc

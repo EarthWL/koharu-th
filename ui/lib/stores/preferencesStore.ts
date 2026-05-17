@@ -20,6 +20,21 @@ export type CloudProvider = 'none' | 'openai' | 'openrouter' | 'gemini' | 'anthr
  */
 export type OcrEngine = 'mit48px' | 'manga' | 'cloud'
 
+/**
+ * Detector engine — mirrors `koharu_types::DetectorEngine`.
+ * - `default` — current `comic_text_detector` (DBNet + UNet + YOLOv5
+ *   trio, tuned for in-bubble text). Production default since fork.
+ * - `anime_yolo` — YOLO12 trained on anime/manga text
+ *   (mayocream/anime-text-yolo N variant), designed to catch SFX /
+ *   stylised titles / out-of-bubble text the default misses.
+ *   Lazy-loaded ~10MB on first use.
+ *
+ * When `anime_yolo` is picked, the pipeline still runs the default
+ * detector in parallel just to get its bubble mask (YOLO12 has no
+ * bubble branch and the inpaint step needs the mask).
+ */
+export type DetectorEngine = 'default' | 'anime_yolo'
+
 /** Per-provider wire config. Each provider keeps its own slot so the
  *  user can switch providers without re-pasting keys. */
 export type ProviderConfig = {
@@ -97,6 +112,10 @@ type PreferencesState = {
   activeProfileId: number | null
   setActiveProfileId: (id: number | null) => void
 
+  /** Active detector engine for the process pipeline. */
+  detectorEngine: DetectorEngine
+  setDetectorEngine: (engine: DetectorEngine) => void
+
   resetPreferences: () => void
 }
 
@@ -112,6 +131,7 @@ const initialPreferences = {
   ocrEngine: 'mit48px' as OcrEngine,
   ocrCloudProfileId: null as number | null,
   activeProfileId: null as number | null,
+  detectorEngine: 'default' as DetectorEngine,
 }
 
 /**
@@ -195,6 +215,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       setOcrEngine: (engine) => set({ ocrEngine: engine }),
       setOcrCloudProfileId: (id) => set({ ocrCloudProfileId: id }),
       setActiveProfileId: (id) => set({ activeProfileId: id }),
+      setDetectorEngine: (engine) => set({ detectorEngine: engine }),
       resetPreferences: () => set({ ...initialPreferences }),
     }),
     {

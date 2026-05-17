@@ -47,6 +47,8 @@ export default function SettingsPage() {
   const setOcrCloudProfileId = usePreferencesStore(
     (s) => s.setOcrCloudProfileId,
   )
+  const detectorEngine = usePreferencesStore((s) => s.detectorEngine)
+  const setDetectorEngine = usePreferencesStore((s) => s.setDetectorEngine)
   const projectInfo = useProjectStore((s) => s.info)
   const cloudProvider = usePreferencesStore((s) => s.cloudProvider)
   const cloudModelName = usePreferencesStore((s) => s.cloudModelName)
@@ -196,6 +198,28 @@ export default function SettingsPage() {
 
               <div className='bg-card border-border rounded-lg border p-4'>
                 <div className='grid grid-cols-[max-content_1fr] items-center gap-x-6 gap-y-3 text-sm'>
+                  <label className='text-muted-foreground'>
+                    {t('settings.engineDetector', 'Detector')}
+                  </label>
+                  <Select
+                    value={detectorEngine}
+                    onValueChange={(v) =>
+                      setDetectorEngine(v as 'default' | 'anime_yolo')
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='default'>
+                        Default (comic_text_detector · DBNet + UNet, tuned for in-bubble text)
+                      </SelectItem>
+                      <SelectItem value='anime_yolo'>
+                        Anime Text YOLO (mayocream/anime-text-yolo · catches SFX / titles, ~10MB first-use download)
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+
                   <label className='text-muted-foreground'>
                     {t('settings.engineOcr', 'OCR')}
                   </label>

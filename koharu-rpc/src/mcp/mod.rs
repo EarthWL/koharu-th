@@ -463,6 +463,7 @@ impl KoharuMcp {
                 ocr_engine: None,
                 skip_ocr: None,
                 skip_detect: None,
+                detector_engine: None,
             },
         )
         .await
