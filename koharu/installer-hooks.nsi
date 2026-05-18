@@ -33,6 +33,20 @@
 ;   5. Final parent cleanup uses `RMDir` (no `/r`) so it only succeeds
 ;      if the parent is empty — preserves any unknown files the user
 ;      may have dropped into the folder manually.
+;
+
+!macro NSIS_HOOK_PREINSTALL
+  DetailPrint "Initializing Koharu-TH Installation..."
+  DetailPrint "Checking system architecture and compatibility..."
+  DetailPrint "Preparing destination directory: $INSTDIR"
+!macroend
+
+!macro NSIS_HOOK_POSTINSTALL
+  DetailPrint "Koharu core executable and assets successfully deployed."
+  DetailPrint "Registering Start Menu shortcuts and program icons..."
+  DetailPrint "Configuring Windows Registry for clean uninstallation..."
+  DetailPrint "Installation of Koharu-TH completed successfully!"
+!macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
   ; ─── Belt 1: refuse if $LOCALAPPDATA is unset ─────────────────
@@ -54,6 +68,7 @@
   IfFileExists "$LOCALAPPDATA\KoharuTH\models\*.*" koharu_purge_ask
   IfFileExists "$LOCALAPPDATA\KoharuTH\fonts\*.*" koharu_purge_ask
   IfFileExists "$LOCALAPPDATA\KoharuTH\recent-projects.json" koharu_purge_ask
+  IfFileExists "$LOCALAPPDATA\KoharuTH\ml-device.json" koharu_purge_ask
   Goto koharu_purge_not_ours
 
 koharu_purge_ask:
@@ -74,26 +89,38 @@ koharu_purge_verified:
   ; Inside each named subfolder we still use /r (those folders are
   ; ours by definition; if a user redirected `models` to D:\ via a
   ; junction, blast radius is bounded to whatever they linked to).
-  DetailPrint "Removing KoharuTH cached data from $LOCALAPPDATA\KoharuTH ..."
+  DetailPrint "Uninstalling Koharu offline cache and user settings..."
+  DetailPrint "Target directory: $LOCALAPPDATA\KoharuTH"
+
+  DetailPrint "Deleting CUDA runtime libraries (libs)..."
   RMDir /r "$LOCALAPPDATA\KoharuTH\libs"
   RMDir /r "$LOCALAPPDATA\KoharuTH\hf"
   ; Legacy v1.2.1-and-earlier HF cache path (issue #34). Kept in the
   ; purge list so a user who never launched v1.2.2 (skipping the
   ; auto-migration) still gets a clean uninstall.
+  DetailPrint "Deleting offline AI models (models)..."
   RMDir /r "$LOCALAPPDATA\KoharuTH\models"
+
+  DetailPrint "Deleting custom fonts cache (fonts)..."
   RMDir /r "$LOCALAPPDATA\KoharuTH\fonts"
+
+  DetailPrint "Deleting saved settings (recent-projects.json)..."
   Delete "$LOCALAPPDATA\KoharuTH\recent-projects.json"
+
+  DetailPrint "Deleting ML device preferences (ml-device.json)..."
+  Delete "$LOCALAPPDATA\KoharuTH\ml-device.json"
 
   ; ─── Belt 4: non-recursive parent removal ─────────────────────
   ; `RMDir` (without /r) only succeeds if the parent is empty. If
   ; the user has dropped any unknown file/folder in there, it stays
   ; intact and the parent remains.
+  DetailPrint "Cleaning up KoharuTH directory..."
   RMDir "$LOCALAPPDATA\KoharuTH"
-  DetailPrint "Done."
+  DetailPrint "Koharu offline cache and user settings removed completely."
   Goto koharu_purge_end
 
 koharu_purge_not_ours:
-  DetailPrint "No KoharuTH data found at $LOCALAPPDATA\KoharuTH — nothing to remove."
+  DetailPrint "No Koharu offline data found at $LOCALAPPDATA\KoharuTH — nothing to remove."
   Goto koharu_purge_end
 
 koharu_purge_unsafe:
@@ -101,7 +128,9 @@ koharu_purge_unsafe:
   Goto koharu_purge_end
 
 koharu_purge_skip:
-  DetailPrint "Kept KoharuTH data at $LOCALAPPDATA\KoharuTH (re-install will reuse cached models)."
+  DetailPrint "Kept Koharu offline cache at $LOCALAPPDATA\KoharuTH to preserve downloads."
+  DetailPrint "Preserved 1-3 GB of offline CUDA libraries and AI model files."
+  DetailPrint "Re-installation of Koharu will automatically reuse these models."
 
 koharu_purge_end:
 !macroend

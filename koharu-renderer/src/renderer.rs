@@ -256,7 +256,7 @@ fn draw_outline_glyph(
     opts: &RenderOptions,
     pass: RenderPass,
 ) {
-    let transform = glyph_transform(glyph.bounds, baseline_x, baseline_y, opts.effect.italic);
+    let transform = glyph_transform(glyph.bounds, baseline_x, baseline_y, opts.effect.faux_italic);
 
     match pass {
         RenderPass::Stroke => {
@@ -275,7 +275,7 @@ fn draw_outline_glyph(
             }
         }
         RenderPass::Fill => {
-            if opts.effect.bold {
+            if opts.effect.faux_bold {
                 let bold_paint = paint_from_rgba(opts.color, opts.anti_alias);
                 let bold_style = Stroke {
                     width: 2.0,
@@ -307,7 +307,7 @@ fn draw_bitmap_glyph(
     let width = glyph.metrics.width as usize;
     let height = glyph.metrics.height as usize;
     let mut fill_alpha = glyph.fill_alpha.clone();
-    if opts.effect.bold {
+    if opts.effect.faux_bold {
         fill_alpha = dilate_alpha(&fill_alpha, width, height, 1);
     }
 
@@ -318,9 +318,9 @@ fn draw_bitmap_glyph(
         glyph.metrics.height as f32,
         x,
         y,
-        opts.effect.italic,
+        opts.effect.faux_italic,
     );
-    let paint = pixmap_paint(opts.effect.italic, opts.anti_alias);
+    let paint = pixmap_paint(opts.effect.faux_italic, opts.anti_alias);
 
     match pass {
         RenderPass::Stroke => {

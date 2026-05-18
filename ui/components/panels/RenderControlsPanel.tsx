@@ -48,6 +48,8 @@ const DEFAULT_FONT_FAMILIES = ['Arial']
 const DEFAULT_EFFECT: RenderEffect = {
   italic: false,
   bold: false,
+  fauxItalic: false,
+  fauxBold: false,
 }
 const DEFAULT_STROKE: RenderStroke = {
   enabled: true,
@@ -104,6 +106,8 @@ const uniqueStrings = (values: string[]) => {
 const normalizeEffect = (effect?: Partial<RenderEffect>): RenderEffect => ({
   italic: effect?.italic ?? false,
   bold: effect?.bold ?? false,
+  fauxItalic: effect?.fauxItalic ?? false,
+  fauxBold: effect?.fauxBold ?? false,
 })
 
 const normalizeStroke = (stroke?: Partial<RenderStroke>): RenderStroke => ({
@@ -304,10 +308,21 @@ export function RenderControlsPanel() {
   const effectItems: {
     key: keyof RenderEffect
     label: string
-    Icon: ComponentType<{ className?: string }>
+    element?: React.ReactNode
+    Icon?: ComponentType<{ className?: string }>
   }[] = [
     { key: 'italic', label: t('render.effectItalic'), Icon: ItalicIcon },
     { key: 'bold', label: t('render.effectBold'), Icon: BoldIcon },
+    {
+      key: 'fauxItalic',
+      label: t('render.effectFauxItalic', { defaultValue: 'Faux Italic (Slant)' }),
+      element: <span className='text-[10px] font-bold italic tracking-tighter'>I+</span>,
+    },
+    {
+      key: 'fauxBold',
+      label: t('render.effectFauxBold', { defaultValue: 'Faux Bold (Thicken)' }),
+      element: <span className='text-[10px] font-extrabold tracking-tighter'>B+</span>,
+    },
   ]
 
   const textAlignItems: {
@@ -438,7 +453,7 @@ export function RenderControlsPanel() {
                       setRenderEffect(nextEffect)
                     }}
                   >
-                    <Icon className='size-3.5' />
+                    {Icon ? <Icon className='size-3.5' /> : item.element}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side='bottom' sideOffset={4}>
@@ -639,35 +654,59 @@ export function RenderControlsPanel() {
           {t('render.lineHeightLabel')}
         </span>
         <div className='flex items-center gap-1.5'>
-          <NumericStepper
-            value={currentLineHeight}
-            min={0.8}
-            max={2.0}
-            step={0.05}
-            decimals={2}
-            ariaLabel={t('render.ariaLineHeight')}
-            disabled={!hasBlocks}
-            onChange={(v) =>
-              applyStyleToSelected({ lineHeight: v }) ||
-              applyStyleToAll({ lineHeight: v })
-            }
-          />
-          <NumericStepper
-            value={currentLetterSpacing}
-            min={-2}
-            max={8}
-            step={0.5}
-            decimals={1}
-            ariaLabel={t('render.ariaLetterSpacing')}
-            disabled={!hasBlocks}
-            onChange={(v) =>
-              applyStyleToSelected({ letterSpacingPx: v }) ||
-              applyStyleToAll({ letterSpacingPx: v })
-            }
-          />
-          <span className='text-muted-foreground text-[10px]'>
-            {t('render.lineHeightLetterHint')}
-          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className='flex items-center gap-1'>
+                <span className='text-muted-foreground/70 bg-muted/40 border-border/60 flex size-7 flex-col items-center justify-center rounded-md border text-[9px] font-bold leading-none shrink-0'>
+                  <span className='translate-y-[1px]'>A</span>
+                  <span className='border-t border-muted-foreground/30 w-3 my-[1px]'></span>
+                  <span className='-translate-y-[1px]'>A</span>
+                </span>
+                <NumericStepper
+                  value={currentLineHeight}
+                  min={0.8}
+                  max={2.0}
+                  step={0.05}
+                  decimals={2}
+                  ariaLabel={t('render.ariaLineHeight')}
+                  disabled={!hasBlocks}
+                  onChange={(v) =>
+                    applyStyleToSelected({ lineHeight: v }) ||
+                    applyStyleToAll({ lineHeight: v })
+                  }
+                />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side='bottom' sideOffset={4}>
+              {t('render.lineHeightTooltip', { defaultValue: 'ระยะห่างบรรทัด (Leading A/A) - ตัวคูณความสูง' })}
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className='flex items-center gap-1'>
+                <span className='text-muted-foreground/70 bg-muted/40 border-border/60 flex size-7 items-center justify-center rounded-md border text-[8px] font-extrabold tracking-tighter shrink-0'>
+                  VA
+                </span>
+                <NumericStepper
+                  value={currentLetterSpacing}
+                  min={-2}
+                  max={8}
+                  step={0.5}
+                  decimals={1}
+                  ariaLabel={t('render.ariaLetterSpacing')}
+                  disabled={!hasBlocks}
+                  onChange={(v) =>
+                    applyStyleToSelected({ letterSpacingPx: v }) ||
+                    applyStyleToAll({ letterSpacingPx: v })
+                  }
+                />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side='bottom' sideOffset={4}>
+              {t('render.letterSpacingTooltip', { defaultValue: 'ระยะห่างตัวอักษร (Tracking VA) - พิกเซล' })}
+            </TooltipContent>
+          </Tooltip>
         </div>
       </div>
 

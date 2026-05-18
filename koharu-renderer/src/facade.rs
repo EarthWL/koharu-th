@@ -258,7 +258,16 @@ impl Renderer {
         apply_global_font_family(&mut style.font_families, font_family);
         apply_default_font_families(&mut style.font_families, &normalized_translation);
         let font = self.select_font(&style)?;
-        let block_effect = style.effect.unwrap_or(effect);
+        let mut block_effect = style.effect.unwrap_or(effect);
+
+        // If the user requested bold/italic, check if the matched font is actually bold/italic.
+        // If not (fell back to Regular), automatically enable synthetic faux bold/italic as a fallback!
+        if block_effect.bold && font.attributes.weight() < fontique::FontWeight::BOLD {
+            block_effect.faux_bold = true;
+        }
+        if block_effect.italic && font.attributes.style() == fontique::FontStyle::Normal {
+            block_effect.faux_italic = true;
+        }
         let color = text_block
             .style
             .as_ref()
@@ -402,6 +411,17 @@ impl Renderer {
             .fontbook
             .lock()
             .map_err(|_| anyhow::anyhow!("Failed to lock fontbook"))?;
+        
+        let mut props = Properties::default();
+        if let Some(effect) = style.effect {
+            if effect.bold {
+                props.weight = fontique::FontWeight::BOLD;
+            }
+            if effect.italic {
+                props.style = fontique::FontStyle::Italic;
+            }
+        }
+
         let font = fontbook.query(
             style
                 .font_families
@@ -409,7 +429,7 @@ impl Renderer {
                 .map(|family| FamilyName::Title(family.to_string()))
                 .collect::<Vec<_>>()
                 .as_slice(),
-            &Properties::default(),
+            &props,
         )?;
         Ok(font)
     }

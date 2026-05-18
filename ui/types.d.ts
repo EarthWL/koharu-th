@@ -3,6 +3,8 @@ export type RgbaColor = [number, number, number, number]
 export type RenderEffect = {
   italic: boolean
   bold: boolean
+  fauxItalic?: boolean
+  fauxBold?: boolean
 }
 
 export type RenderStroke = {

@@ -126,7 +126,7 @@ export default function SettingsPage() {
 
     const loadMlDeviceSelection = async () => {
       try {
-        const sel = await invoke('get_ml_device_config')
+        const sel = await invoke<string>('get_ml_device_config')
         setMlDeviceSelection(sel)
       } catch (error) {
         console.error('Failed to load ML device config', error)

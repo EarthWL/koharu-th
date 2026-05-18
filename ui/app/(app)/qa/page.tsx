@@ -45,7 +45,7 @@ type Filter = 'all' | 'untranslated' | 'translated'
  */
 export default function QaPage() {
   const queryClient = useQueryClient()
-  const [pageIdx, setPageIdx] = useState(0)
+  const [pageIdx, setPageIdx] = useState(() => useEditorUiStore.getState().currentDocumentIndex)
   const [filter, setFilter] = useState<Filter>('all')
   const { t } = useTranslation()
 

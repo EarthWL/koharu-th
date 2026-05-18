@@ -350,27 +350,88 @@ pub async fn text_block_fit_to_bubble(
         const LUMA_THRESHOLD: u8 = 200;
 
         // BFS flood from seeds = all pixels inside the original bbox
-        // that pass the threshold. Using multiple seeds (not just centre)
-        // is more robust when text characters split the bubble interior
-        // into several regions through the bbox centre.
+        // that pass the threshold. To prevent merging multiple disjoint speech bubbles
+        // (in case the bbox overlaps multiple bubbles), we first group the white pixels inside
+        // the bbox into connected components, and then use only the component that is
+        // closest to the center of the bounding box as our seed region.
         let bbox_w = (cap_x1 - cap_x0 + 1) as usize;
         let bbox_h = (cap_y1 - cap_y0 + 1) as usize;
         let mut visited = vec![false; bbox_w * bbox_h];
         let mut queue: std::collections::VecDeque<(i32, i32)> =
             std::collections::VecDeque::new();
 
+        // Find connected components of white pixels strictly inside bx0..=bx1 and by0..=by1
+        let mut local_visited = vec![false; ((bx1 - bx0 + 1) * (by1 - by0 + 1)) as usize];
+        let local_w = (bx1 - bx0 + 1) as usize;
+        let mut components: Vec<Vec<(i32, i32)>> = Vec::new();
+
         for y in by0..=by1 {
             for x in bx0..=bx1 {
                 let p = luma.get_pixel(x as u32, y as u32)[0];
                 if p >= LUMA_THRESHOLD {
-                    let idx = ((y - cap_y0) as usize) * bbox_w + ((x - cap_x0) as usize);
-                    if !visited[idx] {
-                        visited[idx] = true;
-                        queue.push_back((x, y));
+                    let local_idx = ((y - by0) as usize) * local_w + ((x - bx0) as usize);
+                    if !local_visited[local_idx] {
+                        let mut comp = Vec::new();
+                        let mut local_q = std::collections::VecDeque::new();
+
+                        local_visited[local_idx] = true;
+                        local_q.push_back((x, y));
+
+                        while let Some((cx, cy)) = local_q.pop_front() {
+                            comp.push((cx, cy));
+
+                            for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                                let nx = cx + dx;
+                                let ny = cy + dy;
+                                if nx >= bx0 && nx <= bx1 && ny >= by0 && ny <= by1 {
+                                    let n_idx = ((ny - by0) as usize) * local_w + ((nx - bx0) as usize);
+                                    if !local_visited[n_idx] {
+                                        let np = luma.get_pixel(nx as u32, ny as u32)[0];
+                                        if np >= LUMA_THRESHOLD {
+                                            local_visited[n_idx] = true;
+                                            local_q.push_back((nx, ny));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        components.push(comp);
                     }
                 }
             }
         }
+
+        // Find the component closest to the center of the bounding box
+        let center_x = (bx0 + bx1) as f32 / 2.0;
+        let center_y = (by0 + by1) as f32 / 2.0;
+        let mut best_comp_idx = None;
+        let mut min_dist_sq = f32::MAX;
+
+        for (idx, comp) in components.iter().enumerate() {
+            let mut comp_min_dist = f32::MAX;
+            for &(x, y) in comp {
+                let dx = x as f32 - center_x;
+                let dy = y as f32 - center_y;
+                let dist_sq = dx * dx + dy * dy;
+                if dist_sq < comp_min_dist {
+                    comp_min_dist = dist_sq;
+                }
+            }
+            if comp_min_dist < min_dist_sq {
+                min_dist_sq = comp_min_dist;
+                best_comp_idx = Some(idx);
+            }
+        }
+
+        // Seed BFS strictly using only the closest connected component
+        if let Some(idx) = best_comp_idx {
+            for &(x, y) in &components[idx] {
+                let idx = ((y - cap_y0) as usize) * bbox_w + ((x - cap_x0) as usize);
+                visited[idx] = true;
+                queue.push_back((x, y));
+            }
+        }
+
         if queue.is_empty() {
             anyhow::bail!(
                 "No bubble interior detected inside current bbox (page is too dark / bubble outline crosses bbox)"

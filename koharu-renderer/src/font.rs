@@ -71,6 +71,8 @@ pub struct Font {
     blob: Blob<u8>,
     /// Index within font collection (0 for single-font files)
     index: u32,
+    /// Attributes representing style, weight, and stretch
+    pub attributes: Attributes,
     /// Cached fontdue font to avoid re-parsing font data on every render.
     fontdue: Arc<OnceCell<Arc<fontdue::Font>>>,
 }
@@ -236,11 +238,17 @@ impl FontBook {
         let mut selected = None;
         query.matches_with(|font| {
             // Clone the necessary fields from font to avoid borrow issues
-            selected = Some((font.family.0, font.family.1, font.index, font.blob.clone()));
+            selected = Some((
+                font.family.0,
+                font.family.1,
+                font.index,
+                font.attributes,
+                font.blob.clone(),
+            ));
             QueryStatus::Stop
         });
 
-        let (family_id, family_index, index, blob) =
+        let (family_id, family_index, index, attributes, blob) =
             selected.with_context(|| format!("no font found for families: {families:?}"))?;
 
         let cache_key = CacheKey {
@@ -255,6 +263,7 @@ impl FontBook {
         let font = Font {
             blob,
             index,
+            attributes,
             fontdue: Arc::new(OnceCell::new()),
         };
 

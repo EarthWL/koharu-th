@@ -81,8 +81,12 @@ function TextBlockSprite({
       draggable={false}
       style={{
         position: 'absolute',
+        left: `${block.x * scale}px`,
+        top: `${block.y * scale}px`,
+        width: `${block.width * scale}px`,
+        height: `${block.height * scale}px`,
         transformOrigin: 'center',
-        transform: `translate(${block.x * scale}px, ${block.y * scale}px) scale(${scale}) rotate(${block.rotationDeg ?? 0}deg)`,
+        transform: `rotate(${block.rotationDeg ?? 0}deg)`,
         userSelect: 'none',
         pointerEvents: 'none',
       }}

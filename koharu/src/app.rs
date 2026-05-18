@@ -44,6 +44,7 @@ static LEGACY_MODEL_ROOT: Lazy<PathBuf> = Lazy::new(|| APP_ROOT.join("models"));
 /// registered alongside system fonts at renderer startup. Created on
 /// first launch so the path always exists for the user to populate.
 static FONT_ROOT: Lazy<PathBuf> = Lazy::new(|| APP_ROOT.join("fonts"));
+static ML_DEVICE_CONFIG_PATH: Lazy<PathBuf> = Lazy::new(|| APP_ROOT.join("ml-device.json"));
 
 #[derive(Parser)]
 #[command(version = crate::version::APP_VERSION, about)]
@@ -157,8 +158,8 @@ async fn prefetch() -> Result<()> {
 }
 
 /// One-shot migration of the HuggingFace model cache from the v1.2.1
-/// location (`%LOCALAPPDATA%/Koharu/models/`) to the v1.2.2 location
-/// (`%LOCALAPPDATA%/Koharu/hf/`). The rename is atomic on same-volume
+/// location (`%LOCALAPPDATA%/KoharuTH/models/`) to the v1.2.2 location
+/// (`%LOCALAPPDATA%/KoharuTH/hf/`). The rename is atomic on same-volume
 /// renames (Windows + Unix both); cross-volume rename should never
 /// happen here (both paths share the same %LOCALAPPDATA% root).
 ///
@@ -233,20 +234,39 @@ fn migrate_legacy_model_cache() {
     }
 }
 
-async fn build_resources(cpu: bool) -> Result<AppResources> {
-    // Try the requested device (usually GPU) first. If anything in the
-    // GPU init path fails — dylib download, preload, ML model init on
-    // the wrong compute cap, driver mismatch — fall back to CPU once
-    // and surface a warning. Better than crashing the whole app for
-    // someone whose card the binary wasn't built for (e.g. RTX 50xx
-    // when CUDA_COMPUTE_CAP only included Turing).
-    if !cpu {
+fn get_ml_device_selection() -> String {
+    if let Ok(content) = std::fs::read_to_string(ML_DEVICE_CONFIG_PATH.as_path()) {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(selection) = val.get("selection").and_then(|s| s.as_str()) {
+                return selection.to_string();
+            }
+        }
+    }
+    "AUTO".to_string()
+}
+
+async fn build_resources(cpu_cli: bool) -> Result<AppResources> {
+    let selection = if cpu_cli {
+        "CPU".to_string()
+    } else {
+        get_ml_device_selection()
+    };
+
+    tracing::info!("Selected ML Compute device: {}", selection);
+    koharu_ml::set_custom_device_selection(Some(selection.clone()));
+
+    let is_cpu = selection == "CPU";
+
+    // Try the requested selection first.
+    if !is_cpu {
         match build_resources_inner(false).await {
             Ok(res) => return Ok(res),
             Err(err) => {
                 tracing::warn!(
-                    "GPU initialization failed: {err:#}. Falling back to CPU mode for this session."
+                    "Requested accelerator selection {selection} failed to initialize: {err:#}. Falling back to CPU mode for this session."
                 );
+                // Temporarily force CPU in the static state too for downstream lazy loads
+                koharu_ml::set_custom_device_selection(Some("CPU".to_string()));
             }
         }
     }
@@ -338,9 +358,30 @@ fn relaunch_app(app: tauri::AppHandle) {
     app.restart();
 }
 
+#[tauri::command]
+fn get_ml_device_config() -> String {
+    get_ml_device_selection()
+}
+
+#[tauri::command]
+fn set_ml_device_config(selection: String) -> std::result::Result<(), String> {
+    if let Err(err) = std::fs::create_dir_all(APP_ROOT.as_path()) {
+        return Err(format!("Failed to create APP_ROOT directory: {err}"));
+    }
+    let val = serde_json::json!({ "selection": selection });
+    let content = serde_json::to_string_pretty(&val).unwrap();
+    std::fs::write(ML_DEVICE_CONFIG_PATH.as_path(), content)
+        .map_err(|err| format!("Failed to write ml-device.json: {err}"))?;
+    Ok(())
+}
+
     let app = tauri::Builder::default()
         .append_invoke_initialization_script(format!("window.__KOHARU_WS_PORT__ = {};", ws_port))
-        .invoke_handler(tauri::generate_handler![relaunch_app])
+        .invoke_handler(tauri::generate_handler![
+            relaunch_app,
+            get_ml_device_config,
+            set_ml_device_config
+        ])
         .setup({
             let shared = shared.clone();
             move |app| {

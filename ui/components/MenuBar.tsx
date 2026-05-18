@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { MinusIcon, SquareIcon, XIcon, CopyIcon } from 'lucide-react'
 import { isTauri, isMacOS, windowControls } from '@/lib/backend'
 import { useTranslation } from 'react-i18next'
@@ -39,6 +40,7 @@ type MenuSection = {
 
 export function MenuBar() {
   const { t } = useTranslation()
+  const router = useRouter()
   const {
     addDocuments,
     openDocuments,
@@ -163,7 +165,7 @@ export function MenuBar() {
         {
           label: t('menu.qaReview'),
           onSelect: () => {
-            window.location.href = '/qa'
+            router.push('/qa')
           },
           disabled: !projectInfo,
         },

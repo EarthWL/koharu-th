@@ -64,10 +64,14 @@ export const renderEffectSchema = z
   .object({
     italic: z.boolean().optional(),
     bold: z.boolean().optional(),
+    fauxItalic: z.boolean().optional(),
+    fauxBold: z.boolean().optional(),
   })
   .transform((value) => ({
     italic: value.italic ?? false,
     bold: value.bold ?? false,
+    fauxItalic: value.fauxItalic ?? false,
+    fauxBold: value.fauxBold ?? false,
   }))
 
 export const renderStrokeSchema = z

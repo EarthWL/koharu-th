@@ -168,35 +168,11 @@ impl Mit48pxOcr {
                 continue;
             }
 
-            // Join per-line OCR results with a script-aware separator.
-            // Upstream koharu joined with "" (correct for CJK — no
-            // inter-character spacing). On Latin / Thai bubbles a line
-            // break is usually a word boundary, so an empty join
-            // collapses adjacent words ("HOW" + "DO" → "HOWDO"). Insert
-            // a single space when both sides of the break are ASCII
-            // alphanumeric; otherwise keep upstream's empty join so
-            // mixed-script and pure-CJK bubbles render unchanged.
-            // Tracking: https://github.com/EarthWL/koharu-th/issues/11
-            let normalized: Vec<String> = lines
+            let processed_lines = lines
                 .iter()
                 .map(|line| normalize_ocr_text(&line.text))
-                .collect();
-            let mut text = String::new();
-            for (i, segment) in normalized.iter().enumerate() {
-                if i > 0 {
-                    let prev_last = text.chars().last();
-                    let next_first = segment.chars().next();
-                    let both_word_like = matches!(
-                        (prev_last, next_first),
-                        (Some(p), Some(n))
-                            if p.is_ascii_alphanumeric() && n.is_ascii_alphanumeric()
-                    );
-                    if both_word_like {
-                        text.push(' ');
-                    }
-                }
-                text.push_str(segment);
-            }
+                .collect::<Vec<String>>();
+            let text = smart_join_lines(&processed_lines);
             let confidence =
                 lines.iter().map(|line| line.confidence).sum::<f32>() / lines.len() as f32;
             let text_color = average_rgb(lines.iter().map(|line| line.text_color));
@@ -287,6 +263,57 @@ fn normalize_ocr_text(text: &str) -> String {
     text.chars()
         .filter(|&ch| ch != '\n' && ch != '\r')
         .collect()
+}
+
+fn smart_join_lines(lines: &[String]) -> String {
+    if lines.is_empty() {
+        return String::new();
+    }
+    let mut result = String::new();
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !result.is_empty() {
+            let mut last_char = result.chars().last().unwrap();
+            let first_char = trimmed.chars().next().unwrap();
+            
+            // If the last character is a hyphen ('-'), this represents a syllable
+            // break at the end of a line (e.g. WONDER- and FUL). In this case,
+            // we remove the hyphen and concatenate directly without any spaces.
+            if last_char == '-' {
+                result.pop();
+                if !result.is_empty() {
+                    last_char = result.chars().last().unwrap();
+                }
+            } else if is_western_char(last_char) || is_western_char(first_char) {
+                // Otherwise, insert a space if either of the characters is a Western char.
+                result.push(' ');
+            }
+        }
+        result.push_str(trimmed);
+    }
+    result
+}
+
+fn is_western_char(c: char) -> bool {
+    let val = c as u32;
+    // Western characters are alphanumeric/punctuation outside CJK/Japanese/Korean ranges:
+    // CJK Unified Ideographs: 0x4E00..=0x9FFF
+    // Hiragana: 0x3040..=0x309F
+    // Katakana: 0x30A0..=0x30FF
+    // Hangul: 0xAC00..=0xD7AF, 0x1100..=0x11FF, 0x3130..=0x318F
+    // CJK Symbols/Punctuation: 0x3000..=0x303F
+    // Fullwidth Forms: 0xFF00..=0xFFEF
+    !( (val >= 0x4E00 && val <= 0x9FFF) ||
+       (val >= 0x3040 && val <= 0x309F) ||
+       (val >= 0x30A0 && val <= 0x30FF) ||
+       (val >= 0xAC00 && val <= 0xD7AF) ||
+       (val >= 0x1100 && val <= 0x11FF) ||
+       (val >= 0x3130 && val <= 0x318F) ||
+       (val >= 0x3000 && val <= 0x303F) ||
+       (val >= 0xFF00 && val <= 0xFFEF) )
 }
 
 fn read_dictionary(path: &Path) -> Result<Vec<String>> {
@@ -397,6 +424,7 @@ mod tests {
 
     use super::{
         Mit48pxConfig, Mit48pxPrediction, finish_rgb, normalize_ocr_text, preprocess_regions,
+        smart_join_lines,
     };
 
     fn test_config() -> Mit48pxConfig {
@@ -450,6 +478,59 @@ mod tests {
     #[test]
     fn normalize_ocr_text_removes_newlines() {
         assert_eq!(normalize_ocr_text("ab\ncd\r\nef"), "abcdef");
+    }
+
+    #[test]
+    fn smart_join_lines_handles_cjk_and_western() {
+        let english_lines = vec![
+            "...BUT HOW".to_string(),
+            "DO I FIGHT".to_string(),
+            "SOMETHING".to_string(),
+            "SO HUGE?".to_string(),
+        ];
+        assert_eq!(
+            smart_join_lines(&english_lines),
+            "...BUT HOW DO I FIGHT SOMETHING SO HUGE?"
+        );
+
+        let japanese_lines = vec![
+            "いつもの".to_string(),
+            "ところ".to_string(),
+        ];
+        assert_eq!(
+            smart_join_lines(&japanese_lines),
+            "いつものところ"
+        );
+
+        let mixed_lines = vec![
+            "レベル".to_string(),
+            "UP".to_string(),
+        ];
+        assert_eq!(
+            smart_join_lines(&mixed_lines),
+            "レベル UP"
+        );
+
+        let hyphenated_lines = vec![
+            "self-".to_string(),
+            "contained".to_string(),
+        ];
+        assert_eq!(
+            smart_join_lines(&hyphenated_lines),
+            "selfcontained"
+        );
+
+        let english_with_layout_break = vec![
+            "HOW".to_string(),
+            "WONDER-".to_string(),
+            "FUL IT IS".to_string(),
+            "TO SEE YOU".to_string(),
+            "AWAKE!".to_string(),
+        ];
+        assert_eq!(
+            smart_join_lines(&english_with_layout_break),
+            "HOW WONDERFUL IT IS TO SEE YOU AWAKE!"
+        );
     }
 
     #[test]
