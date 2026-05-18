@@ -174,23 +174,38 @@ pub fn update_progress(
     Ok(())
 }
 
+/// Mark a queue entry as completed — **only if it's still `running`**.
+///
+/// The guard prevents a race where the user cancels mid-pipeline:
+///   1. Worker is processing.
+///   2. User clicks Cancel → `cancel()` flips `status` to `cancelled`.
+///   3. Pipeline finishes its current page before noticing the cancel
+///      flag and emits `PipelineStatus::Completed`.
+///   4. Worker calls `mark_completed()` — without the guard this
+///      would overwrite `cancelled` back to `completed` and the UI
+///      would lie about what happened.
+///
+/// With the guard, the UPDATE matches zero rows in that race and the
+/// entry correctly stays `cancelled`.
 pub fn mark_completed(conn: &Conn, id: i64) -> Result<()> {
     let now = Utc::now().timestamp();
     conn.execute(
         "UPDATE translation_queue
          SET status = 'completed', finished_at = ?2, error_message = NULL
-         WHERE id = ?1",
+         WHERE id = ?1 AND status = 'running'",
         params![id, now],
     )?;
     Ok(())
 }
 
+/// Mark a queue entry as failed — same `status = 'running'` guard as
+/// `mark_completed`, for the same race-against-cancel reason.
 pub fn mark_failed(conn: &Conn, id: i64, error: &str) -> Result<()> {
     let now = Utc::now().timestamp();
     conn.execute(
         "UPDATE translation_queue
          SET status = 'failed', finished_at = ?2, error_message = ?3
-         WHERE id = ?1",
+         WHERE id = ?1 AND status = 'running'",
         params![id, now, error],
     )?;
     Ok(())
