@@ -67,6 +67,10 @@
     "projectSettings": "ตั้งค่าโปรเจค...",
     "closeProject": "ปิดโปรเจค",
     "projectDashboard": "เปิดแดชบอร์ด...",
+    "checkForUpdates": "ตรวจสอบอัปเดต...",
+    "updateUpToDate": "คุณใช้เวอร์ชันล่าสุดอยู่แล้ว ({{current}})\nรุ่นล่าสุดที่ปล่อย: {{latest}}",
+    "updateCheckFailed": "ตรวจสอบอัปเดตไม่สำเร็จ: {{message}}",
+    "updateAvailableConfirm": "มีอัปเดตใหม่!\n\nปัจจุบัน: {{current}}\nล่าสุด:  {{latest}}\n\nเปิดหน้าดาวน์โหลดเลยไหม?",
     "languages": {
       "en-US": "English",
       "zh-CN": "简体中文",

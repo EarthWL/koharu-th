@@ -18,9 +18,11 @@ import {
 import { useDocumentMutations } from '@/lib/query/mutations'
 import { useProjectMutations } from '@/lib/query/projectMutations'
 import { useProjectStore } from '@/lib/stores/projectStore'
+import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { checkForUpdates } from '@/lib/services/updateCheck'
+import { flushAllSyncQueues } from '@/lib/services/syncQueues'
 
 type MenuItem = {
   label: string
@@ -50,6 +52,8 @@ export function MenuBar() {
     exportAllRendered,
   } = useDocumentMutations()
   const projectInfo = useProjectStore((s) => s.info)
+  const totalPages = useEditorUiStore((s) => s.totalPages)
+  const hasDocument = totalPages > 0
   const { refreshCurrent, openPicker, closeProject } = useProjectMutations()
   const recentProjects = useQuery({
     queryKey: ['recent-projects'],
@@ -66,7 +70,7 @@ export function MenuBar() {
   const recentList = recentProjects.data ?? []
   const projectMenuItems: MenuItem[] = [
     {
-      label: t('menu.openProject', 'Open project…'),
+      label: t('menu.openProject'),
       onSelect: () => {
         void openPicker()
       },
@@ -76,6 +80,10 @@ export function MenuBar() {
       onSelect: () => {
         void (async () => {
           try {
+            // Drain pending text-block / mask / brush writes before swapping
+            // the project out from under them — otherwise in-flight edits to
+            // the old project get orphaned by the store swap.
+            await flushAllSyncQueues().catch(() => {})
             const info = await api.projectOpen(p.path)
             useProjectStore.getState().setInfo(info)
             void refreshCurrent()
@@ -86,9 +94,14 @@ export function MenuBar() {
       },
     })),
     {
-      label: t('menu.closeProject', 'Close project'),
+      label: t('menu.closeProject'),
       onSelect: () => {
-        void closeProject()
+        // Drain pending writes before tearing down the project — the close
+        // flow resets stores, which would otherwise discard in-flight edits.
+        void (async () => {
+          await flushAllSyncQueues().catch(() => {})
+          void closeProject()
+        })()
       },
       disabled: !projectInfo,
     },
@@ -105,21 +118,23 @@ export function MenuBar() {
       onSelect: addDocuments,
       testId: 'menu-file-add',
     },
-    // TODO: { label: t('menu.save'), onSelect: saveDocuments },
     {
       label: t('menu.export'),
       onSelect: exportDocument,
       testId: 'menu-file-export',
+      disabled: !hasDocument,
     },
     {
       label: t('menu.exportAllInpainted'),
       onSelect: exportAllInpainted,
       testId: 'menu-file-export-all-inpainted',
+      disabled: !hasDocument,
     },
     {
       label: t('menu.exportAllRendered'),
       onSelect: exportAllRendered,
       testId: 'menu-file-export-all-rendered',
+      disabled: !hasDocument,
     },
   ]
 
@@ -127,13 +142,22 @@ export function MenuBar() {
     {
       label: t('menu.view'),
       items: [
-        { label: t('menu.fitWindow'), onSelect: fitCanvasToViewport },
-        { label: t('menu.originalSize'), onSelect: resetCanvasScale },
         {
-          label: t('menu.qaReview', 'QA review…'),
+          label: t('menu.fitWindow'),
+          onSelect: fitCanvasToViewport,
+          disabled: !hasDocument,
+        },
+        {
+          label: t('menu.originalSize'),
+          onSelect: resetCanvasScale,
+          disabled: !hasDocument,
+        },
+        {
+          label: t('menu.qaReview'),
           onSelect: () => {
             window.location.href = '/qa'
           },
+          disabled: !projectInfo,
         },
       ],
     },
@@ -145,6 +169,7 @@ export function MenuBar() {
           label: t('menu.processCurrent'),
           onSelect: processImage,
           testId: 'menu-process-current',
+          disabled: !hasDocument,
         },
         {
           // Re-translate: skips Detect / OCR / Inpaint, only re-runs
@@ -155,16 +180,19 @@ export function MenuBar() {
           label: t('menu.retranslate'),
           onSelect: retranslateImage,
           testId: 'menu-process-retranslate',
+          disabled: !hasDocument,
         },
         {
           label: t('menu.redoInpaintRender'),
           onSelect: inpaintAndRenderImage,
           testId: 'menu-process-rerender',
+          disabled: !hasDocument,
         },
         {
           label: t('menu.processAll'),
           onSelect: processAllImages,
           testId: 'menu-process-all',
+          disabled: !hasDocument,
         },
       ],
     },
@@ -178,40 +206,42 @@ export function MenuBar() {
     const result = await checkForUpdates(current)
     if (result.kind === 'up-to-date') {
       alert(
-        `You're on the latest version (${result.currentVersion}).\nLatest release: ${result.latestVersion}`,
+        t('menu.updateUpToDate', {
+          current: result.currentVersion,
+          latest: result.latestVersion,
+        }),
       )
       return
     }
     if (result.kind === 'error') {
-      alert(`Couldn't check for updates: ${result.message}`)
+      alert(t('menu.updateCheckFailed', { message: result.message }))
       return
     }
     const open = confirm(
-      `Update available!\n\n` +
-        `Current: ${result.currentVersion}\n` +
-        `Latest:  ${result.latestVersion}\n\n` +
-        `Open the release page to download?`,
+      t('menu.updateAvailableConfirm', {
+        current: result.currentVersion,
+        latest: result.latestVersion,
+      }),
     )
     if (open) openExternal(result.releaseUrl)
   }
 
   const helpMenuItems: MenuItem[] = [
     {
-      label: t('menu.checkForUpdates', 'Check for updates…'),
+      label: t('menu.checkForUpdates'),
       onSelect: () => void runUpdateCheck(),
     },
     {
-      label: t('menu.github', 'GitHub'),
-      onSelect: () =>
-        openExternal('https://github.com/EarthWL/koharu-th'),
+      label: t('menu.github'),
+      onSelect: () => openExternal('https://github.com/EarthWL/koharu-th'),
     },
     {
-      label: t('menu.reportIssue', 'Report an issue'),
+      label: t('menu.reportIssue'),
       onSelect: () =>
         openExternal('https://github.com/EarthWL/koharu-th/issues/new'),
     },
     {
-      label: t('menu.upstreamDiscord', 'Upstream Discord (Mayo)'),
+      label: t('menu.upstreamDiscord'),
       onSelect: () => openExternal('https://discord.gg/mHvHkxGnUY'),
     },
   ]
@@ -277,7 +307,7 @@ export function MenuBar() {
         </MenubarMenu>
         <MenubarMenu>
           <MenubarTrigger className='hover:bg-accent data-[state=open]:bg-accent rounded px-3 py-1.5 font-medium'>
-            {t('menu.project', 'Project')}
+            {t('menu.project')}
           </MenubarTrigger>
           <MenubarContent
             className='min-w-44'
