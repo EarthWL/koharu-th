@@ -325,6 +325,7 @@ export function ProfilesTabPanel() {
         <ProfileFormModal
           initial={editing.mode === 'edit' ? editing.profile : null}
           onClose={() => setEditing(null)}
+          existingProfiles={list}
           onSaved={() => {
             setEditing(null)
             refresh()
@@ -342,10 +343,12 @@ function ProfileFormModal({
   initial,
   onClose,
   onSaved,
+  existingProfiles,
 }: {
   initial: ProviderProfileDto | null
   onClose: () => void
   onSaved: () => void
+  existingProfiles: ProviderProfileDto[]
 }) {
   const initialKind = initial ? kindOf(initial) : 'openai'
   const initialMeta = KINDS.find((k) => k.kind === initialKind)!
@@ -560,6 +563,21 @@ function ProfileFormModal({
 
   const save = async () => {
     if (!valid) return
+
+    // Prevent saving a duplicate profile name (case-insensitive check)
+    const trimmedName = name.trim().toLowerCase()
+    const isDuplicate = existingProfiles.some((p) => {
+      if (initial && p.id === initial.id) return false
+      return p.name.trim().toLowerCase() === trimmedName
+    })
+
+    if (isDuplicate) {
+      alert(
+        `ชื่อโปรไฟล์ "${name.trim()}" ถูกใช้งานไปแล้ว กรุณาใช้ชื่ออื่นที่แตกต่างกันครับ\n\nThe profile name "${name.trim()}" is already in use. Please choose a unique name.`
+      )
+      return
+    }
+
     setSaving(true)
     try {
       const payload = {
