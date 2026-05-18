@@ -292,6 +292,39 @@ export async function generateCloudTranslation(
   return (await generateCloudTranslationImpl(text, language, onChunk)).text
 }
 
+// Map of profile ID to recovery timestamp (Date.now() + cooldownDuration)
+const profileRecoveryTimestamps = new Map<number, number>()
+
+function getCooldownDurationForProvider(provider: string, errorMessage: string): number {
+  const msg = errorMessage.toLowerCase()
+
+  if (provider === 'gemini') {
+    // Check if it's a daily limit or rate limit
+    if (msg.includes('daily') || msg.includes('quota exceeded') || msg.includes('limit exceeded')) {
+      return 4 * 60 * 60 * 1000 // 4 hours check back for Gemini daily limits
+    }
+    return 1 * 60 * 1000 // 1 minute rolling limit (standard RPM)
+  }
+
+  if (provider === 'anthropic') {
+    // Anthropic free tier has 5 hours cooldown if token limit is hit
+    if (msg.includes('usage limit') || msg.includes('exceeded') || msg.includes('free tier') || msg.includes('hours') || msg.includes('exhausted')) {
+      return 5 * 60 * 60 * 1000 // 5 hours
+    }
+    return 1 * 60 * 1000 // 1 minute rolling RPM limit
+  }
+
+  if (provider === 'openai' || provider === 'openrouter') {
+    // OpenAI billing issues, credit exhausted
+    if (msg.includes('billing') || msg.includes('quota') || msg.includes('insufficient') || msg.includes('credit')) {
+      return 2 * 60 * 60 * 1000 // 2 hours check in case user filled it
+    }
+    return 1 * 60 * 1000 // 1 minute rolling RPM limit
+  }
+
+  return 1 * 60 * 1000 // Default 1 minute
+}
+
 async function generateCloudTranslationImpl(
   text: string,
   language: string,
@@ -347,9 +380,22 @@ Only return the translation, no extra text:\n\n${text}`
         return idxA - idxB
       })
 
+      const now = Date.now()
+      const isCooldown = (id: number) => {
+        const recovery = profileRecoveryTimestamps.get(id)
+        return recovery ? now < recovery : false
+      }
+
+      // Filter out candidates that are currently in cooldown unless ALL are in cooldown
+      let candidates = sorted
+      const workingCandidates = sorted.filter(p => !isCooldown(p.id))
+      if (workingCandidates.length > 0) {
+        candidates = workingCandidates
+      }
+
       const activeId = live.activeProfileId
-      const activeProfile = profiles.find(p => p.id === activeId)
-      const rest = sorted.filter(p => p.id !== activeId)
+      const activeCandidate = candidates.find(c => c.id === activeId)
+      const otherCandidates = candidates.filter(c => c.id !== activeId)
 
       const getDetails = async (p: typeof profiles[0]): Promise<ConfigAttempt> => {
         let key = ''
@@ -371,10 +417,10 @@ Only return the translation, no extra text:\n\n${text}`
         }
       }
 
-      if (activeProfile) {
-        attempts.push(await getDetails(activeProfile))
+      if (activeCandidate) {
+        attempts.push(await getDetails(activeCandidate))
       }
-      for (const p of rest) {
+      for (const p of otherCandidates) {
         attempts.push(await getDetails(p))
       }
     } catch (err) {
@@ -433,10 +479,21 @@ Only return the translation, no extra text:\n\n${text}`
         },
       )
       successfulAttempt = att
+      if (att.id !== null) {
+        profileRecoveryTimestamps.delete(att.id)
+      }
       break
     } catch (err: any) {
       console.warn(`[cloudLlm] Profile "${att.name}" failed:`, err?.message ?? err)
       lastError = err
+
+      if (att.id !== null) {
+        const errorMsg = err?.message ?? String(err)
+        const cooldown = getCooldownDurationForProvider(att.provider, errorMsg)
+        const recoveryTime = Date.now() + cooldown
+        profileRecoveryTimestamps.set(att.id, recoveryTime)
+        console.info(`[cloudLlm] Profile "${att.name}" is put on cooldown for ${Math.round(cooldown / 1000 / 60)} minutes (until ${new Date(recoveryTime).toLocaleTimeString()})`)
+      }
     }
   }
 
