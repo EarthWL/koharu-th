@@ -179,6 +179,33 @@
   "download": {
     "title": "ダウンロード中"
   },
+  "palette": {
+    "label": "コマンドパレット",
+    "placeholderProject": "チャプターへ移動 · プロファイル切替 · /slash · 任意のアクションを入力…",
+    "placeholderNoProject": "プロジェクトを開くか作成して、追加のアクションを使用…",
+    "empty": "一致するアクションがありません",
+    "groupProject": "プロジェクト",
+    "groupOpenChapter": "チャプターを開く",
+    "groupExport": "CBZ としてエクスポート",
+    "groupProfile": "LLM プロファイルを適用",
+    "groupSlash": "AI チャット slash コマンド",
+    "newProject": "新規プロジェクト…",
+    "openProject": "プロジェクトを開く…",
+    "closeCurrentProject": "現在のプロジェクトを閉じる",
+    "openSettings": "設定を開く",
+    "projectNamePrompt": "プロジェクト名は？",
+    "untitledChapter": "(無題)",
+    "pagesCount_one": "{{count}} ページ",
+    "pagesCount_other": "{{count}} ページ",
+    "chapterSummary": "{{pages}} · {{status}}",
+    "exportChapter": "#{{number}} を .cbz としてエクスポート",
+    "exportDone": "{{count}} ページをエクスポートしました → {{path}}",
+    "noModel": "(モデル未選択)",
+    "footerHelp": "↑↓ 移動 · ↵ 選択 · esc 閉じる",
+    "footerToggle": "切替",
+    "shortcutPicker": "picker",
+    "shortcutCopy": "copy"
+  },
   "errors": {
     "title": "エラー",
     "dismiss": "閉じる"

@@ -1,13 +1,13 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { Command } from 'cmdk'
 import {
   ArchiveIcon,
   BotIcon,
-  FilesIcon,
   FolderOpenIcon,
   FolderPlusIcon,
   KeyRoundIcon,
@@ -22,6 +22,7 @@ import { useProjectStore } from '@/lib/stores/projectStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { useProjectMutations } from '@/lib/query/projectMutations'
 import { SLASH_COMMANDS } from '@/lib/services/chatSlashCommands'
+import { flushAllSyncQueues } from '@/lib/services/syncQueues'
 
 /**
  * Global Cmd+K / Ctrl+K command palette. Surfaces frequent actions
@@ -29,6 +30,7 @@ import { SLASH_COMMANDS } from '@/lib/services/chatSlashCommands'
  * profile, project lifecycle, settings, AI chat slash commands.
  */
 export function CommandPalette() {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const router = useRouter()
   const projectInfo = useProjectStore((s) => s.info)
@@ -99,7 +101,7 @@ export function CommandPalette() {
     try {
       const r = await api.chapterExportCbz(c.id)
       if (r.path) {
-        alert(`Exported ${r.pageCount} page(s) → ${r.path}`)
+        alert(t('palette.exportDone', { count: r.pageCount, path: r.path }))
       }
     } catch (err: any) {
       alert(err?.message ?? String(err))
@@ -110,65 +112,81 @@ export function CommandPalette() {
 
   return (
     <div
+      role='dialog'
+      aria-modal='true'
+      aria-label={t('palette.label')}
       className='bg-background/80 fixed inset-0 z-[60] flex items-start justify-center pt-[20vh] backdrop-blur-sm'
       onClick={(e) => {
         if (e.target === e.currentTarget) close()
       }}
     >
       <Command
-        label='Command palette'
+        label={t('palette.label')}
         className='bg-card border-border w-[42rem] max-w-[92vw] overflow-hidden rounded-lg border shadow-2xl'
       >
         <Command.Input
           autoFocus
           placeholder={
             projectInfo
-              ? 'Jump to chapter · switch profile · /slash · or type any action…'
-              : 'Open or create a project to access more actions…'
+              ? t('palette.placeholderProject')
+              : t('palette.placeholderNoProject')
           }
           className='bg-transparent text-foreground border-border w-full border-b px-4 py-3 text-sm outline-none'
         />
-        <Command.List className='max-h-[60vh] overflow-y-auto p-2'>
+        <Command.List
+          aria-live='polite'
+          className='max-h-[60vh] overflow-y-auto p-2'
+        >
           <Command.Empty className='text-muted-foreground p-3 text-center text-xs'>
-            No matching action.
+            {t('palette.empty')}
           </Command.Empty>
 
           {/* Project lifecycle */}
           <Command.Group
-            heading='Project'
+            heading={t('palette.groupProject')}
             className='text-muted-foreground space-y-1 text-[10px] font-bold uppercase'
           >
             <Item
               onSelect={() => {
                 close()
-                const name = window.prompt('Project name?')
+                const name = window.prompt(t('palette.projectNamePrompt'))
                 if (!name?.trim()) return
-                void createPicker(name.trim()).then((info) => {
+                // Drain pending writes before swapping the project on the
+                // store — pending text-block / mask / brush edits target
+                // the outgoing project; without the flush they're orphaned.
+                void (async () => {
+                  await flushAllSyncQueues().catch(() => {})
+                  const info = await createPicker(name.trim())
                   if (info) router.push('/')
-                })
+                })()
               }}
               icon={<FolderPlusIcon className='size-3.5' />}
-              label='New project…'
-              shortcut='picker'
+              label={t('palette.newProject')}
+              shortcut={t('palette.shortcutPicker')}
             />
             <Item
               onSelect={() => {
                 close()
-                void openPicker().then((info) => {
+                void (async () => {
+                  await flushAllSyncQueues().catch(() => {})
+                  const info = await openPicker()
                   if (info) router.push('/')
-                })
+                })()
               }}
               icon={<FolderOpenIcon className='size-3.5' />}
-              label='Open project…'
+              label={t('palette.openProject')}
             />
             {projectInfo && (
               <Item
                 onSelect={() => {
                   close()
-                  void closeProject()
+                  void (async () => {
+                    await flushAllSyncQueues().catch(() => {})
+                    void closeProject()
+                  })()
                 }}
                 icon={<LogOutIcon className='size-3.5' />}
-                label='Close current project'
+                label={t('palette.closeCurrentProject')}
               />
             )}
             <Item
@@ -177,7 +195,7 @@ export function CommandPalette() {
                 router.push('/settings')
               }}
               icon={<SettingsIcon className='size-3.5' />}
-              label='Open Settings'
+              label={t('palette.openSettings')}
               shortcut='⌘,'
             />
           </Command.Group>
@@ -185,7 +203,7 @@ export function CommandPalette() {
           {/* Chapters */}
           {projectInfo && (chapters.data?.length ?? 0) > 0 && (
             <Command.Group
-              heading='Open chapter'
+              heading={t('palette.groupOpenChapter')}
               className='text-muted-foreground mt-2 space-y-1 text-[10px] font-bold uppercase'
             >
               {chapters.data!.map((c) => (
@@ -193,8 +211,11 @@ export function CommandPalette() {
                   key={`open-${c.id}`}
                   onSelect={() => void openChapter(c)}
                   icon={<PlayIcon className='size-3.5' />}
-                  label={`#${c.chapterNumber} ${c.title ?? '(untitled)'}`}
-                  sub={`${c.pageCount} page${c.pageCount === 1 ? '' : 's'} · ${c.status}`}
+                  label={`#${c.chapterNumber} ${c.title ?? t('palette.untitledChapter')}`}
+                  sub={t('palette.chapterSummary', {
+                    pages: t('palette.pagesCount', { count: c.pageCount }),
+                    status: c.status,
+                  })}
                 />
               ))}
             </Command.Group>
@@ -203,7 +224,7 @@ export function CommandPalette() {
           {/* Export */}
           {projectInfo && (chapters.data?.length ?? 0) > 0 && (
             <Command.Group
-              heading='Export as CBZ'
+              heading={t('palette.groupExport')}
               className='text-muted-foreground mt-2 space-y-1 text-[10px] font-bold uppercase'
             >
               {chapters.data!.map((c) => (
@@ -211,8 +232,8 @@ export function CommandPalette() {
                   key={`cbz-${c.id}`}
                   onSelect={() => void exportCbz(c)}
                   icon={<ArchiveIcon className='size-3.5' />}
-                  label={`Export #${c.chapterNumber} as .cbz`}
-                  sub={c.title ?? '(untitled)'}
+                  label={t('palette.exportChapter', { number: c.chapterNumber })}
+                  sub={c.title ?? t('palette.untitledChapter')}
                 />
               ))}
             </Command.Group>
@@ -221,7 +242,7 @@ export function CommandPalette() {
           {/* Profiles */}
           {projectInfo && (profiles.data?.length ?? 0) > 0 && (
             <Command.Group
-              heading='Apply LLM profile'
+              heading={t('palette.groupProfile')}
               className='text-muted-foreground mt-2 space-y-1 text-[10px] font-bold uppercase'
             >
               {profiles.data!.map((p) => (
@@ -236,7 +257,7 @@ export function CommandPalette() {
                     )
                   }
                   label={p.name}
-                  sub={`${p.provider} · ${p.modelName || '(no model)'}`}
+                  sub={`${p.provider} · ${p.modelName || t('palette.noModel')}`}
                 />
               ))}
             </Command.Group>
@@ -245,7 +266,7 @@ export function CommandPalette() {
           {/* AI Chat slash commands */}
           {projectInfo && (
             <Command.Group
-              heading='AI Chat slash command'
+              heading={t('palette.groupSlash')}
               className='text-muted-foreground mt-2 space-y-1 text-[10px] font-bold uppercase'
             >
               {SLASH_COMMANDS.map((s) => (
@@ -269,16 +290,17 @@ export function CommandPalette() {
                   }
                   label={`/${s.name} ${s.argsHint ?? ''}`.trim()}
                   sub={s.description}
-                  shortcut='copy'
+                  shortcut={t('palette.shortcutCopy')}
                 />
               ))}
             </Command.Group>
           )}
         </Command.List>
         <div className='border-border text-muted-foreground flex items-center justify-between border-t px-3 py-1.5 text-[10px]'>
-          <span>↑↓ navigate · ↵ select · esc close</span>
+          <span>{t('palette.footerHelp')}</span>
           <span>
-            <kbd className='bg-muted rounded px-1'>⌘K</kbd> toggle
+            <kbd className='bg-muted rounded px-1'>⌘K</kbd>{' '}
+            {t('palette.footerToggle')}
           </span>
         </div>
       </Command>

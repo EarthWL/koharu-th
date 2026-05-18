@@ -180,6 +180,33 @@
   "download": {
     "title": "Downloading"
   },
+  "palette": {
+    "label": "Command palette",
+    "placeholderProject": "Jump to chapter · switch profile · /slash · or type any action…",
+    "placeholderNoProject": "Open or create a project to access more actions…",
+    "empty": "No matching action.",
+    "groupProject": "Project",
+    "groupOpenChapter": "Open chapter",
+    "groupExport": "Export as CBZ",
+    "groupProfile": "Apply LLM profile",
+    "groupSlash": "AI Chat slash command",
+    "newProject": "New project…",
+    "openProject": "Open project…",
+    "closeCurrentProject": "Close current project",
+    "openSettings": "Open Settings",
+    "projectNamePrompt": "Project name?",
+    "untitledChapter": "(untitled)",
+    "pagesCount_one": "{{count}} page",
+    "pagesCount_other": "{{count}} pages",
+    "chapterSummary": "{{pages}} · {{status}}",
+    "exportChapter": "Export #{{number}} as .cbz",
+    "exportDone": "Exported {{count}} page(s) → {{path}}",
+    "noModel": "(no model)",
+    "footerHelp": "↑↓ navigate · ↵ select · esc close",
+    "footerToggle": "toggle",
+    "shortcutPicker": "picker",
+    "shortcutCopy": "copy"
+  },
   "errors": {
     "title": "Error",
     "dismiss": "Dismiss"

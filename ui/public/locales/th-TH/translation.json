@@ -219,6 +219,33 @@
   "download": {
     "title": "กำลังดาวน์โหลด"
   },
+  "palette": {
+    "label": "Command palette",
+    "placeholderProject": "ไปที่ตอน · เปลี่ยน profile · /slash · หรือพิมพ์ action ใด ๆ…",
+    "placeholderNoProject": "เปิดหรือสร้างโปรเจคเพื่อใช้คำสั่งเพิ่มเติม…",
+    "empty": "ไม่พบคำสั่งที่ตรง",
+    "groupProject": "โปรเจค",
+    "groupOpenChapter": "เปิดตอน",
+    "groupExport": "ส่งออกเป็น CBZ",
+    "groupProfile": "ใช้ LLM profile",
+    "groupSlash": "คำสั่ง slash ใน AI Chat",
+    "newProject": "สร้างโปรเจคใหม่...",
+    "openProject": "เปิดโปรเจค...",
+    "closeCurrentProject": "ปิดโปรเจคนี้",
+    "openSettings": "เปิดหน้าตั้งค่า",
+    "projectNamePrompt": "ตั้งชื่อโปรเจค?",
+    "untitledChapter": "(ไม่มีชื่อ)",
+    "pagesCount_one": "{{count}} หน้า",
+    "pagesCount_other": "{{count}} หน้า",
+    "chapterSummary": "{{pages}} · {{status}}",
+    "exportChapter": "ส่งออกตอน #{{number}} เป็น .cbz",
+    "exportDone": "ส่งออก {{count}} หน้าแล้ว → {{path}}",
+    "noModel": "(ยังไม่ได้เลือก model)",
+    "footerHelp": "↑↓ เลื่อน · ↵ เลือก · esc ปิด",
+    "footerToggle": "เปิด/ปิด",
+    "shortcutPicker": "picker",
+    "shortcutCopy": "copy"
+  },
   "errors": {
     "title": "ผิดพลาด",
     "dismiss": "ปิด"
