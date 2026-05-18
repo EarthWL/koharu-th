@@ -20,6 +20,18 @@
   will-change: transform;
 }
 
+/* Honour OS-level "reduce motion" preference (WCAG 2.3.3). Indeterminate
+ * sweep + pulsing activity dots are decorative; users who request
+ * reduced motion get a static gradient + steady dot instead. */
+@media (prefers-reduced-motion: reduce) {
+  .activity-progress-indeterminate {
+    animation: none;
+  }
+  .activity-bubble-pulse {
+    animation: none;
+  }
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);

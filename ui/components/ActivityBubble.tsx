@@ -59,7 +59,7 @@ function DownloadCard({
   return (
     <BubbleCard>
       <div className='flex items-start gap-3'>
-        <div className='bg-primary mt-1 h-2.5 w-2.5 animate-pulse rounded-full shadow-[0_0_0_6px_hsl(var(--primary)/0.16)]' />
+        <div className='activity-bubble-pulse bg-primary mt-1 h-2.5 w-2.5 animate-pulse rounded-full shadow-[0_0_0_6px_hsl(var(--primary)/0.16)]' />
         <div className='flex-1'>
           <div className='text-foreground text-sm font-semibold'>
             {t('download.title')}
@@ -209,7 +209,10 @@ function OperationCard({
                 {titles[operation.type] ?? t('operations.title')}
               </div>
               <div className='text-muted-foreground text-xs'>
-                {subtitle || t('operations.inProgress')}
+                {/* `subtitle` already falls back to operations.inProgress
+                 * when subtitleParts is empty (see line above) — keeping
+                 * the || guard here would just confuse a future reader. */}
+                {subtitle}
               </div>
             </div>
             {isProcessAll && total && typeof displayCurrent === 'number' ? (
@@ -264,7 +267,18 @@ export function ActivityBubble() {
   if (!error && !operation && activeDownloads.length === 0) return null
 
   return (
-    <div className='pointer-events-auto fixed right-6 bottom-6 z-100 flex w-80 max-w-[calc(100%-1.5rem)] flex-col gap-3'>
+    // role="status" + aria-live="polite" so screen readers announce when a
+    // new card appears (operation start, error surfaced, download begun)
+    // without interrupting the user. aria-atomic="false" keeps the
+    // announcement scoped to the card that actually changed, avoiding a
+    // re-read of every sibling card on each progress tick.
+    <div
+      role='status'
+      aria-live='polite'
+      aria-atomic='false'
+      aria-label={t('operations.title')}
+      className='pointer-events-auto fixed right-6 bottom-6 z-100 flex w-80 max-w-[calc(100%-1.5rem)] flex-col gap-3'
+    >
       {error && (
         <ErrorCard message={error.message} onDismiss={clearError} t={t} />
       )}
