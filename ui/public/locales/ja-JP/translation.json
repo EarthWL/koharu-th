@@ -210,6 +210,26 @@
     "title": "エラー",
     "dismiss": "閉じる"
   },
+  "costDashboard": {
+    "title": "LLM コスト — 累計",
+    "loadingAria": "コスト統計を読み込み中",
+    "empty": "このプロジェクトにはまだ LLM 呼び出しが記録されていません",
+    "statTotal": "合計支出",
+    "statCalls": "呼び出し",
+    "statCallsOk": "成功 {{percent}}",
+    "statTokens": "Token",
+    "statTokensIo": "{{input}} 入力 / {{output}} 出力",
+    "sectionLast30": "直近30日",
+    "sectionByProfile": "プロファイル別",
+    "sectionByChapter": "チャプター別",
+    "sectionByUseCase": "ユースケース別",
+    "footnote": "Token 数はプロバイダーの報告値に依存します。コストは各プロファイルに保存された per-1M レートで計算されます — 正確な $ 値にするには Profiles タブで設定してください",
+    "noData": "データなし",
+    "callsCount_one": "{{count}} 回",
+    "callsCount_other": "{{count}} 回",
+    "tokensSuffix": "tok",
+    "untitledChapter": "(無題)"
+  },
   "settings": {
     "title": "設定",
     "appearance": "外観",

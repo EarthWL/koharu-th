@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { CoinsIcon, Loader2Icon } from 'lucide-react'
 import { api, type LlmCostBreakdown } from '@/lib/api'
 
@@ -29,13 +30,15 @@ function fmtPct(part: number, total: number): string {
  *  chart library — to keep bundle small. */
 function BarChart({
   rows,
+  emptyLabel,
 }: {
   rows: { key: string; label: string; value: number; sub?: string }[]
+  emptyLabel: string
 }) {
   if (rows.length === 0) {
     return (
       <p className='text-muted-foreground text-center text-[10px]'>
-        No data yet
+        {emptyLabel}
       </p>
     )
   }
@@ -74,6 +77,7 @@ function BarChart({
 }
 
 export function CostDashboard() {
+  const { t } = useTranslation()
   const stats = useQuery({
     queryKey: ['project', 'cost-stats'],
     queryFn: () => api.llmCostStats(),
@@ -87,16 +91,17 @@ export function CostDashboard() {
 
   const data: LlmCostBreakdown | undefined = breakdown.data
   const totalCost = stats.data?.totalCostUsd ?? 0
+  const tokSuffix = t('costDashboard.tokensSuffix')
 
   const dayRows = useMemo(
     () =>
       (data?.byDay ?? []).map((d) => ({
         key: d.day,
-        label: d.day.slice(5), // MM-DD
+        label: d.day.slice(5), // MM-DD — universally readable, no locale parse risk
         value: d.totalCostUsd,
-        sub: `${d.totalCalls} call${d.totalCalls === 1 ? '' : 's'}`,
+        sub: t('costDashboard.callsCount', { count: d.totalCalls }),
       })),
-    [data?.byDay],
+    [data?.byDay, t],
   )
   const profileRows = useMemo(
     () =>
@@ -104,66 +109,86 @@ export function CostDashboard() {
         key: String(p.profileId),
         label: `${p.profileName}`,
         value: p.totalCostUsd,
-        sub: `${p.provider} · ${p.totalCalls} call${
-          p.totalCalls === 1 ? '' : 's'
-        }`,
+        sub: `${p.provider} · ${t('costDashboard.callsCount', {
+          count: p.totalCalls,
+        })}`,
       })),
-    [data?.byProfile],
+    [data?.byProfile, t],
   )
   const chapterRows = useMemo(
     () =>
       (data?.byChapter ?? []).map((c) => ({
         key: String(c.chapterId),
-        label: `#${c.chapterNumber} ${c.chapterTitle || '(untitled)'}`,
+        label: `#${c.chapterNumber} ${
+          c.chapterTitle || t('costDashboard.untitledChapter')
+        }`,
         value: c.totalCostUsd,
-        sub: `${fmtTokens(c.totalPromptTokens + c.totalCompletionTokens)} tok`,
+        sub: `${fmtTokens(c.totalPromptTokens + c.totalCompletionTokens)} ${tokSuffix}`,
       })),
-    [data?.byChapter],
+    [data?.byChapter, t, tokSuffix],
   )
   const useCaseRows = useMemo(
     () =>
       (data?.byUseCase ?? []).map((u) => ({
         key: u.useCase,
+        // useCase comes from the backend as a stable identifier
+        // (ocr / translation / chat / …) — surfaced verbatim to keep
+        // it greppable in logs and discoverable for users debugging
+        // unexpected costs.
         label: u.useCase,
         value: u.totalCostUsd,
-        sub: `${u.totalCalls} call${u.totalCalls === 1 ? '' : 's'}`,
+        sub: t('costDashboard.callsCount', { count: u.totalCalls }),
       })),
-    [data?.byUseCase],
+    [data?.byUseCase, t],
   )
 
   const loading = stats.isLoading || breakdown.isLoading
   const hasData = (stats.data?.totalCalls ?? 0) > 0
+  const emptyLabel = t('costDashboard.noData')
 
   return (
     <div className='space-y-3 text-xs'>
       <div className='border-border bg-card rounded-md border p-3'>
         <div className='text-muted-foreground mb-1 flex items-center gap-1 text-[10px] font-bold tracking-wide uppercase'>
           <CoinsIcon className='size-3' />
-          LLM cost — all-time
-          {loading && <Loader2Icon className='ml-auto size-3 animate-spin' />}
+          {t('costDashboard.title')}
+          {loading && (
+            <Loader2Icon
+              className='ml-auto size-3 animate-spin'
+              aria-label={t('costDashboard.loadingAria')}
+            />
+          )}
         </div>
         {!hasData ? (
           <p className='text-muted-foreground text-center text-[10px]'>
-            No LLM calls logged yet for this project.
+            {t('costDashboard.empty')}
           </p>
         ) : (
           <div className='grid grid-cols-3 gap-2 text-center'>
-            <Stat label='Total spent' value={fmtUsd(totalCost)} />
             <Stat
-              label='Calls'
-              value={String(stats.data?.totalCalls ?? 0)}
-              sub={`${fmtPct(
-                stats.data?.successfulCalls ?? 0,
-                stats.data?.totalCalls ?? 0,
-              )} ok`}
+              label={t('costDashboard.statTotal')}
+              value={fmtUsd(totalCost)}
             />
             <Stat
-              label='Tokens'
+              label={t('costDashboard.statCalls')}
+              value={String(stats.data?.totalCalls ?? 0)}
+              sub={t('costDashboard.statCallsOk', {
+                percent: fmtPct(
+                  stats.data?.successfulCalls ?? 0,
+                  stats.data?.totalCalls ?? 0,
+                ),
+              })}
+            />
+            <Stat
+              label={t('costDashboard.statTokens')}
               value={fmtTokens(
                 (stats.data?.totalPromptTokens ?? 0) +
                   (stats.data?.totalCompletionTokens ?? 0),
               )}
-              sub={`${fmtTokens(stats.data?.totalPromptTokens ?? 0)} in / ${fmtTokens(stats.data?.totalCompletionTokens ?? 0)} out`}
+              sub={t('costDashboard.statTokensIo', {
+                input: fmtTokens(stats.data?.totalPromptTokens ?? 0),
+                output: fmtTokens(stats.data?.totalCompletionTokens ?? 0),
+              })}
             />
           </div>
         )}
@@ -171,22 +196,20 @@ export function CostDashboard() {
 
       {hasData && (
         <>
-          <Section title='Last 30 days'>
-            <BarChart rows={dayRows} />
+          <Section title={t('costDashboard.sectionLast30')}>
+            <BarChart rows={dayRows} emptyLabel={emptyLabel} />
           </Section>
-          <Section title='By profile'>
-            <BarChart rows={profileRows} />
+          <Section title={t('costDashboard.sectionByProfile')}>
+            <BarChart rows={profileRows} emptyLabel={emptyLabel} />
           </Section>
-          <Section title='By chapter'>
-            <BarChart rows={chapterRows} />
+          <Section title={t('costDashboard.sectionByChapter')}>
+            <BarChart rows={chapterRows} emptyLabel={emptyLabel} />
           </Section>
-          <Section title='By use case'>
-            <BarChart rows={useCaseRows} />
+          <Section title={t('costDashboard.sectionByUseCase')}>
+            <BarChart rows={useCaseRows} emptyLabel={emptyLabel} />
           </Section>
           <p className='text-muted-foreground/70 text-center text-[10px]'>
-            Token counts depend on what each provider reports. Cost uses the
-            per-1M rates saved on each profile — set them in Profiles tab for
-            accurate $ figures.
+            {t('costDashboard.footnote')}
           </p>
         </>
       )}

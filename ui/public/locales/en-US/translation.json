@@ -211,6 +211,26 @@
     "title": "Error",
     "dismiss": "Dismiss"
   },
+  "costDashboard": {
+    "title": "LLM cost — all-time",
+    "loadingAria": "Loading cost stats",
+    "empty": "No LLM calls logged yet for this project.",
+    "statTotal": "Total spent",
+    "statCalls": "Calls",
+    "statCallsOk": "{{percent}} ok",
+    "statTokens": "Tokens",
+    "statTokensIo": "{{input}} in / {{output}} out",
+    "sectionLast30": "Last 30 days",
+    "sectionByProfile": "By profile",
+    "sectionByChapter": "By chapter",
+    "sectionByUseCase": "By use case",
+    "footnote": "Token counts depend on what each provider reports. Cost uses the per-1M rates saved on each profile — set them in Profiles tab for accurate $ figures.",
+    "noData": "No data yet",
+    "callsCount_one": "{{count}} call",
+    "callsCount_other": "{{count}} calls",
+    "tokensSuffix": "tok",
+    "untitledChapter": "(untitled)"
+  },
   "settings": {
     "title": "Settings",
     "appearance": "Appearance",

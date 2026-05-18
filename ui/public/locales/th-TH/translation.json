@@ -250,6 +250,26 @@
     "title": "ผิดพลาด",
     "dismiss": "ปิด"
   },
+  "costDashboard": {
+    "title": "ค่าใช้จ่าย LLM — สะสมทั้งหมด",
+    "loadingAria": "กำลังโหลดสถิติค่าใช้จ่าย",
+    "empty": "ยังไม่มีการเรียก LLM ในโปรเจคนี้",
+    "statTotal": "ใช้จ่ายทั้งหมด",
+    "statCalls": "จำนวนเรียก",
+    "statCallsOk": "สำเร็จ {{percent}}",
+    "statTokens": "Token",
+    "statTokensIo": "{{input}} เข้า / {{output}} ออก",
+    "sectionLast30": "30 วันล่าสุด",
+    "sectionByProfile": "แยกตาม profile",
+    "sectionByChapter": "แยกตามตอน",
+    "sectionByUseCase": "แยกตาม use case",
+    "footnote": "จำนวน token ขึ้นกับสิ่งที่ผู้ให้บริการรายงาน · ราคาใช้ per-1M rate ที่ตั้งไว้ในแต่ละ profile — ตั้งค่าได้ใน Profiles tab เพื่อให้ตัวเลข $ ถูกต้อง",
+    "noData": "ยังไม่มีข้อมูล",
+    "callsCount_one": "{{count}} call",
+    "callsCount_other": "{{count}} calls",
+    "tokensSuffix": "tok",
+    "untitledChapter": "(ไม่มีชื่อ)"
+  },
   "settings": {
     "title": "ตั้งค่า",
     "appearance": "หน้าตา",
