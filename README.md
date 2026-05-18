@@ -63,10 +63,9 @@ min-font-size floor, vertical-align, text-block rotation,
 overflow/tight warnings, Thai post-processing). A ~60-tool MCP server
 for external agents. 169 commits and 6 releases (1.0.0 → 1.2.0).
 
-The two roadmaps no longer overlap. **Pick upstream** if you want
-the best ML pipeline for many languages on many GPUs. **Pick this
-fork** if you want a workflow tool that remembers your characters
-and glossary across chapters — especially for Thai output.
+The application-layer roadmaps now differ substantially. **Pick upstream** if you want
+broader ML backend coverage for many languages and GPUs. **Pick this fork** if you want
+a workflow tool that remembers your characters and glossary across chapters — especially for Thai output.
 
 We still cherry-pick upstream bug fixes that touch overlapping code
 (see [Syncing with upstream](#syncing-with-upstream)). The 1.3.x
