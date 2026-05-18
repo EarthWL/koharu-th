@@ -1,13 +1,15 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
+  AlertCircleIcon,
   CheckIcon,
   KeyRoundIcon,
   Loader2Icon,
   PencilIcon,
   PlusIcon,
+  RefreshCwIcon,
   StarIcon,
   Trash2Icon,
   XIcon,
@@ -23,6 +25,14 @@ import {
 import { api, type ProviderProfileDto } from '@/lib/api'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { testCloudConnection } from '@/lib/services/cloudLlm'
+import {
+  KINDS,
+  KIND_LABEL,
+  canLoadModels,
+  effectiveDbProvider,
+  kindOf,
+  type ProviderKind,
+} from '@/lib/services/profileHelpers'
 import {
   fetchOpenRouterModels,
   formatPricePerMillion,
@@ -46,101 +56,6 @@ import {
 } from '@/lib/services/anthropicModels'
 
 // ─────────────────────────────────────────────────────────────────
-// Provider kinds — what the user picks. Maps to DB provider + URL.
-// ─────────────────────────────────────────────────────────────────
-type ProviderKind = 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'local'
-
-type KindMeta = {
-  kind: ProviderKind
-  label: string
-  dbProvider: 'openai' | 'openrouter' | 'gemini' | 'anthropic'
-  defaultBaseUrl: string
-  /** Whether we can list models for this provider. */
-  hasModelList: boolean
-  /** Whether the API key is required to fetch the model list. */
-  needsKeyForList: boolean
-  /** Default model when user hasn't picked anything yet. */
-  suggestedModel: string
-  hint?: string
-}
-
-const KINDS: KindMeta[] = [
-  {
-    kind: 'openai',
-    label: 'OpenAI',
-    dbProvider: 'openai',
-    defaultBaseUrl: 'https://api.openai.com/v1',
-    hasModelList: true,
-    needsKeyForList: true,
-    suggestedModel: 'gpt-4o-mini',
-    hint: 'Live model list',
-  },
-  {
-    kind: 'anthropic',
-    label: 'Claude',
-    dbProvider: 'anthropic',
-    defaultBaseUrl: '',
-    hasModelList: true,
-    needsKeyForList: true,
-    suggestedModel: 'claude-3-5-sonnet-latest',
-    hint: 'Live model list',
-  },
-  {
-    kind: 'gemini',
-    label: 'Gemini',
-    dbProvider: 'gemini',
-    defaultBaseUrl: '',
-    hasModelList: true,
-    needsKeyForList: true,
-    suggestedModel: 'gemini-2.5-flash',
-    hint: 'Live model list',
-  },
-  {
-    kind: 'openrouter',
-    label: 'OpenRouter',
-    dbProvider: 'openrouter',
-    defaultBaseUrl: '',
-    hasModelList: true,
-    needsKeyForList: false,
-    suggestedModel: '',
-    hint: 'Live model list',
-  },
-  {
-    kind: 'local',
-    label: 'Local LLM',
-    dbProvider: 'openai',
-    defaultBaseUrl: 'http://localhost:11434/v1',
-    hasModelList: true,
-    needsKeyForList: false,
-    suggestedModel: '',
-    hint: 'Ollama / LM Studio / llama.cpp',
-  },
-]
-
-function kindOf(profile: ProviderProfileDto): ProviderKind {
-  if (profile.provider === 'anthropic') return 'anthropic'
-  if (profile.provider === 'gemini') return 'gemini'
-  if (profile.provider === 'openrouter') return 'openrouter'
-  const url = profile.apiUrl ?? ''
-  if (/localhost|127\.0\.0\.1|0\.0\.0\.0/i.test(url)) return 'local'
-  // Legacy compat: profiles created before v1.0.0 stored OpenRouter as
-  // provider='openai' (the Rust backend used to collapse openrouter into
-  // openai). OpenRouter model IDs always look like `vendor/model`
-  // (e.g. `anthropic/claude-haiku-latest`) — the slash is the tell.
-  // Detect + route to the OpenRouter tile so the edit modal + apply
-  // dispatch land on the right code path. New saves are stored with
-  // the proper 'openrouter' value via the fixed parse_provider in Rust.
-  if (profile.provider === 'openai' && profile.modelName.includes('/')) {
-    return 'openrouter'
-  }
-  return 'openai'
-}
-
-const KIND_LABEL: Record<ProviderKind, string> = Object.fromEntries(
-  KINDS.map((k) => [k.kind, k.label]),
-) as Record<ProviderKind, string>
-
-// ─────────────────────────────────────────────────────────────────
 // List panel
 // ─────────────────────────────────────────────────────────────────
 export function ProfilesTabPanel() {
@@ -154,7 +69,9 @@ export function ProfilesTabPanel() {
     | { mode: 'edit'; profile: ProviderProfileDto }
     | null
   >(null)
-  const refresh = () => void profiles.refetch()
+  const refresh = async () => {
+    await profiles.refetch()
+  }
   const setPrefs = usePreferencesStore.getState()
   // Subscribe so the row's "Active" badge re-renders when the active
   // LLM changes via the toolbar dropdown.
@@ -162,12 +79,10 @@ export function ProfilesTabPanel() {
   const activeModel = usePreferencesStore((s) => s.cloudModelName)
 
   const apply = async (p: ProviderProfileDto) => {
-    // Use the detected kind's dbProvider so legacy mis-stored
-    // OpenRouter profiles (saved as 'openai' before v1.0.0) route to
-    // the correct dispatcher in cloudLlm.ts.
-    const detectedKind = kindOf(p)
-    const meta = KINDS.find((k) => k.kind === detectedKind)!
-    setPrefs.setCloudProvider(meta.dbProvider as any)
+    // Use the dbProvider routed by kindOf so legacy mis-stored
+    // OpenRouter profiles (saved as 'openai' before v1.0.0) hit the
+    // correct dispatcher in cloudLlm.ts / cloudOcr.ts.
+    setPrefs.setCloudProvider(effectiveDbProvider(p) as any)
     setPrefs.setCloudModelName(p.modelName)
     setPrefs.setActiveProfileId(p.id)
     if (p.apiUrl) setPrefs.setCloudApiUrl(p.apiUrl)
@@ -180,12 +95,12 @@ export function ProfilesTabPanel() {
   }
   const toggleDefault = async (p: ProviderProfileDto) => {
     await api.providerProfileUpdate({ id: p.id, isDefault: !p.isDefault })
-    refresh()
+    await refresh()
   }
   const remove = async (p: ProviderProfileDto) => {
     if (!confirm(`Delete "${p.name}"?`)) return
     await api.providerProfileRemove(p.id)
-    refresh()
+    await refresh()
   }
 
   return (
@@ -207,13 +122,22 @@ export function ProfilesTabPanel() {
       <ScrollArea className='min-h-0 min-w-0 flex-1'>
         <div className='w-full min-w-0 space-y-1 p-2'>
           {profiles.isLoading ? (
-            <p className='text-muted-foreground p-2 text-center text-xs'>
-              Loading…
+            <p className='text-muted-foreground flex items-center justify-center gap-1.5 p-3 text-xs'>
+              <Loader2Icon className='size-3 animate-spin' />
+              Loading profiles…
             </p>
           ) : !list.length ? (
             <div className='border-border rounded-md border border-dashed p-3 text-center text-xs'>
               <KeyRoundIcon className='text-muted-foreground/40 mx-auto mb-2 size-6' />
-              <p className='text-muted-foreground mb-2'>
+              <p className='text-foreground mb-1 text-xs font-semibold'>
+                No LLM profile yet
+              </p>
+              <p className='text-muted-foreground mb-3 text-[10px] leading-relaxed'>
+                Profiles store your cloud LLM credentials so you can switch
+                between OpenAI / Claude / Gemini / OpenRouter (or a local
+                Ollama / LM Studio server) per project.
+                <br />
+                <br />
                 บันทึก config ของ LLM provider หลายๆ ตัวเพื่อสลับใช้งานได้
               </p>
               <Button
@@ -228,94 +152,91 @@ export function ProfilesTabPanel() {
             </div>
           ) : (
             list.map((p) => {
-              // Compare against the effective provider (kindOf maps
-              // legacy openrouter-as-openai correctly) so Apply lights
-              // up the Active badge even on mis-stored legacy rows.
-              const effectiveDbProvider = KINDS.find(
-                (k) => k.kind === kindOf(p),
-              )!.dbProvider
+              // Effective provider routes legacy openrouter-as-openai
+              // through the right code path so the Active badge lights
+              // up correctly on those rows too.
               const isActive =
-                effectiveDbProvider === activeProvider &&
+                effectiveDbProvider(p) === activeProvider &&
                 p.modelName === activeModel
               return (
-              <div
-                key={p.id}
-                className={
-                  'group min-w-0 rounded-md border p-1.5 ' +
-                  (isActive
-                    ? 'border-rose-400/60 bg-rose-400/5'
-                    : 'border-border bg-card')
-                }
-              >
-                <div className='flex items-start gap-1.5'>
-                  <button
-                    onClick={() => void toggleDefault(p)}
-                    className='shrink-0 hover:text-amber-500'
-                    title={
-                      p.isDefault
-                        ? 'Unmark as default'
-                        : 'Mark as default (auto-loaded on project open)'
-                    }
-                  >
-                    <StarIcon
-                      className={
+                <div
+                  key={p.id}
+                  className={
+                    'group min-w-0 rounded-md border p-1.5 ' +
+                    (isActive
+                      ? 'border-rose-400/60 bg-rose-400/5'
+                      : 'border-border bg-card')
+                  }
+                >
+                  <div className='flex items-start gap-1.5'>
+                    <button
+                      onClick={() => void toggleDefault(p)}
+                      className='shrink-0 hover:text-amber-500'
+                      title={
                         p.isDefault
-                          ? 'fill-amber-400 size-3 text-amber-400'
-                          : 'text-muted-foreground/50 size-3'
+                          ? 'Unmark as default'
+                          : 'Mark as default (auto-loaded on project open)'
                       }
-                    />
-                  </button>
-                  <div className='min-w-0 flex-1 text-xs'>
-                    <div className='truncate font-semibold'>{p.name}</div>
-                    <div className='text-muted-foreground truncate text-[10px]'>
-                      {KIND_LABEL[kindOf(p)]} · {p.modelName || '(no model)'}
+                    >
+                      <StarIcon
+                        className={
+                          p.isDefault
+                            ? 'fill-amber-400 size-3 text-amber-400'
+                            : 'text-muted-foreground/50 size-3'
+                        }
+                      />
+                    </button>
+                    <div className='min-w-0 flex-1 text-xs'>
+                      <div className='truncate font-semibold'>{p.name}</div>
+                      <div className='text-muted-foreground truncate text-[10px]'>
+                        {KIND_LABEL[kindOf(p)]} · {p.modelName || '(no model)'}
+                      </div>
                     </div>
+                    <Button
+                      variant={isActive ? 'default' : 'outline'}
+                      size='sm'
+                      className={
+                        'h-6 px-2 text-[10px] ' +
+                        (isActive
+                          ? 'bg-rose-400 hover:bg-rose-400/90 text-white'
+                          : '')
+                      }
+                      onClick={() => void apply(p)}
+                      title={
+                        isActive
+                          ? 'Active — click to re-pull the API key from the OS keyring (use after editing the key externally)'
+                          : 'Make this the active LLM for translation'
+                      }
+                    >
+                      {isActive ? (
+                        <>
+                          <CheckIcon className='size-3' />
+                          Active
+                        </>
+                      ) : (
+                        'Apply'
+                      )}
+                    </Button>
+                    <Button
+                      variant='ghost'
+                      size='icon-xs'
+                      className='size-6 opacity-0 group-hover:opacity-100'
+                      title='Edit'
+                      onClick={() => setEditing({ mode: 'edit', profile: p })}
+                    >
+                      <PencilIcon className='size-3' />
+                    </Button>
+                    <Button
+                      variant='ghost'
+                      size='icon-xs'
+                      className='size-6 opacity-0 group-hover:opacity-100'
+                      title='Delete'
+                      onClick={() => void remove(p)}
+                    >
+                      <Trash2Icon className='size-3' />
+                    </Button>
                   </div>
-                  <Button
-                    variant={isActive ? 'default' : 'outline'}
-                    size='sm'
-                    className={
-                      'h-6 px-2 text-[10px] ' +
-                      (isActive
-                        ? 'bg-rose-400 hover:bg-rose-400/90 text-white'
-                        : '')
-                    }
-                    onClick={() => void apply(p)}
-                    title={
-                      isActive
-                        ? 'Currently active — re-Apply to refresh API key from keyring'
-                        : 'Make this the active LLM for translation'
-                    }
-                  >
-                    {isActive ? (
-                      <>
-                        <CheckIcon className='size-3' />
-                        Active
-                      </>
-                    ) : (
-                      'Apply'
-                    )}
-                  </Button>
-                  <Button
-                    variant='ghost'
-                    size='icon-xs'
-                    className='size-6 opacity-0 group-hover:opacity-100'
-                    title='Edit'
-                    onClick={() => setEditing({ mode: 'edit', profile: p })}
-                  >
-                    <PencilIcon className='size-3' />
-                  </Button>
-                  <Button
-                    variant='ghost'
-                    size='icon-xs'
-                    className='size-6 opacity-0 group-hover:opacity-100'
-                    title='Delete'
-                    onClick={() => void remove(p)}
-                  >
-                    <Trash2Icon className='size-3' />
-                  </Button>
                 </div>
-              </div>
               )
             })
           )}
@@ -326,9 +247,9 @@ export function ProfilesTabPanel() {
           initial={editing.mode === 'edit' ? editing.profile : null}
           onClose={() => setEditing(null)}
           existingProfiles={list}
-          onSaved={() => {
+          onSaved={async () => {
+            await refresh()
             setEditing(null)
-            refresh()
           }}
         />
       )}
@@ -347,7 +268,7 @@ function ProfileFormModal({
 }: {
   initial: ProviderProfileDto | null
   onClose: () => void
-  onSaved: () => void
+  onSaved: () => Promise<void> | void
   existingProfiles: ProviderProfileDto[]
 }) {
   const initialKind = initial ? kindOf(initial) : 'openai'
@@ -356,26 +277,49 @@ function ProfileFormModal({
   const [kind, setKind] = useState<ProviderKind>(initialKind)
   const [name, setName] = useState(initial?.name ?? '')
   const [apiKey, setApiKey] = useState('')
-  const [apiKeyLoaded, setApiKeyLoaded] = useState(false)
+  const [apiKeyLoaded, setApiKeyLoaded] = useState(!initial)
   /** Tracks why the apiKey field is empty when editing. Distinguishes
    *  "no key was ever stored" vs "key is in keyring but fetch failed"
-   *  so the UI can tell the user whether they need to re-enter. */
+   *  so the UI can tell the user whether they need to re-enter.
+   *  Initialised to 'fresh' for both Add and Edit; the keyring-load
+   *  effect upgrades to 'loaded' / 'never-stored' / 'keyring-*' once
+   *  it resolves. Previously initialised to 'loaded' on edit, which
+   *  caused a flash of "Loaded from keyring" while models were
+   *  still disabled. */
   const [apiKeyStatus, setApiKeyStatus] = useState<
     'fresh' | 'loaded' | 'never-stored' | 'keyring-miss' | 'keyring-error'
-  >(initial ? 'loaded' : 'fresh')
+  >('fresh')
   const [apiUrl, setApiUrl] = useState(
     initial?.apiUrl ?? initialMeta.defaultBaseUrl,
   )
   const [modelName, setModelName] = useState(initial?.modelName ?? '')
   const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
   const [testStatus, setTestStatus] = useState<
     | { kind: 'idle' }
     | { kind: 'pending' }
     | { kind: 'ok'; ms: number }
     | { kind: 'err'; msg: string }
   >({ kind: 'idle' })
+  /** Bumps every time the user wants to re-fetch the keyring entry
+   *  (Retry button on a keyring-error). Triggers the useEffect below. */
+  const [keyringFetchSeq, setKeyringFetchSeq] = useState(0)
 
-  // Load existing API key from keyring when editing.
+  // Esc-to-close + focus trap (basic: focus stays on first input on
+  // mount; not full WAI-ARIA dialog, but enough that keyboard users
+  // aren't stuck).
+  const firstFieldRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    firstFieldRef.current?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  // Load existing API key from keyring when editing. Re-runs when
+  // keyringFetchSeq bumps (Retry button).
   useEffect(() => {
     if (!initial) {
       setApiKeyLoaded(true)
@@ -383,6 +327,7 @@ function ProfileFormModal({
       return
     }
     let cancelled = false
+    setApiKeyLoaded(false)
     void (async () => {
       // If the profile has no api_key_ref at all, we know nothing was
       // ever stored — no need to hit the keyring.
@@ -421,7 +366,7 @@ function ProfileFormModal({
     return () => {
       cancelled = true
     }
-  }, [initial])
+  }, [initial, keyringFetchSeq])
 
   const meta = KINDS.find((k) => k.kind === kind)!
 
@@ -431,14 +376,28 @@ function ProfileFormModal({
     setApiUrl(nextMeta.defaultBaseUrl)
     setModelName(nextMeta.suggestedModel)
     setTestStatus({ kind: 'idle' })
+    setFormError(null)
     if (!name.trim()) setName(nextMeta.label)
   }
 
+  // Debounce `apiUrl` for the local-models query so typing into the
+  // URL field doesn't fire a fetch per keystroke (and to close the
+  // small race window where the model list comes back from a half-
+  // typed URL).
+  const [debouncedApiUrl, setDebouncedApiUrl] = useState(apiUrl)
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedApiUrl(apiUrl), 300)
+    return () => clearTimeout(t)
+  }, [apiUrl])
+
   // ────────── Model list queries (only one fires at a time) ──────────
+  const enabledForKind = (k: ProviderKind) =>
+    kind === k && canLoadModels({ kind, apiKey, apiUrl: debouncedApiUrl, apiKeyLoaded })
+
   const openrouterModels = useQuery({
     queryKey: ['profile-modal', 'openrouter-models', apiKey],
     queryFn: () => fetchOpenRouterModels(apiKey || undefined),
-    enabled: kind === 'openrouter' && apiKeyLoaded,
+    enabled: enabledForKind('openrouter'),
     staleTime: 10 * 60 * 1000,
     retry: 1,
   })
@@ -446,23 +405,23 @@ function ProfileFormModal({
   const geminiModels = useQuery({
     queryKey: ['profile-modal', 'gemini-models', apiKey],
     queryFn: () => fetchGeminiModels(apiKey),
-    enabled: kind === 'gemini' && apiKey.length > 0 && apiKeyLoaded,
+    enabled: enabledForKind('gemini'),
     staleTime: 10 * 60 * 1000,
     retry: 1,
   })
 
   const localModels = useQuery({
-    queryKey: ['profile-modal', 'local-models', apiUrl],
-    queryFn: () => fetchLocalModels(apiUrl),
-    enabled: kind === 'local' && apiUrl.length > 0 && apiKeyLoaded,
+    queryKey: ['profile-modal', 'local-models', debouncedApiUrl],
+    queryFn: () => fetchLocalModels(debouncedApiUrl),
+    enabled: enabledForKind('local'),
     staleTime: 30 * 1000,
     retry: 0,
   })
 
   const openaiModels = useQuery({
-    queryKey: ['profile-modal', 'openai-models', apiKey, apiUrl],
-    queryFn: () => fetchOpenAiModels(apiKey, apiUrl),
-    enabled: kind === 'openai' && apiKey.length > 0 && apiKeyLoaded,
+    queryKey: ['profile-modal', 'openai-models', apiKey, debouncedApiUrl],
+    queryFn: () => fetchOpenAiModels(apiKey, debouncedApiUrl),
+    enabled: enabledForKind('openai'),
     staleTime: 10 * 60 * 1000,
     retry: 1,
   })
@@ -470,7 +429,7 @@ function ProfileFormModal({
   const anthropicModels = useQuery({
     queryKey: ['profile-modal', 'anthropic-models', apiKey],
     queryFn: () => fetchAnthropicModels(apiKey),
-    enabled: kind === 'anthropic' && apiKey.length > 0 && apiKeyLoaded,
+    enabled: enabledForKind('anthropic'),
     staleTime: 10 * 60 * 1000,
     retry: 1,
   })
@@ -559,73 +518,92 @@ function ProfileFormModal({
   ])
 
   // ────────── Save / test ──────────
-  const valid = name.trim().length > 0 && modelName.trim().length > 0
+  const trimmedName = name.trim()
+  const trimmedNameLower = trimmedName.toLowerCase()
+  const duplicate = useMemo(
+    () =>
+      existingProfiles.find(
+        (p) => p.name.trim().toLowerCase() === trimmedNameLower,
+      ),
+    [existingProfiles, trimmedNameLower],
+  )
+  // Block rename-into-existing immediately so the Save button reflects
+  // the error state without waiting for click-then-alert.
+  const renameCollision =
+    !!initial && !!duplicate && duplicate.id !== initial.id
+  const valid =
+    trimmedName.length > 0 &&
+    modelName.trim().length > 0 &&
+    !renameCollision
 
   const save = async () => {
     if (!valid) return
+    setFormError(null)
 
-    // Prevent saving a duplicate profile name (case-insensitive check)
-    const trimmedName = name.trim().toLowerCase()
-    const duplicate = existingProfiles.find(
-      (p) => p.name.trim().toLowerCase() === trimmedName
-    )
+    const payload = {
+      name: trimmedName,
+      provider: meta.dbProvider,
+      modelName: modelName.trim(),
+      apiUrl: apiUrl.trim() || null,
+      apiKey: apiKey.trim() || null,
+    }
 
-    if (duplicate) {
-      if (initial) {
-        // If editing an existing profile, prevent renaming it to match another profile
-        if (duplicate.id !== initial.id) {
-          alert(
-            `ไม่สามารถเปลี่ยนชื่อเป็น "${name.trim()}" ได้ เนื่องจากมีโปรไฟล์ชื่อนี้อยู่ในระบบแล้วครับ\n\nCannot rename to "${name.trim()}" because a profile with this name already exists.`
+    // Overwrite path: Add (no `initial`) collides with an existing
+    // name → ask whether to merge into that row instead of creating
+    // a second one. Edit path doesn't ask (renameCollision blocks the
+    // button outright; the user has to pick a unique name first).
+    if (!initial && duplicate) {
+      const confirmOverwrite = confirm(
+        `พบโปรไฟล์ชื่อ "${trimmedName}" อยู่แล้วในระบบ\nคุณต้องการบันทึกเขียนทับ (Overwrite) ข้อมูลของโปรไฟล์เดิมด้วยค่าใหม่นี้ใช่หรือไม่?\n\nA profile named "${trimmedName}" already exists. Overwrite it with these new values?`,
+      )
+      if (!confirmOverwrite) return
+      setSaving(true)
+      try {
+        const updated = await api.providerProfileUpdate({
+          id: duplicate.id,
+          ...payload,
+        })
+        // TOCTOU guard: profile may have been deleted from another
+        // tab / by an external write between the list fetch and our
+        // update. `updated == null` is how the backend signals
+        // "no row matched".
+        if (!updated) {
+          setFormError(
+            'ไม่สามารถเขียนทับได้: โปรไฟล์เป้าหมายอาจถูกลบไปแล้ว — ปิดและเปิด modal อีกครั้งเพื่อ refresh.\n\nOverwrite target no longer exists. Close and reopen this dialog to refresh.',
           )
-          return
-        }
-      } else {
-        // If adding a new profile and the name matches an existing one, prompt to overwrite
-        const confirmOverwrite = confirm(
-          `พบโปรไฟล์ชื่อ "${name.trim()}" อยู่แล้วในระบบ\nคุณต้องการบันทึกเขียนทับ (Overwrite) ข้อมูลของโปรไฟล์เดิมด้วยค่าใหม่นี้ใช่หรือไม่?\n\nA profile named "${name.trim()}" already exists. Do you want to overwrite it?`
-        )
-        if (!confirmOverwrite) return
-
-        // Overwrite: we use the duplicate's ID to update it
-        setSaving(true)
-        try {
-          const payload = {
-            name: name.trim(),
-            provider: meta.dbProvider,
-            modelName: modelName.trim(),
-            apiUrl: apiUrl.trim() || null,
-            apiKey: apiKey.trim() || null,
-          }
-          await api.providerProfileUpdate({ id: duplicate.id, ...payload })
-          
-          const prefs = usePreferencesStore.getState()
-          prefs.setCloudProvider(meta.dbProvider as any)
-          prefs.setCloudModelName(payload.modelName)
-          prefs.setActiveProfileId(duplicate.id)
-          if (payload.apiUrl) prefs.setCloudApiUrl(payload.apiUrl)
-          if (payload.apiKey) prefs.setCloudApiKey(payload.apiKey)
-          onSaved()
-          return
-        } catch (err: any) {
-          alert(err?.message ?? String(err))
           setSaving(false)
           return
         }
+        const prefs = usePreferencesStore.getState()
+        prefs.setCloudProvider(meta.dbProvider as any)
+        prefs.setCloudModelName(payload.modelName)
+        prefs.setActiveProfileId(duplicate.id)
+        if (payload.apiUrl) prefs.setCloudApiUrl(payload.apiUrl)
+        if (payload.apiKey) prefs.setCloudApiKey(payload.apiKey)
+        await onSaved()
+        return
+      } catch (err: any) {
+        setFormError(err?.message ?? String(err))
+        setSaving(false)
+        return
       }
     }
 
     setSaving(true)
     try {
-      const payload = {
-        name: name.trim(),
-        provider: meta.dbProvider,
-        modelName: modelName.trim(),
-        apiUrl: apiUrl.trim() || null,
-        apiKey: apiKey.trim() || null,
-      }
       let savedId: number
       if (initial) {
-        await api.providerProfileUpdate({ id: initial.id, ...payload })
+        const updated = await api.providerProfileUpdate({
+          id: initial.id,
+          ...payload,
+        })
+        if (!updated) {
+          setFormError(
+            'ไม่สามารถอัปเดตได้: โปรไฟล์อาจถูกลบไปแล้ว.\n\nUpdate failed: this profile may have been deleted from another tab.',
+          )
+          setSaving(false)
+          return
+        }
         savedId = initial.id
       } else {
         const saved = await api.providerProfileAdd(payload)
@@ -642,9 +620,9 @@ function ProfileFormModal({
       prefs.setActiveProfileId(savedId)
       if (payload.apiUrl) prefs.setCloudApiUrl(payload.apiUrl)
       if (payload.apiKey) prefs.setCloudApiKey(payload.apiKey)
-      onSaved()
+      await onSaved()
     } catch (err: any) {
-      alert(err?.message ?? String(err))
+      setFormError(err?.message ?? String(err))
     } finally {
       setSaving(false)
     }
@@ -682,17 +660,40 @@ function ProfileFormModal({
     (kind === 'local' && localModels.error) ||
     (kind === 'openai' && openaiModels.error) ||
     (kind === 'anthropic' && anthropicModels.error)
-  const modelDisabled =
-    (kind === 'gemini' && !apiKey) ||
-    (kind === 'openai' && !apiKey) ||
-    (kind === 'anthropic' && !apiKey) ||
-    (kind === 'local' && !apiUrl)
+  // Disabled iff the model list would not currently fetch — keeps the
+  // SearchableSelect's disabled state in lockstep with the query's
+  // `enabled` flag. canLoadModels returns true when fetching is
+  // possible; flip for disabled.
+  const modelDisabled = !canLoadModels({
+    kind,
+    apiKey,
+    apiUrl: debouncedApiUrl,
+    apiKeyLoaded,
+  })
 
   return (
-    <div className='bg-background/80 fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm'>
-      <div className='bg-card border-border w-[26rem] max-w-[95vw] overflow-hidden rounded-lg border p-4 shadow-lg'>
+    <div
+      className='bg-background/80 fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm'
+      onClick={(e) => {
+        // Click outside the dialog body = dismiss. Buttons inside
+        // stopPropagation by default at this level.
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div
+        className='bg-card border-border w-[26rem] max-w-[95vw] overflow-hidden rounded-lg border p-4 shadow-lg'
+        role='dialog'
+        aria-modal='true'
+      >
         <h3 className='text-foreground mb-3 text-sm font-bold'>
-          {initial ? `Edit "${initial.name}"` : 'Add LLM profile'}
+          {initial
+            ? `Edit "${initial.name}" `
+            : 'Add LLM profile'}
+          {initial && (
+            <span className='text-muted-foreground/60 font-mono text-[10px] font-normal'>
+              · id {initial.id}
+            </span>
+          )}
         </h3>
 
         {/* Provider tiles */}
@@ -720,12 +721,25 @@ function ProfileFormModal({
               Profile name
             </label>
             <Input
+              ref={firstFieldRef}
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && valid && !saving) void save()
+              }}
               placeholder='e.g. Gemini work, OpenRouter free, …'
-              className='h-8 text-xs'
+              className={
+                'h-8 text-xs ' +
+                (renameCollision ? 'border-amber-500/60' : '')
+              }
             />
+            {renameCollision && (
+              <p className='mt-1 text-[10px] text-amber-600 dark:text-amber-400'>
+                Another profile already uses this name. Pick a different
+                name to continue.
+              </p>
+            )}
           </div>
 
           {showBaseUrl && (
@@ -756,27 +770,50 @@ function ProfileFormModal({
                   · stored in OS keyring
                 </span>
               </label>
-              <Input
-                type='password'
-                value={apiKey}
-                onChange={(e) => {
-                  setApiKey(e.target.value)
-                  // Once user types, status no longer matters — they're
-                  // entering a fresh key.
-                  if (apiKeyStatus !== 'fresh' && apiKeyStatus !== 'loaded') {
-                    setApiKeyStatus('loaded')
+              <div className='flex gap-1'>
+                <Input
+                  type='password'
+                  value={apiKey}
+                  onChange={(e) => {
+                    setApiKey(e.target.value)
+                    // Once user types, status no longer matters — they're
+                    // entering a fresh key.
+                    if (apiKeyStatus !== 'fresh' && apiKeyStatus !== 'loaded') {
+                      setApiKeyStatus('loaded')
+                    }
+                  }}
+                  placeholder={
+                    kind === 'openrouter'
+                      ? 'sk-or-… (optional for browsing)'
+                      : apiKeyStatus === 'keyring-miss' ||
+                          apiKeyStatus === 'keyring-error'
+                        ? 'Re-enter your API key'
+                        : 'sk-…'
                   }
-                }}
-                placeholder={
-                  kind === 'openrouter'
-                    ? 'sk-or-… (optional for browsing)'
-                    : apiKeyStatus === 'keyring-miss' ||
-                        apiKeyStatus === 'keyring-error'
-                      ? 'Re-enter your API key'
-                      : 'sk-…'
-                }
-                className='h-8 text-xs'
-              />
+                  className='h-8 flex-1 text-xs'
+                />
+                {/* Retry button surfaces when keyring fetch failed so the
+                    user can try again without closing the dialog (e.g.
+                    after granting keyring access in OS prefs). */}
+                {initial &&
+                  (apiKeyStatus === 'keyring-error' ||
+                    apiKeyStatus === 'keyring-miss') && (
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='xs'
+                      className='h-8 shrink-0 px-2'
+                      title='Retry reading from OS keyring'
+                      onClick={() => setKeyringFetchSeq((s) => s + 1)}
+                    >
+                      <RefreshCwIcon
+                        className={
+                          'size-3 ' + (!apiKeyLoaded ? 'animate-spin' : '')
+                        }
+                      />
+                    </Button>
+                  )}
+              </div>
               {initial && apiKeyLoaded && (
                 <p
                   className={
@@ -791,9 +828,9 @@ function ProfileFormModal({
                   {apiKeyStatus === 'never-stored' &&
                     'No key has been stored for this profile yet — enter one to enable cloud calls.'}
                   {apiKeyStatus === 'keyring-miss' &&
-                    'Saved keyring entry could not be read (entry missing or wiped externally). Re-enter to repair — saving with this field blank will NOT erase the keyring.'}
+                    'Saved keyring entry could not be read (entry missing or wiped externally). Re-enter to repair, or click Retry. Saving with this field blank will NOT erase the keyring.'}
                   {apiKeyStatus === 'keyring-error' &&
-                    'Could not access OS keyring (permission denied?). Re-enter the key to retry. Save with blank field to leave keyring untouched.'}
+                    'Could not access OS keyring (permission denied?). Click Retry, or re-enter the key. Saving with blank field leaves the keyring untouched.'}
                 </p>
               )}
             </div>
@@ -848,6 +885,16 @@ function ProfileFormModal({
           </div>
         </div>
 
+        {/* Inline error banner — replaces blocking alert() for save
+            failures. Auto-clears when the user changes any field
+            (next save attempt re-runs and re-sets if still bad). */}
+        {formError && (
+          <div className='mt-3 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-[10px] text-destructive'>
+            <AlertCircleIcon className='mt-0.5 size-3 shrink-0' />
+            <span className='whitespace-pre-line'>{formError}</span>
+          </div>
+        )}
+
         <div className='mt-3 flex items-center justify-between gap-2'>
           <div className='flex items-center gap-2'>
             <Button
@@ -897,6 +944,15 @@ function ProfileFormModal({
               className='h-7 text-[10px]'
               disabled={!valid || saving}
               onClick={() => void save()}
+              title={
+                renameCollision
+                  ? 'Pick a unique name first'
+                  : !trimmedName
+                    ? 'Profile name required'
+                    : !modelName.trim()
+                      ? 'Pick a model first'
+                      : undefined
+              }
             >
               {saving && <Loader2Icon className='size-3 animate-spin' />}
               {initial ? 'Save' : 'Add'}
