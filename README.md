@@ -29,13 +29,14 @@ Under the hood, Koharu uses [candle](https://github.com/huggingface/candle) for 
 | State | In-memory + .khr files | + per-project SQLite (`series.db`) with 11 tables |
 | LLM | Local 7B GGUF only | Local + **5 cloud profile types** (OpenAI / Claude / Gemini / OpenRouter / Local LLM server) with live model search |
 | Sidebar | Page thumbnails | **8 tabs**: Pages · Chapters · Project · Characters · Glossary · Prompts · Profiles · AI Chat |
-| Renderer | CJK fonts | + Thai-aware fonts + text-block rotation + line-height / letter-spacing / vertical-align / min-font-size controls + overflow warnings |
+| Renderer | CJK fonts | + Thai-aware fonts + native bold/italic loading + text-block rotation + **A/A** (line-height) / **VA** (letter-spacing) / vertical-align / min-font-size controls + overflow warnings |
 | MCP server | 25 tools | **~60 tools** covering full project surface + agentic web fetch |
 | AI assistant | — | **In-app AI Chat** — streaming, multi-modal (image attach), native function-calling on 4 providers, 10 slash commands |
 | Translation memory | — | exact / Jaccard / **semantic (vector embeddings)** + TMX 1.4 import/export |
 | Export | single page | **CBZ multi-chapter** with ComicInfo.xml |
 | Cost tracking | — | per-call log + **dashboard** (by profile / chapter / day / use case) |
 | Power-user | — | **⌘K command palette** for chapter / profile / export / slash jump |
+| Updates | manual | **Auto-updater** 3 modes (auto / notify / manual) via GitHub Releases |
 
 ## Features
 
@@ -100,6 +101,14 @@ Chat history is stored per project in `series.db` (`chat_messages` table); the p
 
 ⌘K / Ctrl+K opens a global palette to jump to chapter, switch LLM profile, export CBZ, open settings, or copy any slash command into the chat input.
 
+### Auto-updater
+
+Koharu-TH ตรวจสอบ GitHub Releases อัตโนมัติเมื่อเปิดโปรแกรม ตั้งค่าได้ใน **Settings → Updates** 3 โหมด:
+
+- **auto** — ดาวน์โหลดและติดตั้งอัตโนมัติ
+- **notify** — แจ้งเตือนเมื่อมีอัปเดต แต่ไม่ติดตั้งเอง (badge บน menubar + UpdateDialog)
+- **manual** — ปิดการตรวจสอบทั้งหมด
+
 ### Prompt template engine
 
 Translate prompts are **Handlebars templates** rendered at call time with:
@@ -138,7 +147,8 @@ Edit templates from the **Prompts tab**. Default templates ship for `translate`,
 ### Thai-specific renderer additions
 
 - Thai-aware font fallback (Leelawadee UI / Tahoma / Thonburi / Noto Sans Thai depending on OS)
-- Per-block controls: **line-height**, **letter-spacing**, **min font size** (auto-fit floor), **vertical-align**, **manual font size**, **Thai preset** button
+- **Native bold/italic font loading** — โหลด font face bold/italic จาก font file จริงๆ; fallback เป็น Faux Bold/Italic อัตโนมัติเมื่อไม่มี native face
+- Per-block controls: **A/A** (line-height), **VA** (letter-spacing), **min font size** (auto-fit floor), **vertical-align**, **manual font size**, **Thai preset** button — สไตล์เดียวกับ Photoshop
 - **Text-block rotation** (`rotation_deg`) for non-rectangular bubbles and stylised SFX
 
 ### MCP server (for external agents)
@@ -176,7 +186,11 @@ On Windows, `.khr` files auto-associate with Koharu — double-click to open in 
 
 ### Bundled fonts
 
-Koharu-TH creates `<app-data>/Koharu/fonts/` on first launch (Windows: `%LOCALAPPDATA%\Koharu\fonts`, macOS: `~/Library/Application Support/Koharu/fonts`, Linux: `~/.local/share/Koharu/fonts`). Drop any `.ttf` / `.otf` / `.ttc` file there and it's registered alongside system fonts on next launch. Useful for Thai (e.g. [Noto Sans Thai](https://fonts.google.com/noto/specimen/Noto+Sans+Thai)) or specialty manga fonts.
+Koharu-TH creates `<app-data>/KoharuData/fonts/` on first launch (Windows: `%LOCALAPPDATA%\KoharuData\fonts`, macOS: `~/Library/Application Support/KoharuData/fonts`, Linux: `~/.local/share/KoharuData/fonts`). Drop any `.ttf` / `.otf` / `.ttc` file there and it's registered alongside system fonts on next launch. Useful for Thai (e.g. [Noto Sans Thai](https://fonts.google.com/noto/specimen/Noto+Sans+Thai)) or specialty manga fonts.
+
+### Re-translate without re-inpaint
+
+เมื่อต้องการ re-translate โดยไม่เสียเวลารอ inpaint ซ้ำ (เช่น เปลี่ยน LLM profile หรือปรับ prompt): ใช้ปุ่ม **Re-translate** ซึ่งข้ามขั้นตอน detect / OCR / inpaint และใช้ผลลัพธ์ inpaint เดิมที่มีอยู่แล้ว (`skip_inpaint: true` ใน ProcessRequest)
 
 ## GPU acceleration
 
