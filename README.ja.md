@@ -1,4 +1,17 @@
-# Koharu
+# Koharu (upstream 0.37.0 — 翻訳のみ)
+
+> [!IMPORTANT]
+> **このファイルは fork 元 (mayocream/koharu 0.37.0) の README の
+> 日本語訳です。** Koharu-TH fork (バージョン 1.2.0) 固有の機能 —
+> Series Project の per-folder SQLite、5-provider LLM プロファイル、
+> エージェント AI Chat、~60 ツールの MCP server、Thai post-process、
+> CBZ チャプターエクスポートなど — はここには記載されていません。
+>
+> fork 固有の機能については [English README](./README.md) または
+> [Thai README](./README.th.md) を参照してください。今後、本ファイルを
+> fork-aware な内容に書き換える予定です。
+
+---
 
 **Rust**で書かれた、ML（機械学習）搭載のマンガ翻訳ツールです。
 

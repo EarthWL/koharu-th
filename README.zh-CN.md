@@ -1,4 +1,16 @@
-# Koharu
+# Koharu (上游 0.37.0 — 仅翻译)
+
+> [!IMPORTANT]
+> **本文件是 fork 起点 (mayocream/koharu 0.37.0) README 的中文翻译。**
+> Koharu-TH fork (版本 1.2.0) 特有的功能 — 每文件夹 SQLite Series
+> Project、5 提供商 LLM Profile、Agent 化 AI Chat、~60 工具的 MCP
+> server、Thai post-process、CBZ 多章节导出等 — 在此未涉及。
+>
+> 关于 fork 特有功能，请参阅 [English README](./README.md) 或
+> [Thai README](./README.th.md)。本文件未来将改写为 fork-aware
+> 版本。
+
+---
 
 基于机器学习（ML）的漫画翻译工具，使用 **Rust** 编写。
 

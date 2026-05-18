@@ -1,14 +1,24 @@
 # Koharu-TH
 
-[![Version](https://img.shields.io/badge/version-1.0.3-blue.svg)](https://github.com/EarthWL/koharu-th/releases)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/EarthWL/koharu-th/releases)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE-GPL)
 [![Sub-crates: Apache 2.0](https://img.shields.io/badge/sub--crates-Apache--2.0-blue.svg)](LICENSE-APACHE)
-[![Based on](https://img.shields.io/badge/based%20on-mayocream%2Fkoharu%200.37.0-purple.svg)](https://github.com/mayocream/koharu)
+[![Forked from](https://img.shields.io/badge/forked%20from-mayocream%2Fkoharu%200.37.0-purple.svg)](https://github.com/mayocream/koharu)
+[![Upstream now](https://img.shields.io/badge/upstream%20now-0.59.x-lightgrey.svg)](https://github.com/mayocream/koharu/releases)
 [![Rust](https://img.shields.io/badge/rust-1.92%2B-orange.svg)](https://www.rust-lang.org/)
 
 > [ภาษาไทย](./README.th.md)
 >
-> **Manga series-translation studio**, based on [mayocream/koharu](https://github.com/mayocream/koharu) 0.37.0. What started as a Thai-language patch has grown into its own product with per-project SQLite (characters / glossary / translation memory / prompt templates / cost log), a 5-provider LLM profile system, an agentic AI Chat that can populate project data from a wiki URL, and a ~60-tool MCP server for external agents. Versioning is independent from upstream (we run our own semver starting at 1.0.0).
+> **Manga series-translation studio.** A divergent fork of
+> [mayocream/koharu](https://github.com/mayocream/koharu) — same
+> 0.37.0 source ancestor, different product shape. We added a
+> per-project SQLite store (characters / glossary / translation memory
+> / prompt templates / cost log), a 5-provider LLM profile system,
+> an agentic AI Chat that can populate project data from a wiki URL,
+> and a ~60-tool MCP server for external agents. Versioning is
+> independent (1.x.x); we cherry-pick upstream bug fixes selectively.
+> See [How we got here](#how-we-got-here-and-where-upstream-went)
+> for the divergence narrative.
 
 ML-powered manga translation studio, written in **Rust**.
 
@@ -21,21 +31,75 @@ Under the hood, Koharu uses [candle](https://github.com/huggingface/candle) for 
 
 ![screenshot](assets/koharu-th-screenshot-ex.png)
 
+## How we got here (and where upstream went)
+
+This fork started as a Thai-language patch of upstream **koharu
+0.37.0** (March 2026). Since then both projects shipped substantially
+along different roadmaps. Histories aren't merge-related — the fork
+was a squashed import of 0.37.0 source, not a `git fork`, so direct
+`git diff` is meaningless. The shape divergence below is what
+matters.
+
+**Upstream** advanced 0.37.0 → 0.59.x over **22 minor releases and
+485 commits**, toward a faster broader-coverage general manga
+translator: llama.cpp replacing candle for LLM inference, AMD GPU
+acceleration via ZLUDA, Vulkan backend for non-NVIDIA, PTX-JIT
+single-binary CUDA across compute caps, newer OCR / inpainting
+models (`paddleocr-vl-1.5`, `manga-text-segmentation-2025`, AOT
+inpaint, Flux.2 Klein), Codex image-to-image page regeneration,
+layered PSD export, CLI regression-test pipeline, an in-app updater,
+DeepL / Google / Caiyun MT providers, font weight/style picker, and
+9+ new UI locales (KO / BE / BG / PT / TR / …).
+
+**This fork** went the other direction — a per-series
+**localization studio with project memory**: SQLite-backed glossary,
+character roster, translation memory (exact + Jaccard + semantic
+embeddings + TMX 1.4 interchange), prompt templates, and cost log,
+all per project. An agentic AI Chat that can populate that data from
+a wiki URL, QC a chapter for inconsistencies, or apply Thai
+spelling/grammar fixes. CBZ multi-chapter export with
+`ComicInfo.xml`. Thai-aware renderer (line-height, letter-spacing,
+min-font-size floor, vertical-align, text-block rotation,
+overflow/tight warnings, Thai post-processing). A ~60-tool MCP server
+for external agents. 169 commits and 6 releases (1.0.0 → 1.2.0).
+
+The two roadmaps no longer overlap. **Pick upstream** if you want
+the best ML pipeline for many languages on many GPUs. **Pick this
+fork** if you want a workflow tool that remembers your characters
+and glossary across chapters — especially for Thai output.
+
+We still cherry-pick upstream bug fixes that touch overlapping code
+(see [Syncing with upstream](#syncing-with-upstream)). The 1.3.x
+roadmap revisits upstream's PTX-JIT / Vulkan / ZLUDA backend so we
+can ship one binary instead of four.
+
 ## What's different in this fork
 
-| Area | Upstream | Koharu-TH |
+Comparing **current upstream (0.59.x)** against **this fork (1.2.0)**
+— not a slight on either side; both are healthy projects with
+different audiences.
+
+| Area | Upstream 0.59.x | Koharu-TH 1.2.0 |
 |---|---|---|
-| Workflow | Open `.khr` → detect → OCR → inpaint → translate → render | **Open Project → Chapter (folder w/ source+render) → translate with full series context → log cost → TM** |
-| State | In-memory + .khr files | + per-project SQLite (`series.db`) with 11 tables |
-| LLM | Local 7B GGUF only | Local + **5 cloud profile types** (OpenAI / Claude / Gemini / OpenRouter / Local LLM server) with live model search |
-| Sidebar | Page thumbnails | **8 tabs**: Pages · Chapters · Project · Characters · Glossary · Prompts · Profiles · AI Chat |
-| Renderer | CJK fonts | + Thai-aware fonts + text-block rotation + line-height / letter-spacing / vertical-align / min-font-size controls + overflow warnings |
-| MCP server | 25 tools | **~60 tools** covering full project surface + agentic web fetch |
-| AI assistant | — | **In-app AI Chat** — streaming, multi-modal (image attach), native function-calling on 4 providers, 10 slash commands |
+| Project model | open files / `.khr` | **per-folder Series Project** with SQLite (11 tables) |
+| Workflow scope | per-page detect → OCR → inpaint → translate → render | **per-chapter, with rolling-context summaries from prior chapters** |
+| LLM backends | **llama.cpp** local + multi-preset cloud (OpenAI / Claude / Gemini / DeepL / Google / Caiyun) | candle local + **5 cloud profile types** (OpenAI / Claude / Gemini / OpenRouter / Local LLM server) — per-project, live model search, per-1M pricing |
 | Translation memory | — | exact / Jaccard / **semantic (vector embeddings)** + TMX 1.4 import/export |
-| Export | single page | **CBZ multi-chapter** with ComicInfo.xml |
+| AI assistant | custom system prompt | **agentic AI Chat** — 20 tools + 10 slash commands, function-calling on 4 providers, image attachments, ~60-tool MCP for external agents |
+| Glossary / Characters | — | **per-project, smart-filtered into the translate prompt** |
+| Export | single page · **layered PSD** | **CBZ multi-chapter** with `ComicInfo.xml` |
 | Cost tracking | — | per-call log + **dashboard** (by profile / chapter / day / use case) |
-| Power-user | — | **⌘K command palette** for chapter / profile / export / slash jump |
+| Power-user | **keybind config**, **multi-selection**, **redo/undo** | **⌘K command palette** for chapter / profile / export / slash jump |
+| Renderer | CJK + **font weights/styles**, **LTR/RTL reading order** | + **Thai-aware fonts**, text-block rotation, line-height / letter-spacing / vertical-align / min-font-size, **overflow warnings**, **Thai post-process** |
+| GPU support | **Vulkan + ZLUDA (AMD) + CUDA PTX-JIT single binary** | CUDA per-GPU binaries (Turing / Ampere / Ada / Blackwell) + Metal — ZLUDA / Vulkan / PTX-JIT planned for 1.3.x |
+| OCR models | **paddleocr-vl-1.5, manga-text-segmentation-2025, pp-doclayout-v3** | MIT-48px (Latin / CJK / Thai) + manga-ocr (JP) + Anime Text YOLO (1.1.x) · upstream models tracked for backport |
+| Inpainting | **Flux.2 Klein, AOT, bubble-aware** | LaMa (carried from 0.37.0) · upstream models tracked |
+| Image-to-image | **Codex img2img** page regeneration | — |
+| Locales | EN / JA / ZH-CN / ZH-TW / KO / RU / ES / BE / BG / PT / TR / FR / DE / IT / VI / TH | **EN / TH / JA** with full coverage + a11y pass (1.2.0); others available but partial |
+| In-app updater | **yes** | — (manual download from Releases page) |
+| Telemetry | **Sentry** | none |
+| CI/CD | full GitHub Actions matrix | disabled on the fork (macOS minutes 10× cost; PTX-JIT sync prerequisite) |
+| Versioning | continuous 0.x.x | **independent semver** 1.x.x |
 
 ## Features
 
@@ -275,20 +339,82 @@ cargo test -p koharu-project -p koharu-api
 
 ### Syncing with upstream
 
-This fork no longer tracks upstream linearly — the project-folder + sidebar tabs restructuring + new crates (`koharu-project`) mean a straight rebase would conflict everywhere. Cherry-pick selectively:
+The fork no longer shares git history with upstream — `git merge-base
+upstream/main HEAD` returns nothing because the fork was a squashed
+0.37.0 import, not a `git fork`. As of v1.2.0 upstream is at 0.59.x
+(**485 commits / 22 minor releases** ahead in linear count); a rebase
+is impossible and even a 3-way merge would conflict everywhere
+because we restructured the project layout (sidebar tabs, new
+`koharu-project` crate, SQLite schema).
+
+Cherry-picking selectively works as long as you stay in files
+upstream and the fork both still touch (renderer, OCR pipeline,
+LLM dispatch, candle bindings). Use the commit message to triage:
 
 ```bash
 git fetch upstream
-git log <last-synced>..upstream/main --oneline --grep="^fix"   # candidate bug fixes
-git show <sha>                                                  # inspect before applying
-git cherry-pick -x <sha>                                        # records original SHA in commit body
+git log 0.37.0..upstream/main --oneline --grep="^fix"   # candidate bug fixes
+git log 0.37.0..upstream/main --oneline --grep="^feat"  # candidate feature backports
+git show <sha>                                          # inspect before applying
+git cherry-pick -x <sha>                                # records original SHA in commit body
 ```
 
-When backporting, cite the upstream SHA in the commit body (see `git log --grep="cherry-picked from"` for prior examples) so the audit trail stays intact.
+When backporting, cite the upstream SHA in the commit body (see
+`git log --grep="cherry-picked from"` for prior examples) so the
+audit trail stays intact.
+
+The 1.3.x roadmap is largely **upstream backend sync** (PTX-JIT
+CUDA / Vulkan / ZLUDA) — at that point the per-GPU release matrix
+collapses to one binary and we close the ML-backend gap entirely.
+Application-layer divergence (project format, AI Chat, MCP, TM,
+Thai workflow) stays.
 
 ## Roadmap
 
 Not promises — just things being considered as the fork keeps iterating.
+
+**Shipped — 1.2.0 (audit cycle: data-integrity, i18n, a11y):**
+
+- [x] **Cross-project cache leak closed** — every project / document
+  swap now drains pending sync queues and **removes** (not just
+  invalidates) the outgoing project's cached queries, eliminating a
+  200–1000 ms window where a fast click could fire a mutation
+  against the project that just closed.
+- [x] **21-component audit pass** — every sidebar tab + every non-
+  tab UI surface (Welcome, Workspace, MenuBar, CommandPalette,
+  ActivityBubble, QueueWidget, TextBlocksPanel, RenderControlsPanel,
+  ExtractEntitiesModal, ImportGlossaryModal, CostDashboard) walked
+  end-to-end for race conditions, missing flushes, broken i18n,
+  silent error swallowing.
+- [x] **Local LLM chat unblocked** — Ollama / LM Studio / llama.cpp
+  profiles were silently blocked by an API-key gate they couldn't
+  satisfy. Detect via `kindOf({apiUrl}) === 'local'` and bypass.
+- [x] **5 GitHub issues closed** — #11 (OCR Latin word boundary
+  collapse), #12 (translation panel edits silently failed via
+  missing RPC method), #17 (Re-translate menu item), #20 (auto-
+  detect source language from OCR), #21 (Thai post-processing
+  pass).
+- [x] **4 LLM provider quirks fixed** — Gemini multi-turn
+  `functionResponse.name`, Anthropic `max_tokens` scaling, OpenAI
+  JSON-mode gate, OpenRouter legacy DB-row mis-store.
+- [x] **i18n completed across TH and JA** — new `palette.*`,
+  `costDashboard.*`, `queue.*`, `glossaryImport.*`,
+  `extractEntities.*` namespaces + ~120 backfill keys. Plurals
+  flow through i18next `_one` / `_other` resolution.
+- [x] **Modal a11y kit applied uniformly** — `role="dialog"` +
+  `aria-modal` + `aria-labelledby` + Esc + backdrop-click on every
+  modal surface (Welcome, Command Palette, Glossary Import, Entity
+  Extraction).
+- [x] **`prefers-reduced-motion: reduce` honoured** on the
+  indeterminate progress sweep and pulsing activity dots
+  (WCAG 2.3.3).
+- [x] **NSIS uninstaller safety belts** carried from 1.1.x —
+  4 layers preventing the installer from touching user-owned
+  project folders during uninstall.
+- [x] **Partial-success surfacing** on every bulk operation
+  (glossary import, entity extraction, queue clear) — amber
+  callout with `{inserted, skipped, failed}` instead of silent
+  drops.
 
 **Shipped — 1.1.x (detector + OCR engine + storage management):**
 
@@ -336,23 +462,50 @@ Not promises — just things being considered as the fork keeps iterating.
 - [x] Folder-based chapters (`source/` + `render/`) with auto-wrap of legacy single-file chapters
 - [x] MCP server with ~60 tools covering the full project surface
 
-**1.2.x — planned (sync with upstream backend changes):**
+**1.3.x — planned (sync upstream backend → collapse the per-GPU
+release matrix):**
 
-- [ ] **PTX JIT for CUDA** — adopt upstream's single-binary approach (compute 8.0 base + forward-JIT PTX) so we ship one installer for RTX 30xx/40xx/50xx instead of one per generation. Trade-off: drops RTX 20xx (Turing 7.5) GPU acceleration; those users get CPU fallback.
-- [ ] **Vulkan backend** — pull upstream's cross-vendor Vulkan path for OCR + local LLM inference. Lets AMD / Intel GPUs get partial acceleration without ZLUDA.
-- [ ] **ZLUDA (experimental, Windows)** — re-add upstream's CUDA-compat layer for AMD GPUs on Windows. We explicitly stripped this during the fork; bringing it back gives AMD users a path to Detect / Inpaint acceleration too.
-- [ ] **GitHub Actions release matrix** — currently disabled to save macOS minutes (10× cost) and because upstream's matrix CI was too eager. Re-enable with a per-cap split job once the upstream PTX path lands and we're back to one binary per platform.
+- [ ] **PTX JIT for CUDA** — adopt upstream's single-binary approach
+  (compute 8.0 base + forward-JIT PTX) so we ship one installer for
+  RTX 30xx / 40xx / 50xx instead of one per generation. Trade-off:
+  drops RTX 20xx (Turing 7.5) GPU acceleration; those users get
+  CPU fallback.
+- [ ] **Vulkan backend** — pull upstream's cross-vendor Vulkan path
+  for OCR + local LLM inference. AMD / Intel GPUs get partial
+  acceleration without ZLUDA.
+- [ ] **ZLUDA (experimental, Windows)** — re-add upstream's CUDA-
+  compat layer for AMD GPUs on Windows. We explicitly stripped this
+  during the fork; bringing it back gives AMD users a path to
+  Detect / Inpaint acceleration too.
+- [ ] **Re-enable GitHub Actions release matrix** — currently
+  disabled (macOS minutes 10× cost; upstream's matrix CI was too
+  eager). Becomes feasible once the PTX path lands and we're back
+  to one binary per platform.
+- [ ] **Optional upstream OCR / inpaint model backports** —
+  `paddleocr-vl-1.5`, `manga-text-segmentation-2025`, Flux.2 Klein,
+  AOT inpainting. Each is an opt-in engine, not a default swap, so
+  the v1.x quality baseline doesn't shift under existing users.
 
-**Not shipped yet (other considerations):**
+**1.4.x+ — application-layer differentiation (NOT planned to
+converge with upstream):**
 
-- [ ] Batch chapter translation queue (background worker, multi-chapter progress)
-- [ ] Pre-built macOS releases (code compiles + has custom Metal kernels; not yet distributed)
-- [ ] Pre-built Linux releases (CI groundwork in place)
+- [ ] Streaming display in AI Chat (currently waits for full
+  response)
+- [ ] Cancel mid-turn for AI Chat
+- [ ] Toast notification library (replace `alert()` everywhere)
+- [ ] Auto-updater (HetCreep groundwork in 1.1.x can be lit up)
+- [ ] Multi-project workspace with shared TM / glossary pool
+- [ ] Translator collaboration (multi-user, comments, approve flow)
 - [ ] Cloud sync for project folders (Google Drive / Dropbox / S3)
-- [ ] Multi-project workspace with shared TM / glossary pool across series
-- [ ] Translator collaboration (multi-user, comments, approve workflow)
-- [ ] Thai OCR (current OCR is JP-only via manga-ocr; cloud Vision OCR works for Thai today)
-- [ ] Cloud Vision OCR inside the batch queue (frontend dispatch only right now; queue falls back to MIT-48px)
+- [ ] Pre-built macOS releases (code compiles + has Metal kernels;
+  not yet distributed)
+- [ ] Pre-built Linux releases (CI groundwork in place; window
+  controls fix needed — they currently render Windows-style on
+  Linux)
+- [ ] Thai OCR (current Thai path goes through MIT-48px Latin
+  branch or cloud Vision OCR)
+- [ ] Cloud Vision OCR inside the batch queue (single-shot
+  dispatch only today; queue falls back to MIT-48px)
 
 ## Known limitations
 
