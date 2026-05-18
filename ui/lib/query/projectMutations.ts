@@ -27,16 +27,30 @@ export const useProjectMutations = () => {
       // When the project IDENTITY actually changes (open, close,
       // recent-pick), every other ['project', ...] query holds data
       // tied to the OLD project — chat history, glossary, characters,
-      // profiles, cost dashboard, prompts, etc. Invalidating the whole
-      // subtree (predicate match on first key === 'project') drops
-      // stale rows on the floor and forces a refetch keyed against
-      // the new project. The `current` slot is exempt because we just
-      // set it above — invalidating it would race the fresh value.
-      // Same project refresh (same id, just stat update) skips the
-      // mass invalidation to avoid thrashing every panel.
+      // profiles, cost dashboard, prompts, etc.
+      //
+      // We use removeQueries here, NOT invalidateQueries — the latter
+      // only marks data stale, so consumers (useQuery) keep reading
+      // the OLD project's cached rows for the 200–1000 ms it takes
+      // refetch to resolve. During that window a fast click in the
+      // chat / glossary / characters panel can fire a mutation
+      // targeting the outgoing project even though the store + UI
+      // chrome already say "project B".
+      //
+      // removeQueries drops the rows on the floor, so consumers see
+      // `isLoading: true` until the new project's fetch returns —
+      // mildly uglier than a brief stale flash, but the only safe
+      // option when each row is project-scoped.
+      //
+      // The `current` slot is exempt because we just setQueryData'd
+      // it above with the fresh ProjectInfo — removing it would race
+      // that write and flicker the menu/title bar.
+      //
+      // Same-project refresh (same id, just stat update) keeps the
+      // mild invalidate-then-refetch path so panels don't thrash.
       const switchedProject = (prev?.id ?? null) !== (info?.id ?? null)
       if (switchedProject) {
-        void queryClient.invalidateQueries({
+        queryClient.removeQueries({
           predicate: (q) =>
             Array.isArray(q.queryKey) &&
             q.queryKey[0] === 'project' &&
@@ -45,7 +59,7 @@ export const useProjectMutations = () => {
         // Documents list is keyed under ['documents'], not ['project'],
         // so the predicate above misses it. Drop it explicitly so the
         // Pages tab repopulates against the new project's chapter.
-        void queryClient.invalidateQueries({ queryKey: ['documents'] })
+        queryClient.removeQueries({ queryKey: ['documents'] })
       } else {
         // Same-project refresh — only the project-meta caches change.
         void queryClient.invalidateQueries({ queryKey: projectQueryKeys.series })
