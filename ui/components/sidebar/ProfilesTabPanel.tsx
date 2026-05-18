@@ -426,7 +426,7 @@ function ProfileFormModal({
     const nextMeta = KINDS.find((k) => k.kind === next)!
     setKind(next)
     setApiUrl(nextMeta.defaultBaseUrl)
-    setModelName('')
+    setModelName(nextMeta.suggestedModel)
     setTestStatus({ kind: 'idle' })
     if (!name.trim()) setName(nextMeta.label)
   }
