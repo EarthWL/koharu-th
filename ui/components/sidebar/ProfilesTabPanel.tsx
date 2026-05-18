@@ -566,16 +566,52 @@ function ProfileFormModal({
 
     // Prevent saving a duplicate profile name (case-insensitive check)
     const trimmedName = name.trim().toLowerCase()
-    const isDuplicate = existingProfiles.some((p) => {
-      if (initial && p.id === initial.id) return false
-      return p.name.trim().toLowerCase() === trimmedName
-    })
+    const duplicate = existingProfiles.find(
+      (p) => p.name.trim().toLowerCase() === trimmedName
+    )
 
-    if (isDuplicate) {
-      alert(
-        `ชื่อโปรไฟล์ "${name.trim()}" ถูกใช้งานไปแล้ว กรุณาใช้ชื่ออื่นที่แตกต่างกันครับ\n\nThe profile name "${name.trim()}" is already in use. Please choose a unique name.`
-      )
-      return
+    if (duplicate) {
+      if (initial) {
+        // If editing an existing profile, prevent renaming it to match another profile
+        if (duplicate.id !== initial.id) {
+          alert(
+            `ไม่สามารถเปลี่ยนชื่อเป็น "${name.trim()}" ได้ เนื่องจากมีโปรไฟล์ชื่อนี้อยู่ในระบบแล้วครับ\n\nCannot rename to "${name.trim()}" because a profile with this name already exists.`
+          )
+          return
+        }
+      } else {
+        // If adding a new profile and the name matches an existing one, prompt to overwrite
+        const confirmOverwrite = confirm(
+          `พบโปรไฟล์ชื่อ "${name.trim()}" อยู่แล้วในระบบ\nคุณต้องการบันทึกเขียนทับ (Overwrite) ข้อมูลของโปรไฟล์เดิมด้วยค่าใหม่นี้ใช่หรือไม่?\n\nA profile named "${name.trim()}" already exists. Do you want to overwrite it?`
+        )
+        if (!confirmOverwrite) return
+
+        // Overwrite: we use the duplicate's ID to update it
+        setSaving(true)
+        try {
+          const payload = {
+            name: name.trim(),
+            provider: meta.dbProvider,
+            modelName: modelName.trim(),
+            apiUrl: apiUrl.trim() || null,
+            apiKey: apiKey.trim() || null,
+          }
+          await api.providerProfileUpdate({ id: duplicate.id, ...payload })
+          
+          const prefs = usePreferencesStore.getState()
+          prefs.setCloudProvider(meta.dbProvider as any)
+          prefs.setCloudModelName(payload.modelName)
+          prefs.setActiveProfileId(duplicate.id)
+          if (payload.apiUrl) prefs.setCloudApiUrl(payload.apiUrl)
+          if (payload.apiKey) prefs.setCloudApiKey(payload.apiKey)
+          onSaved()
+          return
+        } catch (err: any) {
+          alert(err?.message ?? String(err))
+          setSaving(false)
+          return
+        }
+      }
     }
 
     setSaving(true)
