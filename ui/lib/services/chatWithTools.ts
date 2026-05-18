@@ -626,15 +626,35 @@ async function callAnthropic(
 
 function toGeminiContents(msgs: ChatMessage[]) {
   const out: any[] = []
-  for (const m of msgs) {
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i]
     if (m.role === 'system') continue
     if (m.role === 'tool') {
+      // Gemini's `functionResponse.name` must match the FUNCTION NAME
+      // of the originating `functionCall`, not the OpenAI-style tool
+      // call ID. ChatMessage on the 'tool' row only carries
+      // `toolCallId` (which is fine for OpenAI/Anthropic where it's
+      // used as the matching key), so look back at the most recent
+      // assistant message's toolCalls and recover the name by id.
+      // Falls back to the id itself if no match — same behaviour as
+      // before, but at least correct in the normal single-round flow.
+      let funcName = m.toolCallId ?? ''
+      for (let j = i - 1; j >= 0; j--) {
+        const prev = msgs[j]
+        if (prev.role === 'assistant' && prev.toolCalls?.length) {
+          const match = prev.toolCalls.find((c) => c.id === m.toolCallId)
+          if (match) {
+            funcName = match.name
+          }
+          break
+        }
+      }
       out.push({
         role: 'user',
         parts: [
           {
             functionResponse: {
-              name: m.toolCallId ?? '',
+              name: funcName,
               response: { result: m.content },
             },
           },
