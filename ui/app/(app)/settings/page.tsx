@@ -11,6 +11,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   Loader2Icon,
+  Trash2Icon,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
@@ -555,7 +556,7 @@ function StorageSection() {
     enabled: isTauri(),
     staleTime: 5_000,
   })
-  const [busy, setBusy] = useState<StorageClearTarget | 'prefs' | null>(null)
+  const [busy, setBusy] = useState<StorageClearTarget | 'prefs' | 'chat' | null>(null)
   const [lastResult, setLastResult] = useState<string | null>(null)
 
   const clear = async (target: StorageClearTarget, spec: RowSpec) => {
@@ -600,6 +601,25 @@ function StorageSection() {
     try {
       resetPreferences()
       setLastResult('Preferences reset to defaults.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const clearChatHistory = async () => {
+    if (
+      !confirm(
+        'Are you sure you want to permanently clear the AI Chat history and reborn the assistant? This will wipe all memory logs for the active project.',
+      )
+    )
+      return
+    setBusy('chat')
+    setLastResult(null)
+    try {
+      await api.chatMessagesClear()
+      setLastResult('AI Chat memory cleared successfully. Assistant is reborn!')
+    } catch (e: any) {
+      setLastResult(`Failed to clear AI Chat history: ${e?.message ?? e}`)
     } finally {
       setBusy(null)
     }
@@ -669,6 +689,33 @@ function StorageSection() {
               </div>
             )
           })}
+
+          {/* AI Chat History clear — lives outside the Rust storage API
+              because it clears SQLite DB via local invoke, not app-data. */}
+          <div className='border-border/60 flex items-start justify-between gap-3 border-t pt-3'>
+            <div className='min-w-0 flex-1'>
+              <div className='text-foreground font-medium flex items-center gap-1.5'>
+                ความจำแชท AI
+                <span className='rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400'>
+                  ข้อมูลผู้ใช้
+                </span>
+              </div>
+              <div className='text-muted-foreground/80 mt-0.5 text-xs leading-relaxed'>
+                ประวัติการสนทนาและบันทึกความจำของระบบประมวลผลสำหรับโปรเจกต์ที่เปิดอยู่ การล้างความจำส่วนนี้จะช่วยชุบชีวิตผู้ช่วย AI ให้เริ่มต้นใหม่ด้วยสมองที่สะอาดบริสุทธิ์
+              </div>
+            </div>
+            <div className='flex shrink-0 flex-col items-end gap-1'>
+              <button
+                type='button'
+                disabled={busy === 'chat'}
+                onClick={clearChatHistory}
+                className='text-muted-foreground hover:text-foreground disabled:opacity-40 text-xs underline-offset-2 hover:underline flex items-center gap-1 cursor-pointer'
+              >
+                <Trash2Icon className='size-3 text-destructive dark:text-red-400' />
+                {busy === 'chat' ? 'Reborning…' : 'Clear'}
+              </button>
+            </div>
+          </div>
 
           {/* Preferences reset — lives outside the Rust storage API
               because it touches browser localStorage, not <app-data>. */}

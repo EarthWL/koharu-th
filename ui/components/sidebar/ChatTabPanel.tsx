@@ -4,6 +4,7 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import {
+  BellOffIcon,
   BotIcon,
   ChevronDownIcon,
   ImagePlusIcon,
@@ -15,6 +16,7 @@ import {
   UserIcon,
   WrenchIcon,
   XIcon,
+  ZapIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -151,6 +153,99 @@ export function ChatTabPanel() {
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const currentDocIndex = useEditorUiStore((s) => s.currentDocumentIndex)
+
+  // Snooze config (ESET-style):
+  const [snoozeType, setSnoozeType] = useState<'restart' | 'messages' | null>(null)
+  const [snoozeTargetCount, setSnoozeTargetCount] = useState<number>(0)
+  const [showSnoozeMenu, setShowSnoozeMenu] = useState(false)
+  const [compacting, setCompacting] = useState(false)
+
+  // Clear memory snoozes on project change or app reload
+  useEffect(() => {
+    setSnoozeType(null)
+  }, [projectInfo?.id])
+
+  const currentCount = history.data?.length ?? 0
+  const isSnoozed = useMemo(() => {
+    if (snoozeType === 'restart') return true
+    if (snoozeType === 'messages' && currentCount < snoozeTargetCount) return true
+    return false
+  }, [snoozeType, snoozeTargetCount, currentCount])
+
+  const showWarning = currentCount >= DISPLAY_LIMIT && !isSnoozed
+
+  const compactChat = async () => {
+    if (!projectInfo || !history.data || history.data.length < 2) return
+    if (provider === 'none' || !apiKey) {
+      setError('กรุณาเลือกและเซ็ตอัปโปรไฟล์ Cloud LLM ก่อนทำการบีบอัดแชท')
+      return
+    }
+
+    setCompacting(true)
+    setError(null)
+
+    try {
+      const firstHalf = history.data.slice(0, 25).map(rowToChatMessage)
+      const secondHalf = history.data.slice(25).map(rowToChatMessage)
+
+      const conversationText = firstHalf
+        .map((m) => {
+          let text = `${m.role.toUpperCase()}: ${m.content}`
+          if (m.toolCalls && m.toolCalls.length > 0) {
+            text += `\n[called tools: ${m.toolCalls.map((c) => c.name).join(', ')}]`
+          }
+          return text
+        })
+        .join('\n\n')
+
+      const summaryPrompt = [
+        'You are an expert manga translation coordinator. You are compacting an old chat history between the user and yourself.',
+        'Please summarize the core decisions, style choices, character details, and glossary terms agreed upon in the following early chat log.',
+        'Keep your summary extremely concise, in a single compact paragraph (less than 150 words) in Thai.',
+        'Focus ONLY on facts and agreements. Do not include introductory or conversational filler.',
+        '',
+        '--- EARLY CHAT LOG ---',
+        conversationText,
+      ].join('\n')
+
+      const { callCloudOnce } = await import('@/lib/services/cloudLlm')
+      const summaryText = await callCloudOnce({
+        prompt: summaryPrompt,
+        provider,
+        apiKey,
+        apiUrl,
+        model,
+        useCase: 'compact_chat',
+      })
+
+      // Reconstruct the DB!
+      await api.chatMessagesClear()
+
+      const summaryMessage = `[สรุปข้อตกลงและการคุยก่อนหน้านี้: ${summaryText.trim()}]`
+      await api.chatMessageAdd({
+        role: 'assistant',
+        content: summaryMessage,
+        model: `${provider}:${model}`,
+      })
+
+      for (const m of secondHalf) {
+        await api.chatMessageAdd({
+          role: m.role,
+          content: m.content,
+          toolCalls: m.toolCalls ? JSON.stringify(m.toolCalls) : null,
+          toolCallId: m.toolCallId ?? null,
+          model: m.role === 'assistant' ? `${provider}:${model}` : null,
+          attachments: m.attachments ? JSON.stringify(m.attachments) : null,
+        })
+      }
+
+      await history.refetch()
+    } catch (err: any) {
+      setError(`การบีบอัดความจำล้มเหลว: ${err?.message ?? String(err)}`)
+    } finally {
+      setCompacting(false)
+    }
+  }
 
   // Vision-support check for the active LLM profile. Heuristic per
   // provider — see lib/services/visionSupport.ts. Used to disable
@@ -359,10 +454,13 @@ export function ChatTabPanel() {
   const [clearing, setClearing] = useState(false)
   const clearAll = async () => {
     if (clearing) return
-    if (!confirm('Clear all chat history for this project?')) return
+    if (!confirm('ต้องการล้างประวัติแชททั้งหมดของโปรเจกต์นี้หรือไม่? (ข้อมูลทั้งหมดจะถูกลบถาวร)')) return
     setClearing(true)
     try {
       await api.chatMessagesClear()
+      setSnoozeType(null)
+      setSnoozeTargetCount(0)
+      setError(null)
       await history.refetch()
     } catch (err: any) {
       setError(err?.message ?? String(err))
@@ -386,15 +484,27 @@ export function ChatTabPanel() {
   return (
     <div className='flex h-full min-h-0 flex-1 flex-col'>
       <div className='border-border flex items-center justify-between border-b px-2 py-1.5'>
-        <span className='text-muted-foreground text-[10px] font-bold tracking-wide uppercase'>
+        <span className='text-muted-foreground text-[10px] font-bold tracking-wide uppercase flex items-center gap-1.5'>
           AI Chat ({history.data?.length ?? 0})
+          {isSnoozed && (
+            <button
+              onClick={() => {
+                setSnoozeType(null)
+              }}
+              title="การแจ้งเตือนความจำไหลผ่านเริ่มจำศีลอยู่ (คลิกเพื่อกู้คืนการแจ้งเตือนกลับมาปกติ)"
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted hover:bg-amber-500/10 text-muted-foreground/60 hover:text-amber-600 dark:hover:text-amber-400 text-[9px] font-semibold border border-border transition cursor-pointer"
+            >
+              <BellOffIcon className="size-2.5" />
+              ปิดเตือนอยู่
+            </button>
+          )}
         </span>
         <div className='flex items-center gap-1'>
           <Button
             variant='ghost'
             size='sm'
             className='h-6 px-2 text-[10px] disabled:opacity-40'
-            title='Clear all chat history for this project'
+            title='ล้างประวัติแชททั้งหมดสำหรับโปรเจกต์นี้'
             disabled={!history.data?.length || sending || clearing}
             onClick={() => void clearAll()}
           >
@@ -403,7 +513,7 @@ export function ChatTabPanel() {
             ) : (
               <Trash2Icon className='size-3' />
             )}
-            Clear
+            ล้างประวัติ
           </Button>
         </div>
       </div>
@@ -447,30 +557,109 @@ export function ChatTabPanel() {
         </div>
       )}
 
-      {/* Messages */}
-      <ScrollArea className='min-h-0 min-w-0 flex-1' viewportRef={scrollRef}>
-        <div className='w-full min-w-0 space-y-2 p-2'>
-          {!history.data?.length ? (
-            <EmptyState />
-          ) : (
-            history.data.map((m) => (
-              <MessageRow
-                key={m.id}
-                message={m}
-                onDelete={() => void deleteMessage(m.id)}
-              />
-            ))
-          )}
-          {sending && (
-            <StreamingBubble streamingText={streamingText} onStop={stop} />
-          )}
-          {error && (
-            <div className='text-destructive border-destructive/30 rounded border p-2 text-[10px]'>
-              {error}
+      {/* Messages Wrapper for Floating Overlays */}
+      <div className='relative min-h-0 min-w-0 flex-1 flex flex-col'>
+        <ScrollArea className='flex-1' viewportRef={scrollRef}>
+          <div className='w-full min-w-0 space-y-2 p-2 pb-24'>
+            {!history.data?.length ? (
+              <EmptyState />
+            ) : (
+              history.data.map((m) => (
+                <MessageRow
+                  key={m.id}
+                  message={m}
+                  onDelete={() => void deleteMessage(m.id)}
+                />
+              ))
+            )}
+            {sending && (
+              <StreamingBubble streamingText={streamingText} onStop={stop} />
+            )}
+            {error && (
+              <div className='text-destructive border-destructive/30 rounded border p-2 text-[10px]'>
+                {error}
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+
+        {/* ESET-style Compact Memory Warning Floating Card */}
+        {showWarning && (
+          <div className="absolute bottom-2 left-2 right-2 border-amber-500/30 bg-background/95 backdrop-blur-sm text-amber-900 dark:text-amber-300 border rounded-lg p-2.5 shadow-lg text-xs flex flex-col gap-1.5 z-40 animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <div className="font-semibold flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <TriangleAlertIcon className="size-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                ความทรงจำของ AI เริ่มจะไม่แน่นอนแล้ว
+              </span>
+              <button 
+                onClick={() => setSnoozeType('restart')} 
+                className="opacity-50 hover:opacity-100 transition text-[10px] cursor-pointer"
+                title="ปิดชั่วคราวจนกว่าจะรีสตาร์ท"
+              >
+                ✕
+              </button>
             </div>
-          )}
-        </div>
-      </ScrollArea>
+            <p className="text-[10px] leading-relaxed text-muted-foreground">
+              ความจำช่วงเริ่มต้นกำลังจะเลือนหายเนื่องจากประวัติแชทเริ่มยาวเกินกำหนด แนะนำให้บีบอัดแชทเพื่อรักษาบริบทสำคัญไว้
+            </p>
+            <div className="flex items-center gap-2 mt-1 relative">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={compacting || sending}
+                onClick={compactChat}
+                className="h-6 px-2.5 text-[10px] bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-800 dark:text-amber-300 flex items-center"
+              >
+                {compacting ? (
+                  <>
+                    <Loader2Icon className="mr-1 size-3 animate-spin" />
+                    กำลังบีบอัด...
+                  </>
+                ) : (
+                  <>
+                    <ZapIcon className="size-2.5 mr-1 text-amber-600 dark:text-amber-400" />
+                    บีบอัดแชทตอนนี้
+                  </>
+                )}
+              </Button>
+              <div className="relative">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={compacting || sending}
+                  onClick={() => setShowSnoozeMenu(!showSnoozeMenu)}
+                  className="h-6 px-2 text-[10px] text-muted-foreground hover:bg-muted"
+                >
+                  ปิดเตือนชั่วคราว ▾
+                </Button>
+                {showSnoozeMenu && (
+                  <div className="absolute left-0 bottom-full z-50 mb-1 w-60 rounded-md border border-border bg-popover text-popover-foreground shadow-lg p-1 text-[10px] font-sans">
+                    <button
+                      onClick={() => {
+                        setSnoozeType('messages')
+                        setSnoozeTargetCount(currentCount + 50)
+                        setShowSnoozeMenu(false)
+                      }}
+                      className="w-full text-left px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-sm transition cursor-pointer"
+                    >
+                      ปิดเตือนถัดไปอีก 50 ข้อความ
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSnoozeType('restart')
+                        setShowSnoozeMenu(false)
+                      }}
+                      className="w-full text-left px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-sm transition cursor-pointer"
+                    >
+                      ปิดเตือนจนกว่าจะเปิดโปรแกรมใหม่
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Input */}
       <div className='border-border relative shrink-0 border-t p-2'>
