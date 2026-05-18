@@ -674,13 +674,25 @@ function toGeminiContents(msgs: ChatMessage[]) {
   return out
 }
 
+function stripAdditionalProperties(schema: any): any {
+  if (typeof schema !== 'object' || schema === null) return schema
+  if (Array.isArray(schema)) return schema.map(stripAdditionalProperties)
+  
+  const out: any = {}
+  for (const [k, v] of Object.entries(schema)) {
+    if (k === 'additionalProperties') continue
+    out[k] = stripAdditionalProperties(v)
+  }
+  return out
+}
+
 function toGeminiTools(tools: ToolDef[]) {
   return [
     {
       functionDeclarations: tools.map((t) => ({
         name: t.name,
         description: t.description,
-        parameters: t.parameters,
+        parameters: stripAdditionalProperties(t.parameters),
       })),
     },
   ]
