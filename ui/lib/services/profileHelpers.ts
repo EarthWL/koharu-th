@@ -118,7 +118,18 @@ export const KIND_LABEL: Record<ProviderKind, string> = Object.fromEntries(
  * TODO(v1.5.0): the legacy branch can probably be removed once we're
  * confident no installs still have pre-v1.0.0 rows in the DB.
  */
-export function kindOf(profile: ProviderProfileDto): ProviderKind {
+/** Minimum shape we need to determine the kind / dispatch provider.
+ *  Accepts the full DTO from the DB list, OR a synthetic on-the-fly
+ *  object built from `preferencesStore.{cloudProvider, cloudModelName,
+ *  cloudApiUrl}` for the "active translation profile" fallback path. */
+export type ProfileLike = Pick<
+  ProviderProfileDto,
+  'provider' | 'modelName'
+> & {
+  apiUrl?: string | null
+}
+
+export function kindOf(profile: ProfileLike): ProviderKind {
   if (profile.provider === 'anthropic') return 'anthropic'
   if (profile.provider === 'gemini') return 'gemini'
   if (profile.provider === 'openrouter') return 'openrouter'
@@ -135,7 +146,7 @@ export function kindOf(profile: ProviderProfileDto): ProviderKind {
  * (`cloudLlm.ts` / `cloudOcr.ts` switch on this). Handles the same
  * legacy OpenRouter mis-store as `kindOf`.
  */
-export function effectiveDbProvider(profile: ProviderProfileDto): string {
+export function effectiveDbProvider(profile: ProfileLike): string {
   return KINDS.find((k) => k.kind === kindOf(profile))!.dbProvider
 }
 

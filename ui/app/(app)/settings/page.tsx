@@ -10,6 +10,7 @@ import {
   MonitorIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  Loader2Icon,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
@@ -26,6 +27,7 @@ import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type StorageClearTarget, type StorageEntry } from '@/lib/api'
 import { supportsVision } from '@/lib/services/visionSupport'
+import { effectiveDbProvider } from '@/lib/services/profileHelpers'
 import { useProjectStore } from '@/lib/stores/projectStore'
 
 const THEME_OPTIONS = [
@@ -69,21 +71,14 @@ export default function SettingsPage() {
     enabled: !!projectInfo && ocrEngine === 'cloud',
     staleTime: 30_000,
   })
-  // Same heuristic as ProfilesTabPanel.kindOf — legacy OpenRouter
-  // profiles created before commit d6a97bb6 were saved with
-  // provider='openai' (Rust backend used to collapse the variant).
-  // The model id retains the `vendor/model` slash, which is the tell.
-  // Without this, the filter rejects perfectly-valid OpenRouter
-  // vision profiles (Gemini via OpenRouter etc.) and the user sees
-  // "no vision profile" even though their AI Chat works fine with
-  // the same profile.
-  const effectiveProvider = (p: { provider: string; modelName: string }) =>
-    p.provider === 'openai' && p.modelName.includes('/')
-      ? 'openrouter'
-      : p.provider
-  const visionProfiles = (profiles.data ?? []).filter(
-    (p) =>
-      supportsVision(effectiveProvider(p), p.modelName).supported,
+  // Vision-capability filter for the OCR Cloud Vision profile picker.
+  // Uses the shared `effectiveDbProvider()` helper so legacy OpenRouter
+  // profiles (stored as provider='openai' before backend commit
+  // b3d4c7f3 — slash in modelName is the tell) are routed to the
+  // right vision check. Was duplicated inline here + in
+  // CanvasToolbar + in cloudOcr; now lives in profileHelpers.ts.
+  const visionProfiles = (profiles.data ?? []).filter((p) =>
+    supportsVision(effectiveDbProvider(p), p.modelName).supported,
   )
   // Active translation profile counts too — the "(Use the active
   // translation profile)" option in the dropdown uses it. So the
@@ -94,7 +89,9 @@ export default function SettingsPage() {
     !!cloudModelName &&
     cloudProvider !== 'none' &&
     supportsVision(
-      effectiveProvider({
+      // Inline call: we have a synthetic profile shape (no id), so
+      // construct the minimal object effectiveDbProvider needs.
+      effectiveDbProvider({
         provider: cloudProvider,
         modelName: cloudModelName,
       }),
@@ -391,11 +388,10 @@ export default function SettingsPage() {
                   visionProfiles.length === 0 &&
                   !activeIsVision && (
                     <p className='text-amber-600 dark:text-amber-400 mt-2 text-xs leading-relaxed'>
-                      ⚠ No vision-capable profile available. Open Sidebar →
-                      Profiles, add an OpenAI / Claude / Gemini / OpenRouter
-                      profile with a vision-capable model (e.g. gpt-4o,
-                      claude-3.5-sonnet, gemini-2.0-flash) and click Apply,
-                      then come back here.
+                      {t(
+                        'settings.engineOcrNoVisionProfile',
+                        '⚠ No vision-capable profile available. Open the Profiles tab in the project sidebar, add an OpenAI / Claude / Gemini / OpenRouter profile with a vision-capable model (e.g. gpt-4o, claude-3.5-sonnet, gemini-2.0-flash), and click Apply. This page will refresh automatically.',
+                      )}
                     </p>
                   )}
               </div>
@@ -622,6 +618,12 @@ function StorageSection() {
       </p>
 
       <div className='bg-card border-border rounded-lg border p-4'>
+        {stats.isLoading && (
+          <div className='text-muted-foreground mb-3 flex items-center gap-1.5 text-xs'>
+            <Loader2Icon className='size-3 animate-spin' />
+            {t('settings.storageScanning', 'Scanning…')}
+          </div>
+        )}
         <div className='space-y-3 text-sm'>
           {STORAGE_ROWS.map((spec) => {
             const entry: StorageEntry | undefined = stats.data?.[spec.target]
