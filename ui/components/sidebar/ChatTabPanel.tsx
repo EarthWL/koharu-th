@@ -52,10 +52,6 @@ const UI_LOCALE_TO_LANGUAGE: Record<string, string> = {
   'en-US': 'English',
   'th-TH': 'Thai',
   'ja-JP': 'Japanese',
-  'zh-CN': 'Simplified Chinese',
-  'zh-TW': 'Traditional Chinese',
-  'ru-RU': 'Russian',
-  'es-ES': 'Spanish',
 }
 
 function uiLanguageName(): string {
