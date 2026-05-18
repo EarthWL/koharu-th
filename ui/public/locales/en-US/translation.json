@@ -7,6 +7,10 @@
     "emptySlashHint": "Try <code class=\"bg-muted rounded px-1\">/fetch-wiki &lt;url&gt;</code> or <code class=\"bg-muted rounded px-1\">/draft-synopsis</code>",
     "textOnlyWarning": "⚠ {{count}} image attachment(s) queued but the active model is text-only — switch profile to a vision-capable model (e.g. gpt-4o, claude-haiku, gemini-1.5+) or remove the attachments before sending."
   },
+  "chapters": {
+    "loading": "Loading chapters…",
+    "empty": "No chapters yet — create one above, then add page images to it."
+  },
   "menu": {
     "file": "File",
     "openFile": "Open File...",

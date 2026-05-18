@@ -7,6 +7,10 @@
     "emptySlashHint": "まずは <code class=\"bg-muted rounded px-1\">/fetch-wiki &lt;url&gt;</code> または <code class=\"bg-muted rounded px-1\">/draft-synopsis</code> を試してください",
     "textOnlyWarning": "⚠ 画像が{{count}}枚キューにありますが、現在のモデルはテキスト専用です — vision対応モデル（gpt-4o、claude-haiku、gemini-1.5+など）のプロファイルに切り替えるか、添付を削除してから送信してください。"
   },
+  "chapters": {
+    "loading": "チャプターを読み込み中…",
+    "empty": "まだチャプターがありません — 上で作成してから、ページ画像を追加してください。"
+  },
   "menu": {
     "file": "ファイル",
     "openFile": "ファイルを開く...",

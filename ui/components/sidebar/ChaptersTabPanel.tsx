@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { useRouter } from 'next/navigation'
 import {
   ArchiveIcon,
@@ -50,6 +51,7 @@ const STATUS_DOT: Record<ChapterStatus, string> = {
 }
 
 export function ChaptersTabPanel() {
+  const { t } = useTranslation()
   const chapters = useQuery({
     queryKey: ['project', 'chapters'],
     queryFn: () => api.chaptersList(),
@@ -86,13 +88,17 @@ export function ChaptersTabPanel() {
       <ScrollArea className='min-h-0 min-w-0 flex-1'>
         <div className='space-y-1 p-2'>
           {chapters.isLoading ? (
-            <p className='text-muted-foreground p-4 text-center text-xs'>
-              Loading…
+            <p className='text-muted-foreground flex items-center justify-center gap-1.5 p-4 text-xs'>
+              <Loader2Icon className='size-3 animate-spin' />
+              {t('chapters.loading', 'Loading chapters…')}
             </p>
           ) : !chapters.data?.length ? (
             <div className='border-border rounded-md border border-dashed p-4 text-center text-xs'>
               <p className='text-muted-foreground'>
-                ยังไม่มีตอน — สร้าง Chapter ด้านบน แล้วค่อยอัปโหลดไฟล์รูปหน้าเข้าไป
+                {t(
+                  'chapters.empty',
+                  'No chapters yet — create one above, then add page images to it.',
+                )}
               </p>
             </div>
           ) : (
@@ -263,6 +269,10 @@ function ChapterRow({
       } else if (r.skipped > 0) {
         alert(`Skipped ${r.skipped} files (unsupported / copy failed)`)
       }
+      // If both `added` and `skipped` are zero, the user cancelled the
+      // file picker. Stay silent — no false-positive alert needed.
+      // (Previous: silent no-op even on skipped > 0; now skipped surfaces
+      // a message and cancel still stays quiet.)
     } catch (err: any) {
       alert(err?.message ?? String(err))
     } finally {
@@ -273,6 +283,12 @@ function ChapterRow({
   const changeStatus = async (status: ChapterStatus) => {
     await api.chapterUpdate({ id: chapter.id, status })
     onChanged()
+    // Invalidate the queue list too — if this chapter has a pending /
+    // running queue entry, a manual status flip should re-render its
+    // queue badge consistently. Cheap; queue list is one tiny query.
+    await queryClient.invalidateQueries({
+      queryKey: ['project', 'translation-queue'],
+    })
   }
 
   const exportCbz = async () => {
@@ -498,9 +514,15 @@ function ChapterRow({
           title={
             chapter.pageCount === 0
               ? 'ไม่มีรูปหน้าให้ลบ'
-              : `ลบรูปทั้งหมด (${chapter.pageCount}) ออกจาก source/ ของ chapter นี้ — chapter row, characters, glossary, TM ยังอยู่`
+              : isQueued
+                ? 'อยู่ในคิวแปลอยู่ — รอให้คิวเสร็จหรือ cancel ก่อนถึงลบรูปได้'
+                : `ลบรูปทั้งหมด (${chapter.pageCount}) ออกจาก source/ ของ chapter นี้ — chapter row, characters, glossary, TM ยังอยู่`
           }
-          disabled={clearingPages || chapter.pageCount === 0}
+          // Block clear while the queue worker is actively touching
+          // this chapter — concurrent file delete + pipeline read
+          // would race. User has to cancel / let the queue finish
+          // first. Mirrors the enqueue button's `isQueued` guard.
+          disabled={clearingPages || chapter.pageCount === 0 || isQueued}
           onClick={() => void clearPages()}
         >
           {clearingPages ? (

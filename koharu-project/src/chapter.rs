@@ -306,6 +306,18 @@ pub fn update(conn: &Conn, id: i64, patch: ChapterPatch) -> Result<Option<Chapte
 }
 
 pub fn remove(conn: &Conn, id: i64) -> Result<bool> {
+    // Cascade-delete queue entries that reference this chapter so the
+    // queue panel doesn't keep showing rows pointing at a chapter that
+    // no longer exists. Stale rows would otherwise pollute the queue
+    // UI list + counts, and the worker would try to pick them up and
+    // fail with "chapter not found" on the next tick.
+    // (No FK constraint on translation_queue.chapter_id in the schema
+    // today — when we add one in a future migration this becomes a
+    // safety net rather than the primary mechanism.)
+    conn.execute(
+        "DELETE FROM translation_queue WHERE chapter_id = ?1",
+        params![id],
+    )?;
     let changed = conn.execute("DELETE FROM chapters WHERE id = ?1", params![id])?;
     Ok(changed > 0)
 }
