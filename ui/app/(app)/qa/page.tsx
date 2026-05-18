@@ -182,6 +182,7 @@ export default function QaPage() {
                     key={`${pageIdx}-${i}`}
                     block={blocks[i]}
                     blockIndex={i}
+                    pageIdx={pageIdx}
                     onAfterChange={() =>
                       void queryClient.invalidateQueries({
                         queryKey: queryKeys.documents.current(pageIdx),
@@ -201,10 +202,12 @@ export default function QaPage() {
 function QaRow({
   block,
   blockIndex,
+  pageIdx,
   onAfterChange,
 }: {
   block: TextBlock
   blockIndex: number
+  pageIdx: number
   onAfterChange: () => void
 }) {
   const { updateTextBlocks } = useTextBlockMutations()
@@ -222,14 +225,12 @@ function QaRow({
 
   const saveDraft = async () => {
     if ((block.translation ?? '') === draft) return
-    const docState = useEditorUiStore.getState()
-    const idx = docState.currentDocumentIndex
     // Reuse the canonical update path so the renderer / sync queue fires.
-    const allBlocks = await api.getDocument(idx).then((d: any) => d.textBlocks ?? [])
+    const allBlocks = await api.getDocument(pageIdx).then((d: any) => d.textBlocks ?? [])
     const next = allBlocks.map((b: TextBlock, j: number) =>
       j === blockIndex ? { ...b, translation: draft } : b,
     )
-    await updateTextBlocks(next)
+    await updateTextBlocks(next, pageIdx)
     onAfterChange()
   }
 
@@ -253,20 +254,18 @@ function QaRow({
           override,
         )
         setMeta(result.meta)
-        const docState = useEditorUiStore.getState()
-        const idx = docState.currentDocumentIndex
         const allBlocks = await api
-          .getDocument(idx)
+          .getDocument(pageIdx)
           .then((d: any) => d.textBlocks ?? [])
         const next = allBlocks.map((b: TextBlock, j: number) =>
           j === blockIndex ? { ...b, translation: result.text } : b,
         )
-        await updateTextBlocks(next)
+        await updateTextBlocks(next, pageIdx)
         setDraft(result.text)
       } else {
         // Local LLM path: no streaming surface yet, just call the
         // existing pipeline and wait for it.
-        await api.llmGenerate(useEditorUiStore.getState().currentDocumentIndex, blockIndex)
+        await api.llmGenerate(pageIdx, blockIndex)
       }
       onAfterChange()
     } catch (err) {
