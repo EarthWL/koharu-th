@@ -182,7 +182,14 @@ async fn run_pipeline_inner(
                             .await?;
                     }
                 }
-                PipelineStep::Inpaint => res.ml.inpaint(&mut snapshot).await?,
+                PipelineStep::Inpaint => {
+                    if req.skip_inpaint.unwrap_or(false) {
+                        // ผู้ใช้ต้องการ re-translate โดยใช้ผลลัพธ์ inpaint เดิม
+                        // ข้ามขั้นตอนนี้เพื่อประหยัดเวลา
+                    } else {
+                        res.ml.inpaint(&mut snapshot).await?
+                    }
+                }
                 PipelineStep::LlmGenerate => {
                     res.llm
                         .translate(&mut snapshot, req.language.as_deref())

@@ -128,6 +128,10 @@ pub struct ProcessRequest {
     /// re-running detect inside the pipeline would overwrite the
     /// cloud-OCR'd text.
     pub skip_detect: Option<bool>,
+    /// Skip the inpaint step. ใช้เมื่อต้องการแปลใหม่โดยไม่เปลี่ยน text regions
+    /// เช่น re-translate เพื่อลด LLM output หรือเปลี่ยน prompt
+    /// โดยไม่ต้องรอ inpaint ซ้ำ (ใช้ผลลัพธ์ inpaint เดิม)
+    pub skip_inpaint: Option<bool>,
     /// Engine to use for the Detect step. `None` ⇒ backend default
     /// (`comic_text_detector`). UI sets this from
     /// `preferencesStore.detectorEngine`.

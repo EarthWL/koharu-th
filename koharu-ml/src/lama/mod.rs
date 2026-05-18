@@ -130,46 +130,98 @@ impl Lama {
         text_blocks: &[TextBlock],
     ) -> Result<RgbImage> {
         let (im_w, im_h) = image.dimensions();
-        let mut inpainted = image.clone();
-        let mut working_mask = mask.clone();
 
-        for block in text_blocks {
-            let Some(xyxy) = block_xyxy(block, im_w, im_h) else {
-                continue;
-            };
-            let xyxy_e = enlarge_window(
-                xyxy,
-                im_w,
-                im_h,
-                BALLOON_WINDOW_RATIO,
-                BALLOON_WINDOW_ASPECT_RATIO,
-            );
-            let crop_width = xyxy_e[2].saturating_sub(xyxy_e[0]);
-            let crop_height = xyxy_e[3].saturating_sub(xyxy_e[1]);
-            if crop_width == 0 || crop_height == 0 {
-                continue;
-            }
+        // รวบรวม crop ทุก bubble จากภาพต้นฉบับก่อน แล้วค่อย inference พร้อมกัน
+        // (ต่างจาก sequential เดิมที่ crop จาก buffer ที่ inpaint ไปทีละ bubble —
+        // แต่ bubble ที่ overlap กันมีน้อยมากในมังงะ จึงเป็น tradeoff ที่รับได้)
+        struct Crop {
+            xyxy_e: Xyxy,
+            image: RgbImage,
+            mask: GrayImage,
+        }
 
-            let crop_image =
-                crop_imm(&inpainted, xyxy_e[0], xyxy_e[1], crop_width, crop_height).to_image();
-            let crop_mask =
-                crop_imm(&working_mask, xyxy_e[0], xyxy_e[1], crop_width, crop_height).to_image();
+        let crops: Vec<Crop> = text_blocks
+            .iter()
+            .filter_map(|block| {
+                let xyxy = block_xyxy(block, im_w, im_h)?;
+                let xyxy_e = enlarge_window(
+                    xyxy,
+                    im_w,
+                    im_h,
+                    BALLOON_WINDOW_RATIO,
+                    BALLOON_WINDOW_ASPECT_RATIO,
+                );
+                let crop_width = xyxy_e[2].saturating_sub(xyxy_e[0]);
+                let crop_height = xyxy_e[3].saturating_sub(xyxy_e[1]);
+                if crop_width == 0 || crop_height == 0 {
+                    return None;
+                }
+                let crop_image =
+                    crop_imm(image, xyxy_e[0], xyxy_e[1], crop_width, crop_height).to_image();
+                let crop_mask =
+                    crop_imm(mask, xyxy_e[0], xyxy_e[1], crop_width, crop_height).to_image();
+                if count_nonzero(&crop_mask) == 0 {
+                    return None; // ไม่มี mask — ข้ามทันที ไม่ต้อง spawn thread
+                }
+                Some(Crop { xyxy_e, image: crop_image, mask: crop_mask })
+            })
+            .collect();
 
-            let output = if count_nonzero(&crop_mask) == 0 {
-                crop_image
-            } else if let Some(filled) = try_fill_balloon(&crop_image, &crop_mask) {
+        if crops.is_empty() {
+            return Ok(image.clone());
+        }
+
+        // bubble เดียว: ไม่ spawn thread เพื่อหลีกเลี่ยง overhead
+        if crops.len() == 1 {
+            let crop = &crops[0];
+            let output = if let Some(filled) = try_fill_balloon(&crop.image, &crop.mask) {
                 filled
             } else {
-                self.inference_model_rgb(&crop_image, &crop_mask)?
+                self.inference_model_rgb(&crop.image, &crop.mask)?
             };
+            let mut result = image.clone();
+            replace(
+                &mut result,
+                &output,
+                i64::from(crop.xyxy_e[0]),
+                i64::from(crop.xyxy_e[1]),
+            );
+            return Ok(result);
+        }
 
+        // หลาย bubble: run inference พร้อมกันด้วย scoped threads
+        // &self ถูกยืมแบบ immutable — LaMa weights เป็น Arc-backed tensor (read-only)
+        // จึงปลอดภัยที่จะ access จากหลาย thread พร้อมกัน
+        let outputs: Vec<(Xyxy, Result<RgbImage>)> = std::thread::scope(|scope| {
+            let handles: Vec<_> = crops
+                .iter()
+                .map(|crop| {
+                    scope.spawn(|| {
+                        let out = if let Some(filled) = try_fill_balloon(&crop.image, &crop.mask) {
+                            Ok(filled)
+                        } else {
+                            self.inference_model_rgb(&crop.image, &crop.mask)
+                        };
+                        (crop.xyxy_e, out)
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().unwrap_or_else(|_| (([0, 0, 0, 0]), Err(anyhow::anyhow!("inpaint thread panicked")))))
+                .collect()
+        });
+
+        // paste results กลับแบบ sequential (ป้องกัน data race บน inpainted buffer)
+        let mut inpainted = image.clone();
+        for (xyxy_e, result) in outputs {
+            let output = result?;
             replace(
                 &mut inpainted,
                 &output,
                 i64::from(xyxy_e[0]),
                 i64::from(xyxy_e[1]),
             );
-            clear_mask_bbox(&mut working_mask, xyxy);
         }
 
         Ok(inpainted)

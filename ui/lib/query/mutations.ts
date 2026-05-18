@@ -489,6 +489,43 @@ export const useDocumentMutations = () => {
     [inpaint, render],
   )
 
+  // แปลใหม่โดยไม่ต้องรอ inpaint ซ้ำ — ใช้ผลลัพธ์ inpaint เดิม
+  // เหมาะสำหรับเมื่อต้องการลอง LLM อื่นหรือเปลี่ยน prompt โดยไม่เสียเวลา
+  const retranslateImage = useCallback(
+    async (_?: any, index?: number) => {
+      const resolvedIndex =
+        index ?? useEditorUiStore.getState().currentDocumentIndex
+      const { selectedModel, selectedLanguage } = useLlmUiStore.getState()
+      const { renderEffect, renderStroke } = useEditorUiStore.getState()
+      const { fontFamily } = usePreferencesStore.getState()
+      const { startOperation, finishOperation } = useOperationStore.getState()
+      startOperation({
+        type: 'process-current',
+        cancellable: true,
+        current: 0,
+        total: 2, // translate + render เท่านั้น
+      })
+      try {
+        await api.process({
+          index: resolvedIndex,
+          llmModelId: selectedModel,
+          language: selectedLanguage,
+          shaderEffect: renderEffect,
+          shaderStroke: renderStroke,
+          fontFamily,
+          skipDetect: true,
+          skipOcr: true,
+          skipInpaint: true,
+        })
+      } catch (error) {
+        console.error('Failed to retranslate:', error)
+        finishOperation()
+        await clearProgress()
+      }
+    },
+    [startOperation, finishOperation],
+  )
+
   const processImage = useCallback(
     async (_?: any, index?: number) => {
       const resolvedIndex =
@@ -659,6 +696,8 @@ export const useDocumentMutations = () => {
     processImage,
     processAllImages,
     inpaintAndRenderImage,
+    retranslateImage,
+
     exportDocument,
     exportAllInpainted,
     exportAllRendered,
