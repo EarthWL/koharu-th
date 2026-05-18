@@ -13,6 +13,7 @@ jobs:
   crates-io:
     name: crates.io
     runs-on: windows-latest
+    if: github.repository == 'EarthWL/koharu-th'
     steps:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2
