@@ -90,15 +90,25 @@ impl Renderer {
             None => document.text_blocks.iter_mut().collect(),
         };
 
-        text_blocks.par_iter_mut().for_each(|text_block| {
-            let _ = self.render_text_block(
+        // Propagate per-block render failures instead of dropping them
+        // with `let _ = ...`. Previously a font-load error or a
+        // texture-allocation OOM on one block would silently leave that
+        // block unrendered while the pipeline reported `Completed`,
+        // confusing the user (page showed missing translations on a
+        // "successful" run). `try_for_each` short-circuits at the
+        // first error — other in-flight parallel jobs may still finish
+        // their work, but the function as a whole returns Err so the
+        // caller's pipeline status flips to Failed. Partial output is
+        // preserved on disk; nothing is rolled back.
+        text_blocks.par_iter_mut().try_for_each(|text_block| {
+            self.render_text_block(
                 text_block,
                 effect,
                 stroke.clone(),
                 font_family,
                 Some(&bubble_map),
-            );
-        });
+            )
+        })?;
 
         if let Some(inpainted) = &document.inpainted
             && text_block_index.is_none()
