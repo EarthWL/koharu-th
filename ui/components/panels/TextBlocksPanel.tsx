@@ -18,6 +18,7 @@ import { useTextBlocks } from '@/hooks/useTextBlocks'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { useLlmReadyQuery } from '@/lib/query/hooks'
 import { useLlmMutations } from '@/lib/query/mutations'
+import { flushAllSyncQueues } from '@/lib/services/syncQueues'
 import {
   Accordion,
   AccordionContent,
@@ -99,31 +100,63 @@ export function TextBlocksPanel() {
     const file = e.target.files?.[0]
     if (!file) return
 
+    // 10 MB cap — a slim {index, text, translation} export of a normal
+    // page tops out around 50 KB. Anything larger is almost certainly
+    // the wrong file picked by mistake; bail before FileReader spends
+    // memory on it.
+    const MAX_BYTES = 10 * 1024 * 1024
+    if (file.size > MAX_BYTES) {
+      alert(t('textBlocks.importTooLarge', { max: 10 }))
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
+
     const reader = new FileReader()
     reader.onload = async (event) => {
+      const resetInput = () => {
+        if (fileInputRef.current) fileInputRef.current.value = ''
+      }
       try {
         const text = event.target?.result as string
         const parsed = JSON.parse(text)
-        if (Array.isArray(parsed)) {
-          // Merge imported slim data with existing full block data
-          const updatedBlocks = textBlocks.map((block, idx) => {
-            const importedBlock = parsed.find((p: any) => p.index === idx)
-            if (importedBlock) {
-              return {
-                ...block,
-                text: importedBlock.text ?? block.text,
-                translation: importedBlock.translation ?? block.translation
-              }
-            }
-            return block
-          })
-          await replaceAllBlocks(updatedBlocks)
+        if (!Array.isArray(parsed)) {
+          alert(t('textBlocks.importBadShape'))
+          return
         }
-      } catch (err) {
-        console.error('Failed to import JSON', err)
-      }
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
+        // Validate the row shape so a malformed file doesn't quietly
+        // overwrite blocks with `undefined ?? block.text` (which would
+        // be a no-op) or — worse — `null ?? block.text` shenanigans.
+        const validShape = parsed.every(
+          (row: any) =>
+            row && typeof row === 'object' && typeof row.index === 'number',
+        )
+        if (!validShape) {
+          alert(t('textBlocks.importBadShape'))
+          return
+        }
+        // Drain pending per-block edits before issuing the bulk write —
+        // otherwise a debounced keystroke in flight from before the
+        // import would land AFTER the bulk replace and silently clobber
+        // the imported row.
+        await flushAllSyncQueues().catch(() => {})
+        const updatedBlocks = textBlocks.map((block, idx) => {
+          const importedBlock = parsed.find((p: any) => p.index === idx)
+          if (importedBlock) {
+            return {
+              ...block,
+              text: importedBlock.text ?? block.text,
+              translation: importedBlock.translation ?? block.translation,
+            }
+          }
+          return block
+        })
+        await replaceAllBlocks(updatedBlocks)
+      } catch (err: any) {
+        alert(
+          t('textBlocks.importFailed', { message: err?.message ?? String(err) }),
+        )
+      } finally {
+        resetInput()
       }
     }
     reader.readAsText(file)
@@ -150,7 +183,7 @@ export function TextBlocksPanel() {
                 <Download className='size-3' />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side='bottom'>{t('textBlocks.exportJson', 'Export JSON')}</TooltipContent>
+            <TooltipContent side='bottom'>{t('textBlocks.exportJson')}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -163,7 +196,7 @@ export function TextBlocksPanel() {
                 <Upload className='size-3' />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side='bottom'>{t('textBlocks.importJson', 'Import JSON')}</TooltipContent>
+            <TooltipContent side='bottom'>{t('textBlocks.importJson')}</TooltipContent>
           </Tooltip>
           <input
             type='file'
@@ -298,7 +331,9 @@ function BlockCard({
                     }`}
                   >
                     <AlertTriangleIcon className='size-2.5' />
-                    {fit.level === 'overflow' ? 'overflow' : 'tight'}
+                    {fit.level === 'overflow'
+                      ? t('textBlocks.fitOverflow')
+                      : t('textBlocks.fitTight')}
                   </span>
                 </TooltipTrigger>
                 <TooltipContent side='top' className='max-w-[260px] text-[10px]'>
@@ -342,6 +377,7 @@ function BlockCard({
                       disabled={!llmReady || generating}
                       onClick={onGenerate}
                       className='size-5'
+                      aria-label={t('textBlocks.generateAria')}
                     >
                       {generating ? (
                         <LoaderCircleIcon className='size-3 animate-spin' />
@@ -367,7 +403,7 @@ function BlockCard({
             <div className='flex flex-col gap-1.5 pt-1'>
               <div className='flex items-center justify-between'>
                 <span className='text-muted-foreground text-[10px] uppercase'>
-                  {t('textBlocks.rotationLabel', 'Rotation')}
+                  {t('textBlocks.rotationLabel')}
                 </span>
                 <span className='text-muted-foreground text-[10px] tabular-nums'>
                   {block.rotationDeg ?? 0}°
@@ -387,10 +423,10 @@ function BlockCard({
               size='sm'
               onClick={() => void onFitToBubble()}
               className='h-7 w-full gap-1 text-[10px]'
-              title='Auto-expand this block to fit the surrounding speech bubble (uses flood-fill of white pixels on the original image)'
+              title={t('textBlocks.fitToBubbleTooltip')}
             >
               <ExpandIcon className='size-3' />
-              Fit to bubble
+              {t('textBlocks.fitToBubble')}
             </Button>
           </div>
         </AccordionContent>

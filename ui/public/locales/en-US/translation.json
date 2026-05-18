@@ -154,7 +154,18 @@
     "translationLabel": "Translation",
     "translationBadge": "TL",
     "addOcrPlaceholder": "Add OCR text",
-    "addTranslationPlaceholder": "Add translation"
+    "addTranslationPlaceholder": "Add translation",
+    "exportJson": "Export JSON",
+    "importJson": "Import JSON",
+    "importFailed": "Import failed: {{message}}",
+    "importTooLarge": "Import skipped: file is larger than {{max}} MB.",
+    "importBadShape": "Import skipped: expected an array of '{ index, text, translation }' objects.",
+    "rotationLabel": "Rotation",
+    "fitOverflow": "overflow",
+    "fitTight": "tight",
+    "fitToBubble": "Fit to bubble",
+    "fitToBubbleTooltip": "Auto-expand this block to fit the surrounding speech bubble (uses flood-fill of white pixels on the original image)",
+    "generateAria": "Translate this block"
   },
   "workspace": {
     "importPrompt": "Import a page to begin editing.",

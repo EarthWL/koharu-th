@@ -153,7 +153,18 @@
     "translationLabel": "翻訳",
     "translationBadge": "TL",
     "addOcrPlaceholder": "OCR テキストを追加",
-    "addTranslationPlaceholder": "翻訳を追加"
+    "addTranslationPlaceholder": "翻訳を追加",
+    "exportJson": "JSON をエクスポート",
+    "importJson": "JSON をインポート",
+    "importFailed": "インポートに失敗しました: {{message}}",
+    "importTooLarge": "インポートをスキップ: ファイルサイズが {{max}} MB を超えています",
+    "importBadShape": "インポートをスキップ: '{ index, text, translation }' の配列形式が必要です",
+    "rotationLabel": "回転",
+    "fitOverflow": "オーバーフロー",
+    "fitTight": "タイト",
+    "fitToBubble": "バブルに合わせる",
+    "fitToBubbleTooltip": "ブロックを周囲の吹き出しに合わせて自動拡張します（元画像の白ピクセルを flood-fill で検出）",
+    "generateAria": "このブロックを翻訳"
   },
   "workspace": {
     "importPrompt": "ページを読み込んで編集を開始してください。",

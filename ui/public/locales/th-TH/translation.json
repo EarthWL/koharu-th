@@ -193,7 +193,16 @@
     "addOcrPlaceholder": "เพิ่ม OCR",
     "addTranslationPlaceholder": "เพิ่มคำแปล",
     "exportJson": "ส่งออก JSON",
-    "importJson": "นำเข้า JSON"
+    "importJson": "นำเข้า JSON",
+    "importFailed": "นำเข้าไม่สำเร็จ: {{message}}",
+    "importTooLarge": "ข้ามการนำเข้า: ไฟล์ใหญ่กว่า {{max}} MB",
+    "importBadShape": "ข้ามการนำเข้า: ต้องเป็น array ของ '{ index, text, translation }'",
+    "rotationLabel": "หมุน",
+    "fitOverflow": "ล้น",
+    "fitTight": "แน่น",
+    "fitToBubble": "พอดี bubble",
+    "fitToBubbleTooltip": "ขยาย block อัตโนมัติให้พอดีกับช่องคำพูด (ใช้ flood-fill ของ pixel สีขาวบนภาพต้นฉบับ)",
+    "generateAria": "แปล block นี้"
   },
   "workspace": {
     "importPrompt": "เปิดหน้าเพื่อเริ่มแก้ไข",
