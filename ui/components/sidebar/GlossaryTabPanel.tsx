@@ -1,8 +1,9 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
+  Loader2Icon,
   PlusIcon,
   SparklesIcon,
   Trash2Icon,
@@ -156,35 +157,108 @@ function GlossaryRow({
   const [editing, setEditing] = useState(false)
   const [src, setSrc] = useState(entry.sourceText)
   const [tgt, setTgt] = useState(entry.targetText)
+  const [busy, setBusy] = useState<'save' | 'remove' | null>(null)
+  const [rowError, setRowError] = useState<string | null>(null)
+
+  const dirty = src !== entry.sourceText || tgt !== entry.targetText
+
+  const cancelEdit = () => {
+    if (dirty && !confirm('Discard changes?')) return
+    setSrc(entry.sourceText)
+    setTgt(entry.targetText)
+    setEditing(false)
+    setRowError(null)
+  }
 
   const save = async () => {
-    await api.glossaryUpdate({
-      id: entry.id,
-      sourceText: src,
-      targetText: tgt,
-    })
-    setEditing(false)
-    onChanged()
+    if (!dirty) {
+      setEditing(false)
+      return
+    }
+    setBusy('save')
+    setRowError(null)
+    try {
+      await api.glossaryUpdate({
+        id: entry.id,
+        sourceText: src,
+        targetText: tgt,
+      })
+      setEditing(false)
+      onChanged()
+    } catch (err: any) {
+      // Backend can reject (unique constraint on source+category, etc.) —
+      // keep the inline editor open with the message so the user can
+      // adjust + retry without retyping.
+      setRowError(err?.message ?? String(err))
+    } finally {
+      setBusy(null)
+    }
   }
   const remove = async () => {
     if (!confirm(`Delete "${entry.sourceText}"?`)) return
-    await api.glossaryRemove(entry.id)
-    onChanged()
+    setBusy('remove')
+    setRowError(null)
+    try {
+      await api.glossaryRemove(entry.id)
+      onChanged()
+    } catch (err: any) {
+      setRowError(err?.message ?? String(err))
+    } finally {
+      setBusy(null)
+    }
   }
 
   if (editing) {
     return (
       <div className='border-border bg-card space-y-1 rounded-md border p-1.5'>
-        <Input value={src} onChange={(e) => setSrc(e.target.value)} className='h-6 text-xs' />
-        <Input value={tgt} onChange={(e) => setTgt(e.target.value)} className='h-6 text-xs' />
+        <Input
+          value={src}
+          onChange={(e) => setSrc(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !busy) void save()
+            if (e.key === 'Escape') cancelEdit()
+          }}
+          className='h-6 text-xs'
+          autoFocus
+        />
+        <Input
+          value={tgt}
+          onChange={(e) => setTgt(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !busy) void save()
+            if (e.key === 'Escape') cancelEdit()
+          }}
+          className='h-6 text-xs'
+        />
         <div className='flex justify-end gap-1'>
-          <Button variant='ghost' size='icon-xs' className='size-6' onClick={() => setEditing(false)}>
+          <Button
+            variant='ghost'
+            size='icon-xs'
+            className='size-6'
+            onClick={cancelEdit}
+            disabled={busy !== null}
+          >
             ✕
           </Button>
-          <Button variant='default' size='icon-xs' className='size-6 text-[10px]' onClick={() => void save()}>
-            ✓
+          <Button
+            variant='default'
+            size='icon-xs'
+            className='size-6 text-[10px]'
+            onClick={() => void save()}
+            disabled={busy !== null}
+          >
+            {busy === 'save' ? (
+              <Loader2Icon className='size-3 animate-spin' />
+            ) : (
+              '✓'
+            )}
           </Button>
         </div>
+        {rowError && (
+          <p className='text-destructive text-[10px] leading-relaxed'>
+            {rowError}
+          </p>
+        )}
       </div>
     )
   }
@@ -218,10 +292,16 @@ function GlossaryRow({
             e.stopPropagation()
             void remove()
           }}
+          disabled={busy !== null}
         >
           <Trash2Icon className='size-3' />
         </Button>
       </div>
+      {rowError && (
+        <p className='text-destructive mt-1 text-[10px] leading-relaxed'>
+          {rowError}
+        </p>
+      )}
     </div>
   )
 }
@@ -236,20 +316,52 @@ function AddEntryModal({
   const [src, setSrc] = useState('')
   const [tgt, setTgt] = useState('')
   const [category, setCategory] = useState<GlossaryCategory>('term')
+  const [adding, setAdding] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
+
+  const canSubmit = !!src.trim() && !!tgt.trim() && !adding
 
   const submit = async () => {
     if (!src.trim() || !tgt.trim()) return
-    await api.glossaryAdd({
-      sourceText: src.trim(),
-      targetText: tgt.trim(),
-      category,
-    })
-    onAdded()
+    setAdding(true)
+    setAddError(null)
+    try {
+      await api.glossaryAdd({
+        sourceText: src.trim(),
+        targetText: tgt.trim(),
+        category,
+      })
+      onAdded()
+    } catch (err: any) {
+      // Backend may reject duplicates (sourceText + category unique).
+      // Stay open so user can edit + retry without re-typing.
+      setAddError(err?.message ?? String(err))
+    } finally {
+      setAdding(false)
+    }
   }
 
+  // Esc to close (consistent with other modals across the audit)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   return (
-    <div className='bg-background/80 fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm'>
-      <div className='bg-card border-border w-96 rounded-lg border p-4 shadow-lg'>
+    <div
+      className='bg-background/80 fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm'
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div
+        className='bg-card border-border w-96 rounded-lg border p-4 shadow-lg'
+        role='dialog'
+        aria-modal='true'
+      >
         <h3 className='text-foreground mb-3 text-sm font-bold'>
           Add glossary entry
         </h3>
@@ -258,12 +370,18 @@ function AddEntryModal({
             autoFocus
             value={src}
             onChange={(e) => setSrc(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && canSubmit) void submit()
+            }}
             placeholder='Source'
             className='text-sm'
           />
           <Input
             value={tgt}
             onChange={(e) => setTgt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && canSubmit) void submit()
+            }}
             placeholder='Target'
             className='text-sm'
           />
@@ -283,6 +401,11 @@ function AddEntryModal({
             </SelectContent>
           </Select>
         </div>
+        {addError && (
+          <p className='text-destructive mt-2 text-[10px] leading-relaxed'>
+            Failed to add: {addError}
+          </p>
+        )}
         <div className='mt-3 flex justify-end gap-2'>
           <Button variant='ghost' size='sm' onClick={onClose}>
             Cancel
@@ -290,9 +413,10 @@ function AddEntryModal({
           <Button
             variant='default'
             size='sm'
-            disabled={!src.trim() || !tgt.trim()}
+            disabled={!canSubmit}
             onClick={() => void submit()}
           >
+            {adding && <Loader2Icon className='size-3 animate-spin' />}
             Add
           </Button>
         </div>
