@@ -216,27 +216,16 @@ export function RenderControlsPanel() {
   const fontLabel = t('render.fontLabel')
   const effectLabel = t('render.effectLabel')
   const strokeLabel = t('render.effectBorder')
-  const strokeColorLabel = t('render.strokeColorLabel', {
-    defaultValue: 'Stroke color',
-  })
-  const strokeWidthLabel = t('render.strokeWidthLabel', {
-    defaultValue: 'Stroke width',
-  })
-  const alignLabel = t('render.alignLabel', {
-    defaultValue: 'Align',
-  })
+  const strokeColorLabel = t('render.strokeColorLabel')
+  const strokeWidthLabel = t('render.strokeWidthLabel')
+  const alignLabel = t('render.alignLabel')
   const currentTextAlign = resolveEffectiveTextAlign(
     selectedBlock ?? firstBlock,
   )
   const scopeLabel =
     selectedBlockIndex !== undefined
-      ? t('render.fontScopeBlockIndex', {
-          index: selectedBlockIndex + 1,
-          defaultValue: `Block ${selectedBlockIndex + 1}`,
-        })
-      : t('render.fontScopeGlobal', {
-          defaultValue: 'Global',
-        })
+      ? t('render.fontScopeBlockIndex', { index: selectedBlockIndex + 1 })
+      : t('render.fontScopeGlobal')
   const scopeToneClass =
     selectedBlockIndex !== undefined
       ? 'border-primary/20 bg-primary/10 text-primary'
@@ -324,21 +313,9 @@ export function RenderControlsPanel() {
     label: string
     Icon: ComponentType<{ className?: string }>
   }[] = [
-    {
-      value: 'left',
-      label: t('render.alignLeft', { defaultValue: 'Align left' }),
-      Icon: AlignLeftIcon,
-    },
-    {
-      value: 'center',
-      label: t('render.alignCenter', { defaultValue: 'Align center' }),
-      Icon: AlignCenterIcon,
-    },
-    {
-      value: 'right',
-      label: t('render.alignRight', { defaultValue: 'Align right' }),
-      Icon: AlignRightIcon,
-    },
+    { value: 'left', label: t('render.alignLeft'), Icon: AlignLeftIcon },
+    { value: 'center', label: t('render.alignCenter'), Icon: AlignCenterIcon },
+    { value: 'right', label: t('render.alignRight'), Icon: AlignRightIcon },
   ]
 
   return (
@@ -393,8 +370,8 @@ export function RenderControlsPanel() {
                 }),
               )}
               placeholder={t('render.fontPlaceholder')}
-              searchPlaceholder='Search font…'
-              emptyMessage='No fonts match'
+              searchPlaceholder={t('render.fontSearchPlaceholder')}
+              emptyMessage={t('render.fontEmptyMessage')}
               disabled={fontOptions.length === 0}
               className='h-8 w-full min-w-0'
             />
@@ -633,7 +610,7 @@ export function RenderControlsPanel() {
       {/* ============================================================ */}
       <div className='grid w-full min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-1.5'>
         <span className='text-muted-foreground text-[10px] font-medium tracking-wide uppercase'>
-          {t('render.sizeLabel', 'Size')}
+          {t('render.sizeLabel')}
         </span>
         <div className='flex items-center gap-1.5'>
           <NumericStepper
@@ -641,8 +618,8 @@ export function RenderControlsPanel() {
             min={6}
             max={300}
             step={1}
-            placeholder='auto'
-            ariaLabel='Font size'
+            placeholder={t('render.fontSizeAutoPlaceholder')}
+            ariaLabel={t('render.ariaFontSize')}
             disabled={!hasBlocks}
             onChange={(v) =>
               applyStyleToSelected({ fontSize: v }) ||
@@ -650,17 +627,14 @@ export function RenderControlsPanel() {
             }
           />
           <span className='text-muted-foreground text-[10px]'>
-            {t(
-              'render.sizeHint',
-              'Empty = auto-fit; set a number to lock the font size.',
-            )}
+            {t('render.sizeHint')}
           </span>
         </div>
       </div>
 
       <div className='grid w-full min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-1.5'>
         <span className='text-muted-foreground text-[10px] font-medium tracking-wide uppercase'>
-          {t('render.lineHeightLabel', 'Line ht')}
+          {t('render.lineHeightLabel')}
         </span>
         <div className='flex items-center gap-1.5'>
           <NumericStepper
@@ -669,7 +643,7 @@ export function RenderControlsPanel() {
             max={2.0}
             step={0.05}
             decimals={2}
-            ariaLabel='Line height'
+            ariaLabel={t('render.ariaLineHeight')}
             disabled={!hasBlocks}
             onChange={(v) =>
               applyStyleToSelected({ lineHeight: v }) ||
@@ -682,7 +656,7 @@ export function RenderControlsPanel() {
             max={8}
             step={0.5}
             decimals={1}
-            ariaLabel='Letter spacing'
+            ariaLabel={t('render.ariaLetterSpacing')}
             disabled={!hasBlocks}
             onChange={(v) =>
               applyStyleToSelected({ letterSpacingPx: v }) ||
@@ -690,29 +664,33 @@ export function RenderControlsPanel() {
             }
           />
           <span className='text-muted-foreground text-[10px]'>
-            {t('render.lineHeightLetterHint', 'mult · px tracking')}
+            {t('render.lineHeightLetterHint')}
           </span>
         </div>
       </div>
 
       <div className='grid w-full min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-1.5'>
         <span className='text-muted-foreground text-[10px] font-medium tracking-wide uppercase'>
-          {t('render.vAlignLabel', 'V-align')}
+          {t('render.vAlignLabel')}
         </span>
         <div className='flex items-center gap-1.5'>
           <div className='border-input bg-background inline-flex rounded-md border shadow-xs'>
             {(
               [
-                { value: 'top', icon: ArrowUpToLineIcon, label: 'Top' },
+                {
+                  value: 'top',
+                  icon: ArrowUpToLineIcon,
+                  label: t('render.vAlignTop'),
+                },
                 {
                   value: 'middle',
                   icon: AlignVerticalJustifyCenterIcon,
-                  label: 'Middle',
+                  label: t('render.vAlignMiddle'),
                 },
                 {
                   value: 'bottom',
                   icon: ArrowDownToLineIcon,
-                  label: 'Bottom',
+                  label: t('render.vAlignBottom'),
                 },
               ] as const
             ).map(({ value, icon: Icon, label }, i) => (
@@ -765,14 +743,11 @@ export function RenderControlsPanel() {
                 }}
               >
                 <LanguagesIcon className='size-3' />
-                {t('render.thaiPreset', 'Thai preset')}
+                {t('render.thaiPreset')}
               </Button>
             </TooltipTrigger>
             <TooltipContent side='bottom' sideOffset={4}>
-              {t(
-                'render.thaiPresetHint',
-                'line height 1.35 · spacing 0.5 px · min size 14 · middle align',
-              )}
+              {t('render.thaiPresetHint')}
             </TooltipContent>
           </Tooltip>
         </div>
@@ -780,7 +755,7 @@ export function RenderControlsPanel() {
 
       <div className='grid w-full min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-1.5'>
         <span className='text-muted-foreground text-[10px] font-medium tracking-wide uppercase'>
-          {t('render.minSizeLabel', 'Min size')}
+          {t('render.minSizeLabel')}
         </span>
         <div className='flex items-center gap-1.5'>
           <Tooltip>
@@ -791,8 +766,8 @@ export function RenderControlsPanel() {
                   min={6}
                   max={48}
                   step={1}
-                  placeholder='—'
-                  ariaLabel='Min font size for auto-fit'
+                  placeholder={t('render.minSizePlaceholder')}
+                  ariaLabel={t('render.ariaMinFontSize')}
                   disabled={!hasBlocks}
                   onChange={(v) =>
                     applyStyleToSelected({ minFontSize: v }) ||
@@ -802,17 +777,11 @@ export function RenderControlsPanel() {
               </div>
             </TooltipTrigger>
             <TooltipContent side='bottom' sideOffset={4} className='max-w-72'>
-              {t(
-                'render.minSizeHint',
-                'Auto-fit floor in pixels. Only matters when the bubble is too small for the text — without this, auto-fit can shrink to ~6 px and Thai becomes unreadable. Setting 14 forces text ≥ 14 px even if it has to overflow the bubble.',
-              )}
+              {t('render.minSizeHint')}
             </TooltipContent>
           </Tooltip>
           <span className='text-muted-foreground text-[10px]'>
-            {t(
-              'render.minSizeShortHint',
-              'Empty = no floor. Only kicks in when auto-fit wants to shrink below this.',
-            )}
+            {t('render.minSizeShortHint')}
           </span>
         </div>
       </div>

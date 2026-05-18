@@ -179,7 +179,20 @@
     "thaiPresetHint": "ระยะบรรทัด 1.35 · spacing 0.5 px · ขนาดต่ำสุด 14 · จัดกลาง",
     "minSizeLabel": "ขนาดต่ำสุด",
     "minSizeHint": "เพดานล่างของ auto-fit (px) — มีผลเฉพาะตอนข้อความใหญ่เกินกรอบเท่านั้น ถ้าไม่ตั้ง auto-fit อาจย่อลงไปถึง 6 px ซึ่งภาษาไทยอ่านไม่ออก ตั้ง 14 = บังคับใช้อย่างน้อย 14 px แม้จะล้นกรอบบ้าง",
-    "minSizeShortHint": "ว่าง = ไม่บังคับ. มีผลเฉพาะตอน auto-fit อยากย่อต่ำกว่าค่านี้"
+    "minSizeShortHint": "ว่าง = ไม่บังคับ. มีผลเฉพาะตอน auto-fit อยากย่อต่ำกว่าค่านี้",
+    "strokeColorLabel": "สีขอบ",
+    "strokeWidthLabel": "ความหนาขอบ",
+    "vAlignTop": "บน",
+    "vAlignMiddle": "กลาง",
+    "vAlignBottom": "ล่าง",
+    "fontSearchPlaceholder": "ค้นหาฟอนต์…",
+    "fontEmptyMessage": "ไม่พบฟอนต์ที่ตรง",
+    "fontSizeAutoPlaceholder": "auto",
+    "minSizePlaceholder": "—",
+    "ariaFontSize": "ขนาดฟอนต์",
+    "ariaLineHeight": "ระยะบรรทัด",
+    "ariaLetterSpacing": "ระยะระหว่างอักขระ",
+    "ariaMinFontSize": "ขนาดฟอนต์ต่ำสุดสำหรับ auto-fit"
   },
   "textBlocks": {
     "emptyPrompt": "เปิดภาพเพื่อดู text blocks",
