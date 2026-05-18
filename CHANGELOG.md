@@ -12,6 +12,243 @@ itself, see [their CHANGELOG](https://github.com/mayocream/koharu/blob/main/CHAN
 
 ---
 
+## [1.2.0] — 2026-05-19
+
+The "audit cycle" release. Surface area was largely stable since
+1.1.1 — what changed is the *interior*: 21 components walked end-to-
+end for data-loss bugs, race conditions, missing flushes, broken
+i18n, and a11y gaps; 4 cross-cutting P1/P2 bugs flushed out by an
+external code audit; 5 GitHub issues closed; 4 LLM-provider quirks
+fixed; and a clutch of perf wins on the inpaint / queue path.
+
+Notable: every project / document swap now drains pending sync
+queues before the swap and **removes** (not just invalidates) the
+outgoing project's cached queries, closing a cross-project data-
+corruption window where a fast click during a 200–1000 ms refetch
+could fire a mutation against the project that just closed.
+
+### Fixed — critical / data loss
+
+- **Cross-project cache leak on project swap.** `applyOpenedProject`
+  used to call `invalidateQueries(['project', ...])` which only marks
+  data stale; consumers in chat / glossary / characters / profiles /
+  cost dashboard kept reading the OLD project's rows for the
+  200–1000 ms it took refetch to settle. A fast click in that window
+  could fire a mutation against the closed project while the store
+  said "project B". Now uses `removeQueries` so consumers see a brief
+  loading state instead of stale rows, and added an explicit
+  `['documents']` removal (the predicate misses keys outside the
+  `['project', ...]` subtree).
+- **`activeChapterId` survived project swap.** `projectStore.setInfo`
+  now resets `activeChapterId` when the project identity changes;
+  same-project refresh leaves it alone so chapter focus survives a
+  stats-only re-fetch.
+- **Page navigation orphaned in-flight edits.** Every project /
+  document / chapter swap site (`Navigator`, `MenuBar` File>Open /
+  Recent / Close, `CommandPalette` New / Open / Close, `MenuBar`
+  retranslate path, `ImportGlossaryModal`, `ExtractEntitiesModal`,
+  `TextBlocksPanel` bulk import) now drains text-block + mask +
+  brush sync queues via `flushAllSyncQueues()` before mutating
+  state. Without the drain a debounced edit in flight could land
+  against the outgoing target and be silently lost.
+- **Local LLM chat was blocked by the API-key gate.** `ChatTabPanel`
+  bailed at `!apiKey` for every provider, but local profiles
+  (Ollama / LM Studio / llama.cpp at `localhost`) have no key by
+  design. Now detects local via `kindOf({provider, modelName, apiUrl})
+  === 'local'` and skips the gate; cloud providers still gated
+  normally.
+- **Attachment-only chat send was dead.** Send button enabled itself
+  for image-only turns but `send()` bailed first thing at
+  `!input.trim()`. Image-QA flows ("what does this bubble say?") are
+  now possible.
+- **Command Palette apply-profile bypassed the legacy-OpenRouter
+  helper.** Palette wrote `p.provider` directly to preferences;
+  legacy OpenRouter profiles (stored as `'openai'` + model containing
+  `/` from before backend fix b3d4c7f3) hit the OpenAI dispatcher
+  when applied from the palette and the OpenRouter dispatcher when
+  applied from the Profiles tab — silent inconsistency. Now routes
+  through `effectiveDbProvider(p)` to match.
+- **Renderer dropped per-block errors instead of propagating them.**
+  Failed renders are now surfaced.
+- **Translation queue could mark a cancelled entry as completed/
+  failed.** Added status='running' guard around terminal transitions.
+- **fileSave silenced real export errors.** Only the explicit
+  user-cancel path is silenced now; disk / permission errors surface.
+- **CSV / JSON glossary import was vulnerable to UTF-8 BOM
+  corruption.** Excel and Google Sheets prefix every CSV export with
+  one; the first header name became `﻿source` and failed the
+  required-column check. `stripBom()` now applied to both parsers.
+- **JSON glossary import silently dropped malformed rows.** Now
+  validates the array shape, counts incomplete rows separately, and
+  surfaces an amber warning callout with the count.
+- **JSON glossary bulk add swallowed backend errors.** Spinner
+  stopped but no message; now caught and surfaced as a destructive
+  callout.
+- **`ExtractEntitiesModal` apply was all-or-stop.** A single failed
+  insert aborted the loop and the modal closed regardless, leaving
+  the user blind to what landed. Now splits by category (characters
+  loop with per-row try/catch, glossary batched via `glossaryBulkAdd`)
+  and accumulates `{inserted, skipped, failed}`. Partial success
+  keeps the modal open with an amber summary so the user can retry
+  the failing rows.
+- **`ExtractEntitiesModal` stale-resolver clobber.** Closing the
+  modal mid-LLM-stream let the late-arriving resolver write
+  `setItems` on closed state. Gen-counter pattern (`genRef.current`)
+  added to both extract paths.
+- **Workspace Tauri resize listener captured stale `currentDocument`
+  / never saw `autoFitEnabled` toggles.** Refs mirror the latest
+  store state; listener mounts once with an empty dep array.
+- **Workspace ctrl+drag pan scrubbed canvas mid-brush stroke.** Pan
+  gesture now suppressed when brush / repair-brush / eraser mode is
+  active.
+
+### Fixed — GitHub issues
+
+- **#11 — OCR on stylised Latin titles collapsed word boundaries.**
+  MIT-48px line-join code joined adjacent characters without
+  whitespace; titles like "DEAD ARGON" came out "DEADARGON".
+- **#12 — Translation panel edits silently failed.** Backend RPC
+  registry was missing the `update_text_block` method — the panel
+  fired the call, backend returned "method not found", UI never
+  saw an error.
+- **#17 — No way to re-run translation without re-doing inpaint.**
+  Added Process > Re-translate (skip inpaint) menu item. Useful
+  when iterating on translate prompts or trying a different model
+  on the same already-inpainted pages.
+- **#20 — Source language detection was manual.** Project now auto-
+  detects source language from the first OCR pass; user can still
+  override in Settings.
+- **#21 — Thai translations had AI-style spacing artifacts.** Added
+  post-processing pass that collapses excess whitespace between
+  Thai characters and converts ASCII quotes to typographic curly
+  quotes. Toggleable in Settings; mixed-script content like
+  character names is preserved.
+
+### Fixed — LLM provider quirks
+
+- **Gemini `functionResponse.name` must be the function name, not
+  the tool-call id.** Was sending the id, getting "schema
+  mismatch" 400s on multi-turn tool use.
+- **Anthropic `max_tokens` was hard-coded too low for Claude 3.5
+  Sonnet.** Long translations got truncated mid-sentence. Now
+  scaled per-model.
+- **OpenAI JSON mode gate was too strict.** Some models that
+  support JSON mode were classified as text-only; the gate now
+  matches the broader OpenAI compatibility surface.
+- **OpenRouter profiles saved before 1.0.0 mis-stored as `'openai'`
+  in the `provider` column.** Backend now correctly maps
+  `'openrouter'` DB rows back to `Provider::Openrouter`; frontend
+  detection (`kindOf`) handles both the legacy mis-store and
+  freshly-saved rows.
+
+### Added — UX
+
+- **Storage panel** in Settings showing model-cache footprint with
+  a Reset button that won't fire if the cache folder doesn't exist
+  (prevents a confusing "deleted nothing" dialog).
+- **Thai post-processing** toggle in Settings (closes #21).
+- **Auto-detect source language** on first OCR pass (closes #20).
+- **Re-translate (skip inpaint)** menu item in Process menu
+  (closes #17).
+- **`/check-thai` slash command** in AI Chat — review the open
+  chapter for spelling / grammar / naturalness / tone, propose
+  fixes as a table, apply on approval via `update_text_block`.
+- **Modal a11y kit applied uniformly** — `role="dialog"` +
+  `aria-modal="true"` + `aria-labelledby` + Esc + backdrop click +
+  focus return — on Welcome, CommandPalette, ImportGlossaryModal,
+  ExtractEntitiesModal.
+- **ActivityBubble announces operations to screen readers** —
+  `role="status"` + `aria-live="polite"` + `aria-atomic="false"`
+  so each new card (op start, error, download begun) is announced
+  without re-reading siblings on every progress tick.
+- **`prefers-reduced-motion: reduce` honoured** on the
+  indeterminate progress sweep and the pulsing activity dot
+  (WCAG 2.3.3).
+- **Partial-success surfacing** on every bulk operation
+  (glossary import, entity extraction, queue clear) — amber
+  callout with `{inserted, skipped, failed}` instead of silent
+  drops.
+- **Profile-rename duplicate detection** in the LLM profile editor
+  — frontend warns + asks to confirm before saving over an
+  existing name.
+- **Auto-select first model** when switching LLM provider tab in
+  the profile editor.
+- **TTS and irrelevant models filtered out** of the LLM profile
+  model selector.
+
+### Added — i18n
+
+- **Thai (TH) and Japanese (JA) coverage completed** across every
+  audited component. New namespaces added: `palette.*`,
+  `costDashboard.*`, `queue.*`, `glossaryImport.*`,
+  `extractEntities.*`, plus ~40 keys backfilled into existing
+  `menu.*`, `render.*`, `textBlocks.*`, `chat.*`, `welcome.*`,
+  `chapters.*`, `settings.*`. Plurals flow through i18next
+  `_one` / `_other` resolution. Two-placeholder strings
+  (e.g. `statCallsOk: {{percent}}`) preserve word-order
+  flexibility so Thai puts "สำเร็จ" before the number while
+  English puts "ok" after.
+- **`update_text_block` RPC + cross-cutting plumbing** so AI Chat's
+  QC-fix workflow actually lands changes (closes #12 plumbing).
+- **`skip_inpaint` flag threaded through queue + MCP
+  ProcessRequest** so batched chapter queue runs can skip the
+  inpaint step on already-processed pages.
+
+### Changed — performance
+
+- **Parallel bubble inference** during the detect step — bubbles
+  previously processed sequentially.
+- **LaMa inpaint crops capped at 512 px** before being fed to the
+  model — large bubbles used to allocate megabytes for what the
+  network then resized anyway.
+- **`build-all-gpus.sh` no longer copies the MSI installer** —
+  Tauri's NSIS bundle is the supported Windows artifact; the MSI
+  copy was unused and doubled disk footprint per build.
+
+### Changed — internals
+
+- **`profileHelpers.ts` extracted** — `KINDS`, `kindOf()`,
+  `effectiveDbProvider()`, `canLoadModels()` consolidated from
+  copy-pasted code in `ProfilesTabPanel`, `CanvasToolbar`,
+  `Settings`, `cloudOcr`, `CommandPalette`. Legacy OpenRouter
+  mis-store handled in one place.
+- **`flushAllSyncQueues()` introduced** in `lib/services/syncQueues.ts`
+  to batch text-block + mask + brush queues via `Promise.all` —
+  used everywhere a swap might orphan in-flight writes.
+- **Gen-counter pattern (`genRef.current`)** standardised for race
+  guards on async resolvers (retranslate, extract entities,
+  Workspace canvas auto-fit listener).
+- **Per-block vs global font scope** now routes through a single
+  `applyStyleToSelected(...) || applyStyleToAll(...)` chain in
+  `RenderControlsPanel` — boolean return is the intentional
+  fall-through signal.
+
+### Added — docs / infra
+
+- **GitHub issue templates** (bug report, feature request) +
+  rewritten `CONTRIBUTING.md` covering the per-GPU build matrix,
+  cherry-pick workflow for upstream PRs, and the i18n locale
+  convention.
+- **OG image** for repo social preview.
+- **`docs/roadmap.md`** updated with 1.0.3 + 1.1.x shipped sections
+  and the 1.2.x upstream-sync plan (PTX-JIT / Vulkan / ZLUDA).
+
+### Security
+
+- **NSIS uninstaller safety belts** (4 layers) added to prevent the
+  installer from deleting user-owned project folders during
+  uninstall — a class of bug famously surfaced by a Thai game
+  studio incident the year prior.
+
+### Rebuild
+
+- Per-GPU binaries (Turing / Ampere / Ada / Blackwell) re-cut
+  against the same toolchain as 1.1.1. Per-GPU split remains
+  necessary while `bindgen_cuda` 0.1.6 can't accept a multi-cap
+  build string; revisit when upstream PTX-JIT sync lands in 1.2.x.
+
+---
+
 ## [1.1.1] — 2026-05-18
 
 Hotfix for a cosmetic version-check bug introduced by 1.1.0's
