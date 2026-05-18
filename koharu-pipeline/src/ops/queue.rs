@@ -269,6 +269,9 @@ async fn process_entry(
             detector_engine: None,
             anime_yolo_variant: None,
             anime_yolo_confidence: None,
+            // Queue uses the default "do everything" pipeline; no
+            // user-driven re-translate flow here, so always inpaint.
+            skip_inpaint: None,
         },
     )
     .await?;
