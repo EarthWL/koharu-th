@@ -1,5 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Koharu",
   "identifier": "Koharu",
   "build": {
     "beforeDevCommand": "bun --cwd ui dev",
