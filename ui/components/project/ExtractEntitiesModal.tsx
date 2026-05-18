@@ -1,7 +1,13 @@
 'use client'
 
-import { useState } from 'react'
-import { DownloadIcon, Loader2Icon, SparklesIcon } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import {
+  DownloadIcon,
+  Loader2Icon,
+  SparklesIcon,
+  WandSparklesIcon,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -21,13 +27,17 @@ import {
   ocrAllOpenPages,
 } from '@/lib/services/chapterText'
 import { api, type GlossaryCategory } from '@/lib/api'
-import { WandSparklesIcon } from 'lucide-react'
 
 type Proposed = ExtractedEntity & {
   selected: boolean
   // Category as picked by the user — may be edited from what the model proposed.
   appliedCategory: 'character' | GlossaryCategory
 }
+
+type ApplyResult =
+  | { kind: 'success'; inserted: number; skipped: number }
+  | { kind: 'mixed'; inserted: number; skipped: number; failed: number }
+  | { kind: 'error'; message: string }
 
 const ALL_CATEGORIES: ('character' | GlossaryCategory)[] = [
   'character',
@@ -40,15 +50,15 @@ const ALL_CATEGORIES: ('character' | GlossaryCategory)[] = [
   'sfx',
 ]
 
-const CATEGORY_LABEL: Record<'character' | GlossaryCategory, string> = {
-  character: 'Character',
-  place: 'Place',
-  term: 'Term',
-  skill: 'Skill',
-  honorific: 'Honorific',
-  item: 'Item',
-  org: 'Organization',
-  sfx: 'SFX',
+const CATEGORY_LABEL_KEY: Record<'character' | GlossaryCategory, string> = {
+  character: 'extractEntities.catCharacter',
+  place: 'extractEntities.catPlace',
+  term: 'extractEntities.catTerm',
+  skill: 'extractEntities.catSkill',
+  honorific: 'extractEntities.catHonorific',
+  item: 'extractEntities.catItem',
+  org: 'extractEntities.catOrg',
+  sfx: 'extractEntities.catSfx',
 }
 
 /**
@@ -79,6 +89,7 @@ export function ExtractEntitiesModal({
   initialText?: string
   onApplied?: () => void
 }) {
+  const { t } = useTranslation()
   const [text, setText] = useState(initialText)
   const [items, setItems] = useState<Proposed[] | null>(null)
   const [loading, setLoading] = useState(false)
@@ -86,6 +97,29 @@ export function ExtractEntitiesModal({
   const [ocrProgress, setOcrProgress] = useState<{ done: number; total: number; label: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [applying, setApplying] = useState(false)
+  const [applyResult, setApplyResult] = useState<ApplyResult | null>(null)
+  // Generation counter — increments on every new extract / OCR+extract
+  // attempt. The async resolver checks `gen === genRef.current` before
+  // writing state; if the user closed the modal or restarted, the
+  // stale resolver bails instead of clobbering fresh state on an
+  // unmounted (or now-different) modal.
+  const genRef = useRef(0)
+
+  // Esc-to-close + reset gen counter on unmount. Listener only mounts
+  // while the modal is open so it doesn't leak when closed.
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      // Bump the gen counter on unmount/close so any in-flight LLM
+      // resolver sees a stale generation and skips its setItems().
+      genRef.current++
+    }
+  }, [open, onClose])
 
   if (!open) return null
 
@@ -95,7 +129,7 @@ export function ExtractEntitiesModal({
     try {
       const loaded = await loadCurrentWorkspaceText()
       if (!loaded) {
-        setError('No text in the loaded documents. Run OCR first.')
+        setError(t('extractEntities.noLoadedText'))
         return
       }
       setText(loaded)
@@ -110,21 +144,26 @@ export function ExtractEntitiesModal({
    *  text), then auto-trigger the extract step. One-shot setup for a
    *  freshly imported chapter. */
   const autoOcrAndExtract = async () => {
+    const gen = ++genRef.current
     setLoadingDocs(true)
     setError(null)
     setItems(null)
+    setApplyResult(null)
     try {
-      const loaded = await ocrAllOpenPages((done, total, label) =>
-        setOcrProgress({ done, total, label }),
-      )
+      const loaded = await ocrAllOpenPages((done, total, label) => {
+        if (gen !== genRef.current) return
+        setOcrProgress({ done, total, label })
+      })
+      if (gen !== genRef.current) return
       setOcrProgress(null)
       if (!loaded) {
-        setError('No text recognised on any page. Try OCR manually.')
+        setError(t('extractEntities.noRecognisedText'))
         return
       }
       setText(loaded)
       setLoading(true)
       const proposed = await extractEntitiesFromText(loaded)
+      if (gen !== genRef.current) return
       setItems(
         proposed.map((p) => ({
           ...p,
@@ -133,21 +172,27 @@ export function ExtractEntitiesModal({
         })),
       )
     } catch (e: any) {
+      if (gen !== genRef.current) return
       setError(e?.message || String(e))
     } finally {
-      setLoadingDocs(false)
-      setLoading(false)
-      setOcrProgress(null)
+      if (gen === genRef.current) {
+        setLoadingDocs(false)
+        setLoading(false)
+        setOcrProgress(null)
+      }
     }
   }
 
   const runExtract = async () => {
     if (!text.trim()) return
+    const gen = ++genRef.current
     setLoading(true)
     setError(null)
     setItems(null)
+    setApplyResult(null)
     try {
       const proposed = await extractEntitiesFromText(text)
+      if (gen !== genRef.current) return
       setItems(
         proposed.map((p) => ({
           ...p,
@@ -156,62 +201,116 @@ export function ExtractEntitiesModal({
         })),
       )
     } catch (e: any) {
+      if (gen !== genRef.current) return
       setError(e?.message || String(e))
     } finally {
-      setLoading(false)
+      if (gen === genRef.current) setLoading(false)
     }
   }
 
   const applySelected = async () => {
     if (!items) return
     setApplying(true)
-    try {
-      for (const item of items) {
-        if (!item.selected) continue
-        if (item.appliedCategory === 'character') {
-          await api.characterAdd({
-            originalName: item.original,
-            translatedName: item.translation,
-            isMain: false,
-          })
-        } else {
-          await api.glossaryAdd({
-            sourceText: item.original,
-            targetText: item.translation,
-            category: item.appliedCategory,
+    setApplyResult(null)
+    const selected = items.filter((i) => i.selected)
+    // Split by category: characters lack a bulk endpoint so we loop
+    // with per-row try/catch; glossary rows go through glossaryBulkAdd
+    // for one atomic round-trip + a server-side dedup report.
+    const characters = selected.filter((i) => i.appliedCategory === 'character')
+    const glossaryRows = selected.filter(
+      (i) => i.appliedCategory !== 'character',
+    )
+
+    let inserted = 0
+    let skipped = 0
+    let failed = 0
+
+    for (const c of characters) {
+      try {
+        await api.characterAdd({
+          originalName: c.original,
+          translatedName: c.translation,
+          isMain: false,
+        })
+        inserted++
+      } catch {
+        failed++
+      }
+    }
+
+    if (glossaryRows.length > 0) {
+      try {
+        const r = await api.glossaryBulkAdd(
+          glossaryRows.map((g) => ({
+            sourceText: g.original,
+            targetText: g.translation,
+            category: g.appliedCategory as GlossaryCategory,
             confidence: 'extracted',
             approved: true,
-          })
-        }
+          })),
+        )
+        inserted += r.inserted
+        skipped += r.skipped
+      } catch (err: any) {
+        // Bulk failed wholesale — count every glossary row as failed
+        // and surface the message so user knows the cause.
+        failed += glossaryRows.length
+        setApplying(false)
+        setApplyResult({
+          kind: 'error',
+          message: err?.message ?? String(err),
+        })
+        return
       }
-      onApplied?.()
+    }
+
+    setApplying(false)
+    onApplied?.()
+    if (failed > 0) {
+      // Partial success — keep the modal open with a summary so the
+      // user can adjust the failed rows and retry.
+      setApplyResult({ kind: 'mixed', inserted, skipped, failed })
+    } else {
+      // All clear — close on a tick so user briefly sees the success
+      // banner, but reset state for the next open.
+      setApplyResult({ kind: 'success', inserted, skipped })
       onClose()
       setItems(null)
       setText('')
-    } finally {
-      setApplying(false)
     }
   }
 
   const selectedCount = items?.filter((i) => i.selected).length ?? 0
 
   return (
-    <div className='bg-background/80 fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm'>
+    <div
+      role='dialog'
+      aria-modal='true'
+      aria-labelledby='extract-entities-title'
+      className='bg-background/80 fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm'
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
       <div className='bg-card border-border flex max-h-[90vh] w-[42rem] max-w-[90vw] flex-col overflow-hidden rounded-lg border shadow-lg'>
         <div className='border-border flex shrink-0 items-center gap-2 border-b p-4'>
           <SparklesIcon className='text-primary size-4' />
-          <h3 className='text-foreground text-sm font-bold'>Extract entities</h3>
+          <h3
+            id='extract-entities-title'
+            className='text-foreground text-sm font-bold'
+          >
+            {t('extractEntities.title')}
+          </h3>
         </div>
 
         <div className='min-h-0 flex-1 space-y-3 overflow-y-auto p-4'>
           <p className='text-muted-foreground text-xs'>
-            Paste the chapter text (or any chunk you want analysed). The
-            LLM will propose named entities and you pick which to keep.
+            {t('extractEntities.intro')}
           </p>
           <Textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder='Paste source text here, or load from the currently-loaded pages.'
+            placeholder={t('extractEntities.placeholder')}
             style={{ fieldSizing: 'fixed' as any }}
             className='block max-h-48 min-h-32 w-full resize-y overflow-auto text-xs whitespace-pre-wrap break-words'
           />
@@ -222,28 +321,28 @@ export function ExtractEntitiesModal({
                 size='sm'
                 disabled={loadingDocs}
                 onClick={() => void loadFromWorkspace()}
-                title='Load text from pages that have already been OCRed'
+                title={t('extractEntities.loadFromPagesTooltip')}
               >
                 {loadingDocs && !ocrProgress ? (
                   <Loader2Icon className='size-3.5 animate-spin' />
                 ) : (
                   <DownloadIcon className='size-3.5' />
                 )}
-                Load from open pages
+                {t('extractEntities.loadFromPages')}
               </Button>
               <Button
                 variant='outline'
                 size='sm'
                 disabled={loadingDocs || loading}
                 onClick={() => void autoOcrAndExtract()}
-                title='Run detect+OCR on every open page, then extract entities — best for a freshly imported chapter'
+                title={t('extractEntities.autoOcrExtractTooltip')}
               >
                 {loadingDocs && ocrProgress ? (
                   <Loader2Icon className='size-3.5 animate-spin' />
                 ) : (
                   <WandSparklesIcon className='size-3.5' />
                 )}
-                Auto OCR + Extract
+                {t('extractEntities.autoOcrExtract')}
               </Button>
             </div>
             <Button
@@ -257,14 +356,14 @@ export function ExtractEntitiesModal({
               ) : (
                 <SparklesIcon className='size-3.5' />
               )}
-              Extract
+              {t('extractEntities.extract')}
             </Button>
           </div>
           {ocrProgress && (
             <div className='border-border bg-muted/40 rounded-md border p-2 text-[10px]'>
               <div className='mb-1 flex items-center justify-between'>
                 <span className='text-foreground font-semibold'>
-                  Running OCR on chapter pages…
+                  {t('extractEntities.ocrRunning')}
                 </span>
                 <span className='text-muted-foreground font-mono'>
                   {ocrProgress.done} / {ocrProgress.total}
@@ -288,6 +387,22 @@ export function ExtractEntitiesModal({
               {error}
             </div>
           )}
+          {applyResult?.kind === 'mixed' && (
+            <div className='border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 rounded-md border p-2 text-xs'>
+              {t('extractEntities.applyDoneMixed', {
+                inserted: applyResult.inserted,
+                failed: applyResult.failed,
+                skipped: applyResult.skipped,
+              })}
+            </div>
+          )}
+          {applyResult?.kind === 'error' && (
+            <div className='border-destructive/40 bg-destructive/10 text-destructive rounded-md border p-2 text-xs'>
+              {t('extractEntities.applyFailedAll', {
+                message: applyResult.message,
+              })}
+            </div>
+          )}
 
           {items && (
             <div className='border-border -mx-4 mt-2 border-t'>
@@ -295,9 +410,9 @@ export function ExtractEntitiesModal({
               <thead className='bg-muted/50 text-muted-foreground'>
                 <tr>
                   <th className='w-8 px-2 py-1'></th>
-                  <th className='px-2 py-1 font-medium'>Original</th>
-                  <th className='px-2 py-1 font-medium'>Translation</th>
-                  <th className='px-2 py-1 font-medium'>Category</th>
+                  <th className='px-2 py-1 font-medium'>{t('extractEntities.thOriginal')}</th>
+                  <th className='px-2 py-1 font-medium'>{t('extractEntities.thTranslation')}</th>
+                  <th className='px-2 py-1 font-medium'>{t('extractEntities.thCategory')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -357,7 +472,7 @@ export function ExtractEntitiesModal({
                         <SelectContent>
                           {ALL_CATEGORIES.map((c) => (
                             <SelectItem key={c} value={c}>
-                              {CATEGORY_LABEL[c]}
+                              {t(CATEGORY_LABEL_KEY[c])}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -378,7 +493,10 @@ export function ExtractEntitiesModal({
           {items ? (
             <>
               <span className='text-muted-foreground text-xs'>
-                {selectedCount} of {items.length} selected
+                {t('extractEntities.selectedCount', {
+                  selected: selectedCount,
+                  total: items.length,
+                })}
               </span>
               <div className='flex gap-2'>
                 <Button
@@ -391,10 +509,10 @@ export function ExtractEntitiesModal({
                     )
                   }}
                 >
-                  Toggle all
+                  {t('extractEntities.toggleAll')}
                 </Button>
                 <Button variant='ghost' size='sm' onClick={onClose}>
-                  Close
+                  {t('extractEntities.close')}
                 </Button>
                 <Button
                   variant='default'
@@ -403,7 +521,7 @@ export function ExtractEntitiesModal({
                   onClick={() => void applySelected()}
                 >
                   {applying && <Loader2Icon className='size-3.5 animate-spin' />}
-                  Apply {selectedCount}
+                  {t('extractEntities.applyButton', { count: selectedCount })}
                 </Button>
               </div>
             </>
@@ -414,7 +532,7 @@ export function ExtractEntitiesModal({
               onClick={onClose}
               className='ml-auto'
             >
-              Close
+              {t('extractEntities.close')}
             </Button>
           )}
         </div>
