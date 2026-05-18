@@ -10,7 +10,16 @@
 # Outputs: release-out/ holds N artifacts ready to upload to a release.
 set -euo pipefail
 
-VERSION="1.1.1"
+# Single source of truth: the workspace version in Cargo.toml.
+# Avoids drift between this script and the actual binary version after
+# every release bump.
+VERSION=$(grep -E '^version = "[0-9]+\.[0-9]+\.[0-9]+"$' Cargo.toml | head -1 | sed -E 's/version = "(.+)"/\1/')
+if [[ -z "$VERSION" ]]; then
+    echo "ERROR: could not parse workspace version from Cargo.toml" >&2
+    exit 1
+fi
+echo "Building koharu-th v$VERSION"
+
 OUT_DIR="release-out"
 mkdir -p "$OUT_DIR"
 
