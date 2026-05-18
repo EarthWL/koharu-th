@@ -9,6 +9,7 @@ import {
   LogOutIcon,
   SparklesIcon,
   UploadIcon,
+  WandIcon,
 } from 'lucide-react'
 import { runTmEmbeddingBackfill } from '@/lib/services/tmBackfill'
 import { CostDashboard } from '@/components/project/CostDashboard'
@@ -19,6 +20,8 @@ import { Button } from '@/components/ui/button'
 import { api, type SeriesMetaDto } from '@/lib/api'
 import { useProjectMutations } from '@/lib/query/projectMutations'
 import { useProjectStore } from '@/lib/stores/projectStore'
+import { useEditorUiStore } from '@/lib/stores/editorUiStore'
+import { detectSourceLanguageFromBlocks } from '@/lib/util/detectSourceLanguage'
 
 export function ProjectTabPanel() {
   const info = useProjectStore((s) => s.info)
@@ -61,6 +64,45 @@ export function ProjectTabPanel() {
       setDirty(false)
     } finally {
       setSaving(false)
+    }
+  }
+
+  const [detecting, setDetecting] = useState(false)
+  const detectSourceLang = async () => {
+    // Sample OCR text from up to the first 5 loaded pages — more chars
+    // sampled = more reliable verdict, but we don't need to scan a 200
+    // page chapter to know it's Japanese.
+    setDetecting(true)
+    try {
+      const totalPages = useEditorUiStore.getState().totalPages
+      if (!totalPages) {
+        alert(
+          'No pages loaded — open a chapter first so we can scan its OCR text.',
+        )
+        return
+      }
+      const sampleCount = Math.min(5, totalPages)
+      const allBlocks: { text?: string | null }[] = []
+      for (let i = 0; i < sampleCount; i++) {
+        try {
+          const doc = await api.getDocument(i)
+          if (doc?.textBlocks) allBlocks.push(...doc.textBlocks)
+        } catch {
+          // page might not have been OCR'd yet — skip silently
+        }
+      }
+      const detected = detectSourceLanguageFromBlocks(allBlocks)
+      if (!detected) {
+        alert(
+          'Could not detect a dominant source language — run OCR on a few pages first, then try again.',
+        )
+        return
+      }
+      // Update the draft + mark dirty so user has to hit Save to
+      // confirm. Don't silently persist behind their back.
+      patch('sourceLanguage', detected)
+    } finally {
+      setDetecting(false)
     }
   }
 
@@ -124,11 +166,29 @@ export function ProjectTabPanel() {
               </Field>
               <div className='grid grid-cols-2 gap-2'>
                 <Field label='Source lang'>
-                  <Input
-                    value={draft.sourceLanguage ?? ''}
-                    onChange={(e) => patch('sourceLanguage', e.target.value)}
-                    className='h-7 text-xs'
-                  />
+                  <div className='flex gap-1'>
+                    <Input
+                      value={draft.sourceLanguage ?? ''}
+                      onChange={(e) => patch('sourceLanguage', e.target.value)}
+                      className='h-7 text-xs'
+                      placeholder='ja / ko / zh / en'
+                    />
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='xs'
+                      onClick={detectSourceLang}
+                      disabled={detecting}
+                      title='Auto-detect from OCR text (Issue #20)'
+                      className='shrink-0 px-1.5'
+                    >
+                      {detecting ? (
+                        <Loader2Icon className='size-3 animate-spin' />
+                      ) : (
+                        <WandIcon className='size-3' />
+                      )}
+                    </Button>
+                  </div>
                 </Field>
                 <Field label='Target lang'>
                   <Input
