@@ -24,6 +24,10 @@ import {
 } from '@/lib/services/syncQueues'
 import { applyThaiPostProcessToBlocks } from '@/lib/util/thaiPostProcess'
 import i18n from '@/lib/i18n'
+import {
+  applyThaiPostProcess,
+  detectDominantLanguage,
+} from '@/lib/thaiPostProcess'
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => {
@@ -616,6 +620,7 @@ export const useDocumentMutations = () => {
         detectorEngine,
         animeYoloVariant,
         animeYoloConfidence,
+        inpaintMaxSide,
       } = usePreferencesStore.getState()
       const { startOperation, finishOperation } = useOperationStore.getState()
       startOperation({
@@ -670,6 +675,7 @@ export const useDocumentMutations = () => {
             fontFamily,
             skipDetect: true,
             skipOcr: true,
+            inpaintMaxSide,
           })
         } else {
           await api.process({
@@ -683,6 +689,7 @@ export const useDocumentMutations = () => {
             detectorEngine,
             animeYoloVariant,
             animeYoloConfidence,
+            inpaintMaxSide,
           })
         }
       } catch (error) {
@@ -739,6 +746,125 @@ export const useDocumentMutations = () => {
     }
   }, [clearProgress])
 
+  // Re-translate โดยไม่รอ inpaint ซ้ำ — ใช้ผลลัพธ์ inpaint เดิม
+  const retranslateImage = useCallback(
+    async (_?: any, index?: number) => {
+      const resolvedIndex =
+        index ?? useEditorUiStore.getState().currentDocumentIndex
+      const { selectedModel, selectedLanguage } = useLlmUiStore.getState()
+      const { renderEffect, renderStroke } = useEditorUiStore.getState()
+      const { fontFamily, inpaintMaxSide, thaiPostProcess } =
+        usePreferencesStore.getState()
+      const { startOperation, finishOperation } = useOperationStore.getState()
+      startOperation({
+        type: 'process-current',
+        cancellable: true,
+        current: 0,
+        total: 2,
+      })
+      try {
+        await api.process({
+          index: resolvedIndex,
+          llmModelId: selectedModel,
+          language: selectedLanguage,
+          shaderEffect: renderEffect,
+          shaderStroke: renderStroke,
+          fontFamily,
+          skipDetect: true,
+          skipOcr: true,
+          skipInpaint: true,
+          inpaintMaxSide,
+        })
+        // Apply Thai post-processing ถ้าเปิดใช้งาน
+        if (thaiPostProcess) {
+          const doc = await api.getDocument(resolvedIndex)
+          if (doc.textBlocks.some((b: any) => b.translation)) {
+            const updated = doc.textBlocks.map((b: any) => ({
+              ...b,
+              translation: b.translation
+                ? applyThaiPostProcess(b.translation)
+                : b.translation,
+            }))
+            await api.updateTextBlocks(resolvedIndex, updated)
+            await invalidateCurrentDocument(queryClient, resolvedIndex)
+          }
+        }
+      } catch (error) {
+        console.error('Failed to retranslate:', error)
+        finishOperation()
+        await clearProgress()
+      }
+    },
+    [queryClient, clearProgress],
+  )
+
+  // Stream-translate ทีละ block — แปลและแสดงผลแต่ละ bubble ทันทีที่เสร็จ
+  // ปลอดภัย: ใช้ api.llmGenerate() ที่มีอยู่แล้ว ไม่แตะ main pipeline
+  const streamTranslateImage = useCallback(
+    async (_?: any, index?: number) => {
+      const resolvedIndex =
+        index ?? useEditorUiStore.getState().currentDocumentIndex
+      const { selectedLanguage } = useLlmUiStore.getState()
+      const { thaiPostProcess } = usePreferencesStore.getState()
+      const { startOperation, finishOperation } = useOperationStore.getState()
+
+      const doc = await api.getDocument(resolvedIndex)
+      const blocks = doc.textBlocks ?? []
+      const total = blocks.length
+      if (total === 0) return
+
+      startOperation({
+        type: 'process-current',
+        cancellable: false,
+        current: 0,
+        total,
+      })
+      try {
+        for (let i = 0; i < total; i++) {
+          await api.llmGenerate(resolvedIndex, i, selectedLanguage ?? undefined)
+          // Apply Thai post-processing ต่อ block นี้
+          if (thaiPostProcess) {
+            const updated = await api.getDocument(resolvedIndex)
+            const block = updated.textBlocks[i]
+            if (block?.translation) {
+              const patched = updated.textBlocks.map((b: any, idx: number) =>
+                idx === i
+                  ? { ...b, translation: applyThaiPostProcess(b.translation) }
+                  : b,
+              )
+              await api.updateTextBlocks(resolvedIndex, patched)
+            }
+          }
+          // อัปเดต UI หลังแต่ละ block
+          await invalidateCurrentDocument(queryClient, resolvedIndex)
+        }
+      } catch (error) {
+        console.error('Stream translate error:', error)
+      } finally {
+        finishOperation()
+      }
+    },
+    [queryClient],
+  )
+
+  // ตรวจจับภาษาต้นฉบับจากผล OCR อัตโนมัติ และตั้งค่า selectedLanguage ใน LLM UI
+  const autoDetectSourceLanguage = useCallback(
+    async (_?: any, index?: number): Promise<string | null> => {
+      const resolvedIndex =
+        index ?? useEditorUiStore.getState().currentDocumentIndex
+      try {
+        const doc = await api.getDocument(resolvedIndex)
+        const texts = (doc.textBlocks ?? [])
+          .map((b: any) => b.text ?? '')
+          .filter(Boolean)
+        return detectDominantLanguage(texts)
+      } catch {
+        return null
+      }
+    },
+    [],
+  )
+
   const exportDocument = useCallback(async () => {
     const { currentDocumentIndex } = useEditorUiStore.getState()
     await api.exportDocument(currentDocumentIndex)
@@ -778,6 +904,9 @@ export const useDocumentMutations = () => {
     cancelOperation,
     setProgress,
     clearProgress,
+    retranslateImage,
+    streamTranslateImage,
+    autoDetectSourceLanguage,
   }
 }
 

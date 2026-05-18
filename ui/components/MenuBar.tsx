@@ -46,6 +46,8 @@ export function MenuBar() {
     processImage,
     retranslateImage,
     inpaintAndRenderImage,
+    retranslateImage,
+    streamTranslateImage,
     processAllImages,
     exportDocument,
     exportAllInpainted,
@@ -194,6 +196,16 @@ export function MenuBar() {
           onSelect: inpaintAndRenderImage,
           testId: 'menu-process-rerender',
           disabled: !hasDocument,
+        },
+        {
+          label: t('menu.retranslate', 'Re-translate (skip inpaint)'),
+          onSelect: retranslateImage,
+          testId: 'menu-process-retranslate',
+        },
+        {
+          label: t('menu.streamTranslate', 'Stream Translate (per-block)'),
+          onSelect: streamTranslateImage,
+          testId: 'menu-process-stream-translate',
         },
         {
           label: t('menu.processAll'),

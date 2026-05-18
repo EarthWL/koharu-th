@@ -17,6 +17,7 @@ env:
 jobs:
   release:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - platform: 'macos-latest' # for Arm based macs (M1 and above).

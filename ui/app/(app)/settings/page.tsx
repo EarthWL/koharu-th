@@ -10,10 +10,9 @@ import {
   MonitorIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  Loader2Icon,
-  Trash2Icon,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Button } from '@/components/ui/button'
 import {
   Select,
   SelectContent,
@@ -28,7 +27,6 @@ import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type StorageClearTarget, type StorageEntry } from '@/lib/api'
 import { supportsVision } from '@/lib/services/visionSupport'
-import { effectiveDbProvider } from '@/lib/services/profileHelpers'
 import { useProjectStore } from '@/lib/stores/projectStore'
 
 const THEME_OPTIONS = [
@@ -45,6 +43,8 @@ export default function SettingsPage() {
     [i18n.options.resources],
   )
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo>()
+  const [mlDeviceSelection, setMlDeviceSelection] = useState<string>('AUTO')
+  const [needsRelaunch, setNeedsRelaunch] = useState<boolean>(false)
   const ocrEngine = usePreferencesStore((s) => s.ocrEngine)
   const setOcrEngine = usePreferencesStore((s) => s.setOcrEngine)
   const ocrSmartCloudFallback = usePreferencesStore((s) => s.ocrSmartCloudFallback)
@@ -61,6 +61,12 @@ export default function SettingsPage() {
   const setAnimeYoloConfidence = usePreferencesStore(
     (s) => s.setAnimeYoloConfidence,
   )
+  const autoUpdateMode = usePreferencesStore((s) => s.autoUpdateMode)
+  const setAutoUpdateMode = usePreferencesStore((s) => s.setAutoUpdateMode)
+  const inpaintMaxSide = usePreferencesStore((s) => s.inpaintMaxSide)
+  const setInpaintMaxSide = usePreferencesStore((s) => s.setInpaintMaxSide)
+  const thaiPostProcess = usePreferencesStore((s) => s.thaiPostProcess)
+  const setThaiPostProcess = usePreferencesStore((s) => s.setThaiPostProcess)
   const projectInfo = useProjectStore((s) => s.info)
   const cloudProvider = usePreferencesStore((s) => s.cloudProvider)
   const cloudModelName = usePreferencesStore((s) => s.cloudModelName)
@@ -74,14 +80,21 @@ export default function SettingsPage() {
     enabled: !!projectInfo && (ocrEngine === 'cloud' || ocrEngine === 'auto'),
     staleTime: 30_000,
   })
-  // Vision-capability filter for the OCR Cloud Vision profile picker.
-  // Uses the shared `effectiveDbProvider()` helper so legacy OpenRouter
-  // profiles (stored as provider='openai' before backend commit
-  // b3d4c7f3 — slash in modelName is the tell) are routed to the
-  // right vision check. Was duplicated inline here + in
-  // CanvasToolbar + in cloudOcr; now lives in profileHelpers.ts.
-  const visionProfiles = (profiles.data ?? []).filter((p) =>
-    supportsVision(effectiveDbProvider(p), p.modelName).supported,
+  // Same heuristic as ProfilesTabPanel.kindOf — legacy OpenRouter
+  // profiles created before commit d6a97bb6 were saved with
+  // provider='openai' (Rust backend used to collapse the variant).
+  // The model id retains the `vendor/model` slash, which is the tell.
+  // Without this, the filter rejects perfectly-valid OpenRouter
+  // vision profiles (Gemini via OpenRouter etc.) and the user sees
+  // "no vision profile" even though their AI Chat works fine with
+  // the same profile.
+  const effectiveProvider = (p: { provider: string; modelName: string }) =>
+    p.provider === 'openai' && p.modelName.includes('/')
+      ? 'openrouter'
+      : p.provider
+  const visionProfiles = (profiles.data ?? []).filter(
+    (p) =>
+      supportsVision(effectiveProvider(p), p.modelName).supported,
   )
   // Active translation profile counts too — the "(Use the active
   // translation profile)" option in the dropdown uses it. So the
@@ -92,9 +105,7 @@ export default function SettingsPage() {
     !!cloudModelName &&
     cloudProvider !== 'none' &&
     supportsVision(
-      // Inline call: we have a synthetic profile shape (no id), so
-      // construct the minimal object effectiveDbProvider needs.
-      effectiveDbProvider({
+      effectiveProvider({
         provider: cloudProvider,
         modelName: cloudModelName,
       }),
@@ -113,7 +124,17 @@ export default function SettingsPage() {
       }
     }
 
+    const loadMlDeviceSelection = async () => {
+      try {
+        const sel = await invoke<string>('get_ml_device_config')
+        setMlDeviceSelection(sel)
+      } catch (error) {
+        console.error('Failed to load ML device config', error)
+      }
+    }
+
     void loadDeviceInfo()
+    void loadMlDeviceSelection()
   }, [])
 
   return (
@@ -446,12 +467,104 @@ export default function SettingsPage() {
                   visionProfiles.length === 0 &&
                   !activeIsVision && (
                     <p className='text-amber-600 dark:text-amber-400 mt-2 text-xs leading-relaxed'>
-                      {t(
-                        'settings.engineOcrNoVisionProfile',
-                        '⚠ No vision-capable profile available. Open the Profiles tab in the project sidebar, add an OpenAI / Claude / Gemini / OpenRouter profile with a vision-capable model (e.g. gpt-4o, claude-3.5-sonnet, gemini-2.0-flash), and click Apply. This page will refresh automatically.',
-                      )}
+                      ⚠ No vision-capable profile available. Open Sidebar →
+                      Profiles, add an OpenAI / Claude / Gemini / OpenRouter
+                      profile with a vision-capable model (e.g. gpt-4o,
+                      claude-3.5-sonnet, gemini-2.0-flash) and click Apply,
+                      then come back here.
                     </p>
                   )}
+              </div>
+            </section>
+
+            {/* Translation Section */}
+            <section className='mb-8'>
+              <h2 className='text-foreground mb-1 text-sm font-bold'>
+                {t('settings.translation', 'Translation')}
+              </h2>
+              <p className='text-muted-foreground mb-4 text-sm'>
+                {t(
+                  'settings.translationDescription',
+                  'Post-processing and performance options for the translate + inpaint pipeline.',
+                )}
+              </p>
+
+              {/* Inpaint quality sub-card */}
+              <div className='bg-card border-border mb-3 rounded-lg border p-4'>
+                <h3 className='text-foreground mb-3 text-xs font-semibold uppercase tracking-wide'>
+                  {t('settings.inpaintQuality', 'Inpaint quality')}
+                </h3>
+                <div className='grid grid-cols-[max-content_1fr] items-center gap-x-6 gap-y-3 text-sm'>
+                  <label className='text-muted-foreground'>
+                    {t('settings.inpaintQualityLevel', 'Quality')}
+                  </label>
+                  <Select
+                    value={String(inpaintMaxSide)}
+                    onValueChange={(v) =>
+                      setInpaintMaxSide(Number(v) as 256 | 512 | 768)
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='256'>
+                        ⚡ {t('settings.inpaintFast', 'Fast')} (256 px)
+                      </SelectItem>
+                      <SelectItem value='512'>
+                        ⚖️ {t('settings.inpaintBalanced', 'Balanced')} (512 px){' '}
+                        — {t('settings.inpaintDefault', 'default')}
+                      </SelectItem>
+                      <SelectItem value='768'>
+                        ✨ {t('settings.inpaintQualityHigh', 'Quality')} (768 px)
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <p className='text-muted-foreground/70 mt-4 border-t border-border/60 pt-3 text-xs leading-relaxed'>
+                  {t(
+                    'settings.inpaintQualityHint',
+                    'Controls the maximum crop size sent to LaMa. Larger = sharper inpaint but slower (quadratic). Balanced (512 px) is recommended for most pages.',
+                  )}
+                </p>
+              </div>
+
+              {/* Thai post-processing sub-card */}
+              <div className='bg-card border-border rounded-lg border p-4'>
+                <h3 className='text-foreground mb-3 text-xs font-semibold uppercase tracking-wide'>
+                  {t('settings.thaiPostProcess', 'Thai post-processing')}
+                </h3>
+                <div className='flex items-center justify-between gap-4'>
+                  <div className='min-w-0'>
+                    <p className='text-foreground text-sm'>
+                      {t('settings.thaiPostProcessLabel', 'Normalize quotes & spaces')}
+                    </p>
+                    <p className='text-muted-foreground mt-0.5 text-xs'>
+                      {t(
+                        'settings.thaiPostProcessHint',
+                        'แปลง " " → \u201c \u201d และลบ space เกินระหว่างตัวอักษรไทย (เช่น "ไป แล้ว" → "ไปแล้ว")',
+                      )}
+                    </p>
+                  </div>
+                  <button
+                    type='button'
+                    role='switch'
+                    aria-checked={thaiPostProcess}
+                    data-testid='settings-thai-post-process'
+                    onClick={() => setThaiPostProcess(!thaiPostProcess)}
+                    className={[
+                      'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      thaiPostProcess ? 'bg-primary' : 'bg-input',
+                    ].join(' ')}
+                  >
+                    <span
+                      className={[
+                        'pointer-events-none inline-block size-4 rounded-full bg-background shadow-lg ring-0 transition-transform',
+                        thaiPostProcess ? 'translate-x-4' : 'translate-x-0',
+                      ].join(' ')}
+                    />
+                  </button>
+                </div>
               </div>
             </section>
 
@@ -466,8 +579,8 @@ export default function SettingsPage() {
                 </p>
 
                 <div className='bg-card border-border rounded-lg border p-4'>
-                  <div className='space-y-3 text-sm'>
-                    <div className='flex items-center justify-between'>
+                  <div className='space-y-4 text-sm'>
+                    <div className='flex items-center justify-between border-b border-border pb-3'>
                       <span className='text-muted-foreground'>
                         {t('settings.deviceMl')}
                       </span>
@@ -475,13 +588,124 @@ export default function SettingsPage() {
                         {deviceInfo.mlDevice}
                       </span>
                     </div>
+
+                    <div className='flex items-center justify-between pt-1'>
+                      <div className='flex flex-col gap-0.5'>
+                        <span className='text-foreground text-sm font-medium'>
+                          {t('settings.mlComputeMode', 'ML Compute Mode')}
+                        </span>
+                        <span className='text-muted-foreground text-xs'>
+                          {t('settings.mlComputeModeDesc', 'Select device or force CPU')}
+                        </span>
+                      </div>
+                      <Select
+                        value={mlDeviceSelection}
+                        onValueChange={async (v) => {
+                          setMlDeviceSelection(v)
+                          try {
+                            await invoke('set_ml_device_config', { selection: v })
+                            setNeedsRelaunch(true)
+                          } catch (err) {
+                            console.error(err)
+                          }
+                        }}
+                      >
+                        <SelectTrigger className='w-[180px]'>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value='AUTO'>AUTO</SelectItem>
+                          <SelectItem value='CPU'>CPU</SelectItem>
+                          <SelectItem value='CUDA:0'>CUDA:0</SelectItem>
+                          <SelectItem value='CUDA:1'>CUDA:1</SelectItem>
+                          <SelectItem value='CUDA:2'>CUDA:2</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {needsRelaunch && (
+                      <div className='bg-primary/10 border-primary/20 text-primary mt-2 flex items-center justify-between rounded-lg border p-3 text-xs'>
+                        <span>
+                          {t(
+                            'settings.relaunchWarning',
+                            'การตั้งค่าจะมีผลหลังจากรีสตาร์ทแอปพลิเคชัน',
+                          )}
+                        </span>
+                        <Button
+                          variant='ghost'
+                          size='sm'
+                          className='text-primary hover:bg-primary/20 h-7 px-2 font-bold'
+                          onClick={() => invoke('relaunch_app')}
+                        >
+                          {t('settings.relaunchBtn', 'รีสตาร์ทตอนนี้')}
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </section>
             )}
 
-            {/* Translation post-processing (Thai) */}
-            <ThaiPostProcessSection />
+            {/* Updater Section */}
+            <section className='mb-8'>
+              <h2 className='text-foreground mb-1 text-sm font-bold'>
+                {t('settings.updaterTitle', 'Auto-updater preferences')}
+              </h2>
+              <p className='text-muted-foreground mb-4 text-sm'>
+                {t('settings.updaterDescription', 'Choose how Koharu handles software updates.')}
+              </p>
+
+              <div className='bg-card border-border rounded-lg border p-4'>
+                <div className='space-y-4'>
+                  <div className='flex items-center justify-between'>
+                    <div className='flex flex-col gap-0.5'>
+                      <span className='text-foreground text-sm font-medium'>
+                        {t('settings.updaterMode', 'Update checking mode')}
+                      </span>
+                    </div>
+                    <Select
+                      value={autoUpdateMode}
+                      onValueChange={(v) =>
+                        setAutoUpdateMode(v as 'auto' | 'notify' | 'manual')
+                      }
+                    >
+                      <SelectTrigger className='w-[180px]'>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value='auto'>
+                          {t('settings.updateModeAuto', 'Auto-Update')}
+                        </SelectItem>
+                        <SelectItem value='notify'>
+                          {t('settings.updateModeNotify', 'Notify Only')}
+                        </SelectItem>
+                        <SelectItem value='manual'>
+                          {t('settings.updateModeManual', 'Manual')}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <p className='text-muted-foreground/70 border-t border-border/60 pt-3 text-xs leading-relaxed'>
+                    {autoUpdateMode === 'auto' &&
+                      t(
+                        'settings.updaterAutoHint',
+                        'Auto-Update: Koharu will check for updates on startup, download and install them silently in the background, and then prompt you to restart. Zero effort required.',
+                      )}
+                    {autoUpdateMode === 'notify' &&
+                      t(
+                        'settings.updaterNotifyHint',
+                        'Notify Only: Koharu will check for updates on startup. If an update is available, you will receive a prompt to download and install it.',
+                      )}
+                    {autoUpdateMode === 'manual' &&
+                      t(
+                        'settings.updaterManualHint',
+                        'Manual: Koharu will not check for updates automatically. You must manually check from the Help menu or About page.',
+                      )}
+                  </p>
+                </div>
+              </div>
+            </section>
 
             {/* Storage Section */}
             <StorageSection />
@@ -504,52 +728,6 @@ export default function SettingsPage() {
         </div>
       </ScrollArea>
     </div>
-  )
-}
-
-// ────────────────────────────────────────────────────────────────
-// Thai post-process section (Issue #21)
-// ────────────────────────────────────────────────────────────────
-
-function ThaiPostProcessSection() {
-  const { t } = useTranslation()
-  const enabled = usePreferencesStore((s) => s.thaiPostProcessEnabled)
-  const setEnabled = usePreferencesStore((s) => s.setThaiPostProcessEnabled)
-
-  return (
-    <section className='mb-8'>
-      <h2 className='text-foreground mb-1 text-sm font-bold'>
-        {t('settings.thaiPostProcess', 'Thai post-processing')}
-      </h2>
-      <p className='text-muted-foreground mb-4 text-sm'>
-        {t(
-          'settings.thaiPostProcessDescription',
-          'Cleanup pass applied automatically after every LLM translation.',
-        )}
-      </p>
-
-      <div className='bg-card border-border rounded-lg border p-4'>
-        <label className='flex cursor-pointer items-start justify-between gap-4 text-sm'>
-          <div className='min-w-0 flex-1'>
-            <div className='text-foreground font-medium'>
-              {t('settings.thaiPostProcessEnabled', 'Enable Thai cleanup')}
-            </div>
-            <div className='text-muted-foreground/80 mt-1 text-xs leading-relaxed'>
-              {t(
-                'settings.thaiPostProcessDetails',
-                'Collapses excess whitespace between Thai characters (e.g. "กิน ข้าว" → "กินข้าว") and converts ASCII quotes to typographic curly quotes ("..." → "..."). Mixed-script content like character names is preserved — "กิน rice" keeps its space.',
-              )}
-            </div>
-          </div>
-          <input
-            type='checkbox'
-            checked={enabled}
-            onChange={(e) => setEnabled(e.target.checked)}
-            className='mt-1 size-4 cursor-pointer accent-primary'
-          />
-        </label>
-      </div>
-    </section>
   )
 }
 
@@ -613,7 +791,7 @@ function StorageSection() {
     enabled: isTauri(),
     staleTime: 5_000,
   })
-  const [busy, setBusy] = useState<StorageClearTarget | 'prefs' | 'chat' | null>(null)
+  const [busy, setBusy] = useState<StorageClearTarget | 'prefs' | null>(null)
   const [lastResult, setLastResult] = useState<string | null>(null)
 
   const clear = async (target: StorageClearTarget, spec: RowSpec) => {
@@ -663,25 +841,6 @@ function StorageSection() {
     }
   }
 
-  const clearChatHistory = async () => {
-    if (
-      !confirm(
-        'Are you sure you want to permanently clear the AI Chat history and reborn the assistant? This will wipe all memory logs for the active project.',
-      )
-    )
-      return
-    setBusy('chat')
-    setLastResult(null)
-    try {
-      await api.chatMessagesClear()
-      setLastResult('AI Chat memory cleared successfully. Assistant is reborn!')
-    } catch (e: any) {
-      setLastResult(`Failed to clear AI Chat history: ${e?.message ?? e}`)
-    } finally {
-      setBusy(null)
-    }
-  }
-
   return (
     <section className='mb-8'>
       <h2 className='text-foreground mb-1 text-sm font-bold'>
@@ -695,12 +854,6 @@ function StorageSection() {
       </p>
 
       <div className='bg-card border-border rounded-lg border p-4'>
-        {stats.isLoading && (
-          <div className='text-muted-foreground mb-3 flex items-center gap-1.5 text-xs'>
-            <Loader2Icon className='size-3 animate-spin' />
-            {t('settings.storageScanning', 'Scanning…')}
-          </div>
-        )}
         <div className='space-y-3 text-sm'>
           {STORAGE_ROWS.map((spec) => {
             const entry: StorageEntry | undefined = stats.data?.[spec.target]
@@ -746,33 +899,6 @@ function StorageSection() {
               </div>
             )
           })}
-
-          {/* AI Chat History clear — lives outside the Rust storage API
-              because it clears SQLite DB via local invoke, not app-data. */}
-          <div className='border-border/60 flex items-start justify-between gap-3 border-t pt-3'>
-            <div className='min-w-0 flex-1'>
-              <div className='text-foreground font-medium flex items-center gap-1.5'>
-                ความจำแชท AI
-                <span className='rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400'>
-                  ข้อมูลผู้ใช้
-                </span>
-              </div>
-              <div className='text-muted-foreground/80 mt-0.5 text-xs leading-relaxed'>
-                ประวัติการสนทนาและบันทึกความจำของระบบประมวลผลสำหรับโปรเจกต์ที่เปิดอยู่ การล้างความจำส่วนนี้จะช่วยชุบชีวิตผู้ช่วย AI ให้เริ่มต้นใหม่ด้วยสมองที่สะอาดบริสุทธิ์
-              </div>
-            </div>
-            <div className='flex shrink-0 flex-col items-end gap-1'>
-              <button
-                type='button'
-                disabled={busy === 'chat'}
-                onClick={clearChatHistory}
-                className='text-muted-foreground hover:text-foreground disabled:opacity-40 text-xs underline-offset-2 hover:underline flex items-center gap-1 cursor-pointer'
-              >
-                <Trash2Icon className='size-3 text-destructive dark:text-red-400' />
-                {busy === 'chat' ? 'Reborning…' : 'Clear'}
-              </button>
-            </div>
-          </div>
 
           {/* Preferences reset — lives outside the Rust storage API
               because it touches browser localStorage, not <app-data>. */}

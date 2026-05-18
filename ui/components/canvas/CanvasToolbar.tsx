@@ -184,6 +184,7 @@ function LlmStatusPopover() {
   const { data: llmReady = false } = useLlmReadyQuery()
   const { llmSetSelectedModel, llmSetSelectedLanguage, llmToggleLoadUnload } =
     useLlmMutations()
+  const { autoDetectSourceLanguage } = useDocumentMutations()
   const {
     cloudProvider,
     setCloudProvider,
@@ -413,6 +414,27 @@ function LlmStatusPopover() {
                 </Select>
               )}
 
+              {activeLanguages.length > 0 && (
+                <Button
+                  type='button'
+                  variant='secondary'
+                  size='sm'
+                  onClick={async () => {
+                    const detected = await autoDetectSourceLanguage()
+                    if (detected && activeLanguages.includes(detected)) {
+                      llmSetSelectedLanguage(detected)
+                    } else if (detected) {
+                      alert(`Detected: ${detected}, but model doesn't support it.`)
+                    } else {
+                      alert('Could not detect language.')
+                    }
+                  }}
+                  className='h-6 w-full text-[10px]'
+                >
+                  Auto-detect Source
+                </Button>
+              )}
+
               <Button
                 data-testid='llm-load-toggle'
                 data-llm-ready={llmReady ? 'true' : 'false'}
@@ -445,6 +467,23 @@ function LlmStatusPopover() {
                     <SelectItem value="Korean">Korean</SelectItem>
                   </SelectContent>
                 </Select>
+
+                <Button
+                  type='button'
+                  variant='secondary'
+                  size='sm'
+                  onClick={async () => {
+                    const detected = await autoDetectSourceLanguage()
+                    if (detected) {
+                      setCloudTargetLanguage(detected)
+                    } else {
+                      alert('Could not detect language.')
+                    }
+                  }}
+                  className='mt-1 h-6 w-full text-[10px]'
+                >
+                  Auto-detect Source
+                </Button>
               </div>
               <div className='bg-muted text-muted-foreground rounded border p-3 text-center text-xs'>
                 <p className='text-foreground mb-1 font-semibold'>

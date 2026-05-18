@@ -14,6 +14,7 @@ import {
   LanguagesIcon,
   MinusIcon,
   PlusIcon,
+  RefreshCwIcon,
   SquareIcon,
 } from 'lucide-react'
 import { useTextBlocks } from '@/hooks/useTextBlocks'
@@ -39,7 +40,7 @@ import {
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { useFontsQuery } from '@/lib/query/hooks'
-import { useTextBlockMutations } from '@/lib/query/mutations'
+import { useTextBlockMutations, useDocumentMutations } from '@/lib/query/mutations'
 import { cn } from '@/lib/utils'
 
 const DEFAULT_COLOR: RgbaColor = [0, 0, 0, 255]
@@ -157,6 +158,7 @@ export function RenderControlsPanel() {
   const setRenderEffect = useEditorUiStore((state) => state.setRenderEffect)
   const setRenderStroke = useEditorUiStore((state) => state.setRenderStroke)
   const { updateTextBlocks } = useTextBlockMutations()
+  const { retranslateImage } = useDocumentMutations()
   const { data: availableFonts = [] } = useFontsQuery()
   const fontFamily = usePreferencesStore((state) => state.fontFamily)
   const setFontFamily = usePreferencesStore((state) => state.setFontFamily)
@@ -785,6 +787,30 @@ export function RenderControlsPanel() {
           </span>
         </div>
       </div>
+
+      {/* Re-translate ปุ่มด่วน — ข้าม detect/OCR/inpaint ใช้ผลลัพธ์เดิม */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            disabled={!hasBlocks}
+            data-testid='render-retranslate'
+            className='mt-1 h-7 w-full gap-1.5 px-2 text-[10px]'
+            onClick={() => void retranslateImage()}
+          >
+            <RefreshCwIcon className='size-3' />
+            {t('render.retranslate', 'Re-translate (skip inpaint)')}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side='bottom' sideOffset={4} className='max-w-64'>
+          {t(
+            'render.retranslateHint',
+            'แปลใหม่โดยไม่รอ inpaint ซ้ำ — ใช้ผลลัพธ์ inpaint เดิม เหมาะสำหรับเปลี่ยน LLM หรือปรับ prompt',
+          )}
+        </TooltipContent>
+      </Tooltip>
     </div>
   )
 }

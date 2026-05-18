@@ -397,7 +397,8 @@ fn intersection_over_union(a: &koharu_types::TextBlock, b: &koharu_types::TextBl
 
     /// Inpaint text regions in the document.
     /// Uses the current `doc.segment` mask as the inpaint source, sets `doc.inpainted`.
-    pub async fn inpaint(&self, doc: &mut Document) -> Result<()> {
+    /// `max_side` คือขนาดด้านยาวสูงสุด (px) โดย `None` ใช้ค่า default ของ lama
+    pub async fn inpaint(&self, doc: &mut Document, max_side: Option<u32>) -> Result<()> {
         // Upstream fix (cherry-picked from mayocream/koharu commit
         // 82454e03): skip inpaint when detect found nothing — otherwise
         // we run lama on an empty mask and either OOM or silently fail.
@@ -411,7 +412,7 @@ fn intersection_over_union(a: &koharu_types::TextBlock, b: &koharu_types::TextBl
             .ok_or_else(|| anyhow::anyhow!("Segment image not found"))?;
         let result = self
             .lama
-            .inference_with_blocks(&doc.image, mask, Some(&doc.text_blocks))?;
+            .inference_with_blocks(&doc.image, mask, Some(&doc.text_blocks), max_side)?;
         doc.inpainted = Some(result.into());
 
         Ok(())

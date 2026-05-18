@@ -77,7 +77,7 @@ impl Lama {
 
     #[instrument(level = "debug", skip_all)]
     pub fn inference(&self, image: &DynamicImage, mask: &DynamicImage) -> Result<DynamicImage> {
-        self.inference_with_blocks(image, mask, None)
+        self.inference_with_blocks(image, mask, None, None)
     }
 
     #[instrument(level = "debug", skip_all)]
@@ -86,6 +86,7 @@ impl Lama {
         image: &DynamicImage,
         mask: &DynamicImage,
         text_blocks: Option<&[TextBlock]>,
+        max_side: Option<u32>,
     ) -> Result<DynamicImage> {
         if image.dimensions() != mask.dimensions() {
             bail!(
@@ -98,9 +99,9 @@ impl Lama {
         let binary_mask = binarize_mask(mask);
         let output_rgb = if let Some(blocks) = text_blocks.filter(|blocks| !blocks.is_empty()) {
             let image_rgb = image.to_rgb8();
-            self.inference_blockwise(&image_rgb, &binary_mask, blocks)?
+            self.inference_blockwise(&image_rgb, &binary_mask, blocks, max_side)?
         } else {
-            self.inference_crop(&image.to_rgb8(), &binary_mask)?
+            self.inference_crop(&image.to_rgb8(), &binary_mask, max_side)?
         };
 
         if image.color().has_alpha() {
@@ -114,12 +115,12 @@ impl Lama {
     }
 
     #[instrument(level = "debug", skip_all)]
-    fn inference_crop(&self, image: &RgbImage, mask: &GrayImage) -> Result<RgbImage> {
+    fn inference_crop(&self, image: &RgbImage, mask: &GrayImage, max_side: Option<u32>) -> Result<RgbImage> {
         if let Some(filled) = try_fill_balloon(image, mask) {
             return Ok(filled);
         }
 
-        self.inference_model_rgb(image, mask)
+        self.inference_model_rgb(image, mask, max_side)
     }
 
     #[instrument(level = "debug", skip_all)]
@@ -128,6 +129,7 @@ impl Lama {
         image: &RgbImage,
         mask: &GrayImage,
         text_blocks: &[TextBlock],
+        max_side: Option<u32>,
     ) -> Result<RgbImage> {
         let (im_w, im_h) = image.dimensions();
 
@@ -177,7 +179,7 @@ impl Lama {
             let output = if let Some(filled) = try_fill_balloon(&crop.image, &crop.mask) {
                 filled
             } else {
-                self.inference_model_rgb(&crop.image, &crop.mask)?
+                self.inference_model_rgb(&crop.image, &crop.mask, max_side)?
             };
             let mut result = image.clone();
             replace(
@@ -200,7 +202,7 @@ impl Lama {
                         let out = if let Some(filled) = try_fill_balloon(&crop.image, &crop.mask) {
                             Ok(filled)
                         } else {
-                            self.inference_model_rgb(&crop.image, &crop.mask)
+                            self.inference_model_rgb(&crop.image, &crop.mask, max_side)
                         };
                         (crop.xyxy_e, out)
                     })
@@ -228,12 +230,13 @@ impl Lama {
     }
 
     #[instrument(level = "debug", skip_all)]
-    fn inference_model_rgb(&self, image: &RgbImage, mask: &GrayImage) -> Result<RgbImage> {
+    fn inference_model_rgb(&self, image: &RgbImage, mask: &GrayImage, max_side: Option<u32>) -> Result<RgbImage> {
         let (w, h) = image.dimensions();
-        let max_side = w.max(h);
+        let cap = max_side.unwrap_or(MAX_INPAINT_SIDE);
+        let long_side = w.max(h);
 
         // Fast path: crop เล็กพอ ส่ง ML โดยตรง
-        if max_side <= MAX_INPAINT_SIDE {
+        if long_side <= cap {
             return Ok(self
                 .inference_model(
                     &DynamicImage::ImageRgb8(image.clone()),
@@ -242,9 +245,9 @@ impl Lama {
                 .to_rgb8());
         }
 
-        // Crop ใหญ่เกิน: downscale → inference → upscale กลับ
+        // Crop ใหญ่เกิน cap: downscale → inference → upscale กลับ
         // ใช้ proportional scaling เพื่อรักษา aspect ratio
-        let scale = MAX_INPAINT_SIDE as f32 / max_side as f32;
+        let scale = cap as f32 / long_side as f32;
         let new_w = ((w as f32 * scale).round() as u32).max(1);
         let new_h = ((h as f32 * scale).round() as u32).max(1);
 
