@@ -18,7 +18,8 @@ export type CloudProvider = 'none' | 'openai' | 'openrouter' | 'gemini' | 'anthr
  * logged to `llm_call_log` with `use_case='ocr'` just like translation
  * + chat calls — the cost dashboard sees them.
  */
-export type OcrEngine = 'mit48px' | 'manga' | 'cloud'
+export type OcrEngine = 'mit48px' | 'manga' | 'cloud' | 'auto'
+export type AutoUpdateMode = 'auto' | 'notify' | 'manual'
 
 /**
  * Detector engine — mirrors `koharu_types::DetectorEngine`.
@@ -102,6 +103,10 @@ type PreferencesState = {
   ocrEngine: OcrEngine
   setOcrEngine: (engine: OcrEngine) => void
 
+  /** Allow smart cloud fallback for difficult text blocks in auto mode. */
+  ocrSmartCloudFallback: boolean
+  setOcrSmartCloudFallback: (enabled: boolean) => void
+
   /** When `ocrEngine === 'cloud'`, ID of the provider profile to use
    *  for OCR calls. `null` means "fall back to the active translation
    *  profile" — useful if the user has only one cloud profile. */
@@ -154,7 +159,8 @@ const initialPreferences = {
   cloudApiUrl: DEFAULT_CONFIGS.openai.apiUrl,
   cloudModelName: '',
   cloudTargetLanguage: 'Thai',
-  ocrEngine: 'mit48px' as OcrEngine,
+  ocrEngine: 'auto' as OcrEngine,
+  ocrSmartCloudFallback: false,
   ocrCloudProfileId: null as number | null,
   activeProfileId: null as number | null,
   detectorEngine: 'default' as DetectorEngine,
@@ -242,6 +248,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       setCloudTargetLanguage: (language) =>
         set({ cloudTargetLanguage: language }),
       setOcrEngine: (engine) => set({ ocrEngine: engine }),
+      setOcrSmartCloudFallback: (enabled) => set({ ocrSmartCloudFallback: enabled }),
       setOcrCloudProfileId: (id) => set({ ocrCloudProfileId: id }),
       setActiveProfileId: (id) => set({ activeProfileId: id }),
       setDetectorEngine: (engine) => set({ detectorEngine: engine }),

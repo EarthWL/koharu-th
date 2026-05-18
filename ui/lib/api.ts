@@ -135,7 +135,7 @@ export const api = {
        *  tuned for Japanese SFX + vertical handwriting). `cloud` is
        *  handled in the frontend dispatch layer (see ocrPageViaCloud),
        *  NOT here — passing 'cloud' would be a programming error. */
-      ocrEngine?: 'mit48px' | 'manga'
+      ocrEngine?: 'mit48px' | 'manga' | 'auto'
     },
   ): Promise<void> {
     await invoke('ocr', {
@@ -266,7 +266,7 @@ export const api = {
     fontFamily?: string
     /** OCR engine for the OCR pipeline step. Backend defaults to
      *  Mit48px if omitted. */
-    ocrEngine?: 'mit48px' | 'manga'
+    ocrEngine?: 'mit48px' | 'manga' | 'auto'
     /** When `true`, the Rust pipeline skips the OCR step entirely
      *  — the caller is expected to have populated text_blocks[].text
      *  already (e.g. via Cloud Vision OCR done in TypeScript). */

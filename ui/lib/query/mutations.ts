@@ -387,6 +387,7 @@ export const useDocumentMutations = () => {
       try {
         const {
           ocrEngine,
+          ocrSmartCloudFallback,
           ocrCloudProfileId,
           cloudProvider,
           cloudModelName,
@@ -436,13 +437,63 @@ export const useDocumentMutations = () => {
             await api.updateTextBlocks(resolvedIndex, updated)
           }
         } else {
-          // Local OCR — thread the engine choice through so the user's
-          // Settings → OCR pick (Manga OCR vs MIT-48px) actually
-          // applies. Same bug pattern as standalone Detect: without
-          // this the backend silently defaults to MIT-48px and the
-          // user sees garbage for Japanese vertical text even though
-          // they explicitly chose Manga OCR.
-          await api.ocr(resolvedIndex, { ocrEngine })
+          // Local OCR or Auto OCR
+          let finalEngine = ocrEngine
+          if (ocrEngine === 'auto') {
+            const series = queryClient.getQueryData<{ sourceLanguage?: string }>(['project', 'series-meta'])
+            const sourceLang = series?.sourceLanguage ?? ''
+            const isJapanese =
+              sourceLang.toLowerCase().includes('ja') ||
+              sourceLang.toLowerCase().includes('jp') ||
+              sourceLang.toLowerCase().includes('日本語')
+            finalEngine = isJapanese ? 'manga' : 'mit48px'
+          }
+
+          // Trigger OCR using the final chosen local engine
+          await api.ocr(resolvedIndex, { ocrEngine: finalEngine })
+
+          // Post-local OCR: Smart Cloud Fallback logic!
+          if (ocrEngine === 'auto' && ocrSmartCloudFallback) {
+            let doc = await api.getDocument(resolvedIndex)
+            if (doc.textBlocks.length > 0) {
+              const fallbackIndices = doc.textBlocks
+                .map((b, idx) => ({ block: b, idx }))
+                .filter(({ block }) => {
+                  const text = block.text ?? ''
+                  return text.trim() === ''
+                })
+                .map(({ idx }) => idx)
+
+              if (fallbackIndices.length > 0) {
+                const profiles = await api.providerProfilesList()
+                const resolved = await resolveOcrCloudProfile(
+                  ocrCloudProfileId,
+                  profiles,
+                  cloudProvider,
+                  cloudModelName,
+                  cloudApiKey,
+                )
+                if (resolved) {
+                  const subsetBlocks = fallbackIndices.map((idx) => doc.textBlocks[idx])
+                  const { texts } = await ocrPageViaCloud(
+                    resolved.profile,
+                    resolved.apiKey,
+                    doc.image,
+                    subsetBlocks,
+                  )
+                  const updatedBlocks = [...doc.textBlocks]
+                  for (let i = 0; i < fallbackIndices.length; i++) {
+                    const origIdx = fallbackIndices[i]
+                    const cloudText = texts[i]
+                    if (cloudText && cloudText.trim() !== '') {
+                      updatedBlocks[origIdx].text = cloudText
+                    }
+                  }
+                  await api.updateTextBlocks(resolvedIndex, updatedBlocks)
+                }
+              }
+            }
+          }
         }
         await invalidateCurrentDocument(queryClient, resolvedIndex)
         await invalidateThumbnailAtIndex(queryClient, resolvedIndex)
@@ -654,7 +705,7 @@ export const useDocumentMutations = () => {
     // worker support yet — see roadmap Tier B #3) which would burn
     // tokens fast across many pages. Fall back to MIT-48px for batch
     // and let the user know once.
-    const effectiveEngine: 'mit48px' | 'manga' =
+    const effectiveEngine: 'mit48px' | 'manga' | 'auto' =
       ocrEngine === 'cloud' ? 'mit48px' : ocrEngine
     if (ocrEngine === 'cloud') {
       console.info(

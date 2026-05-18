@@ -47,6 +47,8 @@ export default function SettingsPage() {
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo>()
   const ocrEngine = usePreferencesStore((s) => s.ocrEngine)
   const setOcrEngine = usePreferencesStore((s) => s.setOcrEngine)
+  const ocrSmartCloudFallback = usePreferencesStore((s) => s.ocrSmartCloudFallback)
+  const setOcrSmartCloudFallback = usePreferencesStore((s) => s.setOcrSmartCloudFallback)
   const ocrCloudProfileId = usePreferencesStore((s) => s.ocrCloudProfileId)
   const setOcrCloudProfileId = usePreferencesStore(
     (s) => s.setOcrCloudProfileId,
@@ -69,7 +71,7 @@ export default function SettingsPage() {
   const profiles = useQuery({
     queryKey: ['project', 'profiles'],
     queryFn: () => api.providerProfilesList(),
-    enabled: !!projectInfo && ocrEngine === 'cloud',
+    enabled: !!projectInfo && (ocrEngine === 'cloud' || ocrEngine === 'auto'),
     staleTime: 30_000,
   })
   // Vision-capability filter for the OCR Cloud Vision profile picker.
@@ -336,13 +338,16 @@ export default function SettingsPage() {
                   <Select
                     value={ocrEngine}
                     onValueChange={(v) =>
-                      setOcrEngine(v as 'mit48px' | 'manga' | 'cloud')
+                      setOcrEngine(v as 'mit48px' | 'manga' | 'cloud' | 'auto')
                     }
                   >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value='auto'>
+                        Auto (Smart Local Hybrid)
+                      </SelectItem>
                       <SelectItem value='mit48px'>
                         MIT-48px (default · multilingual, local)
                       </SelectItem>
@@ -354,6 +359,38 @@ export default function SettingsPage() {
                       </SelectItem>
                     </SelectContent>
                   </Select>
+
+                  {ocrEngine === 'auto' && (
+                    <>
+                      <label className='text-muted-foreground'>
+                        {t('settings.engineOcrSmartCloudFallback', 'Smart Cloud Fallback')}
+                      </label>
+                      <div className='flex items-center gap-2'>
+                        <button
+                          type='button'
+                          role='switch'
+                          aria-checked={ocrSmartCloudFallback}
+                          onClick={() => setOcrSmartCloudFallback(!ocrSmartCloudFallback)}
+                          className={[
+                            'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                            ocrSmartCloudFallback ? 'bg-primary' : 'bg-input',
+                          ].join(' ')}
+                        >
+                          <span
+                            className={[
+                              'pointer-events-none inline-block size-4 rounded-full bg-background shadow-lg ring-0 transition-transform',
+                              ocrSmartCloudFallback ? 'translate-x-4' : 'translate-x-0',
+                            ].join(' ')}
+                          />
+                        </button>
+                        <span className='text-muted-foreground/70 text-xs'>
+                          {ocrSmartCloudFallback
+                            ? t('settings.enabled', 'Enabled')
+                            : t('settings.disabled', 'Disabled')}
+                        </span>
+                      </div>
+                    </>
+                  )}
 
                   {ocrEngine === 'cloud' && (
                     <>
@@ -389,7 +426,12 @@ export default function SettingsPage() {
                 </div>
 
                 <p className='text-muted-foreground/70 mt-4 border-t border-border/60 pt-3 text-xs leading-relaxed'>
-                  {ocrEngine === 'cloud'
+                  {ocrEngine === 'auto'
+                    ? t(
+                        'settings.engineOcrAutoHint',
+                        'โหมด Auto จะวิเคราะห์ภาษาของโปรเจกต์โดยอัตโนมัติเพื่อเลือกโมเดลที่ดีที่สุด (เช่น Manga OCR สำหรับภาษาญี่ปุ่น, MIT-48px สำหรับภาษาไทย/อังกฤษ) และสามารถเปิด "Smart Cloud Fallback" เพื่อนำประโยคที่ซับซ้อน/อ่านยาก ส่งให้ Cloud Vision ช่วยประมวลผลเพิ่มความแม่นยำขั้นสูงสุดได้!',
+                      )
+                    : ocrEngine === 'cloud'
                     ? t(
                         'settings.engineOcrCloudHint',
                         'Cloud Vision OCR sends the page image + bubble coordinates to the selected vision-capable LLM and asks for the text per bubble. Quality is usually best, but every page costs tokens. Use for hard pages; pick a local engine for batch translation in the queue (batch never uses Cloud Vision — it falls back to MIT-48px). Calls are logged to the Cost Dashboard as use_case=ocr.',

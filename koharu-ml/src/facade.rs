@@ -328,6 +328,25 @@ fn intersection_over_union(a: &koharu_types::TextBlock, b: &koharu_types::TextBl
                     OcrEngine::Mit48px
                 }
             },
+            OcrEngine::Auto => {
+                let has_ja = doc.text_blocks.iter().any(|b| {
+                    b.source_language
+                        .as_deref()
+                        .map(|s| {
+                            let s = s.to_lowercase();
+                            s.contains("ja") || s.contains("jp") || s.contains("japanese") || s.contains("日本語")
+                        })
+                        .unwrap_or(false)
+                });
+                if has_ja {
+                    match self.manga_ocr().await {
+                        Ok(_) => OcrEngine::Manga,
+                        Err(_) => OcrEngine::Mit48px,
+                    }
+                } else {
+                    OcrEngine::Mit48px
+                }
+            }
         };
 
         match effective_engine {

@@ -15,9 +15,10 @@ pub use image::SerializableDynamicImage;
 )]
 #[serde(rename_all = "snake_case")]
 pub enum OcrEngine {
-    #[default]
     Mit48px,
     Manga,
+    #[default]
+    Auto,
 }
 
 /// Selectable text-region detector. `Default` keeps the current
@@ -43,6 +44,7 @@ impl OcrEngine {
         match self {
             OcrEngine::Mit48px => "mit48px",
             OcrEngine::Manga => "manga",
+            OcrEngine::Auto => "auto",
         }
     }
 
@@ -50,6 +52,7 @@ impl OcrEngine {
         match s.to_ascii_lowercase().as_str() {
             "mit48px" | "mit48" | "mit" => Some(OcrEngine::Mit48px),
             "manga" | "manga_ocr" | "mangaocr" => Some(OcrEngine::Manga),
+            "auto" => Some(OcrEngine::Auto),
             _ => None,
         }
     }
