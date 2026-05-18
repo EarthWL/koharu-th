@@ -92,19 +92,56 @@ export function Welcome() {
       await refreshCurrent()
       router.push('/')
     } catch (err: any) {
-      alert(
-        t('welcome.openRecentFailed', 'Could not open project: {{msg}}', {
-          msg: err?.message ?? String(err),
-        }),
+      const msg = err?.message ?? String(err)
+      // Auto-prune obviously-stale entries when the folder is gone.
+      // Heuristic: backend's "not found" / "does not exist" /
+      // "no such file" messages are safe to act on. Anything else
+      // (permission denied, DB corrupt) is a transient — leave the
+      // row so the user can retry later.
+      const looksMissing = /not found|does not exist|no such file|cannot find/i.test(
+        msg,
       )
+      if (looksMissing) {
+        try {
+          await api.recentProjectsRemove(p.path)
+          setRecent((cur) => cur?.filter((r) => r.path !== p.path) ?? null)
+        } catch {
+          // Best-effort prune; if it fails the row just stays.
+        }
+        alert(
+          t(
+            'welcome.openRecentMissing',
+            'Project folder no longer exists at "{{path}}" — removed from recents.',
+            { path: p.path },
+          ),
+        )
+      } else {
+        alert(
+          t('welcome.openRecentFailed', 'Could not open project: {{msg}}', {
+            msg,
+          }),
+        )
+      }
     } finally {
       setLoading(false)
     }
   }
 
   const onRemoveRecent = async (path: string) => {
-    await api.recentProjectsRemove(path)
-    setRecent((cur) => cur?.filter((r) => r.path !== path) ?? null)
+    try {
+      await api.recentProjectsRemove(path)
+      setRecent((cur) => cur?.filter((r) => r.path !== path) ?? null)
+    } catch (err: any) {
+      // Was: silently swallowed errors and pruned the UI anyway —
+      // leaving the backend row intact while the user sees it gone.
+      // Now: keep the row in the list and surface the failure so the
+      // user can retry (or check disk/permissions).
+      alert(
+        t('welcome.removeRecentFailed', 'Could not remove from recent: {{msg}}', {
+          msg: err?.message ?? String(err),
+        }),
+      )
+    }
   }
 
   const onStandalone = async () => {
@@ -112,8 +149,32 @@ export function Welcome() {
     await openDocuments()
   }
 
+  // Esc steps back through the wizard instead of dismissing entirely
+  // (there's no "close" — the user has to either create / open a project
+  // or hit Standalone). Wizard back: subsetup → name → home. On home
+  // there's nothing to step back to.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      if (step.kind === 'create-name') setStep({ kind: 'home' })
+      else if (step.kind === 'create-setup')
+        setStep({ kind: 'create-name', name: step.info.name })
+      else if (step.kind === 'create-chapters') {
+        // Stay — chapters is the last wizard step and dismissing would
+        // leave a freshly-created empty project behind.
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [step])
+
   return (
-    <div className='bg-background/95 fixed inset-0 z-40 flex items-center justify-center backdrop-blur-sm'>
+    <div
+      className='bg-background/95 fixed inset-0 z-40 flex items-center justify-center backdrop-blur-sm'
+      role='dialog'
+      aria-modal='true'
+      aria-label='Welcome — open or create a project'
+    >
       <div className='bg-card border-border w-full max-w-2xl rounded-lg border p-6 shadow-xl'>
         {step.kind === 'home' && (
           <HomeStep
@@ -362,6 +423,7 @@ function SetupStep({
   const [draft, setDraft] = useState<Partial<SeriesMetaDto>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -380,9 +442,15 @@ function SetupStep({
 
   const save = async () => {
     setSaving(true)
+    setSaveError(null)
     try {
       await api.seriesMetaUpdate(draft)
       onSaved()
+    } catch (err: any) {
+      // Was: silent fail — user got stuck on Step 2 with no feedback,
+      // no way to retry. Now: surface inline so they can fix + retry
+      // without losing the draft they just filled.
+      setSaveError(err?.message ?? String(err))
     } finally {
       setSaving(false)
     }
@@ -478,6 +546,11 @@ function SetupStep({
           </Field>
         </div>
       </div>
+      {saveError && (
+        <p className='text-destructive mt-3 text-xs leading-relaxed'>
+          {t('welcome.saveFailed', 'Failed to save: {{msg}}', { msg: saveError })}
+        </p>
+      )}
       <div className='mt-4 flex justify-between gap-2'>
         <Button variant='ghost' size='sm' onClick={onSkip}>
           {t('welcome.skip', 'Skip')}
@@ -526,18 +599,32 @@ function ChaptersStep({
   const [error, setError] = useState<string | null>(null)
 
   const refresh = async () => {
-    const list = await api.chaptersList()
-    setChapters(
-      list.map((c) => ({
-        id: c.id,
-        chapterNumber: c.chapterNumber,
-        title: c.title,
-        folderPath: c.folderPath,
-        pageCount: c.pageCount,
-      })),
-    )
-    const next = list.reduce((m, c) => Math.max(m, c.chapterNumber), 0) + 1
-    setChapterNumber(String(next))
+    try {
+      const list = await api.chaptersList()
+      // Clear any stale "Failed to load" error banner now that we have
+      // a successful fetch.
+      setError(null)
+      setChapters(
+        list.map((c) => ({
+          id: c.id,
+          chapterNumber: c.chapterNumber,
+          title: c.title,
+          folderPath: c.folderPath,
+          pageCount: c.pageCount,
+        })),
+      )
+      const next = list.reduce((m, c) => Math.max(m, c.chapterNumber), 0) + 1
+      setChapterNumber(String(next))
+    } catch (err: any) {
+      // Was: refresh() on mount could throw silently (DB locked, disk
+      // issue, project closed externally) and the user saw an empty
+      // chapter list with no retry path. Now surface as inline error.
+      setError(
+        t('welcome.loadChaptersFailed', 'Could not load chapters: {{msg}}', {
+          msg: err?.message ?? String(err),
+        }),
+      )
+    }
   }
 
   useEffect(() => {
@@ -617,7 +704,7 @@ function ChaptersStep({
       <p className='text-muted-foreground mb-3 text-xs leading-relaxed'>
         {t(
           'welcome.chaptersHint',
-          'สร้าง Chapter — ระบบจะทำโฟลเดอร์ source/ + render/ ให้ จากนั้นกด “+ Pages” อัปโหลดรูปหน้ามังงะเข้าโฟลเดอร์ source/ ของแต่ละตอน',
+          'Create a Chapter — koharu makes source/ + render/ subfolders for it. Then click "+ Pages" to upload the page images into each chapter\'s source/.',
         )}
       </p>
 

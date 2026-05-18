@@ -29,7 +29,12 @@
     "newProjectModalHint": "เลือก folder แม่ — ระบบจะสร้าง sub-folder ตามชื่อซีรีย์ให้",
     "newProjectNamePlaceholder": "ชื่อซีรีย์",
     "chooseFolder": "เลือก folder...",
-    "openRecentFailed": "เปิดโปรเจคไม่สำเร็จ: {{msg}}"
+    "openRecentFailed": "เปิดโปรเจคไม่สำเร็จ: {{msg}}",
+    "openRecentMissing": "โฟลเดอร์ของโปรเจค \"{{path}}\" ไม่มีอยู่แล้ว — ลบออกจากรายการล่าสุดให้แล้ว",
+    "removeRecentFailed": "ลบออกจาก recent ไม่สำเร็จ: {{msg}}",
+    "saveFailed": "บันทึกไม่สำเร็จ: {{msg}}",
+    "loadChaptersFailed": "โหลดรายการตอนไม่สำเร็จ: {{msg}}",
+    "chaptersHint": "สร้าง Chapter — ระบบจะทำโฟลเดอร์ source/ + render/ ให้ จากนั้นกด \"+ Pages\" อัปโหลดรูปหน้ามังงะเข้าโฟลเดอร์ source/ ของแต่ละตอน"
   },
   "menu": {
     "file": "ไฟล์",
