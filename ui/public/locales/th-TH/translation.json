@@ -250,6 +250,26 @@
     "title": "ผิดพลาด",
     "dismiss": "ปิด"
   },
+  "queue": {
+    "translating": "กำลังแปล {{title}}",
+    "waiting_one": "{{count}} ตอนรอคิว",
+    "waiting_other": "{{count}} ตอนรอคิว",
+    "idle": "คิวว่าง",
+    "summaryEntries_one": "{{count}} entry",
+    "summaryEntries_other": "{{count}} entries",
+    "summaryAllLive": "กำลังทำทั้งหมด",
+    "summaryDone": "เสร็จ {{count}}",
+    "statusPending": "รอ",
+    "statusRunning": "กำลังทำ",
+    "statusCompleted": "เสร็จ",
+    "statusFailed": "ล้มเหลว",
+    "statusCancelled": "ยกเลิก",
+    "pagesProgress": "{{done}}/{{total}} หน้า",
+    "cancelAria": "ยกเลิกการแปลตอนนี้",
+    "clearFinished_one": "ล้างที่เสร็จแล้ว {{count}} รายการ",
+    "clearFinished_other": "ล้างที่เสร็จแล้ว {{count}} รายการ",
+    "chapterFallback": "ตอน #{{id}}"
+  },
   "glossaryImport": {
     "title": "นำเข้า glossary",
     "formatLabel": "รูปแบบ",

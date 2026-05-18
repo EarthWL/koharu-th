@@ -1,6 +1,8 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import {
   CheckIcon,
   ChevronDownIcon,
@@ -27,6 +29,7 @@ import { useProjectStore } from '@/lib/stores/projectStore'
  * progress; expanded lists every entry with per-row cancel.
  */
 export function QueueWidget() {
+  const { t } = useTranslation()
   const projectInfo = useProjectStore((s) => s.info)
   const queue = useQueueList()
   const [expanded, setExpanded] = useState(false)
@@ -47,8 +50,9 @@ export function QueueWidget() {
     for (const c of chapters.data ?? []) {
       map.set(c.id, c.title ?? `#${c.chapterNumber}`)
     }
-    return (id: number) => map.get(id) ?? `chapter #${id}`
-  }, [chapters.data])
+    return (id: number) =>
+      map.get(id) ?? t('queue.chapterFallback', { id })
+  }, [chapters.data, t])
 
   const entries = queue.data ?? []
   if (!projectInfo || entries.length === 0) return null
@@ -58,6 +62,21 @@ export function QueueWidget() {
   const finishedCount = entries.filter(
     (e) => e.status === 'completed' || e.status === 'failed' || e.status === 'cancelled',
   ).length
+
+  const headerLine = running
+    ? t('queue.translating', { title: titleOf(running.chapterId) })
+    : pendingCount > 0
+      ? t('queue.waiting', { count: pendingCount })
+      : t('queue.idle')
+
+  // Build "{N entries} · {finished summary}" so each piece pluralises
+  // independently and locales can reorder around the centre dot.
+  const summaryLine =
+    t('queue.summaryEntries', { count: entries.length }) +
+    ' · ' +
+    (finishedCount > 0
+      ? t('queue.summaryDone', { count: finishedCount })
+      : t('queue.summaryAllLive'))
 
   return (
     <div className='fixed right-4 bottom-4 z-40 w-80 max-w-[calc(100vw-2rem)]'>
@@ -76,16 +95,9 @@ export function QueueWidget() {
             <CheckIcon className='size-4 shrink-0 text-emerald-500' />
           )}
           <div className='min-w-0 flex-1'>
-            <div className='truncate text-xs font-semibold'>
-              {running
-                ? `Translating ${titleOf(running.chapterId)}`
-                : pendingCount > 0
-                  ? `${pendingCount} chapter${pendingCount === 1 ? '' : 's'} waiting`
-                  : 'Queue idle'}
-            </div>
+            <div className='truncate text-xs font-semibold'>{headerLine}</div>
             <div className='text-muted-foreground truncate text-[10px]'>
-              {entries.length} entr{entries.length === 1 ? 'y' : 'ies'} ·
-              {finishedCount > 0 ? ` ${finishedCount} done` : ' all live'}
+              {summaryLine}
             </div>
           </div>
           {expanded ? (
@@ -98,7 +110,7 @@ export function QueueWidget() {
         {/* Active progress bar (always visible) */}
         {running && (
           <div className='px-3 pb-2'>
-            <Progress entry={running} />
+            <Progress entry={running} t={t} />
           </div>
         )}
 
@@ -110,6 +122,7 @@ export function QueueWidget() {
                 entry={e}
                 title={titleOf(e.chapterId)}
                 onCancel={() => cancel.mutate(e.id)}
+                t={t}
               />
             ))}
             {finishedCount > 0 && (
@@ -122,7 +135,7 @@ export function QueueWidget() {
                   onClick={() => clear.mutate()}
                 >
                   <Trash2Icon className='size-3' />
-                  Clear {finishedCount} finished
+                  {t('queue.clearFinished', { count: finishedCount })}
                 </Button>
               </div>
             )}
@@ -133,12 +146,12 @@ export function QueueWidget() {
   )
 }
 
-const STATUS_LABEL: Record<QueueStatus, string> = {
-  pending: 'Waiting',
-  running: 'Running',
-  completed: 'Done',
-  failed: 'Failed',
-  cancelled: 'Cancelled',
+const STATUS_LABEL_KEY: Record<QueueStatus, string> = {
+  pending: 'queue.statusPending',
+  running: 'queue.statusRunning',
+  completed: 'queue.statusCompleted',
+  failed: 'queue.statusFailed',
+  cancelled: 'queue.statusCancelled',
 }
 
 const STATUS_COLOR: Record<QueueStatus, string> = {
@@ -153,10 +166,12 @@ function Row({
   entry: e,
   title,
   onCancel,
+  t,
 }: {
   entry: QueueEntryDto
   title: string
   onCancel: () => void
+  t: TFunction
 }) {
   const isActive = e.status === 'pending' || e.status === 'running'
   return (
@@ -181,29 +196,38 @@ function Row({
       <div className='min-w-0 flex-1'>
         <div className='truncate text-xs font-medium'>{title}</div>
         <div className='text-muted-foreground flex items-center gap-1.5 text-[10px]'>
-          <span className={STATUS_COLOR[e.status]}>{STATUS_LABEL[e.status]}</span>
+          <span className={STATUS_COLOR[e.status]}>
+            {t(STATUS_LABEL_KEY[e.status])}
+          </span>
           {e.totalPages > 0 && (
             <>
               <span>·</span>
               <span className='font-mono'>
-                {e.donePages}/{e.totalPages} pages
+                {t('queue.pagesProgress', {
+                  done: e.donePages,
+                  total: e.totalPages,
+                })}
               </span>
             </>
           )}
         </div>
         {e.errorMessage && (
-          <div className='text-destructive mt-0.5 truncate text-[10px]' title={e.errorMessage}>
+          <div
+            className='text-destructive mt-0.5 truncate text-[10px]'
+            title={e.errorMessage}
+          >
             {e.errorMessage}
           </div>
         )}
-        {e.status === 'running' && <Progress entry={e} />}
+        {e.status === 'running' && <Progress entry={e} t={t} />}
       </div>
       {isActive && (
         <Button
           variant='ghost'
           size='icon-xs'
           className='size-6 shrink-0'
-          title='Cancel'
+          aria-label={t('queue.cancelAria')}
+          title={t('queue.cancelAria')}
           onClick={onCancel}
         >
           <XIcon className='size-3' />
@@ -213,7 +237,7 @@ function Row({
   )
 }
 
-function Progress({ entry: e }: { entry: QueueEntryDto }) {
+function Progress({ entry: e, t }: { entry: QueueEntryDto; t: TFunction }) {
   const pct =
     e.totalPages > 0
       ? Math.max(0, Math.min(100, Math.round((e.donePages / e.totalPages) * 100)))
@@ -225,9 +249,19 @@ function Progress({ entry: e }: { entry: QueueEntryDto }) {
           <div
             className='bg-primary h-full rounded-full transition-[width] duration-700 ease-out'
             style={{ width: `${pct}%` }}
+            role='progressbar'
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={pct}
+            aria-label={t('queue.pagesProgress', {
+              done: e.donePages,
+              total: e.totalPages,
+            })}
           />
         ) : (
-          <div className='from-primary/40 via-primary to-primary/40 absolute inset-0 w-1/2 animate-pulse rounded-full bg-linear-to-r' />
+          // Indeterminate sweep — picks up the same reduced-motion
+          // override as ActivityBubble via .activity-bubble-pulse.
+          <div className='activity-bubble-pulse from-primary/40 via-primary to-primary/40 absolute inset-0 w-1/2 animate-pulse rounded-full bg-linear-to-r' />
         )}
       </div>
       <span className='text-muted-foreground w-9 text-right font-mono text-[10px]'>

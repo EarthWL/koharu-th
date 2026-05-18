@@ -210,6 +210,26 @@
     "title": "エラー",
     "dismiss": "閉じる"
   },
+  "queue": {
+    "translating": "{{title}} を翻訳中",
+    "waiting_one": "{{count}} チャプター待機中",
+    "waiting_other": "{{count}} チャプター待機中",
+    "idle": "キューは空です",
+    "summaryEntries_one": "{{count}} 件",
+    "summaryEntries_other": "{{count}} 件",
+    "summaryAllLive": "全て実行中",
+    "summaryDone": "{{count}} 件完了",
+    "statusPending": "待機中",
+    "statusRunning": "実行中",
+    "statusCompleted": "完了",
+    "statusFailed": "失敗",
+    "statusCancelled": "キャンセル",
+    "pagesProgress": "{{done}}/{{total}} ページ",
+    "cancelAria": "チャプター翻訳をキャンセル",
+    "clearFinished_one": "完了した {{count}} 件をクリア",
+    "clearFinished_other": "完了した {{count}} 件をクリア",
+    "chapterFallback": "チャプター #{{id}}"
+  },
   "glossaryImport": {
     "title": "glossary をインポート",
     "formatLabel": "形式",

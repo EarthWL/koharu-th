@@ -211,6 +211,26 @@
     "title": "Error",
     "dismiss": "Dismiss"
   },
+  "queue": {
+    "translating": "Translating {{title}}",
+    "waiting_one": "{{count}} chapter waiting",
+    "waiting_other": "{{count}} chapters waiting",
+    "idle": "Queue idle",
+    "summaryEntries_one": "{{count}} entry",
+    "summaryEntries_other": "{{count}} entries",
+    "summaryAllLive": "all live",
+    "summaryDone": "{{count}} done",
+    "statusPending": "Waiting",
+    "statusRunning": "Running",
+    "statusCompleted": "Done",
+    "statusFailed": "Failed",
+    "statusCancelled": "Cancelled",
+    "pagesProgress": "{{done}}/{{total}} pages",
+    "cancelAria": "Cancel chapter translation",
+    "clearFinished_one": "Clear {{count}} finished",
+    "clearFinished_other": "Clear {{count}} finished",
+    "chapterFallback": "chapter #{{id}}"
+  },
   "glossaryImport": {
     "title": "Import glossary",
     "formatLabel": "Format",
