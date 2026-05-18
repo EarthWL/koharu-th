@@ -87,6 +87,9 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
         )
         .init();
 
+    std::fs::create_dir_all(MODEL_ROOT.as_path()).ok();
+    std::fs::create_dir_all(LIB_ROOT.as_path()).ok();
+
     // hook model cache dir
     koharu_ml::set_cache_dir(MODEL_ROOT.to_path_buf())?;
 
