@@ -519,3 +519,4 @@ Build บน [mayocream/koharu](https://github.com/mayocream/koharu) งาน M
 Koharu application licensed under [GNU General Public License v3.0](LICENSE-GPL) Fork นี้สืบทอด license เดียวกัน
 
 Sub-crates ของ Koharu licensed under [Apache License 2.0](LICENSE-APACHE)
+

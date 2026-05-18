@@ -112,10 +112,10 @@ export const api = {
        *  if omitted. `anime_yolo` uses mayocream/anime-text-yolo (YOLO12) —
        *  better at SFX + out-of-bubble text but lazy-downloads weights on
        *  first use. */
-      detectorEngine?: 'default' | 'anime_yolo'
+      detectorEngine?: 'default' | 'anime_yolo' | 'auto'
       /** AnimeText YOLO size variant. Only honoured when detectorEngine is
-       *  'anime_yolo'. */
-      animeYoloVariant?: 'n' | 's' | 'm' | 'l' | 'x'
+       *  'anime_yolo' or 'auto'. */
+      animeYoloVariant?: 'n' | 's' | 'm' | 'l' | 'x' | 'auto'
       /** Confidence threshold override for Anime Text YOLO. Backend
        *  clamps to [0.05, 0.95]; defaults to 0.25 (upstream). */
       animeYoloConfidence?: number
@@ -282,10 +282,10 @@ export const api = {
      *  to `default` (comic_text_detector) if omitted. `anime_yolo`
      *  uses mayocream/anime-text-yolo (YOLO12) — better at SFX +
      *  out-of-bubble text but lazy-downloads weights on first use. */
-    detectorEngine?: 'default' | 'anime_yolo'
+    detectorEngine?: 'default' | 'anime_yolo' | 'auto'
     /** AnimeText YOLO size variant. N (nano, ~10MB) → X (xlarge,
-     *  ~250MB). Only honoured when detectorEngine is 'anime_yolo'. */
-    animeYoloVariant?: 'n' | 's' | 'm' | 'l' | 'x'
+     *  ~250MB). Only honoured when detectorEngine is 'anime_yolo' or 'auto'. */
+    animeYoloVariant?: 'n' | 's' | 'm' | 'l' | 'x' | 'auto'
     /** Confidence threshold override for Anime Text YOLO. Backend
      *  clamps to [0.05, 0.95]; defaults to 0.25 (upstream). */
     animeYoloConfidence?: number

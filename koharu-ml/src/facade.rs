@@ -154,6 +154,40 @@ impl Model {
     /// `anime_yolo_confidence` overrides Anime Text YOLO's confidence
     /// threshold (None = module default 0.25). Clamped to a sane range;
     /// only consulted when the YOLO branch actually runs.
+fn intersection_over_union(a: &koharu_types::TextBlock, b: &koharu_types::TextBlock) -> f32 {
+    let x1 = a.x.max(b.x);
+    let y1 = a.y.max(b.y);
+    let x2 = (a.x + a.width).min(b.x + b.width);
+    let y2 = (a.y + a.height).min(b.y + b.height);
+
+    let intersection_width = (x2 - x1).max(0.0);
+    let intersection_height = (y2 - y1).max(0.0);
+    let intersection_area = intersection_width * intersection_height;
+
+    let area_a = a.width * a.height;
+    let area_b = b.width * b.height;
+    let union_area = area_a + area_b - intersection_area;
+
+    if union_area <= 0.0 {
+        0.0
+    } else {
+        intersection_area / union_area
+    }
+}
+
+    /// Detect text blocks + bubble mask + fonts using the chosen
+    /// detector engine. Falls back to the default if the requested
+    /// engine fails to load (e.g. network down for the first-time
+    /// AnimeTextYolo fetch). Always populates the bubble `segment`
+    /// from the default detector — Anime Text YOLO has no bubble
+    /// branch, so we keep using the default for that signal.
+    ///
+    /// `anime_yolo_variant` only matters when `engine` is `AnimeYolo` or `Auto`;
+    /// None defaults to the smallest (N) variant or is dynamically scaled if `Auto`.
+    ///
+    /// `anime_yolo_confidence` overrides Anime Text YOLO's confidence
+    /// threshold (None = module default 0.25). Clamped to a sane range;
+    /// only consulted when the YOLO branch actually runs.
     pub async fn detect_with(
         &self,
         doc: &mut Document,
@@ -161,52 +195,86 @@ impl Model {
         anime_yolo_variant: Option<AnimeTextYoloVariant>,
         anime_yolo_confidence: Option<f32>,
     ) -> Result<()> {
-        let variant = anime_yolo_variant.unwrap_or(AnimeTextYoloVariant::N);
-        let effective = match engine {
-            DetectorEngine::Default => DetectorEngine::Default,
-            DetectorEngine::AnimeYolo => match self.anime_text_detector(variant).await {
-                Ok(_) => DetectorEngine::AnimeYolo,
+        let is_cuda = matches!(crate::device(false), Ok(candle_core::Device::Cuda(_)));
+        let actual_variant = match anime_yolo_variant.unwrap_or(AnimeTextYoloVariant::N) {
+            AnimeTextYoloVariant::Auto => {
+                if !is_cuda {
+                    AnimeTextYoloVariant::N
+                } else {
+                    let max_dim = doc.width.max(doc.height);
+                    if max_dim >= 2500 {
+                        AnimeTextYoloVariant::X
+                    } else if max_dim >= 1800 {
+                        AnimeTextYoloVariant::L
+                    } else if max_dim >= 1200 {
+                        AnimeTextYoloVariant::M
+                    } else {
+                        AnimeTextYoloVariant::S
+                    }
+                }
+            }
+            other => other,
+        };
+
+        // Always run the default lightweight detector first to get base text blocks and mask
+        let default_detection = self.dialog_detector.inference(&doc.image)?;
+        let default_blocks = default_detection.text_blocks;
+        doc.segment = Some(DynamicImage::ImageLuma8(default_detection.mask).into());
+
+        // Determine if we should also run the heavier Anime YOLO model
+        let run_yolo = match engine {
+            DetectorEngine::Default => false,
+            DetectorEngine::AnimeYolo => true,
+            DetectorEngine::Auto => {
+                // Heuristic for Auto engine:
+                // 1. If default detector found no text at all (potential out-of-bubble/SFX only page).
+                // 2. If running on CUDA since it is very fast, to ensure maximum recall.
+                // 3. If the page is dense (>= 8 blocks) and likely has complex layouts.
+                default_blocks.is_empty() || is_cuda || default_blocks.len() >= 8
+            }
+        };
+
+        let mut final_blocks = default_blocks.clone();
+
+        if run_yolo {
+            match self.anime_text_detector(actual_variant).await {
+                Ok(yolo) => {
+                    let conf = anime_yolo_confidence
+                        .unwrap_or(crate::anime_text::DEFAULT_CONFIDENCE_THRESHOLD)
+                        .clamp(0.05, 0.95);
+                    match yolo.inference_with_thresholds(
+                        &doc.image,
+                        conf,
+                        crate::anime_text::DEFAULT_NMS_THRESHOLD,
+                    ) {
+                        Ok(anime) => {
+                            // Parallel Hybrid Merge with IoU deduplication
+                            let mut merged = anime.text_blocks; // Keep all YOLO blocks (SFX, stylized)
+                            for def_block in default_blocks {
+                                let is_duplicate = merged.iter().any(|yolo_block| {
+                                    intersection_over_union(&def_block, yolo_block) > 0.35
+                                });
+                                if !is_duplicate {
+                                    merged.push(def_block);
+                                }
+                            }
+                            final_blocks = merged;
+                        }
+                        Err(err) => {
+                            tracing::warn!("AnimeText YOLO inference failed ({err:#}); falling back to default detector");
+                        }
+                    }
+                }
                 Err(err) => {
                     tracing::warn!(
                         "AnimeText YOLO {} failed to load ({err:#}); falling back to default detector",
-                        variant.as_str()
+                        actual_variant.as_str()
                     );
-                    DetectorEngine::Default
                 }
-            },
-        };
-
-        match effective {
-            DetectorEngine::Default => {
-                let detection = self.dialog_detector.inference(&doc.image)?;
-                doc.text_blocks = detection.text_blocks;
-                doc.segment = Some(DynamicImage::ImageLuma8(detection.mask).into());
-            }
-            DetectorEngine::AnimeYolo => {
-                // Run BOTH: AnimeTextYOLO for the text bboxes (its
-                // strong suit — SFX / titles / out-of-bubble), AND
-                // the default detector for the bubble mask (the YOLO
-                // model has no bubble branch and `inpaint` needs a
-                // mask). The default detector's text_blocks are
-                // discarded in favour of YOLO's.
-                let default_detection = self.dialog_detector.inference(&doc.image)?;
-                doc.segment =
-                    Some(DynamicImage::ImageLuma8(default_detection.mask).into());
-                let yolo = self
-                    .anime_text_detector(variant)
-                    .await
-                    .expect("checked above");
-                let conf = anime_yolo_confidence
-                    .unwrap_or(crate::anime_text::DEFAULT_CONFIDENCE_THRESHOLD)
-                    .clamp(0.05, 0.95);
-                let anime = yolo.inference_with_thresholds(
-                    &doc.image,
-                    conf,
-                    crate::anime_text::DEFAULT_NMS_THRESHOLD,
-                )?;
-                doc.text_blocks = anime.text_blocks;
             }
         }
+
+        doc.text_blocks = final_blocks;
 
         if !doc.text_blocks.is_empty() {
             let images: Vec<DynamicImage> = doc

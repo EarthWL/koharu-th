@@ -213,7 +213,7 @@ export default function SettingsPage() {
                   <Select
                     value={detectorEngine}
                     onValueChange={(v) =>
-                      setDetectorEngine(v as 'default' | 'anime_yolo')
+                      setDetectorEngine(v as 'default' | 'anime_yolo' | 'auto')
                     }
                   >
                     <SelectTrigger>
@@ -226,10 +226,13 @@ export default function SettingsPage() {
                       <SelectItem value='anime_yolo'>
                         Anime Text YOLO
                       </SelectItem>
+                      <SelectItem value='auto'>
+                        Auto (Smart Parallel Hybrid)
+                      </SelectItem>
                     </SelectContent>
                   </Select>
 
-                  {detectorEngine === 'anime_yolo' && (
+                  {(detectorEngine === 'anime_yolo' || detectorEngine === 'auto') && (
                     <>
                       <label className='text-muted-foreground'>
                         {t('settings.engineDetectorVariant', 'Variant')}
@@ -237,13 +240,16 @@ export default function SettingsPage() {
                       <Select
                         value={animeYoloVariant}
                         onValueChange={(v) =>
-                          setAnimeYoloVariant(v as 'n' | 's' | 'm' | 'l' | 'x')
+                          setAnimeYoloVariant(v as 'n' | 's' | 'm' | 'l' | 'x' | 'auto')
                         }
                       >
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
+                          <SelectItem value='auto'>
+                            Auto (Smart Hardware Scaling)
+                          </SelectItem>
                           <SelectItem value='n'>
                             N · nano · ~10MB · fastest
                           </SelectItem>
@@ -303,7 +309,16 @@ export default function SettingsPage() {
                   <p className='text-muted-foreground/70 mt-4 border-t border-border/60 pt-3 text-xs leading-relaxed'>
                     {t(
                       'settings.engineDetectorAnimeYoloHint',
-                      'Anime Text YOLO (mayocream/anime-text-yolo, YOLO12) is tuned for anime/manga text and catches SFX, stylised titles, and out-of-bubble text the default detector misses. Bubble mask still comes from the default detector (YOLO has no bubble branch). Switching variant reloads the model on next Process — pick N for speed, X for max recall. Raise Confidence (~0.35–0.45) to cut over-detection on noisy pages; lower it to rescue faint SFX.',
+                      'Anime Text YOLO (mayocream/anime-text-yolo, YOLO12) is tuned for anime/manga text and catches SFX, stylised titles, and out-of-bubble text the default detector misses. Bubble mask still comes from the default detector. Switching variant reloads the model on next Process — pick N for speed, X for max recall. Raise Confidence (~0.35–0.45) to cut over-detection on noisy pages; lower it to rescue faint SFX.',
+                    )}
+                  </p>
+                )}
+
+                {detectorEngine === 'auto' && (
+                  <p className='text-muted-foreground/70 mt-4 border-t border-border/60 pt-3 text-xs leading-relaxed'>
+                    {t(
+                      'settings.engineDetectorAutoHint',
+                      'Auto Mode runs the default detector and dynamically cascades to Anime Text YOLO for action pages, dense text, or out-of-bubble SFX. Overlapping bboxes are resolved automatically. Variant "Auto" scales dynamically based on resolution and CUDA GPU capacity.',
                     )}
                   </p>
                 )}

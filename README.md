@@ -531,3 +531,4 @@ Built on top of [mayocream/koharu](https://github.com/mayocream/koharu). All ori
 Koharu application is licensed under the [GNU General Public License v3.0](LICENSE-GPL). This fork inherits the same license.
 
 The sub-crates of Koharu are licensed under the [Apache License 2.0](LICENSE-APACHE).
+

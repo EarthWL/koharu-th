@@ -33,11 +33,11 @@ export type OcrEngine = 'mit48px' | 'manga' | 'cloud'
  * detector in parallel just to get its bubble mask (YOLO12 has no
  * bubble branch and the inpaint step needs the mask).
  */
-export type DetectorEngine = 'default' | 'anime_yolo'
+export type DetectorEngine = 'default' | 'anime_yolo' | 'auto'
 
 /** Size variant for the Anime Text YOLO detector (~10MB to ~250MB).
  *  Bigger = better recall, slower, larger first-use download. */
-export type AnimeYoloVariant = 'n' | 's' | 'm' | 'l' | 'x'
+export type AnimeYoloVariant = 'n' | 's' | 'm' | 'l' | 'x' | 'auto'
 
 /** Per-provider wire config. Each provider keeps its own slot so the
  *  user can switch providers without re-pasting keys. */
@@ -158,7 +158,7 @@ const initialPreferences = {
   ocrCloudProfileId: null as number | null,
   activeProfileId: null as number | null,
   detectorEngine: 'default' as DetectorEngine,
-  animeYoloVariant: 'n' as AnimeYoloVariant,
+  animeYoloVariant: 'auto' as AnimeYoloVariant,
   animeYoloConfidence: 0.25,
   thaiPostProcessEnabled: true,
 }

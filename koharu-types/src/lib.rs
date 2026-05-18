@@ -35,6 +35,7 @@ pub enum DetectorEngine {
     #[default]
     Default,
     AnimeYolo,
+    Auto,
 }
 
 impl OcrEngine {
@@ -59,6 +60,7 @@ impl DetectorEngine {
         match self {
             DetectorEngine::Default => "default",
             DetectorEngine::AnimeYolo => "anime_yolo",
+            DetectorEngine::Auto => "auto",
         }
     }
 }
@@ -85,6 +87,7 @@ pub enum AnimeYoloVariant {
     M,
     L,
     X,
+    Auto,
 }
 
 impl AnimeYoloVariant {
@@ -95,6 +98,7 @@ impl AnimeYoloVariant {
             AnimeYoloVariant::M => "m",
             AnimeYoloVariant::L => "l",
             AnimeYoloVariant::X => "x",
+            AnimeYoloVariant::Auto => "auto",
         }
     }
 }
