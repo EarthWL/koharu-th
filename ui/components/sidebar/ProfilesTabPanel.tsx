@@ -14,6 +14,8 @@ import {
   Trash2Icon,
   XIcon,
   ZapIcon,
+  ArrowUpIcon,
+  ArrowDownIcon,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
@@ -73,6 +75,35 @@ export function ProfilesTabPanel() {
     await profiles.refetch()
   }
   const setPrefs = usePreferencesStore.getState()
+  
+  const llmFailoverEnabled = usePreferencesStore((s) => s.llmFailoverEnabled)
+  const setLlmFailoverEnabled = usePreferencesStore((s) => s.setLlmFailoverEnabled)
+  const llmFailoverPriority = usePreferencesStore((s) => s.llmFailoverPriority)
+  const setLlmFailoverPriority = usePreferencesStore((s) => s.setLlmFailoverPriority)
+
+  const sortedList = useMemo(() => {
+    const listCopy = [...list]
+    return listCopy.sort((a, b) => {
+      let idxA = llmFailoverPriority.indexOf(a.id)
+      let idxB = llmFailoverPriority.indexOf(b.id)
+      if (idxA === -1) idxA = 9999
+      if (idxB === -1) idxB = 9999
+      return idxA - idxB
+    })
+  }, [list, llmFailoverPriority])
+
+  const moveProfile = (id: number, direction: 'up' | 'down') => {
+    const currentOrder = sortedList.map((p) => p.id)
+    const idx = currentOrder.indexOf(id)
+    if (idx === -1) return
+    const nextIdx = direction === 'up' ? idx - 1 : idx + 1
+    if (nextIdx < 0 || nextIdx >= currentOrder.length) return
+    const temp = currentOrder[idx]
+    currentOrder[idx] = currentOrder[nextIdx]
+    currentOrder[nextIdx] = temp
+    setLlmFailoverPriority(currentOrder)
+  }
+
   // Subscribe so the row's "Active" badge re-renders when the active
   // LLM changes via the toolbar dropdown.
   const activeProvider = usePreferencesStore((s) => s.cloudProvider)
@@ -119,6 +150,41 @@ export function ProfilesTabPanel() {
           <PlusIcon className='size-3.5' />
         </Button>
       </div>
+
+      {list.length > 1 && (
+        <div className='bg-muted/30 border-border border-b px-3 py-2 text-xs flex flex-col gap-1.5 shrink-0'>
+          <div className='flex items-center justify-between'>
+            <span className='font-semibold text-foreground flex items-center gap-1'>
+              <ZapIcon className='size-3 text-amber-500 fill-amber-500/10' />
+              Auto Switch Failover
+            </span>
+            <div className='flex items-center gap-2'>
+              <button
+                type='button'
+                role='switch'
+                aria-checked={llmFailoverEnabled}
+                onClick={() => setLlmFailoverEnabled(!llmFailoverEnabled)}
+                className={[
+                  'relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  llmFailoverEnabled ? 'bg-amber-500' : 'bg-input',
+                ].join(' ')}
+              >
+                <span
+                  className={[
+                    'pointer-events-none inline-block size-3 rounded-full bg-background shadow-lg ring-0 transition-transform',
+                    llmFailoverEnabled ? 'translate-x-3' : 'translate-x-0',
+                  ].join(' ')}
+                />
+              </button>
+            </div>
+          </div>
+          <p className='text-muted-foreground text-[10px] leading-relaxed'>
+            {llmFailoverEnabled 
+              ? 'ยินยอม: แปลต่ออัตโนมัติหากติดขัด/เครดิตหมด โดยสลับไปโปรไฟล์สำรองตามลำดับตัวเลขด้านล่าง'
+              : 'ปิดการสลับโปรไฟล์อัตโนมัติ (แนะนำเพื่อการควบคุมค่าใช้จ่าย)'}
+          </p>
+        </div>
+      )}
       <ScrollArea className='min-h-0 min-w-0 flex-1'>
         <div className='w-full min-w-0 space-y-1 p-2'>
           {profiles.isLoading ? (
@@ -151,14 +217,16 @@ export function ProfilesTabPanel() {
               </Button>
             </div>
           ) : (
-            list.map((p) => {
+            sortedList.map((p) => {
               // Effective provider routes legacy openrouter-as-openai
               // through the right code path so the Active badge lights
               // up correctly on those rows too.
               const isActive =
                 effectiveDbProvider(p) === activeProvider &&
                 p.modelName === activeModel
+              const priorityIndex = sortedList.findIndex((x) => x.id === p.id)
               return (
+<<<<<<< HEAD
                 <div
                   key={p.id}
                   className={
@@ -173,19 +241,61 @@ export function ProfilesTabPanel() {
                       onClick={() => void toggleDefault(p)}
                       className='shrink-0 hover:text-amber-500'
                       title={
+=======
+              <div
+                key={p.id}
+                className={
+                  'group min-w-0 rounded-md border p-1.5 ' +
+                  (isActive
+                    ? 'border-rose-400/60 bg-rose-400/5'
+                    : 'border-border bg-card')
+                }
+              >
+                <div className='flex items-start gap-1.5'>
+                  {/* แสดงลำดับความสำคัญเมื่อเปิด Failover */}
+                  {llmFailoverEnabled && sortedList.length > 1 && (
+                    <div className='flex flex-col items-center gap-0.5 shrink-0 pr-1.5 border-r border-border/60 mr-0.5'>
+                      <span className='text-[10px] font-bold text-amber-500'>
+                        #{priorityIndex + 1}
+                      </span>
+                      <div className='flex flex-col gap-0.5'>
+                        <button
+                          onClick={() => moveProfile(p.id, 'up')}
+                          disabled={priorityIndex === 0}
+                          className='text-muted-foreground hover:text-foreground disabled:opacity-20 transition'
+                          title='เลื่อนขึ้น'
+                        >
+                          <ArrowUpIcon className='size-2.5' />
+                        </button>
+                        <button
+                          onClick={() => moveProfile(p.id, 'down')}
+                          disabled={priorityIndex === sortedList.length - 1}
+                          className='text-muted-foreground hover:text-foreground disabled:opacity-20 transition'
+                          title='เลื่อนลง'
+                        >
+                          <ArrowDownIcon className='size-2.5' />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => void toggleDefault(p)}
+                    className='shrink-0 hover:text-amber-500 pt-0.5'
+                    title={
+                      p.isDefault
+                        ? 'Unmark as default'
+                        : 'Mark as default (auto-loaded on project open)'
+                    }
+                  >
+                    <StarIcon
+                      className={
                         p.isDefault
-                          ? 'Unmark as default'
-                          : 'Mark as default (auto-loaded on project open)'
+                          ? 'fill-amber-400 size-3 text-amber-400'
+                          : 'text-muted-foreground/50 size-3'
                       }
-                    >
-                      <StarIcon
-                        className={
-                          p.isDefault
-                            ? 'fill-amber-400 size-3 text-amber-400'
-                            : 'text-muted-foreground/50 size-3'
-                        }
-                      />
-                    </button>
+                    />
+                  </button>
                     <div className='min-w-0 flex-1 text-xs'>
                       <div className='truncate font-semibold'>{p.name}</div>
                       <div className='text-muted-foreground truncate text-[10px]'>

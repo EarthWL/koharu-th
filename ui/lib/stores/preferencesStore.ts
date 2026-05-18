@@ -20,6 +20,9 @@ export type CloudProvider = 'none' | 'openai' | 'openrouter' | 'gemini' | 'anthr
  */
 export type OcrEngine = 'mit48px' | 'manga' | 'cloud' | 'auto'
 export type AutoUpdateMode = 'auto' | 'notify' | 'manual'
+/** ความละเอียดสูงสุด (px) ของ crop ที่ส่ง LaMa — fast=256 / balanced=512 / quality=768 */
+export type InpaintQuality = 256 | 512 | 768
+
 
 /**
  * Detector engine — mirrors `koharu_types::DetectorEngine`.
@@ -147,6 +150,23 @@ type PreferencesState = {
   thaiPostProcessEnabled: boolean
   setThaiPostProcessEnabled: (enabled: boolean) => void
 
+  /** ขนาด crop สูงสุดที่ส่ง LaMa neural network (px).
+   *  256 = เร็ว, 512 = สมดุล (default), 768 = คุณภาพสูง */
+  inpaintMaxSide: InpaintQuality
+  setInpaintMaxSide: (side: InpaintQuality) => void
+
+  /** เปิด Thai post-processing หลัง LLM แปล:
+   *  - แปลง straight quotes " " → curly \u201c \u201d
+   *  - ลบ space เกินระหว่างตัวอักษรไทย */
+  thaiPostProcess: boolean
+  setThaiPostProcess: (enabled: boolean) => void
+
+  llmFailoverEnabled: boolean
+  setLlmFailoverEnabled: (enabled: boolean) => void
+
+  llmFailoverPriority: number[]
+  setLlmFailoverPriority: (priority: number[]) => void
+
   resetPreferences: () => void
 }
 
@@ -167,6 +187,11 @@ const initialPreferences = {
   animeYoloVariant: 'auto' as AnimeYoloVariant,
   animeYoloConfidence: 0.25,
   thaiPostProcessEnabled: true,
+  autoUpdateMode: 'notify' as AutoUpdateMode,
+  inpaintMaxSide: 512 as InpaintQuality,
+  thaiPostProcess: true,
+  llmFailoverEnabled: false,
+  llmFailoverPriority: [] as number[],
 }
 
 /**
@@ -258,11 +283,16 @@ export const usePreferencesStore = create<PreferencesState>()(
         set({ animeYoloConfidence: Math.min(0.95, Math.max(0.05, confidence)) }),
       setThaiPostProcessEnabled: (enabled) =>
         set({ thaiPostProcessEnabled: enabled }),
+      setAutoUpdateMode: (mode) => set({ autoUpdateMode: mode }),
+      setInpaintMaxSide: (side) => set({ inpaintMaxSide: side }),
+      setThaiPostProcess: (enabled) => set({ thaiPostProcess: enabled }),
+      setLlmFailoverEnabled: (enabled) => set({ llmFailoverEnabled: enabled }),
+      setLlmFailoverPriority: (priority) => set({ llmFailoverPriority: priority }),
       resetPreferences: () => set({ ...initialPreferences }),
     }),
     {
       name: 'koharu-config',
-      version: 2,
+      version: 3,
       migrate: (persisted: any, fromVersion) => {
         // V1 stored a single (cloudApiKey, cloudApiUrl, cloudModelName)
         // shared across providers. Push that record into the slot for

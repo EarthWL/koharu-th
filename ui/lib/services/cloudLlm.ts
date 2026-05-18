@@ -299,27 +299,8 @@ async function generateCloudTranslationImpl(
   override?: ProviderOverride,
 ): Promise<TranslationDetailed> {
   const live = usePreferencesStore.getState()
-  const cloudProvider = override?.provider ?? live.cloudProvider
-  const cloudApiKey = override?.apiKey ?? live.cloudApiKey
-  const cloudApiUrl = override?.apiUrl ?? live.cloudApiUrl
-  const cloudModelName = override?.model ?? live.cloudModelName
-
-  if (!cloudApiKey) {
-    throw new Error(
-      cloudProvider === 'none'
-        ? 'No LLM profile applied. Open the Profiles sidebar tab and click Apply on a saved profile (or pick one from the LLM badge in the toolbar).'
-        : `No API key for the active "${cloudProvider}" profile. Open Profiles tab → edit the active profile and re-enter your API key, then Apply.`,
-    )
-  }
-
-  // Cache key = (source text, target language). The language arg is
-  // whatever the caller passed (project's target_language or a free-text
-  // value), so identical pages on the same project bucket together.
   const tmHit = await tryTmHit(text, language)
   if (tmHit) {
-    // TM hits skip the API entirely — also skip the streaming UX
-    // since there's nothing to stream. Caller's onChunk just fires
-    // once with the full cached result.
     if (onChunk) onChunk(tmHit.entry.targetText)
     return {
       text: tmHit.entry.targetText,
@@ -343,40 +324,148 @@ async function generateCloudTranslationImpl(
 The translation should sound natural, conversational, and appropriate for comic book characters, keeping the original tone and context intact.
 Only return the translation, no extra text:\n\n${text}`
 
-  let raw: CloudResult
-  try {
-    raw = await withRetry(
-      () => {
-        if (cloudProvider === 'openai') {
-          return fetchOpenAI(prompt, cloudApiKey, cloudApiUrl, cloudModelName, false, onChunk)
-        } else if (cloudProvider === 'openrouter') {
-          return fetchOpenRouter(prompt, cloudApiKey, cloudModelName, false, onChunk)
-        } else if (cloudProvider === 'gemini') {
-          return fetchGemini(prompt, cloudApiKey, cloudModelName, false, onChunk)
-        } else if (cloudProvider === 'anthropic') {
-          return fetchAnthropic(prompt, cloudApiKey, cloudModelName, false, onChunk)
-        } else {
-          throw new Error(`Unsupported cloud provider: ${cloudProvider}`)
+  // Build failover attempts list if enabled
+  type ConfigAttempt = {
+    id: number | null
+    name: string
+    provider: string
+    apiKey: string
+    apiUrl: string
+    modelName: string
+  }
+
+  let attempts: ConfigAttempt[] = []
+
+  if (!override && live.llmFailoverEnabled) {
+    try {
+      const profiles = await api.providerProfilesList()
+      const sorted = [...profiles].sort((a, b) => {
+        let idxA = live.llmFailoverPriority.indexOf(a.id)
+        let idxB = live.llmFailoverPriority.indexOf(b.id)
+        if (idxA === -1) idxA = 9999
+        if (idxB === -1) idxB = 9999
+        return idxA - idxB
+      })
+
+      const activeId = live.activeProfileId
+      const activeProfile = profiles.find(p => p.id === activeId)
+      const rest = sorted.filter(p => p.id !== activeId)
+
+      const getDetails = async (p: typeof profiles[0]): Promise<ConfigAttempt> => {
+        let key = ''
+        if (p.provider !== 'local') {
+          try {
+            const secret = await api.providerProfileSecretGet(p.id)
+            key = secret.apiKey ?? ''
+          } catch (e) {
+            console.warn(`[failover] Failed to get API key for ${p.name}`, e)
+          }
         }
-      },
-      {
-        onRetry: (attempt, err, waitMs) =>
-          console.warn(
-            `[cloudLlm] retry ${attempt} after ${waitMs}ms:`,
-            err instanceof Error ? err.message : err,
-          ),
-      },
-    )
-  } catch (err: any) {
+        return {
+          id: p.id,
+          name: p.name,
+          provider: p.provider,
+          apiKey: key,
+          apiUrl: p.apiUrl ?? (p.provider === 'openai' ? 'https://api.openai.com/v1' : ''),
+          modelName: p.modelName,
+        }
+      }
+
+      if (activeProfile) {
+        attempts.push(await getDetails(activeProfile))
+      }
+      for (const p of rest) {
+        attempts.push(await getDetails(p))
+      }
+    } catch (err) {
+      console.error('[failover] Failed to build failover candidates list', err)
+    }
+  }
+
+  if (attempts.length === 0) {
+    const cloudProvider = override?.provider ?? live.cloudProvider
+    const cloudApiKey = override?.apiKey ?? live.cloudApiKey
+    const cloudApiUrl = override?.apiUrl ?? live.cloudApiUrl
+    const cloudModelName = override?.model ?? live.cloudModelName
+
+    attempts.push({
+      id: live.activeProfileId,
+      name: 'Active Profile',
+      provider: cloudProvider,
+      apiKey: cloudApiKey,
+      apiUrl: cloudApiUrl,
+      modelName: cloudModelName,
+    })
+  }
+
+  let raw: CloudResult | null = null
+  let successfulAttempt: ConfigAttempt | null = null
+  let lastError: any = null
+
+  for (let i = 0; i < attempts.length; i++) {
+    const att = attempts[i]
+    if (!att.apiKey && att.provider !== 'local') {
+      lastError = new Error(`No API key for profile "${att.name}"`)
+      continue
+    }
+
+    try {
+      raw = await withRetry(
+        () => {
+          if (att.provider === 'openai') {
+            return fetchOpenAI(prompt, att.apiKey, att.apiUrl, att.modelName, false, onChunk)
+          } else if (att.provider === 'openrouter') {
+            return fetchOpenRouter(prompt, att.apiKey, att.modelName, false, onChunk)
+          } else if (att.provider === 'gemini') {
+            return fetchGemini(prompt, att.apiKey, att.modelName, false, onChunk)
+          } else if (att.provider === 'anthropic') {
+            return fetchAnthropic(prompt, att.apiKey, att.modelName, false, onChunk)
+          } else {
+            throw new Error(`Unsupported cloud provider: ${att.provider}`)
+          }
+        },
+        {
+          onRetry: (attemptNum, err, waitMs) =>
+            console.warn(
+              `[cloudLlm] retry ${attemptNum} for profile "${att.name}" after ${waitMs}ms:`,
+              err instanceof Error ? err.message : err,
+            ),
+        },
+      )
+      successfulAttempt = att
+      break
+    } catch (err: any) {
+      console.warn(`[cloudLlm] Profile "${att.name}" failed:`, err?.message ?? err)
+      lastError = err
+    }
+  }
+
+  if (!raw || !successfulAttempt) {
     logCallSafe({
       useCase: 'translate',
       success: false,
       usage: null,
       durationMs: Math.round(performance.now() - t0),
-      errorMessage: err?.message ?? String(err),
+      errorMessage: lastError?.message ?? String(lastError),
     })
-    throw err
+    throw lastError || new Error('All translation profiles failed')
   }
+
+  if (live.llmFailoverEnabled && successfulAttempt.id !== live.activeProfileId && successfulAttempt.id !== null) {
+    const origName = attempts[0]?.name ?? 'โปรไฟล์เดิม'
+    setTimeout(() => {
+      alert(`⚠️ ระบบสลับผู้ให้บริการสำรองอัตโนมัติทำงาน!\n\nเนื่องจากโปรไฟล์หลัก "${origName}" ขัดข้องหรือโควตาหมด ระบบจึงสลับไปใช้โปรไฟล์สำรอง "${successfulAttempt!.name}" เพื่อแปลข้อความให้ท่านอย่างต่อเนื่องเรียบร้อยครับ`)
+    }, 10)
+
+    usePreferencesStore.setState({
+      activeProfileId: successfulAttempt.id,
+      cloudProvider: successfulAttempt.provider as any,
+      cloudApiKey: successfulAttempt.apiKey,
+      cloudApiUrl: successfulAttempt.apiUrl,
+      cloudModelName: successfulAttempt.modelName
+    })
+  }
+
   const result = raw.text
 
   // Bump glossary usage after a successful generation so the dashboard
@@ -452,9 +541,7 @@ export async function extractEntitiesFromText(
   }
   if (!cloudApiKey) {
     throw new Error(
-      cloudProvider === 'none'
-        ? 'No LLM profile applied. Open the Profiles sidebar tab and click Apply on a saved profile (or pick one from the LLM badge in the toolbar).'
-        : `No API key for the active "${cloudProvider}" profile. Open Profiles tab → edit the active profile and re-enter your API key, then Apply.`,
+      `No API key for the active "${cloudProvider}" profile. Open Profiles tab → edit the active profile and re-enter your API key, then Apply.`,
     )
   }
 
