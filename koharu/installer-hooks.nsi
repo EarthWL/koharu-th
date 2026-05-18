@@ -35,14 +35,6 @@
 ;      may have dropped into the folder manually.
 
 !macro NSIS_HOOK_PREUNINSTALL
-  ; Default = No (safer — re-installing later reuses the cache).
-  ; /SD IDNO = silent uninstall also defaults to No, so unattended
-  ; deployments don't accidentally wipe cached models.
-  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 \
-    "Also remove downloaded AI models, CUDA runtime libraries, custom fonts, and saved settings from:$\r$\n$\r$\n  $LOCALAPPDATA\Koharu\$\r$\n$\r$\nThis can reclaim 1-3 GB of disk space.$\r$\n$\r$\nYour translated project files (.khr databases, chapter folders, render output) are NOT in this location and will be kept regardless of your choice." \
-    /SD IDNO \
-    IDNO koharu_purge_skip
-
   ; ─── Belt 1: refuse if $LOCALAPPDATA is unset ─────────────────
   ; CSIDL_LOCAL_APPDATA is always set on a healthy Windows install,
   ; but if it ever resolved to "" we'd be running `RMDir /r "\Koharu"`
@@ -54,11 +46,20 @@
   ; the artefacts koharu itself creates. If none of these exist, we
   ; either never installed any cache here (already clean — nothing
   ; to do), OR the folder belongs to something else (don't touch).
-  IfFileExists "$LOCALAPPDATA\Koharu\libs\*.*" koharu_purge_verified
-  IfFileExists "$LOCALAPPDATA\Koharu\models\*.*" koharu_purge_verified
-  IfFileExists "$LOCALAPPDATA\Koharu\fonts\*.*" koharu_purge_verified
-  IfFileExists "$LOCALAPPDATA\Koharu\recent-projects.json" koharu_purge_verified
+  IfFileExists "$LOCALAPPDATA\Koharu\libs\*.*" koharu_purge_ask
+  IfFileExists "$LOCALAPPDATA\Koharu\models\*.*" koharu_purge_ask
+  IfFileExists "$LOCALAPPDATA\Koharu\fonts\*.*" koharu_purge_ask
+  IfFileExists "$LOCALAPPDATA\Koharu\recent-projects.json" koharu_purge_ask
   Goto koharu_purge_not_ours
+
+koharu_purge_ask:
+  ; Default = No (safer — re-installing later reuses the cache).
+  ; /SD IDNO = silent uninstall also defaults to No, so unattended
+  ; deployments don't accidentally wipe cached models.
+  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 \
+    "Also remove downloaded AI models, CUDA runtime libraries, custom fonts, and saved settings from:$\r$\n$\r$\n  $LOCALAPPDATA\Koharu\$\r$\n$\r$\nThis can reclaim 1-3 GB of disk space.$\r$\n$\r$\nYour translated project files (.khr databases, chapter folders, render output) are NOT in this location and will be kept regardless of your choice." \
+    /SD IDNO \
+    IDNO koharu_purge_skip
 
 koharu_purge_verified:
   ; ─── Belt 3: bounded named-subfolder deletion ─────────────────
