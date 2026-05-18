@@ -159,11 +159,16 @@ export default function AboutPage() {
                     )}
                     {versionStatus === 'outdated' && (
                       <button
-                        onClick={() =>
-                          openExternal(
-                            `https://github.com/${GITHUB_REPO}/releases/latest`,
-                          )
-                        }
+                        onClick={() => {
+                          if (isTauri()) {
+                            const { triggerUpdateCheck } = require('@/lib/services/autoUpdater')
+                            void triggerUpdateCheck(true)
+                          } else {
+                            openExternal(
+                              `https://github.com/${GITHUB_REPO}/releases/latest`,
+                            )
+                          }
+                        }}
                         className='flex items-center gap-1 text-xs text-amber-500 hover:underline'
                       >
                         <AlertCircleIcon className='size-3.5' />

@@ -56,6 +56,8 @@ export default function SettingsPage() {
   const setAnimeYoloConfidence = usePreferencesStore(
     (s) => s.setAnimeYoloConfidence,
   )
+  const autoUpdateMode = usePreferencesStore((s) => s.autoUpdateMode)
+  const setAutoUpdateMode = usePreferencesStore((s) => s.setAutoUpdateMode)
   const projectInfo = useProjectStore((s) => s.info)
   const cloudProvider = usePreferencesStore((s) => s.cloudProvider)
   const cloudModelName = usePreferencesStore((s) => s.cloudModelName)
@@ -425,6 +427,67 @@ export default function SettingsPage() {
                 </div>
               </section>
             )}
+
+            {/* Updater Section */}
+            <section className='mb-8'>
+              <h2 className='text-foreground mb-1 text-sm font-bold'>
+                {t('settings.updaterTitle', 'Auto-updater preferences')}
+              </h2>
+              <p className='text-muted-foreground mb-4 text-sm'>
+                {t('settings.updaterDescription', 'Choose how Koharu handles software updates.')}
+              </p>
+
+              <div className='bg-card border-border rounded-lg border p-4'>
+                <div className='space-y-4'>
+                  <div className='flex items-center justify-between'>
+                    <div className='flex flex-col gap-0.5'>
+                      <span className='text-foreground text-sm font-medium'>
+                        {t('settings.updaterMode', 'Update checking mode')}
+                      </span>
+                    </div>
+                    <Select
+                      value={autoUpdateMode}
+                      onValueChange={(v) =>
+                        setAutoUpdateMode(v as 'auto' | 'notify' | 'manual')
+                      }
+                    >
+                      <SelectTrigger className='w-[180px]'>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value='auto'>
+                          {t('settings.updateModeAuto', 'Auto-Update')}
+                        </SelectItem>
+                        <SelectItem value='notify'>
+                          {t('settings.updateModeNotify', 'Notify Only')}
+                        </SelectItem>
+                        <SelectItem value='manual'>
+                          {t('settings.updateModeManual', 'Manual')}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <p className='text-muted-foreground/70 border-t border-border/60 pt-3 text-xs leading-relaxed'>
+                    {autoUpdateMode === 'auto' &&
+                      t(
+                        'settings.updaterAutoHint',
+                        'Auto-Update: Koharu will check for updates on startup, download and install them silently in the background, and then prompt you to restart. Zero effort required.',
+                      )}
+                    {autoUpdateMode === 'notify' &&
+                      t(
+                        'settings.updaterNotifyHint',
+                        'Notify Only: Koharu will check for updates on startup. If an update is available, you will receive a prompt to download and install it.',
+                      )}
+                    {autoUpdateMode === 'manual' &&
+                      t(
+                        'settings.updaterManualHint',
+                        'Manual: Koharu will not check for updates automatically. You must manually check from the Help menu or About page.',
+                      )}
+                  </p>
+                </div>
+              </div>
+            </section>
 
             {/* Storage Section */}
             <StorageSection />

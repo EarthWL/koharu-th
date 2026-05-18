@@ -183,8 +183,15 @@
     "aboutUpdate": "Update available ({{version}})",
     "aboutAuthor": "Author",
     "aboutRepository": "Repository",
-    "device": "Device",
-    "deviceDescription": "Hardware acceleration information.",
-    "deviceMl": "ML Compute"
+    "deviceMl": "ML Compute",
+    "updaterTitle": "Auto-Updater Preferences",
+    "updaterDescription": "Choose how Koharu handles software updates.",
+    "updaterMode": "Update checking mode",
+    "updateModeAuto": "Auto-Update",
+    "updateModeNotify": "Notify Only",
+    "updateModeManual": "Manual Only",
+    "updaterAutoHint": "Auto-Update: Koharu will check for updates on startup, download and install them silently in the background, and then prompt you to relaunch to finish.",
+    "updaterNotifyHint": "Notify Only: Koharu will check for updates on startup. If an update is available, you will receive a prompt to download and install it immediately.",
+    "updaterManualHint": "Manual: Koharu will not check for updates automatically. You must manually check from the Help menu or About page."
   }
 }

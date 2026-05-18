@@ -234,7 +234,16 @@
     "openrouterModelHint": "เลือกโมเดลใดก็ได้จากแคตตาล็อก OpenRouter ราคาที่แสดงคิดต่อล้าน tokens",
     "geminiModelHint": "เลือกโมเดล Gemini ที่รองรับ generateContent ตัวเลขด้านขวาคือ token limit สูงสุดของโมเดลนั้น",
     "providerPreset": "Quick preset",
-    "providerPresetHint": "ตั้ง provider + base URL + suggested model — แก้ field ด้านล่างได้ตามต้องการ"
+    "providerPresetHint": "ตั้ง provider + base URL + suggested model — แก้ field ด้านล่างได้ตามต้องการ",
+    "updaterTitle": "การอัปเดตอัตโนมัติ",
+    "updaterDescription": "เลือกวิธีที่ Koharu จะตรวจสอบและดาวน์โหลดการอัปเดต",
+    "updaterMode": "โหมดการตรวจสอบอัปเดต",
+    "updateModeAuto": "อัปเดตอัตโนมัติ",
+    "updateModeNotify": "เตือนเมื่อมีอัปเดต",
+    "updateModeManual": "ตรวจสอบด้วยตนเอง",
+    "updaterAutoHint": "อัปเดตอัตโนมัติ: Koharu จะตรวจสอบการอัปเดตเมื่อเริ่มต้นแอป ดาวน์โหลดและติดตั้งแบบเบื้องหลังอย่างเงียบๆ แล้วเตือนให้คุณเปิดแอปใหม่เพื่อเสร็จสิ้น",
+    "updaterNotifyHint": "เตือนเมื่อมีอัปเดต: Koharu จะตรวจสอบการอัปเดตเมื่อเริ่มต้นแอป หากพบเวอร์ชันใหม่ คุณจะเห็นข้อความถามยืนยันเพื่อดาวน์โหลดและติดตั้งทันที",
+    "updaterManualHint": "ตรวจสอบด้วยตนเอง: Koharu จะไม่ตรวจสอบการอัปเดตโดยอัตโนมัติ คุณต้องกดปุ่มตรวจสอบอัปเดตด้วยตนเองที่หน้า 'เกี่ยวกับ' หรือแถบเมนู"
   },
   "project": {
     "title": "โปรเจค",

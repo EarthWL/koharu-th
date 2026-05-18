@@ -19,6 +19,7 @@ export type CloudProvider = 'none' | 'openai' | 'openrouter' | 'gemini' | 'anthr
  * + chat calls — the cost dashboard sees them.
  */
 export type OcrEngine = 'mit48px' | 'manga' | 'cloud'
+export type AutoUpdateMode = 'auto' | 'notify' | 'manual'
 
 /**
  * Detector engine — mirrors `koharu_types::DetectorEngine`.
@@ -133,6 +134,9 @@ type PreferencesState = {
   animeYoloConfidence: number
   setAnimeYoloConfidence: (confidence: number) => void
 
+  autoUpdateMode: AutoUpdateMode
+  setAutoUpdateMode: (mode: AutoUpdateMode) => void
+
   resetPreferences: () => void
 }
 
@@ -151,6 +155,7 @@ const initialPreferences = {
   detectorEngine: 'default' as DetectorEngine,
   animeYoloVariant: 'n' as AnimeYoloVariant,
   animeYoloConfidence: 0.25,
+  autoUpdateMode: 'notify' as AutoUpdateMode,
 }
 
 /**
@@ -239,6 +244,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       setAnimeYoloConfidence: (confidence) =>
         // Mirror backend clamp so the persisted value stays in range.
         set({ animeYoloConfidence: Math.min(0.95, Math.max(0.05, confidence)) }),
+      setAutoUpdateMode: (mode) => set({ autoUpdateMode: mode }),
       resetPreferences: () => set({ ...initialPreferences }),
     }),
     {
