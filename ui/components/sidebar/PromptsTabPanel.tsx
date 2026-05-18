@@ -2,7 +2,13 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { PlusIcon, StarIcon, Trash2Icon } from 'lucide-react'
+import {
+  CheckIcon,
+  Loader2Icon,
+  PlusIcon,
+  StarIcon,
+  Trash2Icon,
+} from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -53,13 +59,21 @@ export function PromptsTabPanel() {
           onClick={async () => {
             const name = prompt('Template name?')
             if (!name) return
-            await api.promptTemplateAdd({
-              name,
-              useCase: 'translate',
-              template:
-                'You are a translator.\n\nSource: {{source}}\n\nTranslate to {{target_language}}.',
-            })
-            refresh()
+            try {
+              await api.promptTemplateAdd({
+                name,
+                useCase: 'translate',
+                template:
+                  'You are a translator.\n\nSource: {{source}}\n\nTranslate to {{target_language}}.',
+              })
+              refresh()
+            } catch (err: any) {
+              // No inline error surface for the new-template button —
+              // alert is acceptable here since the button isn't part of
+              // any open form. Keeps the user aware that creation failed
+              // instead of silently doing nothing.
+              alert(`Failed to create template: ${err?.message ?? err}`)
+            }
           }}
         >
           <PlusIcon className='size-3.5' />
@@ -99,6 +113,7 @@ export function PromptsTabPanel() {
             <TemplateEditor
               key={selected.id}
               template={selected}
+              siblings={list}
               onSaved={refresh}
             />
           )}
@@ -110,18 +125,32 @@ export function PromptsTabPanel() {
 
 function TemplateEditor({
   template,
+  siblings,
   onSaved,
 }: {
   template: PromptTemplateDto
+  /** All templates from the parent — needed for the "multiple defaults
+   *  per use_case" warning when the user ticks Default. */
+  siblings: PromptTemplateDto[]
   onSaved: () => void
 }) {
   const [draft, setDraft] = useState(template)
   const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveOk, setSaveOk] = useState(false)
 
   useEffect(() => {
-    setDraft(template)
-    setDirty(false)
-  }, [template])
+    // Re-init only when the user has no in-flight edits — otherwise a
+    // background refetch of `['project', 'prompts']` would silently
+    // overwrite the draft. Same pattern as the ProjectTabPanel /
+    // CharactersTabPanel audits.
+    if (!dirty) {
+      setDraft(template)
+      setSaveError(null)
+      setSaveOk(false)
+    }
+  }, [template, dirty])
 
   const patch = <K extends keyof PromptTemplateDto>(
     key: K,
@@ -129,24 +158,72 @@ function TemplateEditor({
   ) => {
     setDraft((d) => ({ ...d, [key]: value }))
     setDirty(true)
+    if (saveOk) setSaveOk(false)
+    if (saveError) setSaveError(null)
+  }
+
+  const setIsDefault = (checked: boolean) => {
+    // Warn the user when ticking Default and there's already another
+    // template flagged for the same use_case. Backend doesn't enforce
+    // single-default-per-use-case today, so without this prompt the
+    // user can quietly end up with two "default" entries and the
+    // dispatch picks whichever the SQL ORDER BY returns first. The
+    // confirm flow makes the override deliberate.
+    if (checked) {
+      const existing = siblings.find(
+        (s) =>
+          s.id !== draft.id &&
+          s.useCase === draft.useCase &&
+          s.isDefault,
+      )
+      if (
+        existing &&
+        !confirm(
+          `"${existing.name}" is currently the default for ${draft.useCase}. Make THIS template the default instead?`,
+        )
+      ) {
+        return
+      }
+    }
+    patch('isDefault', checked)
   }
 
   const save = async () => {
-    await api.promptTemplateUpdate({
-      id: template.id,
-      name: draft.name,
-      useCase: draft.useCase,
-      template: draft.template,
-      isDefault: draft.isDefault,
-    })
-    setDirty(false)
-    onSaved()
+    setSaving(true)
+    setSaveError(null)
+    setSaveOk(false)
+    try {
+      await api.promptTemplateUpdate({
+        id: template.id,
+        name: draft.name,
+        useCase: draft.useCase,
+        template: draft.template,
+        isDefault: draft.isDefault,
+      })
+      setDirty(false)
+      setSaveOk(true)
+      window.setTimeout(() => setSaveOk(false), 2500)
+      onSaved()
+    } catch (err: any) {
+      setSaveError(err?.message ?? String(err))
+    } finally {
+      setSaving(false)
+    }
   }
 
   const remove = async () => {
-    if (!confirm(`Delete "${template.name}"?`)) return
-    await api.promptTemplateRemove(template.id)
-    onSaved()
+    if (
+      !confirm(
+        `Delete "${template.name}"?\n\nExisting translations that used this template are NOT affected — only future ones will fall back to the next default.`,
+      )
+    )
+      return
+    try {
+      await api.promptTemplateRemove(template.id)
+      onSaved()
+    } catch (err: any) {
+      setSaveError(err?.message ?? String(err))
+    }
   }
 
   return (
@@ -183,11 +260,16 @@ function TemplateEditor({
         <input
           type='checkbox'
           checked={draft.isDefault}
-          onChange={(e) => patch('isDefault', e.target.checked)}
+          onChange={(e) => setIsDefault(e.target.checked)}
         />
         Default for this use case
       </label>
-      <div className='flex justify-between gap-1'>
+      {saveError && (
+        <p className='text-destructive text-[10px] leading-relaxed'>
+          Failed: {saveError}
+        </p>
+      )}
+      <div className='flex items-center justify-between gap-1'>
         <Button
           variant='ghost'
           size='sm'
@@ -197,15 +279,23 @@ function TemplateEditor({
           <Trash2Icon className='size-3' />
           Delete
         </Button>
-        <Button
-          variant='default'
-          size='sm'
-          className='h-6 text-[10px]'
-          disabled={!dirty}
-          onClick={() => void save()}
-        >
-          Save
-        </Button>
+        <div className='flex items-center gap-2'>
+          {saveOk && !dirty && !saving && (
+            <span className='flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400'>
+              <CheckIcon className='size-3' /> Saved
+            </span>
+          )}
+          <Button
+            variant='default'
+            size='sm'
+            className='h-6 text-[10px]'
+            disabled={!dirty || saving}
+            onClick={() => void save()}
+          >
+            {saving && <Loader2Icon className='size-3 animate-spin' />}
+            Save
+          </Button>
+        </div>
       </div>
     </div>
   )

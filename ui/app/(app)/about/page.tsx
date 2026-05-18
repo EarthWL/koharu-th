@@ -165,6 +165,8 @@ export default function AboutPage() {
                           )
                         }
                         className='flex items-center gap-1 text-xs text-amber-500 hover:underline'
+                        aria-label={`Download update — open ${GITHUB_REPO} releases page`}
+                        title='Open the GitHub releases page to download the new version'
                       >
                         <AlertCircleIcon className='size-3.5' />
                         {t('settings.aboutUpdate', { version: latestVersion })}
