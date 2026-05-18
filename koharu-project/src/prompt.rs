@@ -115,8 +115,8 @@ pub fn build_context(
 
     PromptContext {
         source: source_text.to_string(),
-        source_language: series.source_language.clone(),
-        target_language: series.target_language.clone(),
+        source_language: map_lang_name(&series.source_language),
+        target_language: map_lang_name(&series.target_language),
         series_title: series.title.clone(),
         series_title_original: series.title_original.clone().unwrap_or_default(),
         series_synopsis: series.synopsis.clone().unwrap_or_default(),
@@ -127,6 +127,35 @@ pub fn build_context(
         filtered_glossary,
         rolling_summary: rolling_summary.to_string(),
         glossary_hit_ids,
+    }
+}
+
+fn map_lang_name(code: &str) -> String {
+    match code.to_lowercase().as_str() {
+        "th" | "tha" => "Thai".to_string(),
+        "en" | "eng" => "English".to_string(),
+        "ja" | "jpn" | "jp" => "Japanese".to_string(),
+        "zh" | "zho" | "chi" | "cn" => "Chinese".to_string(),
+        "ko" | "kor" => "Korean".to_string(),
+        "fr" | "fra" | "fre" => "French".to_string(),
+        "de" | "deu" | "ger" => "German".to_string(),
+        "es" | "spa" => "Spanish".to_string(),
+        "ru" | "rus" => "Russian".to_string(),
+        "it" | "ita" => "Italian".to_string(),
+        "pt" | "por" => "Portuguese".to_string(),
+        "vi" | "vie" => "Vietnamese".to_string(),
+        "id" | "ind" => "Indonesian".to_string(),
+        _ => {
+            if code.len() > 3 {
+                let mut chars = code.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
+                }
+            } else {
+                code.to_string()
+            }
+        }
     }
 }
 
