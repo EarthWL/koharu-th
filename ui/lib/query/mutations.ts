@@ -98,16 +98,16 @@ export const useTextBlockMutations = () => {
   const queryClient = useQueryClient()
 
   const updateTextBlocks = useCallback(
-    async (textBlocks: TextBlock[]) => {
-      const { currentDocumentIndex } = useEditorUiStore.getState()
-      const queryKey = queryKeys.documents.current(currentDocumentIndex)
+    async (textBlocks: TextBlock[], index?: number) => {
+      const resolvedIndex = index ?? useEditorUiStore.getState().currentDocumentIndex
+      const queryKey = queryKeys.documents.current(resolvedIndex)
       const currentDocument = queryClient.getQueryData<any>(queryKey)
       if (!currentDocument) return
       queryClient.setQueryData(queryKey, {
         ...currentDocument,
         textBlocks,
       })
-      await enqueueTextBlockSync(currentDocumentIndex, textBlocks)
+      await enqueueTextBlockSync(resolvedIndex, textBlocks)
     },
     [queryClient],
   )

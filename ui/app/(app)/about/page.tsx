@@ -55,8 +55,23 @@ export default function AboutPage() {
               v
                 .replace(/^v/, '')
                 .replace(/-\d+-g[0-9a-f]+(?:-dirty)?$/, '')
+
+            const compareVersions = (v1: string, v2: string) => {
+              const p1 = v1.split('.').map(Number)
+              const p2 = v2.split('.').map(Number)
+              for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
+                const n1 = p1[i] || 0
+                const n2 = p2[i] || 0
+                if (n1 > n2) return 1
+                if (n1 < n2) return -1
+              }
+              return 0
+            }
+
+            const normV = normalize(version)
+            const normL = normalize(latest)
             setVersionStatus(
-              normalize(version) === normalize(latest) ? 'latest' : 'outdated',
+              compareVersions(normV, normL) >= 0 ? 'latest' : 'outdated',
             )
           } else {
             setVersionStatus('error')
