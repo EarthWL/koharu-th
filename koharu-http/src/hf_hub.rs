@@ -28,7 +28,7 @@ fn get_cache_dir() -> &'static PathBuf {
     CACHE_DIR.get_or_init(|| {
         dirs::cache_dir()
             .unwrap_or_default()
-            .join("Koharu")
+            .join("KoharuData")
             .join("models")
     })
 }

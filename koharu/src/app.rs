@@ -17,7 +17,7 @@ use koharu_types::State;
 
 static APP_ROOT: Lazy<PathBuf> = Lazy::new(|| {
     dirs::data_local_dir()
-        .map(|path| path.join("Koharu"))
+        .map(|path| path.join("KoharuData"))
         .unwrap_or_default()
 });
 static LIB_ROOT: Lazy<PathBuf> = Lazy::new(|| APP_ROOT.join("libs"));

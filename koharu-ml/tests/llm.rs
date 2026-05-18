@@ -11,7 +11,7 @@ async fn llm_generates_text_for_all_models() -> anyhow::Result<()> {
 さよなら。"#;
 
     let model_dir = dirs::data_local_dir()
-        .map(|path| path.join("Koharu"))
+        .map(|path| path.join("KoharuData"))
         .unwrap_or(PathBuf::from("."))
         .join("models");
 

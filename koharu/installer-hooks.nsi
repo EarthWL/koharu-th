@@ -2,13 +2,13 @@
 ;   bundle.windows.nsis.installerHooks
 ;
 ; Tauri's default uninstaller removes the app binaries + Start Menu
-; entries + registry keys, but leaves %LOCALAPPDATA%\Koharu\ behind.
+; entries + registry keys, but leaves %LOCALAPPDATA%\KoharuData\ behind.
 ; That folder holds ~1-3 GB of downloaded CUDA dylibs + HF model cache
 ; + custom fonts + recent-projects.json. Most users don't realise it
 ; exists, so on uninstall we offer to clean it up.
 ;
 ; Project files (.khr databases, chapter folders, render output) are
-; NEVER inside %LOCALAPPDATA%\Koharu — those live in user-chosen
+; NEVER inside %LOCALAPPDATA%\KoharuData — those live in user-chosen
 ; locations and are untouched regardless of which button the user
 ; picks here.
 ;
@@ -18,14 +18,14 @@
 ; config-file install-path lookup returned empty) inform every guard
 ; below:
 ;
-;   1. Target path is HARDCODED to `$LOCALAPPDATA\Koharu`. We never
+;   1. Target path is HARDCODED to `$LOCALAPPDATA\KoharuData`. We never
 ;      read from a config file, registry value, or anything else
 ;      that could be empty / tampered with.
 ;   2. Refuse outright if `$LOCALAPPDATA` resolves to an empty string
-;      (would otherwise mean `RMDir /r "\Koharu"` against drive root).
+;      (would otherwise mean `RMDir /r "\KoharuData"` against drive root).
 ;   3. Ownership check before any destructive op — at least one of
 ;      our known marker files/folders must exist at the target. If
-;      a user has somehow ended up with a `Koharu` folder there from
+;      a user has somehow ended up with a `KoharuData` folder there from
 ;      another app or by accident, we leave it alone.
 ;   4. Delete by NAMED subfolder, not the parent recursively. Blast
 ;      radius of any junction-following bug is bounded to a folder
@@ -37,7 +37,7 @@
 !macro NSIS_HOOK_PREUNINSTALL
   ; ─── Belt 1: refuse if $LOCALAPPDATA is unset ─────────────────
   ; CSIDL_LOCAL_APPDATA is always set on a healthy Windows install,
-  ; but if it ever resolved to "" we'd be running `RMDir /r "\Koharu"`
+  ; but if it ever resolved to "" we'd be running `RMDir /r "\KoharuData"`
   ; against the current drive's root — refuse outright.
   StrCmp "$LOCALAPPDATA" "" koharu_purge_unsafe
 
@@ -46,10 +46,10 @@
   ; the artefacts koharu itself creates. If none of these exist, we
   ; either never installed any cache here (already clean — nothing
   ; to do), OR the folder belongs to something else (don't touch).
-  IfFileExists "$LOCALAPPDATA\Koharu\libs\*.*" koharu_purge_ask
-  IfFileExists "$LOCALAPPDATA\Koharu\models\*.*" koharu_purge_ask
-  IfFileExists "$LOCALAPPDATA\Koharu\fonts\*.*" koharu_purge_ask
-  IfFileExists "$LOCALAPPDATA\Koharu\recent-projects.json" koharu_purge_ask
+  IfFileExists "$LOCALAPPDATA\KoharuData\libs\*.*" koharu_purge_ask
+  IfFileExists "$LOCALAPPDATA\KoharuData\models\*.*" koharu_purge_ask
+  IfFileExists "$LOCALAPPDATA\KoharuData\fonts\*.*" koharu_purge_ask
+  IfFileExists "$LOCALAPPDATA\KoharuData\recent-projects.json" koharu_purge_ask
   Goto koharu_purge_not_ours
 
 koharu_purge_ask:
@@ -57,7 +57,7 @@ koharu_purge_ask:
   ; /SD IDNO = silent uninstall also defaults to No, so unattended
   ; deployments don't accidentally wipe cached models.
   MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 \
-    "Also remove downloaded AI models, CUDA runtime libraries, custom fonts, and saved settings from:$\r$\n$\r$\n  $LOCALAPPDATA\Koharu\$\r$\n$\r$\nThis can reclaim 1-3 GB of disk space.$\r$\n$\r$\nYour translated project files (.khr databases, chapter folders, render output) are NOT in this location and will be kept regardless of your choice." \
+    "Also remove downloaded AI models, CUDA runtime libraries, custom fonts, and saved settings from:$\r$\n$\r$\n  $LOCALAPPDATA\KoharuData\$\r$\n$\r$\nThis can reclaim 1-3 GB of disk space.$\r$\n$\r$\nYour translated project files (.khr databases, chapter folders, render output) are NOT in this location and will be kept regardless of your choice." \
     /SD IDNO \
     IDNO koharu_purge_skip
 
@@ -65,27 +65,27 @@ koharu_purge_verified:
   ; ─── Belt 3: bounded named-subfolder deletion ─────────────────
   ; We ONLY remove subfolders we created ourselves, by name. We do
   ; NOT `RMDir /r` the parent — that would follow any junction the
-  ; user might have placed at `$LOCALAPPDATA\Koharu` itself.
+  ; user might have placed at `$LOCALAPPDATA\KoharuData` itself.
   ;
   ; Inside each named subfolder we still use /r (those folders are
   ; ours by definition; if a user redirected `models` to D:\ via a
   ; junction, blast radius is bounded to whatever they linked to).
-  DetailPrint "Removing Koharu cached data from $LOCALAPPDATA\Koharu ..."
-  RMDir /r "$LOCALAPPDATA\Koharu\libs"
-  RMDir /r "$LOCALAPPDATA\Koharu\models"
-  RMDir /r "$LOCALAPPDATA\Koharu\fonts"
-  Delete "$LOCALAPPDATA\Koharu\recent-projects.json"
+  DetailPrint "Removing Koharu cached data from $LOCALAPPDATA\KoharuData ..."
+  RMDir /r "$LOCALAPPDATA\KoharuData\libs"
+  RMDir /r "$LOCALAPPDATA\KoharuData\models"
+  RMDir /r "$LOCALAPPDATA\KoharuData\fonts"
+  Delete "$LOCALAPPDATA\KoharuData\recent-projects.json"
 
   ; ─── Belt 4: non-recursive parent removal ─────────────────────
   ; `RMDir` (without /r) only succeeds if the parent is empty. If
   ; the user has dropped any unknown file/folder in there, it stays
   ; intact and the parent remains.
-  RMDir "$LOCALAPPDATA\Koharu"
+  RMDir "$LOCALAPPDATA\KoharuData"
   DetailPrint "Done."
   Goto koharu_purge_end
 
 koharu_purge_not_ours:
-  DetailPrint "No Koharu data found at $LOCALAPPDATA\Koharu — nothing to remove."
+  DetailPrint "No Koharu data found at $LOCALAPPDATA\KoharuData — nothing to remove."
   Goto koharu_purge_end
 
 koharu_purge_unsafe:
@@ -93,7 +93,7 @@ koharu_purge_unsafe:
   Goto koharu_purge_end
 
 koharu_purge_skip:
-  DetailPrint "Kept Koharu data at $LOCALAPPDATA\Koharu (re-install will reuse cached models)."
+  DetailPrint "Kept Koharu data at $LOCALAPPDATA\KoharuData (re-install will reuse cached models)."
 
 koharu_purge_end:
 !macroend
