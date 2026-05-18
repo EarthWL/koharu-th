@@ -127,6 +127,8 @@
     "title": "LLM",
     "ready": "พร้อม",
     "idle": "ว่าง",
+    "noProfilesHint": "สร้าง Cloud profile ที่ Sidebar → Profiles tab เพื่อเลือกใช้ตรงนี้",
+    "editProfilesHint": "แก้ profiles ได้ที่ Sidebar → Profiles tab",
     "selectPlaceholder": "เลือกโมเดล",
     "modelLabel": "โมเดล",
     "languageLabel": "ภาษาปลายทาง",

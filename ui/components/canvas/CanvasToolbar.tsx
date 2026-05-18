@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'motion/react'
 import {
@@ -32,6 +32,7 @@ import { useOperationStore } from '@/lib/stores/operationStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { useQuery } from '@tanstack/react-query'
 import { api, type ProviderProfileDto } from '@/lib/api'
+import { effectiveDbProvider } from '@/lib/services/profileHelpers'
 
 const PROVIDER_LABEL: Record<string, string> = {
   openai: 'OpenAI',
@@ -40,6 +41,11 @@ const PROVIDER_LABEL: Record<string, string> = {
   anthropic: 'Claude',
 }
 
+// Sentinel value used by the Select to represent "no cloud profile,
+// use the local LLM engine". Profile rows render with their numeric
+// `id` as the SelectItem value, so a literal underscore-bracketed
+// string can't collide with a real profile id (ids are u64 from the
+// SQLite autoincrement column — always parseable as Number).
 const LOCAL_VALUE = '__local__'
 
 export function CanvasToolbar() {
@@ -199,35 +205,50 @@ function LlmStatusPopover() {
   })
   const profileList = profiles.data ?? []
 
-  // Mirror the kindOf heuristic from ProfilesTabPanel so legacy
-  // OpenRouter profiles (saved as provider='openai' before v1.0.0)
-  // resolve to the correct cloudProvider on apply.
-  const effectiveProvider = (p: ProviderProfileDto): string => {
-    if (p.provider === 'openai' && p.modelName.includes('/')) {
-      return 'openrouter'
-    }
-    return p.provider
-  }
+  // Provider resolution comes from the shared `profileHelpers` so
+  // legacy-OpenRouter compat (slash-form modelName saved as
+  // provider='openai' before backend b3d4c7f3) lands on the right
+  // dispatcher. Last inline copy of this heuristic — the 3 others
+  // were consolidated in earlier audit passes.
 
   const activeProfileId = useMemo(() => {
     if (!isCloudActive) return LOCAL_VALUE
     const match = profileList.find(
       (p) =>
-        effectiveProvider(p) === cloudProvider && p.modelName === cloudModelName,
+        effectiveDbProvider(p) === cloudProvider &&
+        p.modelName === cloudModelName,
     )
     return match ? String(match.id) : LOCAL_VALUE
   }, [isCloudActive, profileList, cloudProvider, cloudModelName])
 
+  // Apply-in-flight tracker. Each `applyProfile()` call captures the
+  // post-bump sequence; any earlier in-flight secret fetch that
+  // resolves later finds its `myGen < applyGen.current` and skips
+  // writing the (now-stale) API key into the prefs store. Closes the
+  // race when the user rapidly switches profiles before the keyring
+  // round-trip for the first pick completes.
+  const applyGen = useRef(0)
+  const [applying, setApplying] = useState(false)
   const applyProfile = async (p: ProviderProfileDto) => {
-    setCloudProvider(effectiveProvider(p) as any)
+    const myGen = ++applyGen.current
+    setApplying(true)
+    // Synchronously stamp the prefs that don't need the network so the
+    // UI flips immediately. The async key fetch is the only thing
+    // guarded against a later apply.
+    setCloudProvider(effectiveDbProvider(p) as any)
     setCloudModelName(p.modelName)
     usePreferencesStore.getState().setActiveProfileId(p.id)
     if (p.apiUrl) setCloudApiUrl(p.apiUrl)
     try {
       const { apiKey } = await api.providerProfileSecretGet(p.id)
+      if (myGen !== applyGen.current) return
       if (apiKey) setCloudApiKey(apiKey)
     } catch (err) {
-      console.warn('[toolbar] profile secret fetch failed', err)
+      if (myGen === applyGen.current) {
+        console.warn('[toolbar] profile secret fetch failed', err)
+      }
+    } finally {
+      if (myGen === applyGen.current) setApplying(false)
     }
   }
 
@@ -306,7 +327,11 @@ function LlmStatusPopover() {
             {t('panels.llm')}
           </p>
 
-          <Select value={activeProfileId} onValueChange={onEngineChange}>
+          <Select
+            value={activeProfileId}
+            onValueChange={onEngineChange}
+            disabled={applying}
+          >
             <SelectTrigger className='w-full'>
               <SelectValue placeholder='AI Engine' />
             </SelectTrigger>
@@ -337,7 +362,10 @@ function LlmStatusPopover() {
           </Select>
           {profileList.length === 0 && (
             <p className='text-muted-foreground text-[10px]'>
-              สร้าง Cloud profile ที่ Sidebar → Profiles tab เพื่อเลือกใช้ตรงนี้
+              {t(
+                'llm.noProfilesHint',
+                'Create a Cloud profile in the Profiles sidebar tab to use it here.',
+              )}
             </p>
           )}
 
@@ -435,7 +463,7 @@ function LlmStatusPopover() {
                   )}
                 </p>
                 <p className='text-muted-foreground/70 mt-1 text-[10px]'>
-                  Edit profiles in Sidebar → Profiles tab.
+                  {t('llm.editProfilesHint', 'Edit profiles in the Profiles sidebar tab.')}
                 </p>
               </div>
             </div>

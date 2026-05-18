@@ -101,6 +101,8 @@
     "title": "LLM",
     "ready": "Ready",
     "idle": "Idle",
+    "noProfilesHint": "Create a Cloud profile in the Profiles sidebar tab to use it here.",
+    "editProfilesHint": "Edit profiles in the Profiles sidebar tab.",
     "selectPlaceholder": "Select model",
     "modelLabel": "Model",
     "languageLabel": "Target language",
