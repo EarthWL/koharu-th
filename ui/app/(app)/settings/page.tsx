@@ -426,6 +426,9 @@ export default function SettingsPage() {
               </section>
             )}
 
+            {/* Translation post-processing (Thai) */}
+            <ThaiPostProcessSection />
+
             {/* Storage Section */}
             <StorageSection />
 
@@ -447,6 +450,52 @@ export default function SettingsPage() {
         </div>
       </ScrollArea>
     </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────
+// Thai post-process section (Issue #21)
+// ────────────────────────────────────────────────────────────────
+
+function ThaiPostProcessSection() {
+  const { t } = useTranslation()
+  const enabled = usePreferencesStore((s) => s.thaiPostProcessEnabled)
+  const setEnabled = usePreferencesStore((s) => s.setThaiPostProcessEnabled)
+
+  return (
+    <section className='mb-8'>
+      <h2 className='text-foreground mb-1 text-sm font-bold'>
+        {t('settings.thaiPostProcess', 'Thai post-processing')}
+      </h2>
+      <p className='text-muted-foreground mb-4 text-sm'>
+        {t(
+          'settings.thaiPostProcessDescription',
+          'Cleanup pass applied automatically after every LLM translation.',
+        )}
+      </p>
+
+      <div className='bg-card border-border rounded-lg border p-4'>
+        <label className='flex cursor-pointer items-start justify-between gap-4 text-sm'>
+          <div className='min-w-0 flex-1'>
+            <div className='text-foreground font-medium'>
+              {t('settings.thaiPostProcessEnabled', 'Enable Thai cleanup')}
+            </div>
+            <div className='text-muted-foreground/80 mt-1 text-xs leading-relaxed'>
+              {t(
+                'settings.thaiPostProcessDetails',
+                'Collapses excess whitespace between Thai characters (e.g. "กิน ข้าว" → "กินข้าว") and converts ASCII quotes to typographic curly quotes ("..." → "..."). Mixed-script content like character names is preserved — "กิน rice" keeps its space.',
+              )}
+            </div>
+          </div>
+          <input
+            type='checkbox'
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+            className='mt-1 size-4 cursor-pointer accent-primary'
+          />
+        </label>
+      </div>
+    </section>
   )
 }
 

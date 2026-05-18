@@ -133,6 +133,15 @@ type PreferencesState = {
   animeYoloConfidence: number
   setAnimeYoloConfidence: (confidence: number) => void
 
+  /** Apply a Thai-aware post-process pass to every LLM translation
+   *  result before saving. Collapses inter-Thai whitespace (e.g.
+   *  "กิน ข้าว" → "กินข้าว") and converts ASCII quotes to typographic
+   *  curly quotes. Mixed-script content like character names is
+   *  preserved. Default true since this fork's primary output is Thai;
+   *  toggle off to keep raw LLM output verbatim. Issue #21. */
+  thaiPostProcessEnabled: boolean
+  setThaiPostProcessEnabled: (enabled: boolean) => void
+
   resetPreferences: () => void
 }
 
@@ -151,6 +160,7 @@ const initialPreferences = {
   detectorEngine: 'default' as DetectorEngine,
   animeYoloVariant: 'n' as AnimeYoloVariant,
   animeYoloConfidence: 0.25,
+  thaiPostProcessEnabled: true,
 }
 
 /**
@@ -239,6 +249,8 @@ export const usePreferencesStore = create<PreferencesState>()(
       setAnimeYoloConfidence: (confidence) =>
         // Mirror backend clamp so the persisted value stays in range.
         set({ animeYoloConfidence: Math.min(0.95, Math.max(0.05, confidence)) }),
+      setThaiPostProcessEnabled: (enabled) =>
+        set({ thaiPostProcessEnabled: enabled }),
       resetPreferences: () => set({ ...initialPreferences }),
     }),
     {

@@ -22,6 +22,7 @@ import {
   flushMaskSync as flushMaskSyncQueue,
   flushTextBlockSync,
 } from '@/lib/services/syncQueues'
+import { applyThaiPostProcessToBlocks } from '@/lib/util/thaiPostProcess'
 import i18n from '@/lib/i18n'
 
 const sleep = (ms: number) =>
@@ -46,6 +47,30 @@ const invalidateThumbnailAtIndex = async (
     queryKey: queryKeys.documents.thumbnailRoot,
     predicate: (query) => query.queryKey[3] === index,
   })
+}
+
+/**
+ * After any translation flow lands on disk (Rust pipeline LLM step
+ * or local llm_generate), run the Thai post-process pass over the
+ * persisted text_blocks if the user has it enabled. No-op if disabled
+ * or if no Thai content exists (regex skips it). Cheap — single doc
+ * fetch + at most one updateTextBlocks if anything changed.
+ * Issue #21.
+ */
+const maybeApplyThaiPostProcess = async (index: number) => {
+  if (!usePreferencesStore.getState().thaiPostProcessEnabled) return
+  try {
+    const doc = await api.getDocument(index)
+    if (!doc?.textBlocks?.length) return
+    const cleaned = applyThaiPostProcessToBlocks(doc.textBlocks)
+    if (cleaned !== doc.textBlocks) {
+      await api.updateTextBlocks(index, cleaned)
+    }
+  } catch (err) {
+    // Post-process is cosmetic — never block the translation flow if
+    // it fails. Log once and continue.
+    console.warn('[thai-postprocess] skipped:', err)
+  }
 }
 
 const findModelLanguages = (
@@ -808,10 +833,16 @@ export const useLlmMutations = () => {
           if (block?.text) {
             try {
               const translation = await generateCloudTranslation(block.text, language)
-              const nextBlocks = currentDocument.textBlocks.map((b: any, i: number) => 
+              const nextBlocks = currentDocument.textBlocks.map((b: any, i: number) =>
                  i === textBlockIndex ? { ...b, translation } : b
               )
-              await updateTextBlocks(nextBlocks)
+              // Issue #21 — Thai post-process before save (no extra
+              // round-trip vs the local-LLM path; we have the blocks
+              // in-memory already).
+              const processed = usePreferencesStore.getState().thaiPostProcessEnabled
+                ? applyThaiPostProcessToBlocks(nextBlocks)
+                : nextBlocks
+              await updateTextBlocks(processed)
             } catch (e: any) {
               console.error('Cloud LLM Generation failed:', e)
               alert(e.message || 'Translation failed')
@@ -841,7 +872,11 @@ export const useLlmMutations = () => {
                 }
               }
 
-              await updateTextBlocks(nextBlocks)
+              // Issue #21 — Thai post-process before save.
+              const processed = usePreferencesStore.getState().thaiPostProcessEnabled
+                ? applyThaiPostProcessToBlocks(nextBlocks)
+                : nextBlocks
+              await updateTextBlocks(processed)
               // Auto-render the full page after batch translate so the new
               // translations paint immediately. Without this, blocks sit
               // in the data model but the canvas doesn't repaint until
@@ -883,6 +918,10 @@ export const useLlmMutations = () => {
             : undefined
 
         await api.llmGenerate(resolvedIndex, textBlockIndex, language)
+        // Issue #21 — local LLM writes translations directly via Rust
+        // pipeline, so we post-process server-side state via the helper
+        // (fetch + apply + save back if changed).
+        await maybeApplyThaiPostProcess(resolvedIndex)
         await invalidateCurrentDocument(queryClient, resolvedIndex)
       }
 

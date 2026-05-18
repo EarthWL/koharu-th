@@ -109,6 +109,32 @@ export function Providers({ children }: { children: ReactNode }) {
           .setProgressBar({ status: ProgressBarStatus.Normal, progress: 100 })
           .catch(() => {})
 
+        // Issue #21 — pipeline finished. If the pipeline included an
+        // LLM translation step, run the Thai post-process pass on the
+        // freshly-saved translations. Fires for 'completed' AND
+        // 'failed' / 'cancelled' (helper is a no-op when no Thai
+        // content exists, so safe to over-call).
+        void (async () => {
+          const { applyThaiPostProcessToBlocks } = await import(
+            '@/lib/util/thaiPostProcess'
+          )
+          const { usePreferencesStore } = await import(
+            '@/lib/stores/preferencesStore'
+          )
+          if (!usePreferencesStore.getState().thaiPostProcessEnabled) return
+          try {
+            const { api } = await import('@/lib/api')
+            const doc = await api.getDocument(currentDocumentIndex)
+            if (!doc?.textBlocks?.length) return
+            const cleaned = applyThaiPostProcessToBlocks(doc.textBlocks)
+            if (cleaned !== doc.textBlocks) {
+              await api.updateTextBlocks(currentDocumentIndex, cleaned)
+            }
+          } catch (err) {
+            console.warn('[thai-postprocess] pipeline-end skipped:', err)
+          }
+        })()
+
         queryClient.invalidateQueries({
           queryKey: queryKeys.documents.current(currentDocumentIndex),
         })
