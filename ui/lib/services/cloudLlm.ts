@@ -733,8 +733,16 @@ async function fetchOpenAI(
     temperature: 0.1
   }
 
-  if (isJsonMode && model.includes('gpt')) {
-    body.response_format = { type: 'json_object' } // Need to modify prompt to expect object if strict json is required by OpenAI API, but we'll try raw first since openrouter models might not support response_format
+  if (isJsonMode) {
+    // Modern OpenAI-compatible servers (OpenRouter, Groq, DeepSeek,
+    // Together, vLLM, llama.cpp …) accept `response_format` and
+    // either honour it or silently ignore it. The previous
+    // `model.includes('gpt')` gate skipped it for everything except
+    // first-party OpenAI, which meant batch JSON translation through
+    // these compat bases relied entirely on the prompt + the
+    // JSON-extraction regex fallback. Always send it now; the
+    // fallback is still in place if a fringe server 400s.
+    body.response_format = { type: 'json_object' }
   }
 
   if (onChunk) {
@@ -942,9 +950,21 @@ async function fetchAnthropic(
   // Notice Anthropic endpoint via browser usually hits CORS.
   // We'll add standard anthropic headers, but warn user about CORS if it runs strictly in browser.
   // Tauri intercepts or can fetch with less CORS issues, but standard fetch follows CORS.
+  // Scale output budget with input length. Batch JSON translation
+  // requests roughly 1:1 in size, so a long page with many bubbles
+  // could blow past a hardcoded 4096 cap and truncate the JSON array
+  // — caller would then throw "AI did not return JSON". Floor at 4096
+  // (covers normal pages), cap at 8192 to stay safe across all Claude
+  // model output limits (Haiku tops out around there). Char-to-token
+  // ratio of ~3 is a rough mixed-text approximation.
+  const estimatedInputTokens = Math.ceil(prompt.length / 3)
+  const maxTokens = Math.min(
+    8192,
+    Math.max(4096, estimatedInputTokens * 2),
+  )
   const body: any = {
     model: model,
-    max_tokens: 4096,
+    max_tokens: maxTokens,
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.1,
   }
