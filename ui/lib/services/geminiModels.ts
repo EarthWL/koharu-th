@@ -54,6 +54,12 @@ export async function fetchGeminiModels(apiKey: string): Promise<GeminiModel[]> 
       const supportedActions = raw.supportedGenerationMethods ?? []
       // Only surface models we can actually use for translation.
       if (!supportedActions.includes('generateContent')) return null
+      const lower = id.toLowerCase()
+      if (lower.includes('tts') || lower.includes('embedding') || lower.includes('audio')) {
+        // We only want text/multimodal chat models, not pure audio/TTS/embedding endpoints.
+        return null
+      }
+      
       return {
         id,
         name: raw.displayName || id,
