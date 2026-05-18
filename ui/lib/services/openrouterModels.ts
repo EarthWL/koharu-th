@@ -6,6 +6,8 @@
  * the response reflects model availability/pricing for that account.
  */
 
+import { isLikelyChatModel } from './openaiModels'
+
 const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models'
 
 export type OpenRouterModel = {
@@ -52,7 +54,9 @@ export async function fetchOpenRouterModels(apiKey?: string): Promise<OpenRouter
   }
   const data = (await res.json()) as { data?: RawOpenRouterModel[] }
   const items = data.data ?? []
-  return items.map((raw) => {
+  return items
+    .filter((raw) => isLikelyChatModel(raw.id))
+    .map((raw) => {
     const prompt = toNumber(raw.pricing?.prompt)
     const completion = toNumber(raw.pricing?.completion)
     return {
