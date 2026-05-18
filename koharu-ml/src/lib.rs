@@ -17,6 +17,16 @@ pub use candle_core::Device;
 pub use koharu_http::hf_hub::set_cache_dir;
 pub use llm::{language_from_tag, supported_locales};
 
+use std::sync::RwLock;
+
+static CUSTOM_DEVICE_SELECTION: RwLock<Option<String>> = RwLock::new(None);
+
+pub fn set_custom_device_selection(selection: Option<String>) {
+    if let Ok(mut guard) = CUSTOM_DEVICE_SELECTION.write() {
+        *guard = selection;
+    }
+}
+
 /// Pick the best available accelerator, gracefully falling back to CPU
 /// when GPU initialization fails. Common reasons device creation can
 /// fail even when the library loaded:
@@ -31,6 +41,47 @@ pub fn device(cpu: bool) -> Result<Device> {
     if cpu {
         return Ok(Device::Cpu);
     }
+
+    let selection = if let Ok(guard) = CUSTOM_DEVICE_SELECTION.read() {
+        guard.clone()
+    } else {
+        None
+    };
+
+    if let Some(ref sel) = selection {
+        match sel.as_str() {
+            "CPU" => return Ok(Device::Cpu),
+            "CUDA:0" => {
+                match Device::new_cuda(0) {
+                    Ok(dev) => return Ok(dev),
+                    Err(err) => {
+                        tracing::warn!("CUDA:0 requested but failed: {err}. Falling back to CPU.");
+                        return Ok(Device::Cpu);
+                    }
+                }
+            }
+            "CUDA:1" => {
+                match Device::new_cuda(1) {
+                    Ok(dev) => return Ok(dev),
+                    Err(err) => {
+                        tracing::warn!("CUDA:1 requested but failed: {err}. Falling back to CPU.");
+                        return Ok(Device::Cpu);
+                    }
+                }
+            }
+            "CUDA:2" => {
+                match Device::new_cuda(2) {
+                    Ok(dev) => return Ok(dev),
+                    Err(err) => {
+                        tracing::warn!("CUDA:2 requested but failed: {err}. Falling back to CPU.");
+                        return Ok(Device::Cpu);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
     if cuda_is_available() {
         match Device::new_cuda(0) {
             Ok(dev) => return Ok(dev),

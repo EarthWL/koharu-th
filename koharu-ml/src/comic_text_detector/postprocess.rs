@@ -365,22 +365,35 @@ fn warp_line_region(image: &RgbImage, block: &TextBlock, line: &Quad) -> Option<
 }
 
 fn maybe_expand_ctd_line(block: &TextBlock, line: &Quad) -> Quad {
-    let should_expand = block.detector.as_deref() == Some("ctd")
-        && block.source_direction == Some(TextDirection::Horizontal);
+    let should_expand = block.detector.as_deref() == Some("ctd");
     if !should_expand {
         return *line;
     }
 
-    let expand_size = (block.detected_font_size_px.unwrap_or(0.0) * 0.1).max(3.0);
+    let direction = block.source_direction.unwrap_or(TextDirection::Horizontal);
+    // Expand by 15% of font size to safely capture Furigana next to Kanji!
+    let expand_size = (block.detected_font_size_px.unwrap_or(0.0) * 0.15).max(4.0);
     let angle = block.rotation_deg.unwrap_or(0.0).to_radians();
     let sin = angle.sin();
     let cos = angle.cos();
     let signs = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]];
 
     let mut out = *line;
-    for (index, point) in out.iter_mut().enumerate() {
-        point[0] += signs[index][0] * sin * expand_size;
-        point[1] += signs[index][1] * cos * expand_size;
+    match direction {
+        TextDirection::Horizontal => {
+            // Expand top and bottom (perpendicular to horizontal flow)
+            for (index, point) in out.iter_mut().enumerate() {
+                point[0] += signs[index][0] * sin * expand_size;
+                point[1] += signs[index][1] * cos * expand_size;
+            }
+        }
+        TextDirection::Vertical => {
+            // Expand left and right (perpendicular to vertical flow, capturing Furigana)
+            for (index, point) in out.iter_mut().enumerate() {
+                point[0] += signs[index][0] * cos * expand_size;
+                point[1] += signs[index][1] * sin * expand_size;
+            }
+        }
     }
     out
 }

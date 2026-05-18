@@ -12,6 +12,7 @@ import {
   ChevronRightIcon,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Button } from '@/components/ui/button'
 import {
   Select,
   SelectContent,
@@ -42,6 +43,8 @@ export default function SettingsPage() {
     [i18n.options.resources],
   )
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo>()
+  const [mlDeviceSelection, setMlDeviceSelection] = useState<string>('AUTO')
+  const [needsRelaunch, setNeedsRelaunch] = useState<boolean>(false)
   const ocrEngine = usePreferencesStore((s) => s.ocrEngine)
   const setOcrEngine = usePreferencesStore((s) => s.setOcrEngine)
   const ocrCloudProfileId = usePreferencesStore((s) => s.ocrCloudProfileId)
@@ -115,7 +118,17 @@ export default function SettingsPage() {
       }
     }
 
+    const loadMlDeviceSelection = async () => {
+      try {
+        const sel = await invoke<string>('get_ml_device_config')
+        setMlDeviceSelection(sel)
+      } catch (error) {
+        console.error('Failed to load ML device config', error)
+      }
+    }
+
     void loadDeviceInfo()
+    void loadMlDeviceSelection()
   }, [])
 
   return (
@@ -414,8 +427,8 @@ export default function SettingsPage() {
                 </p>
 
                 <div className='bg-card border-border rounded-lg border p-4'>
-                  <div className='space-y-3 text-sm'>
-                    <div className='flex items-center justify-between'>
+                  <div className='space-y-4 text-sm'>
+                    <div className='flex items-center justify-between border-b border-border pb-3'>
                       <span className='text-muted-foreground'>
                         {t('settings.deviceMl')}
                       </span>
@@ -423,6 +436,59 @@ export default function SettingsPage() {
                         {deviceInfo.mlDevice}
                       </span>
                     </div>
+
+                    <div className='flex items-center justify-between pt-1'>
+                      <div className='flex flex-col gap-0.5'>
+                        <span className='text-foreground text-sm font-medium'>
+                          {t('settings.mlComputeMode', 'ML Compute Mode')}
+                        </span>
+                        <span className='text-muted-foreground text-xs'>
+                          {t('settings.mlComputeModeDesc', 'Select device or force CPU')}
+                        </span>
+                      </div>
+                      <Select
+                        value={mlDeviceSelection}
+                        onValueChange={async (v) => {
+                          setMlDeviceSelection(v)
+                          try {
+                            await invoke('set_ml_device_config', { selection: v })
+                            setNeedsRelaunch(true)
+                          } catch (err) {
+                            console.error(err)
+                          }
+                        }}
+                      >
+                        <SelectTrigger className='w-[180px]'>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value='AUTO'>AUTO</SelectItem>
+                          <SelectItem value='CPU'>CPU</SelectItem>
+                          <SelectItem value='CUDA:0'>CUDA:0</SelectItem>
+                          <SelectItem value='CUDA:1'>CUDA:1</SelectItem>
+                          <SelectItem value='CUDA:2'>CUDA:2</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {needsRelaunch && (
+                      <div className='bg-primary/10 border-primary/20 text-primary mt-2 flex items-center justify-between rounded-lg border p-3 text-xs'>
+                        <span>
+                          {t(
+                            'settings.relaunchWarning',
+                            'การตั้งค่าจะมีผลหลังจากรีสตาร์ทแอปพลิเคชัน',
+                          )}
+                        </span>
+                        <Button
+                          variant='ghost'
+                          size='sm'
+                          className='text-primary hover:bg-primary/20 h-7 px-2 font-bold'
+                          onClick={() => invoke('relaunch_app')}
+                        >
+                          {t('settings.relaunchBtn', 'รีสตาร์ทตอนนี้')}
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </section>

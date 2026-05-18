@@ -50,6 +50,8 @@ const initialState = {
   renderEffect: {
     italic: false,
     bold: false,
+    fauxItalic: false,
+    fauxBold: false,
   } as RenderEffect,
   renderStroke: {
     enabled: true,
