@@ -29,6 +29,13 @@ const SIMPLE_BG_THRESHOLD_HIGH_VARIANCE: f64 = 7.0;
 const SIMPLE_BG_CHANNEL_STD_SWITCH: f64 = 1.0;
 const ALPHA_RING_RADIUS: u8 = 7;
 
+/// ขนาดด้านยาวสูงสุด (px) ของ crop ที่ส่งให้ LaMa neural network
+/// Crop ที่ใหญ่กว่านี้จะถูก downscale ก่อน inference แล้ว upscale กลับ
+/// เนื่องจาก computation ของ LaMa เพิ่มแบบ quadratic ตามขนาด crop
+/// (crop 800px ใช้เวลา ~2.5× มากกว่า 512px) การ cap นี้ช่วยให้เร็วขึ้นมาก
+/// โดยที่คุณภาพที่ขนาดอ่านมังงะปกติไม่ต่างกัน
+const MAX_INPAINT_SIDE: u32 = 512;
+
 type Xyxy = [u32; 4];
 
 struct BalloonMasks {
@@ -170,11 +177,43 @@ impl Lama {
 
     #[instrument(level = "debug", skip_all)]
     fn inference_model_rgb(&self, image: &RgbImage, mask: &GrayImage) -> Result<RgbImage> {
-        Ok(self
+        let (w, h) = image.dimensions();
+        let max_side = w.max(h);
+
+        // Fast path: crop เล็กพอ ส่ง ML โดยตรง
+        if max_side <= MAX_INPAINT_SIDE {
+            return Ok(self
+                .inference_model(
+                    &DynamicImage::ImageRgb8(image.clone()),
+                    &DynamicImage::ImageLuma8(mask.clone()),
+                )?
+                .to_rgb8());
+        }
+
+        // Crop ใหญ่เกิน: downscale → inference → upscale กลับ
+        // ใช้ proportional scaling เพื่อรักษา aspect ratio
+        let scale = MAX_INPAINT_SIDE as f32 / max_side as f32;
+        let new_w = ((w as f32 * scale).round() as u32).max(1);
+        let new_h = ((h as f32 * scale).round() as u32).max(1);
+
+        let image_small = DynamicImage::ImageRgb8(image.clone())
+            .resize_exact(new_w, new_h, image::imageops::FilterType::Lanczos3)
+            .to_rgb8();
+        // mask ใช้ Nearest เพื่อรักษา binary boundary ไม่ให้เบลอ
+        let mask_small = DynamicImage::ImageLuma8(mask.clone())
+            .resize_exact(new_w, new_h, image::imageops::FilterType::Nearest)
+            .to_luma8();
+
+        let output_small = self
             .inference_model(
-                &DynamicImage::ImageRgb8(image.clone()),
-                &DynamicImage::ImageLuma8(mask.clone()),
+                &DynamicImage::ImageRgb8(image_small),
+                &DynamicImage::ImageLuma8(mask_small),
             )?
+            .to_rgb8();
+
+        // Upscale result กลับให้ตรงกับขนาด crop เดิม
+        Ok(DynamicImage::ImageRgb8(output_small)
+            .resize_exact(w, h, image::imageops::FilterType::Lanczos3)
             .to_rgb8())
     }
 
