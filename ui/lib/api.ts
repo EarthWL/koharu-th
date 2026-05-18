@@ -274,6 +274,10 @@ export const api = {
     /** Skip the detect step (frontend ran it directly already, often
      *  in tandem with `skipOcr` for the Cloud Vision OCR flow). */
     skipDetect?: boolean
+    /** Skip the inpaint step. Used by the Re-translate flow: keep the
+     *  existing inpainted image (the slowest pipeline step), only
+     *  re-run translate + render. Issue #17. */
+    skipInpaint?: boolean
     /** Detector engine for the Detect pipeline step. Backend defaults
      *  to `default` (comic_text_detector) if omitted. `anime_yolo`
      *  uses mayocream/anime-text-yolo (YOLO12) — better at SFX +

@@ -42,6 +42,7 @@ export function MenuBar() {
     openDocuments,
     openExternal,
     processImage,
+    retranslateImage,
     inpaintAndRenderImage,
     processAllImages,
     exportDocument,
@@ -144,6 +145,16 @@ export function MenuBar() {
           label: t('menu.processCurrent'),
           onSelect: processImage,
           testId: 'menu-process-current',
+        },
+        {
+          // Re-translate: skips Detect / OCR / Inpaint, only re-runs
+          // LLM translation + Render. Useful when iterating on prompts
+          // or trying a different model — Inpaint is the slowest step
+          // and the inpainted image hasn't changed since first Process.
+          // Issue #17.
+          label: t('menu.retranslate'),
+          onSelect: retranslateImage,
+          testId: 'menu-process-retranslate',
         },
         {
           label: t('menu.redoInpaintRender'),

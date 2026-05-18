@@ -15,6 +15,7 @@
     "originalSize": "原寸",
     "process": "処理",
     "processCurrent": "現在の画像を処理",
+    "retranslate": "再翻訳（インペイントをスキップ）",
     "redoInpaintRender": "再インペイントしてレンダー",
     "processAll": "すべての画像を処理",
     "help": "ヘルプ",

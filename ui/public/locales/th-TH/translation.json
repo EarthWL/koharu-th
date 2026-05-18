@@ -36,6 +36,7 @@
     "qaReview": "ตรวจสอบคำแปล (QA)...",
     "process": "ประมวลผล",
     "processCurrent": "ประมวลผลภาพนี้",
+    "retranslate": "แปลใหม่ (ข้ามขั้นลบข้อความ)",
     "redoInpaintRender": "ลบข้อความ + เรนเดอร์ใหม่",
     "processAll": "ประมวลผลทุกภาพ",
     "help": "ช่วยเหลือ",

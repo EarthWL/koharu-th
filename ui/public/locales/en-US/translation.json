@@ -15,6 +15,7 @@
     "originalSize": "Original Size",
     "process": "Process",
     "processCurrent": "Process current image",
+    "retranslate": "Re-translate (skip inpaint)",
     "redoInpaintRender": "Redo inpaint and render",
     "processAll": "Process all images",
     "help": "Help",
