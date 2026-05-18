@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 7cc1d0c4f469cbfdad10a60a802d08ecaa8ba81f7fd6008c0a127809045cbadd # shrinks to op = Batch([UpdateTextBlock { page: PageId(1), id: NodeId(1), patch: TextBlockPatch { region: None, source_text: None, translation: Some(None), style: None, source_lang: None } }])

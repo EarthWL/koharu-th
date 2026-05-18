@@ -1,0 +1,9 @@
+arch/v2-foundation
+
+This worktree is the v2 architecture refactor branch.
+Main worktree (with the live v1.x code) is at ../koharu-0.37.0/.
+
+Design source of truth: docs/v2-arch.md
+Phase progress:         docs/v2-progress.md
+Backport policy:        main → branch weekly via git -C ../koharu-th-v2 cherry-pick -x <sha>
+                        branch → main FORBIDDEN until v2.0.0-rc1

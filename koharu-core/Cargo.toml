@@ -1,0 +1,20 @@
+[package]
+name = "koharu-core"
+version.workspace = true
+edition.workspace = true
+description = "Shared primitives for koharu-th v2 — Op, Scene, BlobStore, HardwareReq"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+indexmap = { version = "2", features = ["serde"] }
+thiserror = "1"
+blake3 = "1"
+parking_lot = "0.12"
+
+[dev-dependencies]
+proptest = "1"
+serde_json = "1"

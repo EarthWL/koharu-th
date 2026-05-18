@@ -2,6 +2,7 @@
 members = [
     "koharu",
     "koharu-api",
+    "koharu-core",
     "koharu-http",
     "koharu-ml",
     "koharu-runtime",
