@@ -842,7 +842,13 @@ export const useLlmMutations = () => {
               const processed = usePreferencesStore.getState().thaiPostProcessEnabled
                 ? applyThaiPostProcessToBlocks(nextBlocks)
                 : nextBlocks
-              await updateTextBlocks(processed)
+              // Pass the resolved page index explicitly so a mid-flight
+              // page switch can't redirect the save to the wrong doc.
+              // Completes HetCreep's 002d6252 fix — the threading was
+              // added on the signature side but two call sites in this
+              // path still omitted the argument and silently fell back
+              // to the store's currentDocumentIndex.
+              await updateTextBlocks(processed, resolvedIndex)
             } catch (e: any) {
               console.error('Cloud LLM Generation failed:', e)
               alert(e.message || 'Translation failed')
@@ -876,7 +882,9 @@ export const useLlmMutations = () => {
               const processed = usePreferencesStore.getState().thaiPostProcessEnabled
                 ? applyThaiPostProcessToBlocks(nextBlocks)
                 : nextBlocks
-              await updateTextBlocks(processed)
+              // Pin to resolvedIndex (see comment on the single-block
+              // path above — same race fix completion).
+              await updateTextBlocks(processed, resolvedIndex)
               // Auto-render the full page after batch translate so the new
               // translations paint immediately. Without this, blocks sit
               // in the data model but the canvas doesn't repaint until

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -214,8 +214,16 @@ function QaRow({
   const [draft, setDraft] = useState(block.translation ?? '')
   const [generating, setGenerating] = useState(false)
   const [streaming, setStreaming] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [meta, setMeta] = useState<TranslationMeta | null>(null)
   const cloudProvider = usePreferencesStore((s) => s.cloudProvider)
+  /** Generation-sequence counter. Each `retranslate()` call bumps this
+   *  and captures the post-bump value as `myGen`. Any older in-flight
+   *  call sees its `myGen < genRef.current` and skips its final
+   *  setDraft / setMeta / updateTextBlocks — so a "translate, switch
+   *  profile mid-stream, translate again" sequence resolves to ONLY
+   *  the latest call's result instead of last-write-wins by clock. */
+  const genRef = useRef(0)
 
   // Re-sync the draft if the block reloads with a different translation
   // (e.g. after re-translation), but don't overwrite mid-edit.
@@ -226,16 +234,24 @@ function QaRow({
   const saveDraft = async () => {
     if ((block.translation ?? '') === draft) return
     // Reuse the canonical update path so the renderer / sync queue fires.
-    const allBlocks = await api.getDocument(pageIdx).then((d: any) => d.textBlocks ?? [])
-    const next = allBlocks.map((b: TextBlock, j: number) =>
-      j === blockIndex ? { ...b, translation: draft } : b,
-    )
-    await updateTextBlocks(next, pageIdx)
-    onAfterChange()
+    setSaving(true)
+    try {
+      const allBlocks = await api
+        .getDocument(pageIdx)
+        .then((d: any) => d.textBlocks ?? [])
+      const next = allBlocks.map((b: TextBlock, j: number) =>
+        j === blockIndex ? { ...b, translation: draft } : b,
+      )
+      await updateTextBlocks(next, pageIdx)
+      onAfterChange()
+    } finally {
+      setSaving(false)
+    }
   }
 
   const retranslate = async (override?: ProviderOverride) => {
     if (!block.text?.trim()) return
+    const myGen = ++genRef.current
     setGenerating(true)
     setStreaming(true)
     try {
@@ -248,11 +264,16 @@ function QaRow({
           block.text,
           'auto',
           (delta) => {
+            // Only the latest generation may paint the textarea —
+            // prevents a stale earlier stream from leaking tokens into
+            // a UI that's already moved on to a newer retranslate.
+            if (myGen !== genRef.current) return
             acc += delta
             setDraft(acc)
           },
           override,
         )
+        if (myGen !== genRef.current) return // a newer call took over
         setMeta(result.meta)
         const allBlocks = await api
           .getDocument(pageIdx)
@@ -271,8 +292,13 @@ function QaRow({
     } catch (err) {
       console.error(err)
     } finally {
-      setStreaming(false)
-      setGenerating(false)
+      // Only the latest generation should flip the UI flags off; if a
+      // newer call is still running, leave them on so the spinner
+      // keeps showing.
+      if (myGen === genRef.current) {
+        setStreaming(false)
+        setGenerating(false)
+      }
     }
   }
 
@@ -285,12 +311,27 @@ function QaRow({
       <td className='px-3 py-2 align-top'>
         <Textarea
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value)
+            // Manual edit invalidates the LLM-provenance meta — the
+            // text the user is typing didn't come from the model
+            // anymore, so badges (provider / tokens / cost) would
+            // lie about provenance.
+            if (meta) setMeta(null)
+          }}
           onBlur={() => void saveDraft()}
           placeholder='(empty)'
           className='min-h-12 text-xs'
         />
-        {meta && <ProvenanceBadges meta={meta} />}
+        <div className='mt-1 flex items-center gap-2'>
+          {saving && (
+            <span className='text-muted-foreground flex items-center gap-1 text-[10px]'>
+              <Loader2Icon className='size-2.5 animate-spin' />
+              Saving…
+            </span>
+          )}
+          {meta && <ProvenanceBadges meta={meta} />}
+        </div>
       </td>
       <td className='px-3 py-2 align-top text-right'>
         <div className='inline-flex'>
