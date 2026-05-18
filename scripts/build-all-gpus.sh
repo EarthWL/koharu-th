@@ -30,18 +30,16 @@ for entry in "${BUILDS[@]}"; do
     echo "==============================================================="
 
     # Wipe per-build artifacts so we never accidentally copy a stale
-    # bundle from a previous iteration if a build fails.
+    # bundle from a previous iteration if a build fails. MSI was
+    # dropped from bundle.targets in 583fe513; only NSIS is produced
+    # on Windows now.
     rm -f target/release/bundle/nsis/koharu_${VERSION}_x64-setup.exe
-    rm -f target/release/bundle/msi/koharu_${VERSION}_x64_en-US.msi
 
     CUDA_COMPUTE_CAP="$cap" bun run build
 
     cp "target/release/bundle/nsis/koharu_${VERSION}_x64-setup.exe" \
        "$OUT_DIR/koharu_${VERSION}_${label}-setup.exe"
-    cp "target/release/bundle/msi/koharu_${VERSION}_x64_en-US.msi" \
-       "$OUT_DIR/koharu_${VERSION}_${label}.msi"
     echo "→ $OUT_DIR/koharu_${VERSION}_${label}-setup.exe"
-    echo "→ $OUT_DIR/koharu_${VERSION}_${label}.msi"
 done
 
 echo ""
