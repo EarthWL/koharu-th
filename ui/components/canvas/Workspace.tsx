@@ -124,13 +124,25 @@ export function Workspace() {
   })
   const { t } = useTranslation()
 
-  // Listen for Tauri resize events
+  // Latest-state refs so the Tauri listener never sees stale captures
+  // (would otherwise miss autoFitEnabled toggles and require tearing down
+  //  on every document switch).
+  const currentDocumentRef = useRef(currentDocument)
+  const autoFitEnabledRef = useRef(autoFitEnabled)
+  useEffect(() => {
+    currentDocumentRef.current = currentDocument
+  }, [currentDocument])
+  useEffect(() => {
+    autoFitEnabledRef.current = autoFitEnabled
+  }, [autoFitEnabled])
+
+  // Listen for Tauri resize events (stable across re-renders)
   useEffect(() => {
     let unlisten: (() => void) | undefined
 
     const setupListener = async () => {
       unlisten = await listen('tauri://resize', () => {
-        if (currentDocument && autoFitEnabled) {
+        if (currentDocumentRef.current && autoFitEnabledRef.current) {
           fitCanvasToViewport()
         }
       })
@@ -143,12 +155,21 @@ export function Workspace() {
         unlisten()
       }
     }
-  }, [currentDocument])
+  }, [])
+
+  const isBrushMode =
+    mode === 'brush' || mode === 'repairBrush' || mode === 'eraser'
 
   useGesture(
     {
       onDrag: ({ first, movement: [mx, my], memo, cancel, ctrlKey }) => {
         if (!currentDocument) return memo
+        // While brush/mask tools own the pointer, never repurpose ctrl+drag
+        // for panning — would otherwise scrub the canvas mid-stroke.
+        if (isBrushMode) {
+          if (first && cancel) cancel()
+          return memo
+        }
         if (!ctrlKey) {
           if (first && cancel) cancel()
           return memo
@@ -227,8 +248,6 @@ export function Workspace() {
     handleContextMenu(event)
   }
 
-  const isBrushMode =
-    mode === 'brush' || mode === 'repairBrush' || mode === 'eraser'
   const canvasCursor = isBrushMode
     ? BRUSH_CURSOR
     : mode === 'block'

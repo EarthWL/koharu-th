@@ -7,7 +7,7 @@ import { useDocumentsCountQuery, useThumbnailQuery } from '@/lib/query/hooks'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { flushTextBlockSync } from '@/lib/services/syncQueues'
+import { flushAllSyncQueues } from '@/lib/services/syncQueues'
 import { cancelObjectUrlRevoke, revokeObjectUrlLater } from '@/lib/util'
 
 export function Navigator() {
@@ -97,7 +97,7 @@ export function Navigator() {
                     documentsVersion={documentsVersion}
                     selected={idx === currentDocumentIndex}
                     onSelect={() => {
-                      void flushTextBlockSync()
+                      void flushAllSyncQueues()
                         .catch(() => {})
                         .finally(() => {
                           setCurrentDocumentIndex(idx)
