@@ -3,6 +3,11 @@
     "initializing": "กำลังเริ่มต้น...",
     "cancel": "ยกเลิก"
   },
+  "chat": {
+    "emptyPrompt": "ถามอะไรเกี่ยวกับการแปลก็ได้ — AI เห็น project context และเรียก tool แก้ไขข้อมูลให้ได้",
+    "emptySlashHint": "เริ่มจาก <code class=\"bg-muted rounded px-1\">/fetch-wiki &lt;url&gt;</code> หรือ <code class=\"bg-muted rounded px-1\">/draft-synopsis</code>",
+    "textOnlyWarning": "⚠ มีรูป {{count}} แนบไว้ แต่ model ที่ active ตอนนี้รองรับเฉพาะข้อความ — สลับไป profile ที่ใช้ vision model (เช่น gpt-4o, claude-haiku, gemini-1.5+) หรือนำรูปออกก่อนส่ง"
+  },
   "welcome": {
     "title": "ยินดีต้อนรับสู่ Koharu-TH",
     "subtitle": "เริ่มจากสร้าง project ของซีรีย์ — ระบบจะเก็บตัวละคร · glossary · translation memory ข้ามตอนให้",

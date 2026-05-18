@@ -29,6 +29,10 @@ export type KindMeta = {
   needsKeyForList: boolean
   /** Default model when user hasn't picked anything yet. */
   suggestedModel: string
+  /** Provider's web page where the user generates an API key. Linked
+   *  in "no API key" error hints across the app so the user has a
+   *  one-click path to fix the problem. */
+  keyUrl?: string
   hint?: string
 }
 
@@ -41,6 +45,7 @@ export const KINDS: KindMeta[] = [
     hasModelList: true,
     needsKeyForList: true,
     suggestedModel: 'gpt-4o-mini',
+    keyUrl: 'https://platform.openai.com/api-keys',
     hint: 'Live model list',
   },
   {
@@ -51,6 +56,7 @@ export const KINDS: KindMeta[] = [
     hasModelList: true,
     needsKeyForList: true,
     suggestedModel: 'claude-3-5-sonnet-latest',
+    keyUrl: 'https://console.anthropic.com/settings/keys',
     hint: 'Live model list',
   },
   {
@@ -61,6 +67,7 @@ export const KINDS: KindMeta[] = [
     hasModelList: true,
     needsKeyForList: true,
     suggestedModel: 'gemini-2.5-flash',
+    keyUrl: 'https://aistudio.google.com/apikey',
     hint: 'Live model list',
   },
   {
@@ -71,6 +78,7 @@ export const KINDS: KindMeta[] = [
     hasModelList: true,
     needsKeyForList: false,
     suggestedModel: '',
+    keyUrl: 'https://openrouter.ai/keys',
     hint: 'Live model list',
   },
   {

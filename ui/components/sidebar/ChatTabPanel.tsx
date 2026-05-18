@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import {
   BotIcon,
@@ -35,6 +36,7 @@ import {
   parseAttachments,
 } from '@/lib/services/imageAttach'
 import { supportsVision } from '@/lib/services/visionSupport'
+import { KINDS } from '@/lib/services/profileHelpers'
 import i18n from '@/lib/i18n'
 import { toArrayBuffer } from '@/lib/util'
 import { ChatMarkdown } from '@/components/sidebar/chat-markdown'
@@ -118,7 +120,11 @@ function rowToChatMessage(row: ChatMessageDto): ChatMessage {
 }
 
 export function ChatTabPanel() {
+  const { t } = useTranslation()
   const projectInfo = useProjectStore((s) => s.info)
+  // Subscribe to each pref individually — Zustand re-renders only when
+  // the specific selected slice changes, so 4 hooks is cheaper than one
+  // hook reading a 4-key object (object identity flips every render).
   const provider = usePreferencesStore((s) => s.cloudProvider)
   const apiKey = usePreferencesStore((s) => s.cloudApiKey)
   const model = usePreferencesStore((s) => s.cloudModelName)
@@ -212,18 +218,12 @@ export function ChatTabPanel() {
       // model picker works key-less for browsing — but chat completion
       // always requires Authorization. Letting the request through just
       // produced a confusing 401.
+      // Pull the provider's key URL from the shared KINDS metadata so we
+      // don't have to keep a parallel switch statement in sync.
+      const keyUrl =
+        KINDS.find((k) => k.dbProvider === provider)?.keyUrl ?? 'your provider'
       setError(
-        `No API key for the active "${provider}" profile. Open the Profiles tab, edit the profile, paste the key from ${
-          provider === 'openrouter'
-            ? 'https://openrouter.ai/keys'
-            : provider === 'openai'
-              ? 'https://platform.openai.com/api-keys'
-              : provider === 'anthropic'
-                ? 'https://console.anthropic.com/settings/keys'
-                : provider === 'gemini'
-                  ? 'https://aistudio.google.com/apikey'
-                  : 'your provider'
-        }, and click Save (which also re-applies it).`,
+        `No API key for the active "${provider}" profile. Open the Profiles tab, edit the profile, paste the key from ${keyUrl}, and click Save (which also re-applies it).`,
       )
       return
     }
@@ -345,10 +345,19 @@ export function ChatTabPanel() {
     abortRef.current?.abort()
   }
 
+  const [clearing, setClearing] = useState(false)
   const clearAll = async () => {
+    if (clearing) return
     if (!confirm('Clear all chat history for this project?')) return
-    await api.chatMessagesClear()
-    refresh()
+    setClearing(true)
+    try {
+      await api.chatMessagesClear()
+      await history.refetch()
+    } catch (err: any) {
+      setError(err?.message ?? String(err))
+    } finally {
+      setClearing(false)
+    }
   }
 
   return (
@@ -363,10 +372,14 @@ export function ChatTabPanel() {
             size='sm'
             className='h-6 px-2 text-[10px] disabled:opacity-40'
             title='Clear all chat history for this project'
-            disabled={!history.data?.length || sending}
+            disabled={!history.data?.length || sending || clearing}
             onClick={() => void clearAll()}
           >
-            <Trash2Icon className='size-3' />
+            {clearing ? (
+              <Loader2Icon className='size-3 animate-spin' />
+            ) : (
+              <Trash2Icon className='size-3' />
+            )}
             Clear
           </Button>
         </div>
@@ -403,10 +416,11 @@ export function ChatTabPanel() {
       {/* Warn if attachments queued but active model is text-only */}
       {!vision.supported && pendingAttachments.length > 0 && (
         <div className='border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 border-b px-2 py-1.5 text-[10px]'>
-          ⚠ {pendingAttachments.length} image attachment(s) queued but the
-          active model is text-only — switch profile to a vision-capable
-          model (e.g. gpt-4o, claude-haiku, gemini-1.5+) or remove the
-          attachments before sending.
+          {t(
+            'chat.textOnlyWarning',
+            '⚠ {{count}} image attachment(s) queued but the active model is text-only — switch profile to a vision-capable model (e.g. gpt-4o, claude-haiku, gemini-1.5+) or remove the attachments before sending.',
+            { count: pendingAttachments.length },
+          )}
         </div>
       )}
 
@@ -419,23 +433,7 @@ export function ChatTabPanel() {
             history.data.map((m) => <MessageRow key={m.id} message={m} />)
           )}
           {sending && (
-            <div className='border-border bg-card rounded-md border p-2 text-xs'>
-              <div className='text-muted-foreground mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase'>
-                <BotIcon className='size-3' />
-                assistant
-                <Loader2Icon className='ml-auto size-3 animate-spin' />
-              </div>
-              <div className='min-w-0'>
-                <ChatMarkdown>{streamingText}</ChatMarkdown>
-                <span className='ml-0.5 inline-block h-3 w-1 animate-pulse bg-current align-middle' />
-              </div>
-              <button
-                onClick={stop}
-                className='text-muted-foreground hover:text-destructive mt-1 text-[10px] underline'
-              >
-                Stop
-              </button>
-            </div>
+            <StreamingBubble streamingText={streamingText} onStop={stop} />
           )}
           {error && (
             <div className='text-destructive border-destructive/30 rounded border p-2 text-[10px]'>
@@ -577,21 +575,68 @@ export function ChatTabPanel() {
 }
 
 function EmptyState() {
+  const { t } = useTranslation()
   return (
     <div className='border-border rounded-md border border-dashed p-3 text-center text-xs'>
       <BotIcon className='text-muted-foreground/40 mx-auto mb-2 size-6' />
       <p className='text-muted-foreground mb-2'>
-        ถามอะไรเกี่ยวกับการแปลก็ได้ — AI เห็น project context และเรียก tool
-        แก้ไขข้อมูลให้ได้
+        {t(
+          'chat.emptyPrompt',
+          'Ask anything about translation — the AI sees your project context and can call tools to update glossary, characters, and series metadata.',
+        )}
       </p>
-      <p className='text-muted-foreground/70 text-[10px]'>
-        เริ่มจาก <code className='bg-muted rounded px-1'>/fetch-wiki &lt;url&gt;</code>
-        {' '}หรือ{' '}
-        <code className='bg-muted rounded px-1'>/draft-synopsis</code>
-      </p>
+      <p
+        className='text-muted-foreground/70 text-[10px]'
+        // Slash-command suggestions are formatted with inline <code/>; use
+        // the i18n value as raw HTML to preserve the styling without
+        // forcing translators to compose JSX.
+        dangerouslySetInnerHTML={{
+          __html: t(
+            'chat.emptySlashHint',
+            'Try <code class="bg-muted rounded px-1">/fetch-wiki &lt;url&gt;</code> or <code class="bg-muted rounded px-1">/draft-synopsis</code>',
+          ),
+        }}
+      />
     </div>
   )
 }
+
+/**
+ * Memoised streaming-assistant bubble. Re-renders only when the
+ * `streamingText` actually changes (which it does once per token);
+ * crucially the surrounding `MessageRow` list re-renders for each
+ * token in the previous (non-memoised) layout because the parent's
+ * `streamingText` state was a sibling. Extracting + memoising means
+ * the markdown parse only runs for THIS bubble, not for every message
+ * in the chat history on each delta.
+ */
+const StreamingBubble = memo(function StreamingBubble({
+  streamingText,
+  onStop,
+}: {
+  streamingText: string
+  onStop: () => void
+}) {
+  return (
+    <div className='border-border bg-card rounded-md border p-2 text-xs'>
+      <div className='text-muted-foreground mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase'>
+        <BotIcon className='size-3' />
+        assistant
+        <Loader2Icon className='ml-auto size-3 animate-spin' />
+      </div>
+      <div className='min-w-0'>
+        <ChatMarkdown>{streamingText}</ChatMarkdown>
+        <span className='ml-0.5 inline-block h-3 w-1 animate-pulse bg-current align-middle' />
+      </div>
+      <button
+        onClick={onStop}
+        className='text-muted-foreground hover:text-destructive mt-1 text-[10px] underline'
+      >
+        Stop
+      </button>
+    </div>
+  )
+})
 
 function MessageRow({ message: m }: { message: ChatMessageDto }) {
   if (m.role === 'tool') {
@@ -615,11 +660,12 @@ function MessageRow({ message: m }: { message: ChatMessageDto }) {
       {/* Don't render an "(empty)" placeholder when the assistant
        *  turn has tool_calls — Claude / Gemini often dispatch a tool
        *  without preamble text, and showing "(empty)" makes it look
-       *  like a failure. The tool badge below already tells the
-       *  user what's happening. */}
-      {(m.content ||
-        !m.toolCalls ||
-        (typeof m.toolCalls === 'string' && m.toolCalls === 'null')) && (
+       *  like a failure. The tool badge below already tells the user
+       *  what's happening. (Dropped the `toolCalls === 'null'`
+       *  literal-string branch — `rowToChatMessage` parses the JSON
+       *  via try/catch and would leave `toolCalls` as `undefined` on
+       *  the string "null", never produce the literal string itself.) */}
+      {(m.content || !m.toolCalls) && (
         <div className='min-w-0'>
           {m.content ? (
             isUser ? (
@@ -675,7 +721,10 @@ function ToolCallsBadge({ raw }: { raw: string }) {
           className='text-muted-foreground bg-muted/50 flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px]'
         >
           <WrenchIcon className='size-2.5' />
-          {c.name}
+          {/* Defensive: a malformed persisted toolCalls JSON (e.g. from
+              an older app version) might be missing `name`; render a
+              placeholder instead of `undefined`. */}
+          {c?.name ?? '(unknown tool)'}
         </div>
       ))}
     </div>

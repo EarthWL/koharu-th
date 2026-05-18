@@ -2,6 +2,11 @@
   "common": {
     "initializing": "Initializing..."
   },
+  "chat": {
+    "emptyPrompt": "Ask anything about translation — the AI sees your project context and can call tools to update glossary, characters, and series metadata.",
+    "emptySlashHint": "Try <code class=\"bg-muted rounded px-1\">/fetch-wiki &lt;url&gt;</code> or <code class=\"bg-muted rounded px-1\">/draft-synopsis</code>",
+    "textOnlyWarning": "⚠ {{count}} image attachment(s) queued but the active model is text-only — switch profile to a vision-capable model (e.g. gpt-4o, claude-haiku, gemini-1.5+) or remove the attachments before sending."
+  },
   "menu": {
     "file": "File",
     "openFile": "Open File...",
