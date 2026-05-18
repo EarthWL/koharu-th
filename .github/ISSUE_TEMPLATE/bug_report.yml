@@ -1,0 +1,79 @@
+name: 🐛 Bug report
+description: Something doesn't work the way it should. App crashes, wrong output, broken UI, etc.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file this! A clear repro saves a lot of back-and-forth.
+        If you're not sure whether something's a bug or a missing feature, file it as a bug and we'll re-label.
+
+  - type: input
+    id: version
+    attributes:
+      label: koharu-th version
+      description: Check Settings → About, or run `koharu.exe --version`. Include the GPU build (e.g. `v1.1.1 rtx30-ampere`).
+      placeholder: "v1.1.1 rtx40-ada"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS (built from source)
+        - Linux (built from source)
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: gpu
+    attributes:
+      label: GPU
+      description: Helps narrow CUDA / device-specific bugs.
+      options:
+        - NVIDIA RTX 50xx (Blackwell)
+        - NVIDIA RTX 40xx (Ada)
+        - NVIDIA RTX 30xx / A-series (Ampere)
+        - NVIDIA RTX 20xx (Turing)
+        - NVIDIA older / unsupported (CPU fallback)
+        - AMD (CPU fallback)
+        - Intel (CPU fallback)
+        - Apple Silicon (Metal)
+        - No GPU / CPU-only
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, what did you expect, what actually happened? Screenshots help a lot.
+      placeholder: |
+        1. Opened a chapter with 12 pages
+        2. Clicked Process → batch translation
+        3. Page 7 came back with empty text blocks
+        4. Expected: all bubbles translated like pages 1-6
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / error message
+      description: |
+        If the app printed an error or a stack trace, paste it here. To see runtime logs:
+        - Windows: launch with `koharu.exe --debug` from a terminal
+        - macOS / Linux: launch from terminal — stderr is printed live
+      render: text
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Custom fonts? Specific LLM profile? Cloud provider? Anything that might be relevant.

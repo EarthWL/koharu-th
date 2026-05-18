@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Upstream koharu (mayocream/koharu)
+    url: https://github.com/mayocream/koharu/issues
+    about: For bugs/features in the original (non-Thai-focused) project — upstream maintains the core ML pipeline and we sync periodically.
+  - name: Read the CHANGELOG first
+    url: https://github.com/EarthWL/koharu-th/blob/main/CHANGELOG.md
+    about: Many recent issues are resolved in newer releases. Check the changelog before filing.

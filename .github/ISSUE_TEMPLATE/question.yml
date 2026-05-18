@@ -1,0 +1,26 @@
+name: 💬 Question
+description: How do I do X? Where does Y live? Did the app design intend Z?
+title: "[Q] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Questions are welcome — the docs are still thin and the right answer often becomes a README addition.
+        Before filing, please skim:
+        - [README.md](https://github.com/EarthWL/koharu-th/blob/main/README.md) (EN) / [README.th.md](https://github.com/EarthWL/koharu-th/blob/main/README.th.md) (TH)
+        - [CHANGELOG.md](https://github.com/EarthWL/koharu-th/blob/main/CHANGELOG.md) — many recent changes haven't made it into the README yet
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+      description: What are you trying to do? What have you already tried?
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: koharu-th version
+      placeholder: "v1.1.1 (or 'building from main')"

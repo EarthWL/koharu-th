@@ -1,0 +1,56 @@
+name: ✨ Feature request
+description: Suggest a new capability or workflow improvement.
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feature requests are welcome — especially Thai-translation-workflow gaps the upstream project wouldn't prioritise.
+        If you're already prototyping, mention it and a PR can come next.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's the problem
+      description: What can't you do today, or what's painful about the current flow? Be concrete.
+      placeholder: |
+        When I switch between manga series with different source languages (JP / KR / CN),
+        I have to manually update Series → Source language each time. It's easy to forget
+        and the LLM ends up reading wrong-language prompts.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would solve it
+      description: How could the app help? Concrete UX or code sketches make the issue much more actionable.
+      placeholder: |
+        Add an "Auto-detect" button next to Source language that scans current
+        chapter's OCR text for Hiragana/Hangul/Han ratios and proposes a code.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Where in the app does this live?
+      description: Roughly which surface needs to change.
+      options:
+        - AI Chat panel
+        - Translation pipeline / LLM
+        - Canvas / rendering
+        - Project / chapter management
+        - Settings / preferences
+        - Installer / distribution
+        - MCP server (external agent tools)
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: Workarounds you've tried, other tools that solve it differently, etc. Optional but helpful.
