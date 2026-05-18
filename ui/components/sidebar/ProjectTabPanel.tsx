@@ -41,12 +41,22 @@ export function ProjectTabPanel() {
     label: string
   } | null>(null)
 
+  const [saveError, setSaveError] = useState<string | null>(null)
+  /** Briefly true after a successful save so the user gets a visual
+   *  ✓ confirmation. Cleared by the next edit (patch() flips dirty
+   *  back on) or by a 2.5s timer. */
+  const [saveOk, setSaveOk] = useState(false)
+
   useEffect(() => {
-    if (seriesMeta.data) {
+    // Only sync server data into the draft when there are no unsaved
+    // edits. Without this guard, any background refetch (tab blur /
+    // refocus, window focus, React Query revalidation) would silently
+    // discard the user's in-progress edits and snap the form back to
+    // the last persisted state.
+    if (seriesMeta.data && !dirty) {
       setDraft(seriesMeta.data)
-      setDirty(false)
     }
-  }, [seriesMeta.data])
+  }, [seriesMeta.data, dirty])
 
   const patch = <K extends keyof SeriesMetaDto>(
     key: K,
@@ -54,33 +64,54 @@ export function ProjectTabPanel() {
   ) => {
     setDraft((d) => ({ ...d, [key]: value }))
     setDirty(true)
+    if (saveOk) setSaveOk(false)
+    if (saveError) setSaveError(null)
   }
 
   const save = async () => {
     setSaving(true)
+    setSaveError(null)
+    setSaveOk(false)
     try {
       await api.seriesMetaUpdate(draft)
       await queryClient.invalidateQueries({ queryKey: ['project', 'series-meta'] })
       setDirty(false)
+      setSaveOk(true)
+      window.setTimeout(() => setSaveOk(false), 2500)
+    } catch (err: any) {
+      // Surface save failures (network drop, project closed externally,
+      // backend validation) instead of silently rolling back the
+      // spinner. User keeps the draft state so they can retry.
+      setSaveError(err?.message ?? String(err))
     } finally {
       setSaving(false)
     }
   }
 
   const [detecting, setDetecting] = useState(false)
+  const [detectError, setDetectError] = useState<string | null>(null)
+  const editorTotalPages = useEditorUiStore((s) => s.totalPages)
   const detectSourceLang = async () => {
-    // Sample OCR text from up to the first 5 loaded pages — more chars
-    // sampled = more reliable verdict, but we don't need to scan a 200
-    // page chapter to know it's Japanese.
+    // Idempotent click guard — second click while first is running is
+    // a no-op (button already shows the spinner, but a fast double-
+    // click could still re-fire).
+    if (detecting) return
     setDetecting(true)
+    setDetectError(null)
     try {
+      // Read fresh — the subscribed `editorTotalPages` above is for
+      // the disabled-button decision; the click itself snapshots at
+      // call time in case the user opened a chapter mid-flight.
       const totalPages = useEditorUiStore.getState().totalPages
       if (!totalPages) {
-        alert(
+        setDetectError(
           'No pages loaded — open a chapter first so we can scan its OCR text.',
         )
         return
       }
+      // Sample OCR text from up to the first 5 loaded pages — more
+      // chars sampled = more reliable verdict, but we don't need to
+      // scan a 200-page chapter to know it's Japanese.
       const sampleCount = Math.min(5, totalPages)
       const allBlocks: { text?: string | null }[] = []
       for (let i = 0; i < sampleCount; i++) {
@@ -93,7 +124,7 @@ export function ProjectTabPanel() {
       }
       const detected = detectSourceLanguageFromBlocks(allBlocks)
       if (!detected) {
-        alert(
+        setDetectError(
           'Could not detect a dominant source language — run OCR on a few pages first, then try again.',
         )
         return
@@ -178,8 +209,14 @@ export function ProjectTabPanel() {
                       variant='outline'
                       size='xs'
                       onClick={detectSourceLang}
-                      disabled={detecting}
-                      title='Auto-detect from OCR text (Issue #20)'
+                      // Disable when no chapter is loaded — clicking
+                      // would just pop the "no pages" error message.
+                      disabled={detecting || !editorTotalPages}
+                      title={
+                        !editorTotalPages
+                          ? 'Open a chapter first so we can scan its OCR text'
+                          : 'Auto-detect from OCR text (Issue #20)'
+                      }
                       className='shrink-0 px-1.5'
                     >
                       {detecting ? (
@@ -189,6 +226,11 @@ export function ProjectTabPanel() {
                       )}
                     </Button>
                   </div>
+                  {detectError && (
+                    <p className='text-amber-600 dark:text-amber-400 mt-1 text-[10px] leading-relaxed'>
+                      {detectError}
+                    </p>
+                  )}
                 </Field>
                 <Field label='Target lang'>
                   <Input
@@ -233,8 +275,15 @@ export function ProjectTabPanel() {
                 className='h-7 w-full text-xs'
               >
                 {saving && <Loader2Icon className='size-3 animate-spin' />}
-                Save changes
+                {saveOk && !saving && !dirty
+                  ? '✓ Saved'
+                  : 'Save changes'}
               </Button>
+              {saveError && (
+                <p className='text-destructive mt-1 text-[10px] leading-relaxed'>
+                  Failed to save: {saveError}
+                </p>
+              )}
             </>
           )}
 
@@ -342,7 +391,20 @@ export function ProjectTabPanel() {
             <Button
               variant='ghost'
               size='sm'
-              onClick={() => void closeProject()}
+              onClick={() => {
+                // Guard against silent data loss when the user has
+                // edits in the series-meta form. closeProject also
+                // ditches the in-memory document list so there's no
+                // recovery path once closed.
+                if (
+                  dirty &&
+                  !confirm(
+                    'You have unsaved changes in this project — discard and close anyway?',
+                  )
+                )
+                  return
+                void closeProject()
+              }}
               className='h-7 w-full text-xs'
             >
               <LogOutIcon className='size-3' />
