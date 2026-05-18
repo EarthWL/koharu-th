@@ -6,20 +6,12 @@ import LanguageDetector from 'i18next-browser-languagedetector'
 import LocalStorageBackend from 'i18next-localstorage-backend'
 
 import enUS from '@/public/locales/en-US/translation.json'
-import zhCN from '@/public/locales/zh-CN/translation.json'
-import zhTW from '@/public/locales/zh-TW/translation.json'
 import jaJP from '@/public/locales/ja-JP/translation.json'
-import ruRU from '@/public/locales/ru-RU/translation.json'
-import esES from '@/public/locales/es-ES/translation.json'
 import thTH from '@/public/locales/th-TH/translation.json'
 
 const resources = {
   'en-US': { translation: enUS },
-  'zh-CN': { translation: zhCN },
-  'zh-TW': { translation: zhTW },
   'ja-JP': { translation: jaJP },
-  'ru-RU': { translation: ruRU },
-  'es-ES': { translation: esES },
   'th-TH': { translation: thTH },
 } satisfies Resource
 
