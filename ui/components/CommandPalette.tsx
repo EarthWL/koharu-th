@@ -23,6 +23,7 @@ import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { useProjectMutations } from '@/lib/query/projectMutations'
 import { SLASH_COMMANDS } from '@/lib/services/chatSlashCommands'
 import { flushAllSyncQueues } from '@/lib/services/syncQueues'
+import { effectiveDbProvider } from '@/lib/services/profileHelpers'
 
 /**
  * Global Cmd+K / Ctrl+K command palette. Surfaces frequent actions
@@ -86,7 +87,13 @@ export function CommandPalette() {
 
   const applyProfile = async (p: ProviderProfileDto) => {
     close()
-    setPrefs.setCloudProvider(p.provider as any)
+    // Route the dbProvider through effectiveDbProvider(p) so legacy
+    // OpenRouter profiles (saved as provider='openai' + modelName
+    // containing '/', before the v1.0.0 backend fix) reach the correct
+    // dispatcher in cloudLlm.ts / cloudOcr.ts. Matches the Profiles
+    // tab's apply() — palette was setting p.provider directly and
+    // sending those profiles to the OpenAI dispatcher.
+    setPrefs.setCloudProvider(effectiveDbProvider(p) as any)
     setPrefs.setCloudModelName(p.modelName)
     setPrefs.setActiveProfileId(p.id)
     if (p.apiUrl) setPrefs.setCloudApiUrl(p.apiUrl)

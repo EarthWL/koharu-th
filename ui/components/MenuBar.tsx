@@ -72,7 +72,14 @@ export function MenuBar() {
     {
       label: t('menu.openProject'),
       onSelect: () => {
-        void openPicker()
+        // Drain pending writes before swapping the project — pending
+        // text-block / mask / brush edits target the OUTGOING project;
+        // openPicker() resets stores on success and orphans them.
+        // Recent-project and Close already do this; Open was missed.
+        void (async () => {
+          await flushAllSyncQueues().catch(() => {})
+          void openPicker()
+        })()
       },
     },
     ...recentList.slice(0, 6).map((p) => ({

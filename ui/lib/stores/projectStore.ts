@@ -45,11 +45,23 @@ export const useProjectStore = create<ProjectState>()(
     (set) => ({
       info: null,
       setInfo: (info) =>
-        set({
-          info,
-          // Closing a project re-enables the gate so the user has to
-          // explicitly choose again.
-          ...(info ? {} : { standaloneAllowed: false }),
+        set((state) => {
+          // Reset activeChapterId whenever the project IDENTITY changes
+          // (close, open-different, recent-pick), but NOT on a same-
+          // project info refresh (e.g. chapter count update). Without
+          // this guard the persisted activeChapterId from the previous
+          // project leaks into the new one — at best harmless, at worst
+          // (matching numeric id) silently anchors rolling-context /
+          // chat-history queries to the wrong chapter.
+          const switchedProject =
+            (state.info?.id ?? null) !== (info?.id ?? null)
+          return {
+            info,
+            ...(switchedProject ? { activeChapterId: null } : {}),
+            // Closing a project re-enables the gate so the user has to
+            // explicitly choose again.
+            ...(info ? {} : { standaloneAllowed: false }),
+          }
         }),
       activeChapterId: null,
       setActiveChapterId: (id) => set({ activeChapterId: id }),

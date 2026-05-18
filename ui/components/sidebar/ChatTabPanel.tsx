@@ -36,7 +36,7 @@ import {
   parseAttachments,
 } from '@/lib/services/imageAttach'
 import { supportsVision } from '@/lib/services/visionSupport'
-import { KINDS } from '@/lib/services/profileHelpers'
+import { KINDS, kindOf } from '@/lib/services/profileHelpers'
 import i18n from '@/lib/i18n'
 import { toArrayBuffer } from '@/lib/util'
 import { ChatMarkdown } from '@/components/sidebar/chat-markdown'
@@ -208,12 +208,23 @@ export function ChatTabPanel() {
   }
 
   const send = async () => {
-    if (!input.trim() || sending) return
+    // Allow attachment-only turns through — image-only QA ("what does
+    // this bubble say?") is a legitimate flow and the Send button
+    // (see disabled prop below) already enables itself for that case.
+    if ((!input.trim() && pendingAttachments.length === 0) || sending) return
     if (provider === 'none') {
       setError('Cloud LLM not selected — pick a profile from the LLM badge or Profiles tab.')
       return
     }
-    if (!apiKey) {
+    // Detect "local" profiles (Ollama / LM Studio / llama.cpp etc.) by
+    // their apiUrl pointing at localhost. Those servers either accept
+    // any token or none at all, so the API-key gate doesn't apply.
+    // Without this, picking a local profile silently blocks every send
+    // because cloudApiKey is empty by convention.
+    const isLocal =
+      kindOf({ provider: provider as any, modelName: model, apiUrl }) ===
+      'local'
+    if (!isLocal && !apiKey) {
       // OpenRouter used to be allowed through without a key because the
       // model picker works key-less for browsing — but chat completion
       // always requires Authorization. Letting the request through just
