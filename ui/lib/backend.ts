@@ -168,7 +168,20 @@ export async function invoke<M extends keyof RpcMethodMap>(
       const blob = new Blob([toArrayBuffer(result.data)])
       try {
         await fileSave(blob, { fileName: result.filename })
-      } catch {}
+      } catch (saveErr: any) {
+        // `browser-fs-access` throws AbortError when the user
+        // dismisses the system save dialog — that's not a failure,
+        // just "no, thanks". Swallow it silently as before.
+        //
+        // Anything else (disk full, permission denied, parent dir
+        // gone, quota exceeded, file in use, …) is a real failure —
+        // surfacing it gives the user an actionable error instead of
+        // a misleading "saved" confirmation when nothing reached disk.
+        if (saveErr?.name !== 'AbortError') {
+          reportRpcError(method, saveErr)
+          throw saveErr
+        }
+      }
       return undefined as RpcMethodMap[M][1]
     } catch (error) {
       reportRpcError(method, error)
