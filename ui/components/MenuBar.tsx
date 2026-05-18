@@ -21,7 +21,7 @@ import { useProjectStore } from '@/lib/stores/projectStore'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { checkForUpdates } from '@/lib/services/updateCheck'
+import { triggerUpdateCheck } from '@/lib/services/autoUpdater'
 import { flushAllSyncQueues } from '@/lib/services/syncQueues'
 
 type MenuItem = {
@@ -217,10 +217,17 @@ export function MenuBar() {
   ]
 
   const runUpdateCheck = async () => {
+    if (isTauri()) {
+      await triggerUpdateCheck(true)
+      return
+    }
+
+    // Fallback for Web/Headless Client
     let current = '0.0.0'
     try {
       current = (await api.appVersion()) ?? '0.0.0'
     } catch {}
+    const { checkForUpdates } = await import('@/lib/services/updateCheck')
     const result = await checkForUpdates(current)
     if (result.kind === 'up-to-date') {
       alert(

@@ -29,6 +29,8 @@
     "@tanstack/react-query-persist-client": "^5.90.24",
     "@tanstack/react-virtual": "^3.13.20",
     "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.10.1",
     "@use-gesture/react": "^10.3.1",
     "browser-fs-access": "^0.38.0",
     "class-variance-authority": "^0.7.1",

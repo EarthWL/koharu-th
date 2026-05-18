@@ -333,8 +333,14 @@ pub async fn run() -> Result<()> {
     let ws_port = listener.local_addr()?.port();
     let shared: SharedResources = Arc::new(tokio::sync::OnceCell::new());
 
+#[tauri::command]
+fn relaunch_app(app: tauri::AppHandle) {
+    app.restart();
+}
+
     let app = tauri::Builder::default()
         .append_invoke_initialization_script(format!("window.__KOHARU_WS_PORT__ = {};", ws_port))
+        .invoke_handler(tauri::generate_handler![relaunch_app])
         .setup({
             let shared = shared.clone();
             move |app| {

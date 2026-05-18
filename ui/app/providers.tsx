@@ -17,6 +17,9 @@ import { queryKeys } from '@/lib/query/keys'
 import { api, parseProcessProgress } from '@/lib/api'
 import { useDownloadStore } from '@/lib/downloads'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
+import { usePreferencesStore } from '@/lib/stores/preferencesStore'
+import { triggerUpdateCheck } from '@/lib/services/autoUpdater'
+import { UpdateDialog } from '@/components/UpdateDialog'
 import { useOperationStore } from '@/lib/stores/operationStore'
 
 export function Providers({ children }: { children: ReactNode }) {
@@ -168,6 +171,19 @@ export function Providers({ children }: { children: ReactNode }) {
 
     handleLanguageChange(i18n.language)
     i18n.on('languageChanged', handleLanguageChange)
+
+    // Startup update check if enabled
+    const mode = usePreferencesStore.getState().autoUpdateMode
+    if (mode === 'auto' || mode === 'notify') {
+      const timer = setTimeout(() => {
+        void triggerUpdateCheck(false)
+      }, 3000)
+      return () => {
+        clearTimeout(timer)
+        i18n.off('languageChanged', handleLanguageChange)
+      }
+    }
+
     return () => {
       i18n.off('languageChanged', handleLanguageChange)
     }
@@ -179,7 +195,10 @@ export function Providers({ children }: { children: ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <I18nextProvider i18n={i18n}>
         <ThemeProvider attribute='class' defaultTheme='system' enableSystem>
-          <TooltipProvider delayDuration={0}>{children}</TooltipProvider>
+          <TooltipProvider delayDuration={0}>
+            {children}
+            <UpdateDialog />
+          </TooltipProvider>
         </ThemeProvider>
       </I18nextProvider>
     </QueryClientProvider>

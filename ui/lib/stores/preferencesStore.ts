@@ -23,7 +23,6 @@ export type AutoUpdateMode = 'auto' | 'notify' | 'manual'
 /** ความละเอียดสูงสุด (px) ของ crop ที่ส่ง LaMa — fast=256 / balanced=512 / quality=768 */
 export type InpaintQuality = 256 | 512 | 768
 
-
 /**
  * Detector engine — mirrors `koharu_types::DetectorEngine`.
  * - `default` — current `comic_text_detector` (DBNet + UNet + YOLOv5
@@ -169,7 +168,6 @@ type PreferencesState = {
 
   llmFailoverPriority: number[]
   setLlmFailoverPriority: (priority: number[]) => void
-
   resetPreferences: () => void
 }
 
