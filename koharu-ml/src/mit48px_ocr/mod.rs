@@ -168,11 +168,35 @@ impl Mit48pxOcr {
                 continue;
             }
 
-            let text = lines
+            // Join per-line OCR results with a script-aware separator.
+            // Upstream koharu joined with "" (correct for CJK — no
+            // inter-character spacing). On Latin / Thai bubbles a line
+            // break is usually a word boundary, so an empty join
+            // collapses adjacent words ("HOW" + "DO" → "HOWDO"). Insert
+            // a single space when both sides of the break are ASCII
+            // alphanumeric; otherwise keep upstream's empty join so
+            // mixed-script and pure-CJK bubbles render unchanged.
+            // Tracking: https://github.com/EarthWL/koharu-th/issues/11
+            let normalized: Vec<String> = lines
                 .iter()
                 .map(|line| normalize_ocr_text(&line.text))
-                .collect::<Vec<_>>()
-                .join("");
+                .collect();
+            let mut text = String::new();
+            for (i, segment) in normalized.iter().enumerate() {
+                if i > 0 {
+                    let prev_last = text.chars().last();
+                    let next_first = segment.chars().next();
+                    let both_word_like = matches!(
+                        (prev_last, next_first),
+                        (Some(p), Some(n))
+                            if p.is_ascii_alphanumeric() && n.is_ascii_alphanumeric()
+                    );
+                    if both_word_like {
+                        text.push(' ');
+                    }
+                }
+                text.push_str(segment);
+            }
             let confidence =
                 lines.iter().map(|line| line.confidence).sum::<f32>() / lines.len() as f32;
             let text_color = average_rgb(lines.iter().map(|line| line.text_color));
