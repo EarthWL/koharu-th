@@ -211,7 +211,14 @@ fn row_to_profile(r: &rusqlite::Row<'_>) -> rusqlite::Result<ProviderProfile> {
         id: r.get(0)?,
         name: r.get(1)?,
         provider: match provider_str.as_str() {
-            "openrouter" => Provider::Openai, // openrouter rides the openai dialect; UI keeps display label.
+            // Each variant maps to its own enum value. The legacy
+            // "openrouter -> Openai" collapse was leftover from before
+            // Provider::Openrouter existed; it forced the frontend to
+            // run an effectiveProvider() slash-heuristic in three
+            // separate files (cloudLlm.ts, cloudOcr.ts, ProfilesTabPanel.tsx)
+            // to recover the truth. Map straight through so the DTO
+            // we hand callers actually matches what's in the DB.
+            "openrouter" => Provider::Openrouter,
             "gemini" => Provider::Gemini,
             "anthropic" => Provider::Anthropic,
             _ => Provider::Openai,
