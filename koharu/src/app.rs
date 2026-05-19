@@ -333,21 +333,50 @@ pub async fn run() -> Result<()> {
                         .plugin(tauri_plugin_updater::Builder::new().build())
                         .ok();
 
-                    shared
+                    // Per issue #40: the global panic hook (installed in
+                    // `initialize`) catches panics on the main thread —
+                    // but `tauri::async_runtime::spawn` isolates panics
+                    // at the task boundary, so a panic here would leave
+                    // the splashscreen open forever with no error
+                    // surfaced. Surface the error via a message dialog +
+                    // exit cleanly instead.
+                    let init_result = shared
                         .get_or_try_init(|| async { build_resources(cpu).await })
-                        .await
-                        .expect("failed to build app resources");
+                        .await;
+                    if let Err(err) = init_result {
+                        let msg = format!(
+                            "Failed to initialize app resources:\n\n{err:#}\n\n\
+                             Common causes: missing GPU drivers, no disk space \
+                             for the model cache, or a corrupted model download. \
+                             Check the log file at %LOCALAPPDATA%\\Koharu\\ for \
+                             details."
+                        );
+                        tracing::error!(?err, "build_resources failed");
+                        MessageDialog::new()
+                            .set_level(rfd::MessageLevel::Error)
+                            .set_title("Koharu — Startup failed")
+                            .set_description(&msg)
+                            .show();
+                        handle.exit(1);
+                        return;
+                    }
 
-                    handle
-                        .get_webview_window("splashscreen")
-                        .expect("splashscreen window not found")
-                        .close()
-                        .ok();
-                    handle
-                        .get_webview_window("main")
-                        .expect("main window not found")
-                        .show()
-                        .ok();
+                    // Window-missing should never fire in a healthy
+                    // bundle (both labels are declared in
+                    // tauri.conf.json), but if it does we'd rather
+                    // exit cleanly than panic inside a spawned task.
+                    let Some(splash) = handle.get_webview_window("splashscreen") else {
+                        tracing::error!("splashscreen window not found in bundle");
+                        handle.exit(1);
+                        return;
+                    };
+                    splash.close().ok();
+                    let Some(main) = handle.get_webview_window("main") else {
+                        tracing::error!("main window not found in bundle");
+                        handle.exit(1);
+                        return;
+                    };
+                    main.show().ok();
                 });
                 Ok(())
             }

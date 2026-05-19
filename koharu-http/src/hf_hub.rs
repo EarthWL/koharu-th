@@ -26,13 +26,26 @@ static HF_CACHE: Lazy<Cache> = Lazy::new(|| Cache::new(get_cache_dir().to_path_b
 
 fn get_cache_dir() -> &'static PathBuf {
     CACHE_DIR.get_or_init(|| {
-        // `hf` instead of `models` since v1.2.2 — see `koharu/src/
-        // app.rs::MODEL_ROOT` for the motivation (Windows MAX_PATH,
-        // issue #34). The production `set_cache_dir` call in
-        // `koharu::app::initialize` always hits BEFORE this lazy
-        // fallback fires, so end users never see this default;
-        // it only matters for tests + headless invocations that
-        // skip the normal startup path.
+        // Per issue #41 — `HF_API` and `HF_CACHE` are `Lazy<>`
+        // that resolve `CACHE_DIR` on first access. The production
+        // invariant is `koharu::app::initialize` calls
+        // `set_cache_dir(MODEL_ROOT)` BEFORE any code path can
+        // touch them. If that ordering is ever violated (a future
+        // refactor accidentally accesses HF_API in a static
+        // initializer, an unrelated startup hook, etc.), the
+        // fallback path below silently fires and downloads land
+        // in the WRONG directory — divergent from production.
+        //
+        // Surface the case so it's loud + observable. Tests +
+        // headless tools that intentionally rely on the fallback
+        // can ignore the warning (test framework filters
+        // `tracing::warn!` by default unless RUST_LOG is set).
+        tracing::warn!(
+            "hf_hub::CACHE_DIR fallback fired — set_cache_dir was \
+             never called. If this is a production binary, the HF \
+             cache will land in dirs::cache_dir()/Koharu/hf rather \
+             than the MODEL_ROOT path (issue #41)."
+        );
         dirs::cache_dir()
             .unwrap_or_default()
             .join("Koharu")
