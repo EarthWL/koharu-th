@@ -1131,6 +1131,7 @@ function AddonStoreSection() {
 
   const [installingId, setInstallingId] = useState<string | null>(null)
   const [installProgress, setInstallProgress] = useState<number>(0)
+  const [relaunchAddon, setRelaunchAddon] = useState<AddonItem | null>(null)
 
   const isTh = i18n.language === 'th-TH'
 
@@ -1167,6 +1168,7 @@ function AddonStoreSection() {
 
         setInstallingId(null)
         setInstallProgress(0)
+        setRelaunchAddon(addon) // Trigger the relaunch modal!
       }
     }, 150)
   }
@@ -1287,6 +1289,45 @@ function AddonStoreSection() {
           )
         })}
       </div>
+
+      {relaunchAddon && (
+        <div className='fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200'>
+          <div className='bg-card border-border max-w-sm w-full border rounded-xl p-6 shadow-2xl relative flex flex-col gap-4 animate-in zoom-in-95 duration-200'>
+            <div className='flex items-center gap-3 border-b border-border pb-3'>
+              <Puzzle className='text-primary size-5 animate-pulse' />
+              <h3 className='text-foreground text-base font-bold'>
+                {isTh ? '🧩 ติดตั้ง Addon สำเร็จ!' : '🧩 Addon Installed!'}
+              </h3>
+            </div>
+            
+            <p className='text-muted-foreground text-sm leading-relaxed'>
+              {isTh 
+                ? `ติดตั้งภาษา ${relaunchAddon.label} เรียบร้อยแล้ว! เพื่อสลับการแสดงผลหน้า UI หลักทั้งหมดของตัวโปรแกรมเป็นภาษาใหม่ทันที กรุณากดปุ่มรีสตาร์ทแอป หรือเลือกทำภายหลัง`
+                : `Language pack ${relaunchAddon.label} has been successfully installed! To switch the main user interface language immediately, please restart the application, or select switch later.`}
+            </p>
+
+            <div className='flex gap-3 mt-2'>
+              <button
+                type='button'
+                onClick={() => {
+                  i18n.changeLanguage(relaunchAddon.code)
+                  invoke('relaunch_app')
+                }}
+                className='bg-primary text-primary-foreground hover:bg-primary/95 flex-1 h-9 rounded-md text-xs font-semibold shadow-sm transition'
+              >
+                {isTh ? 'รีสตาร์ททันที' : 'Restart Now'}
+              </button>
+              <button
+                type='button'
+                onClick={() => setRelaunchAddon(null)}
+                className='border border-input hover:bg-accent hover:text-accent-foreground flex-1 h-9 rounded-md text-xs font-semibold transition'
+              >
+                {isTh ? 'สลับภายหลัง' : 'Switch Later'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   )
 }
