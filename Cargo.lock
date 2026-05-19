@@ -3863,6 +3863,8 @@ name = "koharu-api"
 version = "1.2.1"
 dependencies = [
  "anyhow",
+ "image",
+ "koharu-core",
  "koharu-types",
  "schemars 1.2.1",
  "serde",

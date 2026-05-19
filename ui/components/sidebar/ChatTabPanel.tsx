@@ -38,7 +38,7 @@ import {
 import { supportsVision } from '@/lib/services/visionSupport'
 import { KINDS, kindOf } from '@/lib/services/profileHelpers'
 import i18n from '@/lib/i18n'
-import { toArrayBuffer } from '@/lib/util'
+import { fetchBlobBytes, toArrayBuffer } from '@/lib/util'
 import { ChatMarkdown } from '@/components/sidebar/chat-markdown'
 
 const DISPLAY_LIMIT = 50
@@ -174,7 +174,13 @@ export function ChatTabPanel() {
     setError(null)
     try {
       const doc = await api.getDocument(currentDocIndex)
-      const blob = new Blob([toArrayBuffer(doc.image)], { type: 'image/png' })
+      // v2 blob-transport: doc.image is a hex BlobId. Fetch the
+      // raw bytes via the browser-cached /blob/:hex route, then
+      // wrap as a Blob for the attachment pipeline.
+      const imageBytes = await fetchBlobBytes(doc.image)
+      const blob = new Blob([toArrayBuffer(imageBytes)], {
+        type: 'image/png',
+      })
       const att = await blobToAttachment(blob)
       setPendingAttachments((prev) => [...prev, att])
     } catch (err: any) {

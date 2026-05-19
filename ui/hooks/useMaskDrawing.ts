@@ -5,7 +5,7 @@ import { useDrag } from '@use-gesture/react'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { useMaskMutations } from '@/lib/query/mutations'
-import { blobToUint8Array, convertToImageBitmap } from '@/lib/util'
+import { blobToUint8Array, fetchBlobAsImageBitmap } from '@/lib/util'
 import { Document, InpaintRegion, ToolMode } from '@/types'
 import {
   PointerToDocumentFn,
@@ -146,7 +146,11 @@ export function useMaskDrawing({
     if (currentDocument.segment) {
       void (async () => {
         try {
-          const bitmap = await convertToImageBitmap(currentDocument.segment!)
+          // v2 blob-transport: segment is a hex BlobId. Fetch + GPU-
+          // accelerated decode in one step.
+          const bitmap = await fetchBlobAsImageBitmap(
+            currentDocument.segment!,
+          )
           if (cancelled) {
             bitmap.close()
             return

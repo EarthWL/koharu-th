@@ -73,7 +73,13 @@ export const api = {
   },
 
   async getDocument(index: number): Promise<Document> {
-    const payload = await invoke('get_document', { index })
+    // v2 blob-transport route: backend registers binaries with the
+    // BlobStore + returns hex BlobIds (see koharu_api::views::
+    // DocumentDto). Frontend renders via `<img src="/blob/{hex}">`.
+    // The plain `get_document` route still exists for MCP image-
+    // extraction tools that need pixel-level access — frontend
+    // never uses it.
+    const payload = await invoke('get_document_dto', { index })
     return parseOrLogAndThrow(documentSchema, payload, 'document')
   },
 

@@ -96,6 +96,7 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::LlmOffload => call0(operations::llm_offload, state).await,
         Method::ProcessCancel => call0(operations::process_cancel, state).await,
         Method::GetDocument => call(operations::get_document, state, params).await,
+        Method::GetDocumentDto => call(operations::get_document_dto, state, params).await,
         Method::GetThumbnail => call(operations::get_thumbnail, state, params).await,
         Method::ExportDocument => call(operations::export_document, state, params).await,
         Method::ExportAllInpainted => call0(operations::export_all_inpainted, state).await,

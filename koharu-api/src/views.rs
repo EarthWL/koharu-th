@@ -1,4 +1,6 @@
-use koharu_types::{Document, TextBlock};
+use image::{ColorType, codecs::webp::WebPEncoder};
+use koharu_core::BlobStore;
+use koharu_types::{Document, SerializableDynamicImage, TextBlock};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,4 +97,101 @@ pub fn to_doc_info(doc: &Document) -> DocumentInfo {
             .map(|(i, block)| to_block_info(i, block))
             .collect(),
     }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// DocumentDto — v2 blob-transport boundary
+//
+// `koharu_types::Document` keeps the in-memory `DynamicImage` so
+// engines have pixel access. Sending that over the WS RPC pipe
+// msgpack-encodes the WebP-lossless bytes per fetch — 2-5 MB per
+// page, hot path during navigation. Phase 2 moves binaries to the
+// `/blob/:hex` HTTP route (zero-copy `Bytes` response, browser
+// caches via content-addressed immutable URL). `DocumentDto` is the
+// shape that traverses the wire instead: same scalars + text blocks
+// as `Document`, but each binary field is the hex `BlobId` of bytes
+// the backend has already pushed into the `BlobStore`.
+//
+// The frontend renders by setting `<img src="/blob/{hex}">`; browser
+// fetches once, caches forever (URL is content hash so it's
+// immutable by construction), and uses its native GPU-accelerated
+// decoder rather than JS-side `URL.createObjectURL` on a Uint8Array.
+// ────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentDto {
+    pub id: String,
+    pub path: std::path::PathBuf,
+    pub name: String,
+    pub width: u32,
+    pub height: u32,
+    /// Hex blake3 of the WebP-lossless-encoded page image. Fetch via
+    /// `GET /blob/<hex>`. Always present (every page has a source
+    /// image).
+    pub image: String,
+    pub text_blocks: Vec<TextBlock>,
+    /// Hex blob id for the segmentation mask. `None` = stage not run.
+    pub segment: Option<String>,
+    pub inpainted: Option<String>,
+    pub rendered: Option<String>,
+    pub brush_layer: Option<String>,
+}
+
+/// Re-encode a single image into WebP-lossless bytes and push it
+/// into the BlobStore. Returns the hex BlobId the frontend can
+/// use as a URL fragment.
+///
+/// Same encoding as `SerializableDynamicImage::serialize` — lossless
+/// WebP. Matters for content-addressed dedup: if a stage emits the
+/// same pixels twice across runs, both hash to the same id and the
+/// browser's cached fetch is reused.
+fn register_image(blobs: &BlobStore, img: &SerializableDynamicImage) -> anyhow::Result<String> {
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    let raw = rgba.into_raw();
+
+    let mut buf = Vec::new();
+    let enc = WebPEncoder::new_lossless(&mut buf);
+    enc.encode(&raw, width, height, ColorType::Rgba8.into())?;
+
+    let id = blobs.put(buf);
+    Ok(id.to_hex())
+}
+
+/// Convert a backend `Document` into the wire-friendly `DocumentDto`.
+/// Encodes + registers all 5 binary fields with the `BlobStore` and
+/// hands out hex BlobIds. The backend keeps the in-memory
+/// `DynamicImage` separately for engine pixel access — this DTO is
+/// purely the RPC return shape.
+pub fn to_doc_dto(doc: &Document, blobs: &BlobStore) -> anyhow::Result<DocumentDto> {
+    Ok(DocumentDto {
+        id: doc.id.clone(),
+        path: doc.path.clone(),
+        name: doc.name.clone(),
+        width: doc.width,
+        height: doc.height,
+        image: register_image(blobs, &doc.image)?,
+        text_blocks: doc.text_blocks.clone(),
+        segment: doc
+            .segment
+            .as_ref()
+            .map(|img| register_image(blobs, img))
+            .transpose()?,
+        inpainted: doc
+            .inpainted
+            .as_ref()
+            .map(|img| register_image(blobs, img))
+            .transpose()?,
+        rendered: doc
+            .rendered
+            .as_ref()
+            .map(|img| register_image(blobs, img))
+            .transpose()?,
+        brush_layer: doc
+            .brush_layer
+            .as_ref()
+            .map(|img| register_image(blobs, img))
+            .transpose()?,
+    })
 }

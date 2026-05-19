@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { convertToImageBitmap } from '@/lib/util'
+import { fetchBlobAsImageBitmap } from '@/lib/util'
 import { Document } from '@/types'
 
 type BrushLayerDisplayOptions = {
@@ -44,7 +44,10 @@ export function useBrushLayerDisplay({
     if (visible && brushLayer) {
       void (async () => {
         try {
-          const bitmap = await convertToImageBitmap(brushLayer)
+          // v2 blob-transport: brushLayer is a hex BlobId. Fetch
+          // + decode in one step — browser uses its GPU-accelerated
+          // image decoder, off the main thread.
+          const bitmap = await fetchBlobAsImageBitmap(brushLayer)
           if (cancelled) {
             bitmap.close()
             return

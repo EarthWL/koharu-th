@@ -376,7 +376,7 @@ export function Workspace() {
                     >
                       <div className='absolute inset-0'>
                         <Image
-                          data={currentDocument.image}
+                          blob={currentDocument.image}
                           dataKey={`${currentDocument.id}-base`}
                           transition={false}
                         />
@@ -396,7 +396,7 @@ export function Workspace() {
                         {currentDocument?.inpainted && (
                           <Image
                             data-testid='workspace-inpainted-image'
-                            data={currentDocument.inpainted}
+                            blob={currentDocument.inpainted}
                             visible={showInpaintedImage}
                             transition={false}
                           />
@@ -448,7 +448,7 @@ export function Workspace() {
                         {currentDocument.rendered && showRenderedImage && (
                           <Image
                             data-testid='workspace-rendered-image'
-                            data={currentDocument.rendered}
+                            blob={currentDocument.rendered}
                             transition={false}
                             style={{ zIndex: 40 }}
                           />

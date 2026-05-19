@@ -16,7 +16,9 @@ anyhow = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_bytes = { workspace = true }
+koharu-core = { workspace = true }
 koharu-types = { workspace = true }
+image = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

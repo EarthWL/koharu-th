@@ -22,6 +22,7 @@ import {
   flushMaskSync as flushMaskSyncQueue,
   flushTextBlockSync,
 } from '@/lib/services/syncQueues'
+import { fetchBlobBytes } from '@/lib/util'
 import { applyThaiPostProcessToBlocks } from '@/lib/util/thaiPostProcess'
 import i18n from '@/lib/i18n'
 
@@ -423,10 +424,14 @@ export const useDocumentMutations = () => {
             doc = await api.getDocument(resolvedIndex)
           }
           if (doc.textBlocks.length > 0) {
+            // v2 blob-transport: doc.image is now a hex BlobId.
+            // Fetch the raw bytes for the cloud OCR call. Browser
+            // cache short-circuits the second visit.
+            const imageBytes = await fetchBlobBytes(doc.image)
             const { texts } = await ocrPageViaCloud(
               resolved.profile,
               resolved.apiKey,
-              doc.image,
+              imageBytes,
               doc.textBlocks,
             )
             const updated = doc.textBlocks.map((b, i) => ({
@@ -598,10 +603,14 @@ export const useDocumentMutations = () => {
           })
           const doc = await api.getDocument(resolvedIndex)
           if (doc.textBlocks.length > 0) {
+            // v2 blob-transport: doc.image is now a hex BlobId.
+            // Fetch the raw bytes for the cloud OCR call. Browser
+            // cache short-circuits the second visit.
+            const imageBytes = await fetchBlobBytes(doc.image)
             const { texts } = await ocrPageViaCloud(
               resolved.profile,
               resolved.apiKey,
-              doc.image,
+              imageBytes,
               doc.textBlocks,
             )
             const updated = doc.textBlocks.map((b, i) => ({

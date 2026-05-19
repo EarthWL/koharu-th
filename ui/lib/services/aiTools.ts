@@ -17,7 +17,7 @@ import {
 } from '@/lib/services/embeddings'
 import { blobToAttachment } from '@/lib/services/imageAttach'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
-import { toArrayBuffer } from '@/lib/util'
+import { fetchBlobBytes, toArrayBuffer } from '@/lib/util'
 
 /**
  * Sentinel-tagged tool result for image-returning tools. The chat
@@ -381,8 +381,12 @@ const TOOLS: ToolDef[] = [
       const idx = useEditorUiStore.getState().currentDocumentIndex
       try {
         const doc = await api.getDocument(idx)
+        // v2 blob-transport: doc.image is a hex BlobId. Fetch the
+        // raw bytes so we can downsize + re-encode for the LLM
+        // attachment. Browser-cached after the first canvas render.
+        const imageBytes = await fetchBlobBytes(doc.image)
         return await bytesToImageResult(
-          doc.image,
+          imageBytes,
           `current canvas page (index ${idx})`,
         )
       } catch (err: any) {

@@ -15,6 +15,12 @@ pub enum Method {
     LlmOffload,
     ProcessCancel,
     GetDocument,
+    /// v2 blob-transport variant of `GetDocument`. Returns the
+    /// same Document shape but with binaries replaced by hex
+    /// `BlobId`s the frontend can fetch via `/blob/:hex`. Frontend
+    /// RPC uses this; MCP keeps using `GetDocument` for pixel
+    /// access. See docs/v2-arch.md §5 Phase 2 on main.
+    GetDocumentDto,
     GetThumbnail,
     ExportDocument,
     ExportAllInpainted,
@@ -122,6 +128,7 @@ impl Method {
         Method::LlmOffload,
         Method::ProcessCancel,
         Method::GetDocument,
+        Method::GetDocumentDto,
         Method::GetThumbnail,
         Method::ExportDocument,
         Method::ExportAllInpainted,
@@ -219,6 +226,7 @@ impl Method {
             Method::LlmOffload => "llm_offload",
             Method::ProcessCancel => "process_cancel",
             Method::GetDocument => "get_document",
+            Method::GetDocumentDto => "get_document_dto",
             Method::GetThumbnail => "get_thumbnail",
             Method::ExportDocument => "export_document",
             Method::ExportAllInpainted => "export_all_inpainted",
@@ -327,6 +335,7 @@ impl FromStr for Method {
             "llm_offload" => Method::LlmOffload,
             "process_cancel" => Method::ProcessCancel,
             "get_document" => Method::GetDocument,
+            "get_document_dto" => Method::GetDocumentDto,
             "get_thumbnail" => Method::GetThumbnail,
             "export_document" => Method::ExportDocument,
             "export_all_inpainted" => Method::ExportAllInpainted,

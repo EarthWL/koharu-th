@@ -5,6 +5,7 @@ use koharu_api::commands::{
     DeviceInfo, FileResult, IndexPayload, OpenDocumentsPayload, OpenExternalPayload,
     ThumbnailResult,
 };
+use koharu_api::views::{DocumentDto, to_doc_dto};
 use rfd::FileDialog;
 
 use crate::{AppResources, state_tx};
@@ -115,7 +116,29 @@ pub async fn get_document(
     state: AppResources,
     payload: IndexPayload,
 ) -> anyhow::Result<koharu_types::Document> {
+    // Returns the full backend `Document` (with `DynamicImage` for
+    // pixel-level access). Used by MCP image-extraction tools that
+    // crop and re-encode image regions for external LLM agents.
+    //
+    // The frontend RPC path uses [`get_document_dto`] instead — that
+    // route registers binaries with the `BlobStore` and returns hex
+    // `BlobId`s for the `/blob/:hex` transport (Phase 2 per #33).
     state_tx::read_doc(&state.state, payload.index).await
+}
+
+pub async fn get_document_dto(
+    state: AppResources,
+    payload: IndexPayload,
+) -> anyhow::Result<DocumentDto> {
+    // Read the backend `Document` (full `DynamicImage` in memory),
+    // then convert to `DocumentDto` — encodes each binary field
+    // with WebP-lossless, registers with `BlobStore`, returns hex
+    // `BlobId`s on the wire. Frontend fetches the bytes via
+    // `GET /blob/:hex` (Phase 2 transport per #33). The
+    // `DynamicImage` stays in backend state so engines + MCP tools
+    // still have pixel access without re-decoding.
+    let doc = state_tx::read_doc(&state.state, payload.index).await?;
+    to_doc_dto(&doc, &state.blobs)
 }
 
 pub async fn get_thumbnail(

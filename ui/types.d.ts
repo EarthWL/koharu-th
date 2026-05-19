@@ -86,12 +86,18 @@ export type Document = {
   id: string
   path: string
   name: string
-  image: Uint8Array
+  // v2 blob transport: binary fields are hex blake3 hashes; fetch
+  // the bytes via `GET /blob/{hex}`. See docs/v2-arch.md §5 Phase 2
+  // on main. The `Image` component handles this conversion — pass
+  // the hex string as `blob={doc.image}` and the component renders
+  // `<img src="/blob/{hex}">`. Browser caches via the immutable
+  // Cache-Control header set on the route.
+  image: string
   width: number
   height: number
   textBlocks: TextBlock[]
-  segment?: Uint8Array
-  inpainted?: Uint8Array
-  brushLayer?: Uint8Array
-  rendered?: Uint8Array
+  segment?: string
+  inpainted?: string
+  brushLayer?: string
+  rendered?: string
 }

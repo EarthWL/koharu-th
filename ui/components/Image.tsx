@@ -2,26 +2,51 @@
 
 import type { CSSProperties } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  cancelObjectUrlRevoke,
-  convertToBlob,
-  revokeObjectUrlLater,
-} from '@/lib/util'
+
+// ────────────────────────────────────────────────────────────────────
+// Image — v2 blob transport version (Phase 2 per #33)
+//
+// Renders a binary that the backend has registered with `BlobStore`.
+// Pass the hex `BlobId` as `blob={hex}`; the component renders
+// `<img src="/blob/{hex}">` and the browser handles fetch + native
+// decode + HTTP cache (Cache-Control: private, max-age=31536000,
+// immutable — safe because the URL IS the content hash).
+//
+// Pre-v2 this component took `data: Uint8Array`, built an ObjectURL
+// per render, and tracked cleanup via `revokeObjectUrl`. All of that
+// goes away — the browser cache replaces it.
+//
+// The cross-fade logic stays. When `blob` changes:
+//   1. Preload via a new `Image()` against the new URL.
+//   2. On preload load → set `nextSrc`, set crossfade flag two rAFs
+//      later (so the layout commits before opacity starts ticking).
+//   3. After the CSS transition (or a fallback timeout), promote
+//      `next → current`.
+// ────────────────────────────────────────────────────────────────────
 
 type ImageProps = {
-  data?: Uint8Array
+  /// Hex BlobId from a `DocumentDto` field. Renders as
+  /// `<img src="/blob/{blob}">`. `undefined` = nothing rendered.
+  blob?: string
   visible?: boolean
   opacity?: number
   transition?: boolean
+  /// Optional extra key to force a re-render when the blob hash
+  /// hasn't changed but the underlying content semantics did
+  /// (e.g. moving to a different page that happens to be a
+  /// byte-identical re-import). Default behavior keys on `blob`.
   dataKey?: string | number
 } & Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'src'>
 
 const FADE_DURATION_MS = 180
 
-// Cross-fade between successive image buffers to avoid UI flicker when
-// swapping inpaint results.
+function blobUrl(hex: string | undefined): string | null {
+  if (!hex) return null
+  return `/blob/${hex}`
+}
+
 export function Image({
-  data,
+  blob,
   visible = true,
   opacity = 1,
   transition = true,
@@ -30,33 +55,21 @@ export function Image({
   alt = '',
   ...props
 }: ImageProps) {
-  const dataDep = dataKey ?? data
+  // Both branches key on `blob` (or the override `dataKey`) — when
+  // it changes the effect re-runs.
+  const dep = dataKey ?? blob
 
-  // Simple path without transitions (used for static base image to avoid extra paints)
-  const [plainSrc, setPlainSrc] = useState<string | null>(null)
-  useEffect(() => {
-    if (!transition) {
-      if (!dataDep || !data) {
-        setPlainSrc(null)
-        return
-      }
-      const blob = convertToBlob(data)
-      const url = URL.createObjectURL(blob)
-      cancelObjectUrlRevoke(url)
-      setPlainSrc(url)
-      return () => revokeObjectUrlLater(url)
-    }
-    setPlainSrc(null)
-    return
-  }, [data, dataDep, transition])
-
+  // ── Non-transition path (used by the canvas base image to avoid
+  //    extra paints; same shape as before, just URL instead of
+  //    ObjectURL). ─────────────────────────────────────────────
+  const src = blobUrl(blob)
   if (!transition) {
-    if (!visible || !plainSrc) return null
+    if (!visible || !src) return null
     return (
       <img
         {...props}
         alt={alt}
-        src={plainSrc}
+        src={src}
         draggable={false}
         style={{
           position: 'absolute',
@@ -73,16 +86,13 @@ export function Image({
     )
   }
 
+  // ── Cross-fade path ────────────────────────────────────────────
   const [currentSrc, setCurrentSrc] = useState<string | null>(null)
   const [nextSrc, setNextSrc] = useState<string | null>(null)
   const [crossfade, setCrossfade] = useState(false)
 
   const currentSrcRef = useRef<string | null>(null)
   const nextSrcRef = useRef<string | null>(null)
-
-  const cleanupUrl = useCallback((url: string | null) => {
-    revokeObjectUrlLater(url)
-  }, [])
 
   useEffect(() => {
     currentSrcRef.current = currentSrc
@@ -92,32 +102,17 @@ export function Image({
     nextSrcRef.current = nextSrc
   }, [nextSrc])
 
-  useEffect(() => {
-    return () => {
-      cleanupUrl(currentSrcRef.current)
-      cleanupUrl(nextSrcRef.current)
-    }
-  }, [cleanupUrl])
-
   const promoteNext = useCallback(() => {
     const incoming = nextSrcRef.current
     if (!incoming) return
-    const outgoing = currentSrcRef.current
-
     currentSrcRef.current = incoming
     setCurrentSrc(incoming)
     setNextSrc(null)
     setCrossfade(false)
-
-    if (outgoing && outgoing !== incoming) {
-      cleanupUrl(outgoing)
-    }
-  }, [cleanupUrl])
+  }, [])
 
   useEffect(() => {
-    if (!dataDep || !data) {
-      cleanupUrl(currentSrcRef.current)
-      cleanupUrl(nextSrcRef.current)
+    if (!src) {
       currentSrcRef.current = null
       nextSrcRef.current = null
       setCurrentSrc(null)
@@ -126,57 +121,44 @@ export function Image({
       return
     }
 
-    const blob = convertToBlob(data)
-    const objectUrl = URL.createObjectURL(blob)
-    cancelObjectUrlRevoke(objectUrl)
     let cancelled = false
-
     const preload = new window.Image()
     preload.onload = () => {
-      if (cancelled) {
-        cleanupUrl(objectUrl)
-        return
-      }
+      if (cancelled) return
 
-      // First image, render immediately
+      // First image: render immediately, no fade.
       if (!currentSrcRef.current) {
-        currentSrcRef.current = objectUrl
-        setCurrentSrc(objectUrl)
+        currentSrcRef.current = src
+        setCurrentSrc(src)
         return
       }
 
-      // Subsequent images: queue and cross-fade
-      setNextSrc((prev) => {
-        if (prev && prev !== currentSrcRef.current) {
-          cleanupUrl(prev)
-        }
-        return objectUrl
-      })
-
+      // Subsequent images: queue + cross-fade. If preload picked
+      // up a URL identical to the current one (same blob hash) we
+      // don't actually need to swap — but harmless to set and
+      // promote, the fade collapses to a no-op since both <img>s
+      // point at the same src.
+      setNextSrc(src)
       setCrossfade(false)
       requestAnimationFrame(() => {
         requestAnimationFrame(() => setCrossfade(true))
       })
     }
 
-    preload.src = objectUrl
+    preload.src = src
 
     return () => {
       cancelled = true
-      if (
-        objectUrl !== currentSrcRef.current &&
-        objectUrl !== nextSrcRef.current
-      ) {
-        cleanupUrl(objectUrl)
-      }
     }
-  }, [data, dataDep, cleanupUrl])
+  }, [src, dep])
 
   useEffect(() => {
     if (!nextSrc || !crossfade) return
     const timeout = window.setTimeout(
       promoteNext,
-      FADE_DURATION_MS + 50, // safety fallback in case transitionend doesn't fire
+      // Safety fallback in case `transitionend` doesn't fire
+      // (e.g. the element was unmounted mid-fade).
+      FADE_DURATION_MS + 50,
     )
     return () => window.clearTimeout(timeout)
   }, [nextSrc, crossfade, promoteNext])

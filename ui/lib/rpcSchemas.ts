@@ -156,18 +156,23 @@ export const textBlockSchema = z.object({
   rendered: fromRustOption(uint8ArraySchema),
 })
 
+// v2 blob-transport: binary fields are hex BlobIds the frontend
+// fetches via `<img src="/blob/{hex}">`. See docs/v2-arch.md §5
+// Phase 2 on main. Wire shape comes from `koharu_api::views::
+// DocumentDto::to_doc_dto` which registers each binary with the
+// backend's `BlobStore` and serializes the hex hash here.
 export const documentSchema = z.object({
   id: z.string(),
   path: pathSchema,
   name: z.string(),
-  image: uint8ArraySchema,
+  image: z.string(),
   width: z.number(),
   height: z.number(),
   textBlocks: z.array(textBlockSchema),
-  segment: fromRustOption(uint8ArraySchema),
-  inpainted: fromRustOption(uint8ArraySchema),
-  brushLayer: fromRustOption(uint8ArraySchema),
-  rendered: fromRustOption(uint8ArraySchema),
+  segment: fromRustOption(z.string()),
+  inpainted: fromRustOption(z.string()),
+  brushLayer: fromRustOption(z.string()),
+  rendered: fromRustOption(z.string()),
 })
 
 export const llmModelInfoSchema = z.object({
