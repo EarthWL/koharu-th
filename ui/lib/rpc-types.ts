@@ -228,10 +228,15 @@ export type RpcMethodMap = {
     { engineId: string; settingId: string; value: StoredValue },
     EngineProfile,
   ]
+  engine_profile_clear_setting: [
+    { engineId: string; settingId: string },
+    EngineProfile,
+  ]
   // ── Phase 5.4: undo/redo backed by ProjectSession ────────────
   session_undo: [{ index: number }, HistoryState]
   session_redo: [{ index: number }, HistoryState]
   session_history_state: [{ index: number }, HistoryState]
+  session_history_recent: [{ index: number; limit: number }, RecentHistory]
 }
 
 /// Snapshot of `ProjectSession::History` pointers for the toolbar.
@@ -242,6 +247,28 @@ export type HistoryState = {
   undoLen: number
   redoLen: number
   capacity: number
+}
+
+/// One entry on either history stack, summarised for the toolbar's
+/// History popover. The full Op payload stays server-side; only
+/// the variant name + target page + op count travel over RPC.
+export type HistoryEntrySummary = {
+  /// Op variant name (e.g. "AddTextBlock"). Static so the
+  /// frontend can map to an i18n key without parsing.
+  kind: string
+  /// Page id the op targets; null for ops with no clear page (an
+  /// empty Batch, etc.).
+  page: number | null
+  /// Number of leaf ops in this entry. 1 for non-batch; the
+  /// flattened batch length otherwise.
+  opCount: number
+}
+
+export type RecentHistory = {
+  /// Most-recent first — index 0 would be undone first.
+  undo: HistoryEntrySummary[]
+  /// Most-recent first — index 0 would be redone first.
+  redo: HistoryEntrySummary[]
 }
 
 export type QueueStatus =

@@ -57,6 +57,19 @@ export function useEngineProfile() {
     },
   })
 
+  const clearSettingMutation = useMutation({
+    mutationFn: ({
+      engineId,
+      settingId,
+    }: {
+      engineId: string
+      settingId: string
+    }) => api.engineProfileClearSetting(engineId, settingId),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(PROFILE_KEY, saved)
+    },
+  })
+
   const helpers = useMemo(
     () => ({
       /// Currently-active engine for an artifact slot.
@@ -88,14 +101,29 @@ export function useEngineProfile() {
       setSetting(engineId: string, settingId: string, value: StoredValue) {
         setSettingMutation.mutate({ engineId, settingId, value })
       },
+      /// Drop one setting override → engine falls back to its
+      /// SettingDescriptor default at next run. Used by the
+      /// per-setting "reset to default" button.
+      clearSetting(engineId: string, settingId: string) {
+        clearSettingMutation.mutate({ engineId, settingId })
+      },
+      /// Does an override currently exist for this setting? UI
+      /// uses this to gate the reset button visibility — no point
+      /// showing it when the user is already at the default.
+      hasOverride(engineId: string, settingId: string): boolean {
+        return query.data?.settings[engineId]?.[settingId] !== undefined
+      },
     }),
-    [query.data, setActiveMutation, setSettingMutation],
+    [query.data, setActiveMutation, setSettingMutation, clearSettingMutation],
   )
 
   return {
     profile: query.data,
     loading: query.isLoading,
-    saving: setActiveMutation.isPending || setSettingMutation.isPending,
+    saving:
+      setActiveMutation.isPending ||
+      setSettingMutation.isPending ||
+      clearSettingMutation.isPending,
     ...helpers,
   }
 }

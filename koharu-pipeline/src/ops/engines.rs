@@ -102,3 +102,23 @@ pub async fn engine_profile_set_setting(
         .engine_profile
         .set_setting(payload.engine_id, payload.setting_id, payload.value)
 }
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EngineProfileClearSettingPayload {
+    pub engine_id: String,
+    pub setting_id: String,
+}
+
+/// Granular mutation: drop one setting override so the engine
+/// falls back to its `SettingDescriptor` default at runtime.
+/// Wired to the per-setting "reset to default" button in the
+/// Engine Profile UI.
+pub async fn engine_profile_clear_setting(
+    state: AppResources,
+    payload: EngineProfileClearSettingPayload,
+) -> Result<EngineProfile> {
+    state
+        .engine_profile
+        .clear_setting(payload.engine_id, payload.setting_id)
+}

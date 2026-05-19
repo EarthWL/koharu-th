@@ -44,5 +44,5 @@ pub mod history;
 pub mod session;
 
 pub use event::{EventBus, SessionEvent};
-pub use history::{History, HistoryEntry, HistoryState};
+pub use history::{History, HistoryEntry, HistoryEntrySummary, HistoryState, RecentHistory};
 pub use session::{ProjectSession, SessionConfig, SessionError};

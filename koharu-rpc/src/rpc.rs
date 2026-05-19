@@ -146,10 +146,16 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::EngineProfileSetSetting => {
             call(operations::engine_profile_set_setting, state, params).await
         }
+        Method::EngineProfileClearSetting => {
+            call(operations::engine_profile_clear_setting, state, params).await
+        }
         Method::SessionUndo => call(operations::session_undo, state, params).await,
         Method::SessionRedo => call(operations::session_redo, state, params).await,
         Method::SessionHistoryState => {
             call(operations::session_history_state, state, params).await
+        }
+        Method::SessionHistoryRecent => {
+            call(operations::session_history_recent, state, params).await
         }
         Method::SeriesMetaGet => call0(operations::series_meta_get, state).await,
         Method::SeriesMetaUpdate => call(operations::series_meta_update, state, params).await,

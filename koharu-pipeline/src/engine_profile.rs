@@ -168,6 +168,30 @@ impl EngineProfileStore {
         Ok(snapshot)
     }
 
+    /// Granular "clear one setting override" mutation — wired to
+    /// the per-setting reset button in the Engine Profile UI. With
+    /// the override removed, the engine falls back to its
+    /// `SettingDescriptor` default at `ctx.setting::<T>(_, default)`
+    /// call time. No-op when the key isn't present (idempotent).
+    /// Drops the per-engine sub-map when it becomes empty so the
+    /// on-disk JSON stays tidy.
+    pub fn clear_setting(
+        &self,
+        engine_id: String,
+        setting_id: String,
+    ) -> Result<EngineProfile> {
+        let mut guard = self.inner.write().unwrap();
+        if let Some(engine_settings) = guard.settings.get_mut(&engine_id) {
+            engine_settings.remove(&setting_id);
+            if engine_settings.is_empty() {
+                guard.settings.remove(&engine_id);
+            }
+        }
+        let snapshot = guard.clone();
+        self.persist(&snapshot)?;
+        Ok(snapshot)
+    }
+
     /// Internal atomic-write helper extracted from `replace`. Same
     /// temp-file + rename pattern; doesn't touch the in-memory
     /// state (caller has already updated it under the lock).
@@ -297,6 +321,46 @@ mod tests {
                 .and_then(|s| s.get("variant")),
             Some(&StoredValue::String("s".into())),
         );
+    }
+
+    #[test]
+    fn clear_setting_removes_override_and_collapses_empty_sub_map() {
+        let (_dir, store) = tmp_store();
+        store
+            .set_setting(
+                "lama_inpaint".into(),
+                "max_crop_size_px".into(),
+                StoredValue::Number(768.0),
+            )
+            .unwrap();
+        store
+            .set_setting(
+                "lama_inpaint".into(),
+                "feather_px".into(),
+                StoredValue::Number(8.0),
+            )
+            .unwrap();
+
+        // Clear one — sub-map should keep the other.
+        let snap = store
+            .clear_setting("lama_inpaint".into(), "max_crop_size_px".into())
+            .unwrap();
+        let lama = snap.settings.get("lama_inpaint").unwrap();
+        assert!(lama.get("max_crop_size_px").is_none());
+        assert_eq!(lama.get("feather_px"), Some(&StoredValue::Number(8.0)));
+
+        // Clear the last one — sub-map gets removed entirely so
+        // the on-disk JSON doesn't accumulate empty engine keys.
+        let snap = store
+            .clear_setting("lama_inpaint".into(), "feather_px".into())
+            .unwrap();
+        assert!(snap.settings.get("lama_inpaint").is_none());
+
+        // Idempotent — clearing a non-existent key is a no-op.
+        let snap = store
+            .clear_setting("lama_inpaint".into(), "feather_px".into())
+            .unwrap();
+        assert!(snap.settings.get("lama_inpaint").is_none());
     }
 
     #[test]

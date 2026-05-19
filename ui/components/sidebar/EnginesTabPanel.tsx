@@ -189,6 +189,7 @@ function EngineGroup({
   engines: EngineInfoView[]
   hardware: DetectedHardware | null
 }) {
+  const { t } = useTranslation()
   const { activeEngine, setActiveEngine } = useEngineProfile()
   const active = activeEngine(artifact)
 
@@ -199,11 +200,25 @@ function EngineGroup({
   // `groupEnginesByProduces`). Matches what the bridge does as a
   // fallback today.
   const effectiveActive = active ?? engines[0]?.id
+  const usingImplicitDefault = active === undefined && showActiveRadios
 
   return (
     <div className='space-y-1.5'>
-      <div className='text-muted-foreground text-[10px] font-semibold uppercase tracking-wide'>
-        {ARTIFACT_LABELS[artifact] ?? artifact}
+      <div className='flex items-baseline justify-between gap-2'>
+        <div className='text-muted-foreground text-[10px] font-semibold uppercase tracking-wide'>
+          {ARTIFACT_LABELS[artifact] ?? artifact}
+        </div>
+        {usingImplicitDefault && (
+          <div
+            className='text-muted-foreground text-[9px] italic'
+            title={t(
+              'engines.implicitDefaultTooltip',
+              'No profile override saved — using the first registered engine as the default',
+            )}
+          >
+            {t('engines.implicitDefault', 'using default')}
+          </div>
+        )}
       </div>
       <div className='space-y-1'>
         {engines.map((e) => (
@@ -212,6 +227,7 @@ function EngineGroup({
             engine={e}
             hardware={hardware}
             isActive={e.id === effectiveActive}
+            isImplicitDefault={usingImplicitDefault && e.id === effectiveActive}
             showActiveSelector={showActiveRadios}
             onSelectActive={() => setActiveEngine(artifact, e.id)}
           />
@@ -225,15 +241,18 @@ function EngineCard({
   engine,
   hardware,
   isActive,
+  isImplicitDefault,
   showActiveSelector,
   onSelectActive,
 }: {
   engine: EngineInfoView
   hardware: DetectedHardware | null
   isActive: boolean
+  isImplicitDefault: boolean
   showActiveSelector: boolean
   onSelectActive: () => void
 }) {
+  const { t } = useTranslation()
   const fit = checkFit(engine, hardware)
   return (
     <div
@@ -255,8 +274,18 @@ function EngineCard({
                 'size-3 rounded-full border transition-colors',
                 isActive
                   ? 'border-primary bg-primary'
-                  : 'border-muted-foreground/40 hover:border-foreground',
+                  : isImplicitDefault
+                    ? 'border-primary/60 bg-primary/40 hover:bg-primary/60'
+                    : 'border-muted-foreground/40 hover:border-foreground',
               )}
+              title={
+                isImplicitDefault
+                  ? t(
+                      'engines.implicitDefaultRadioTooltip',
+                      'Implicit default — click to lock this choice into your profile',
+                    )
+                  : undefined
+              }
             />
           )}
           {engine.displayName}

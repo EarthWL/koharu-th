@@ -16,7 +16,7 @@
 //! disabled buttons.
 
 use anyhow::{Result, anyhow};
-use koharu_app::HistoryState;
+use koharu_app::{HistoryState, RecentHistory};
 use serde::Deserialize;
 use tracing::instrument;
 
@@ -126,6 +126,40 @@ pub async fn session_history_state(
     payload: SessionMutationPayload,
 ) -> Result<HistoryState> {
     Ok(read_history_state_for(&state, payload.index).await)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionHistoryRecentPayload {
+    /// Document index — only returns data when this matches the
+    /// session's active doc (same audit #8/P3 gate as
+    /// `session_history_state`).
+    pub index: usize,
+    /// Cap on entries per stack. Frontend popover defaults to 10.
+    pub limit: usize,
+}
+
+/// Recent op summaries for the History popover. Mostly self-test
+/// polish — lets the user verify "ops I see in the popover match
+/// what I just did" without checking the dev op-count badge.
+pub async fn session_history_recent(
+    state: AppResources,
+    payload: SessionHistoryRecentPayload,
+) -> Result<RecentHistory> {
+    let guard = state.session.read().await;
+    if guard.active_doc_index() != Some(payload.index) {
+        return Ok(RecentHistory {
+            undo: vec![],
+            redo: vec![],
+        });
+    }
+    Ok(guard
+        .session_ref()
+        .map(|s| s.recent_history(payload.limit))
+        .unwrap_or(RecentHistory {
+            undo: vec![],
+            redo: vec![],
+        }))
 }
 
 /// Internal helper for session_undo / session_redo: read history

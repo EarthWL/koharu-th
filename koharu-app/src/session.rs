@@ -146,6 +146,12 @@ impl ProjectSession {
         self.history.state()
     }
 
+    /// Top-N op summaries from both stacks — for the History
+    /// popover. Most-recent first.
+    pub fn recent_history(&self, limit: usize) -> crate::RecentHistory {
+        self.history.recent_summaries(limit)
+    }
+
     /// Apply one `Op` (or a `Batch` of Ops).
     ///
     /// 1. Compute inverse Op from the current Scene state.

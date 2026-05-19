@@ -12,8 +12,12 @@ import {
   LanguagesIcon,
   Undo2Icon,
   Redo2Icon,
+  HistoryIcon,
 } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { useSessionHistory } from '@/lib/hooks/useSessionHistory'
+import { useEditorUiStore } from '@/lib/stores/editorUiStore'
+import { api } from '@/lib/api'
 import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
 import {
@@ -33,8 +37,7 @@ import { useLlmModelsQuery, useLlmReadyQuery } from '@/lib/query/hooks'
 import { useDocumentMutations, useLlmMutations } from '@/lib/query/mutations'
 import { useOperationStore } from '@/lib/stores/operationStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
-import { useQuery } from '@tanstack/react-query'
-import { api, type ProviderProfileDto } from '@/lib/api'
+import { type ProviderProfileDto } from '@/lib/api'
 import { effectiveDbProvider } from '@/lib/services/profileHelpers'
 
 const PROVIDER_LABEL: Record<string, string> = {
@@ -72,6 +75,7 @@ function HistoryButtons() {
   const { t } = useTranslation()
   const { state, canUndo, canRedo, undo, redo, pending } = useSessionHistory()
   const showDevBadge = process.env.NODE_ENV === 'development' && state.capacity > 0
+  const showHistoryPopover = state.undoLen > 0 || state.redoLen > 0
 
   return (
     <div className='flex items-center gap-0.5'>
@@ -99,6 +103,7 @@ function HistoryButtons() {
       >
         <Redo2Icon className='size-4' />
       </Button>
+      {showHistoryPopover && <HistoryPopover state={state} />}
       {showDevBadge && (
         <span
           className='text-muted-foreground ml-1 font-mono text-[10px]'
@@ -107,6 +112,136 @@ function HistoryButtons() {
           {state.undoLen}/{state.capacity}
         </span>
       )}
+    </div>
+  )
+}
+
+/// Self-test polish: clicking the history icon opens a popover
+/// listing the top-N op summaries on each stack. Helps verify
+/// "the ops I see in the popover match what I just did" during
+/// manual self-test of the engine pipeline.
+function HistoryPopover({
+  state,
+}: {
+  state: import('@/lib/api').HistoryState
+}) {
+  const { t } = useTranslation()
+  const currentDocumentIndex = useEditorUiStore((s) => s.currentDocumentIndex)
+  const limit = 10
+
+  const recent = useQuery({
+    queryKey: ['session', 'historyRecent', currentDocumentIndex, limit],
+    queryFn: () => api.sessionHistoryRecent(currentDocumentIndex, limit),
+    staleTime: 2_000,
+    // Only fetch when popover is open — useQuery's `enabled` flag
+    // isn't wired since the popover trigger remounts on each open;
+    // staleTime + the gated query key (per-doc) keeps it cheap.
+  })
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant='ghost'
+          size='xs'
+          title={t('history.popoverTitle', 'Recent operations')}
+        >
+          <HistoryIcon className='size-4' />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className='w-72 p-2' align='end'>
+        <div className='text-muted-foreground mb-1.5 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide'>
+          <span>{t('history.popoverHeading', 'History')}</span>
+          <span className='font-mono normal-case'>
+            {state.undoLen}/{state.capacity}
+          </span>
+        </div>
+        {recent.isLoading && (
+          <div className='text-muted-foreground py-2 text-center text-xs'>
+            {t('history.loading', 'Loading…')}
+          </div>
+        )}
+        {recent.data && (
+          <HistoryStacks data={recent.data} />
+        )}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function HistoryStacks({
+  data,
+}: {
+  data: import('@/lib/api').RecentHistory
+}) {
+  const { t } = useTranslation()
+  const noContent = data.undo.length === 0 && data.redo.length === 0
+  if (noContent) {
+    return (
+      <div className='text-muted-foreground py-2 text-center text-xs'>
+        {t('history.empty', 'No operations yet on this document')}
+      </div>
+    )
+  }
+  return (
+    <div className='space-y-2'>
+      {data.undo.length > 0 && (
+        <HistorySection
+          label={t('history.undoStack', 'Undo stack (most recent first)')}
+          entries={data.undo}
+          accent='undo'
+        />
+      )}
+      {data.redo.length > 0 && (
+        <HistorySection
+          label={t('history.redoStack', 'Redo stack')}
+          entries={data.redo}
+          accent='redo'
+        />
+      )}
+    </div>
+  )
+}
+
+function HistorySection({
+  label,
+  entries,
+  accent,
+}: {
+  label: string
+  entries: import('@/lib/api').HistoryEntrySummary[]
+  accent: 'undo' | 'redo'
+}) {
+  return (
+    <div>
+      <div className='text-muted-foreground mb-1 text-[10px] font-medium'>
+        {label}
+      </div>
+      <ul className='space-y-0.5'>
+        {entries.map((e, i) => (
+          <li
+            key={i}
+            className='flex items-center gap-2 rounded px-1.5 py-0.5 text-xs hover:bg-accent/30'
+          >
+            <span
+              className={`inline-block size-1.5 rounded-full ${
+                accent === 'undo' ? 'bg-primary/70' : 'bg-amber-500/70'
+              }`}
+            />
+            <span className='font-mono text-[11px]'>{e.kind}</span>
+            {e.page != null && (
+              <span className='text-muted-foreground text-[10px]'>
+                page {e.page}
+              </span>
+            )}
+            {e.opCount > 1 && (
+              <span className='text-muted-foreground ml-auto text-[10px]'>
+                ×{e.opCount}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

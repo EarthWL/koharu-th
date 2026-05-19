@@ -840,6 +840,16 @@ export const api = {
     })
   },
 
+  /** Granular: drop one setting override so the engine falls back
+   *  to its SettingDescriptor default. Wired to the per-setting
+   *  "reset to default" button in the Engine Profile UI. */
+  async engineProfileClearSetting(
+    engineId: string,
+    settingId: string,
+  ): Promise<EngineProfile> {
+    return invoke('engine_profile_clear_setting', { engineId, settingId })
+  },
+
   /** Pop the most recent applied op from the ProjectSession's
    *  history, apply its inverse to Scene + mirror onto the
    *  legacy Document. Returns the new HistoryState so the
@@ -860,6 +870,17 @@ export const api = {
   async sessionHistoryState(index: number): Promise<HistoryState> {
     return invoke('session_history_state', { index })
   },
+
+  /** Top-N op summaries from both undo + redo stacks — for the
+   *  toolbar History popover. Returns empty stacks when the
+   *  session was built for a different doc (same audit #8/P3
+   *  gate as sessionHistoryState). */
+  async sessionHistoryRecent(
+    index: number,
+    limit: number,
+  ): Promise<import('@/lib/rpc-types').RecentHistory> {
+    return invoke('session_history_recent', { index, limit })
+  },
 }
 
 export type { QueueStatus, QueueEntryDto } from '@/lib/rpc-types'
@@ -872,7 +893,9 @@ export type {
   EngineProfile,
   GpuVendor,
   HardwareReq,
+  HistoryEntrySummary,
   HistoryState,
+  RecentHistory,
   SettingDescriptor,
   StoredValue,
 } from '@/lib/rpc-types'

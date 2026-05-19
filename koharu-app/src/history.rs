@@ -123,6 +123,97 @@ impl History {
         self.undo.clear();
         self.redo.clear();
     }
+
+    /// Top-N summaries from each stack for the frontend History
+    /// popover. "Top" means most-recent — entry that would be undone
+    /// first comes back at index 0 in `undo`. Self-test polish only;
+    /// the full op data stays server-side.
+    pub fn recent_summaries(&self, limit: usize) -> RecentHistory {
+        RecentHistory {
+            undo: self
+                .undo
+                .iter()
+                .rev()
+                .take(limit)
+                .map(HistoryEntrySummary::from_entry)
+                .collect(),
+            redo: self
+                .redo
+                .iter()
+                .rev()
+                .take(limit)
+                .map(HistoryEntrySummary::from_entry)
+                .collect(),
+        }
+    }
+}
+
+/// Frontend-facing summary of one history entry — enough to render
+/// "undo last AddTextBlock on page 1" without sending the full
+/// Scene-shaped Op payload across RPC.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryEntrySummary {
+    /// Op variant name, e.g. "AddTextBlock". Static string so the
+    /// frontend can render an i18n-friendly label without parsing
+    /// snake_case.
+    pub kind: &'static str,
+    /// Page id the op targets, when known. `Batch` returns the page
+    /// of the first inner op (heuristic — rendering as "Batch on
+    /// page N" is good enough for self-test).
+    pub page: Option<u64>,
+    /// Number of ops in this entry. 1 for non-batch; the batch
+    /// length (recursively flattened) otherwise.
+    pub op_count: usize,
+}
+
+impl HistoryEntrySummary {
+    fn from_entry(entry: &HistoryEntry) -> Self {
+        let (kind, page) = op_kind_and_page(&entry.op);
+        Self {
+            kind,
+            page,
+            op_count: count_ops(&entry.op),
+        }
+    }
+}
+
+fn op_kind_and_page(op: &Op) -> (&'static str, Option<u64>) {
+    match op {
+        // Page-structure variants carry the page id under `id`, not
+        // `page` — they ARE the page.
+        Op::AddPage { id, .. } => ("AddPage", Some(id.0)),
+        Op::RemovePage { id } => ("RemovePage", Some(id.0)),
+        Op::UpdatePageImage { id, .. } => ("UpdatePageImage", Some(id.0)),
+        // Page-content variants reference their parent page via `page`.
+        Op::AddTextBlock { page, .. } => ("AddTextBlock", Some(page.0)),
+        Op::UpdateTextBlock { page, .. } => ("UpdateTextBlock", Some(page.0)),
+        Op::RemoveTextBlock { page, .. } => ("RemoveTextBlock", Some(page.0)),
+        Op::SetSegmentationMask { page, .. } => ("SetSegmentationMask", Some(page.0)),
+        Op::SetInpaintedImage { page, .. } => ("SetInpaintedImage", Some(page.0)),
+        Op::SetRenderedImage { page, .. } => ("SetRenderedImage", Some(page.0)),
+        Op::SetBrushLayer { page, .. } => ("SetBrushLayer", Some(page.0)),
+        Op::Batch(inner) => {
+            let first_page = inner.first().and_then(|op| op_kind_and_page(op).1);
+            ("Batch", first_page)
+        }
+    }
+}
+
+fn count_ops(op: &Op) -> usize {
+    match op {
+        Op::Batch(inner) => inner.iter().map(count_ops).sum(),
+        _ => 1,
+    }
+}
+
+/// Bag of recent op summaries for both undo + redo stacks. Returned
+/// from the `session_history_recent` RPC.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentHistory {
+    pub undo: Vec<HistoryEntrySummary>,
+    pub redo: Vec<HistoryEntrySummary>,
 }
 
 #[cfg(test)]
@@ -206,6 +297,70 @@ mod tests {
         h.clear();
         assert_eq!(h.state().undo_len, 0);
         assert_eq!(h.state().redo_len, 0);
+    }
+
+    #[test]
+    fn recent_summaries_returns_most_recent_first() {
+        let mut h = History::new(10);
+        h.push(entry(1));
+        h.push(entry(2));
+        h.push(entry(3));
+        let summaries = h.recent_summaries(2);
+        assert_eq!(summaries.undo.len(), 2);
+        assert_eq!(summaries.undo[0].kind, "RemoveTextBlock");
+        // Most recent first → top of undo (entry 3) appears at index 0.
+        assert_eq!(summaries.undo[0].page, Some(1));
+        assert_eq!(summaries.undo[0].op_count, 1);
+        assert!(summaries.redo.is_empty());
+    }
+
+    #[test]
+    fn recent_summaries_counts_batch_ops_recursively() {
+        let mut h = History::new(10);
+        let batched = HistoryEntry {
+            op: Op::Batch(vec![
+                Op::AddTextBlock {
+                    page: PageId(1),
+                    block: koharu_core::scene::TextBlock {
+                        id: NodeId(1),
+                        region: koharu_core::Region {
+                            x: 0,
+                            y: 0,
+                            width: 5,
+                            height: 5,
+                        },
+                        source_text: None,
+                        translation: None,
+                        style: None,
+                        source_lang: None,
+                        font_prediction: None,
+                    },
+                },
+                Op::AddTextBlock {
+                    page: PageId(1),
+                    block: koharu_core::scene::TextBlock {
+                        id: NodeId(2),
+                        region: koharu_core::Region {
+                            x: 10,
+                            y: 0,
+                            width: 5,
+                            height: 5,
+                        },
+                        source_text: None,
+                        translation: None,
+                        style: None,
+                        source_lang: None,
+                        font_prediction: None,
+                    },
+                },
+            ]),
+            inverse: Op::Batch(vec![]),
+        };
+        h.push(batched);
+        let summaries = h.recent_summaries(1);
+        assert_eq!(summaries.undo[0].kind, "Batch");
+        assert_eq!(summaries.undo[0].op_count, 2);
+        assert_eq!(summaries.undo[0].page, Some(1));
     }
 
     #[test]
