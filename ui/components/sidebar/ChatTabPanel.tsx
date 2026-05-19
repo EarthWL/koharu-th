@@ -476,23 +476,13 @@ export function ChatTabPanel() {
     if (!projectInfo || !history.data || history.data.length === 0 || revoking || sending) return
     const targetIdx = history.data.findIndex((item) => item.id === m.id)
     if (targetIdx === -1) return
-    const retainedMessages = history.data.slice(0, targetIdx)
     const deletedMessages = history.data.slice(targetIdx)
     const targetUserMessage = history.data[targetIdx]
     setRevoking(true)
     setError(null)
     try {
-      await api.chatMessagesClear()
-      for (const msg of retainedMessages) {
-        await api.chatMessageAdd({
-          role: msg.role as any,
-          content: msg.content,
-          toolCalls: msg.toolCalls,
-          toolCallId: msg.toolCallId,
-          model: msg.model,
-          attachments: msg.attachments,
-        })
-      }
+      // ใช้ Batch Delete จาก Backend โตตรงแบบ O(1) รวดเร็วและเก็บรักษา timestamps ดั้งเดิมของข้อความ
+      await api.chatMessagesDeleteFrom(m.id)
       setRedoStack((prev) => [...prev, deletedMessages])
       setInput(targetUserMessage.content)
       await history.refetch()
