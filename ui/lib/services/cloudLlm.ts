@@ -148,12 +148,6 @@ async function tryTmHit(sourceText: string, targetLang: string): Promise<TmHit |
       FUZZY_TM_MIN_SIMILARITY,
     )
     if (fuzzy) {
-      console.info(
-        '[cloudLlm] TM fuzzy hit',
-        Math.round(fuzzy.similarity * 100) + '%',
-        '←',
-        fuzzy.entry.sourceText.slice(0, 40),
-      )
       return fuzzy
     }
     return null
@@ -548,7 +542,6 @@ Only return the translation, no extra text:\n\n${text}`
         const cooldown = getCooldownDurationForProvider(att.provider, errorMsg)
         const recoveryTime = Date.now() + cooldown
         profileRecoveryTimestamps.set(att.id, recoveryTime)
-        console.info(`[cloudLlm] Profile "${att.name}" is put on cooldown for ${Math.round(cooldown / 1000 / 60)} minutes (until ${new Date(recoveryTime).toLocaleTimeString()})`)
       }
     }
   }

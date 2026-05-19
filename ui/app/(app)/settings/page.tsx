@@ -1092,7 +1092,6 @@ function AddonStoreSection() {
         clearTimeout(timeoutId)
         if (res.ok) {
           resources = await res.json()
-          console.log(`Addon '${addon.id}' downloaded successfully from CDN.`)
         }
       } catch (err) {
         console.warn(`CDN fetch failed, falling back to bundled resources:`, err)

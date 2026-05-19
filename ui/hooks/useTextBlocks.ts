@@ -81,8 +81,6 @@ export function useTextBlocks() {
       ui.setShowTextBlocksOverlay(true)
     }
 
-    const doc = document
-
     if (shouldRenderSprite(updates)) {
       if (shouldRenderSpriteImmediately(updates)) {
         clearScheduledRender(index)
