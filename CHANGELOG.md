@@ -12,6 +12,51 @@ itself, see [their CHANGELOG](https://github.com/mayocream/koharu/blob/main/CHAN
 
 ---
 
+## [1.2.2] — 2026-05-19
+
+Single-fix patch on top of 1.2.1 — defensive cleanup for one bug
+report from [@HetCreep](https://github.com/HetCreep) on the issue
+tracker (#34). No new features; no schema changes; no API churn.
+
+### Fixed
+
+- **#34 — Windows `os error 3` on HuggingFace model downloads.**
+  The HF cache path on Windows includes a chain of HF-imposed
+  subdirs (`models--<org>--<repo>/snapshots/<40-hex>/<filename>`)
+  that burns ~100 chars before our namespace contributes; on long
+  usernames + nested repo names it occasionally trips Windows' 260-
+  char MAX_PATH legacy limit. Renamed our namespace from
+  `%LOCALAPPDATA%\Koharu\models\` to `%LOCALAPPDATA%\Koharu\hf\`
+  — saves 7 chars vs MAX_PATH, enough to rescue paths that hover
+  near the edge. Migration is automatic on first 1.2.2 launch via
+  an atomic `fs::rename` of the legacy cache contents to the new
+  location — no re-download. The NSIS uninstaller recognises
+  **both** paths so an upgrade-without-launch followed by uninstall
+  still cleans the legacy `models\` folder.
+
+  Note: the original report carried no reproduction log, and our
+  install-path baseline hovers around 160 chars (well under 260)
+  — this is a defensive improvement, not a fix for a confirmed
+  reproduce. A heavier Tauri-manifest `longPathAware` fix (which
+  enables paths past 260 globally on systems with the Windows
+  registry flag set) is deferred — Tauri 2.x config schema
+  doesn't expose the field, so it'd need a `build.rs` custom
+  manifest emitter. Will revisit if a real reproduce comes in.
+
+### Internals
+
+- `migrate_legacy_model_cache()` in `koharu/src/app.rs` — runs at
+  startup before `set_cache_dir`, atomic rename with three-way
+  outcome handling (legacy-only / both-populated / rename-fails).
+- `LEGACY_MODEL_ROOT` constant in `koharu/src/app.rs` references
+  the v1.2.1-and-earlier path string from a single source so the
+  migration helper and the uninstaller hook can't drift.
+- `koharu-http::hf_hub::get_cache_dir`'s lazy fallback (only used
+  by tests + headless invocations that skip the normal startup
+  path) also updated to match.
+
+---
+
 ## [1.2.1] — 2026-05-19
 
 Small batch on top of 1.2.0. One regression from the 1.2.0 MenuBar
