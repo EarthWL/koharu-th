@@ -26,6 +26,8 @@ pub struct Asset {
 /// A function that resolves a path to an asset.
 pub type SharedAssetResolver = Arc<dyn Fn(&str) -> Option<Asset> + Send + Sync>;
 
+use axum::extract::{Path, State};
+
 fn build_router(shared: SharedResources, resolver: SharedAssetResolver) -> Router {
     let ws_state = WsState {
         resources: shared.clone(),
@@ -45,12 +47,96 @@ fn build_router(shared: SharedResources, resolver: SharedAssetResolver) -> Route
 
     Router::new()
         .route("/ws", get(rpc::ws_handler))
+        .route("/api/thumbnail/:index", get(serve_thumbnail_route))
+        .route("/api/image/:index/:layer", get(serve_image_route))
         .with_state(ws_state)
         .nest_service("/mcp", mcp_service)
         .fallback(move |uri: Uri| {
             let resolver = resolver.clone();
             async move { serve_asset(&resolver, uri) }
         })
+}
+
+async fn serve_thumbnail_route(
+    State(state): State<WsState>,
+    Path(index): Path<usize>,
+) -> impl IntoResponse {
+    let resources = match crate::shared::get_resources(&state.resources) {
+        Ok(res) => res,
+        Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, "Resources not initialized").into_response(),
+    };
+
+    let guard = resources.state.read().await;
+    let doc = match guard.documents.get(index) {
+        Some(d) => d,
+        None => return (StatusCode::NOT_FOUND, "Document not found").into_response(),
+    };
+
+    let thumbnail = doc.image.resize(180, 240, image::imageops::FilterType::Triangle);
+    let mut buf = std::io::Cursor::new(Vec::new());
+    if let Err(_) = thumbnail.write_to(&mut buf, image::ImageFormat::WebP) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Encoding failed").into_response();
+    }
+
+    let mut response = Response::new(Body::from(buf.into_inner()));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("image/webp"),
+    );
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=3600"),
+    );
+    response.into_response()
+}
+
+async fn serve_image_route(
+    State(state): State<WsState>,
+    Path((index, layer)): Path<(usize, String)>,
+) -> impl IntoResponse {
+    let resources = match crate::shared::get_resources(&state.resources) {
+        Ok(res) => res,
+        Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, "Resources not initialized").into_response(),
+    };
+
+    let guard = resources.state.read().await;
+    let doc = match guard.documents.get(index) {
+        Some(d) => d,
+        None => return (StatusCode::NOT_FOUND, "Document not found").into_response(),
+    };
+
+    let img = match layer.as_str() {
+        "base" | "image" => &doc.image,
+        "inpainted" => match &doc.inpainted {
+            Some(i) => i,
+            None => return (StatusCode::NOT_FOUND, "Inpainted image not found").into_response(),
+        },
+        "rendered" => match &doc.rendered {
+            Some(r) => r,
+            None => return (StatusCode::NOT_FOUND, "Rendered image not found").into_response(),
+        },
+        "brush" | "brush_layer" => match &doc.brush_layer {
+            Some(b) => b,
+            None => return (StatusCode::NOT_FOUND, "Brush layer not found").into_response(),
+        },
+        _ => return (StatusCode::BAD_REQUEST, "Invalid layer").into_response(),
+    };
+
+    let mut buf = std::io::Cursor::new(Vec::new());
+    if let Err(_) = img.0.write_to(&mut buf, image::ImageFormat::WebP) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Encoding failed").into_response();
+    }
+
+    let mut response = Response::new(Body::from(buf.into_inner()));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("image/webp"),
+    );
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=3600"),
+    );
+    response.into_response()
 }
 
 fn serve_asset(resolver: &SharedAssetResolver, uri: Uri) -> Response {

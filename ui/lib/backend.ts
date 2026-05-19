@@ -243,3 +243,23 @@ export function subscribeProcessProgress(
     cb,
   )
 }
+
+export function getHttpUrl(path: string): string {
+  const isDev = process.env.NODE_ENV === 'development'
+  if (isDev) {
+    return `http://127.0.0.1:9999${path}`
+  } else if (
+    typeof window !== 'undefined' &&
+    (window as any).__KOHARU_WS_PORT__
+  ) {
+    const port = (window as any).__KOHARU_WS_PORT__ as number
+    return `http://127.0.0.1:${port}${path}`
+  } else {
+    const proto =
+      typeof location !== 'undefined' && location.protocol === 'https:'
+        ? 'https:'
+        : 'http:'
+    const host = typeof location !== 'undefined' ? location.host : '127.0.0.1'
+    return `${proto}//${host}${path}`
+  }
+}

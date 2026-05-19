@@ -10,11 +10,12 @@ import {
 
 type ImageProps = {
   data?: Uint8Array
+  src?: string
   visible?: boolean
   opacity?: number
   transition?: boolean
   dataKey?: string | number
-} & Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'src'>
+} & React.ImgHTMLAttributes<HTMLImageElement>
 
 const FADE_DURATION_MS = 180
 
@@ -22,6 +23,7 @@ const FADE_DURATION_MS = 180
 // swapping inpaint results.
 export function Image({
   data,
+  src,
   visible = true,
   opacity = 1,
   transition = true,
@@ -30,12 +32,16 @@ export function Image({
   alt = '',
   ...props
 }: ImageProps) {
-  const dataDep = dataKey ?? data
+  const dataDep = dataKey ?? src ?? data
 
   // Simple path without transitions (used for static base image to avoid extra paints)
   const [plainSrc, setPlainSrc] = useState<string | null>(null)
   useEffect(() => {
     if (!transition) {
+      if (src) {
+        setPlainSrc(src)
+        return
+      }
       if (!dataDep || !data) {
         setPlainSrc(null)
         return
@@ -48,7 +54,7 @@ export function Image({
     }
     setPlainSrc(null)
     return
-  }, [data, dataDep, transition])
+  }, [data, dataDep, transition, src])
 
   if (!transition) {
     if (!visible || !plainSrc) return null
@@ -81,7 +87,9 @@ export function Image({
   const nextSrcRef = useRef<string | null>(null)
 
   const cleanupUrl = useCallback((url: string | null) => {
-    revokeObjectUrlLater(url)
+    if (url && !url.startsWith('http') && !url.startsWith('/')) {
+      revokeObjectUrlLater(url)
+    }
   }, [])
 
   useEffect(() => {
@@ -115,6 +123,37 @@ export function Image({
   }, [cleanupUrl])
 
   useEffect(() => {
+    if (src) {
+      const incoming = src
+      const preload = new window.Image()
+      let cancelled = false
+      preload.onload = () => {
+        if (cancelled) return
+
+        if (!currentSrcRef.current) {
+          currentSrcRef.current = incoming
+          setCurrentSrc(incoming)
+          return
+        }
+
+        setNextSrc((prev) => {
+          if (prev && prev !== currentSrcRef.current) {
+            cleanupUrl(prev)
+          }
+          return incoming
+        })
+
+        setCrossfade(false)
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => setCrossfade(true))
+        })
+      }
+      preload.src = incoming
+      return () => {
+        cancelled = true
+      }
+    }
+
     if (!dataDep || !data) {
       cleanupUrl(currentSrcRef.current)
       cleanupUrl(nextSrcRef.current)
@@ -170,7 +209,7 @@ export function Image({
         cleanupUrl(objectUrl)
       }
     }
-  }, [data, dataDep, cleanupUrl])
+  }, [data, dataDep, src, cleanupUrl])
 
   useEffect(() => {
     if (!nextSrc || !crossfade) return

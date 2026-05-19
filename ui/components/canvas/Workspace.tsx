@@ -11,7 +11,7 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
 import { useTranslation } from 'react-i18next'
-import { listen } from '@/lib/backend'
+import { listen, getHttpUrl } from '@/lib/backend'
 import { Image } from '@/components/Image'
 import {
   setCanvasViewport,
@@ -53,6 +53,10 @@ export function Workspace() {
   )
   const mode = useEditorUiStore((state) => state.mode)
   const autoFitEnabled = useEditorUiStore((state) => state.autoFitEnabled)
+  const currentDocumentIndex = useEditorUiStore(
+    (state) => state.currentDocumentIndex,
+  )
+  const documentsVersion = useEditorUiStore((state) => state.documentsVersion)
   const {
     document: currentDocument,
     selectedBlockIndex,
@@ -376,7 +380,7 @@ export function Workspace() {
                     >
                       <div className='absolute inset-0'>
                         <Image
-                          data={currentDocument.image}
+                          src={getHttpUrl(`/api/image/${currentDocumentIndex}/base?v=${documentsVersion}`)}
                           dataKey={`${currentDocument.id}-base`}
                           transition={false}
                         />
@@ -396,7 +400,7 @@ export function Workspace() {
                         {currentDocument?.inpainted && (
                           <Image
                             data-testid='workspace-inpainted-image'
-                            data={currentDocument.inpainted}
+                            src={getHttpUrl(`/api/image/${currentDocumentIndex}/inpainted?v=${documentsVersion}`)}
                             visible={showInpaintedImage}
                             transition={false}
                           />
@@ -448,7 +452,7 @@ export function Workspace() {
                         {currentDocument.rendered && showRenderedImage && (
                           <Image
                             data-testid='workspace-rendered-image'
-                            data={currentDocument.rendered}
+                            src={getHttpUrl(`/api/image/${currentDocumentIndex}/rendered?v=${documentsVersion}`)}
                             transition={false}
                             style={{ zIndex: 40 }}
                           />
