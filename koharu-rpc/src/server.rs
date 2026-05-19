@@ -69,14 +69,29 @@ fn build_router(shared: SharedResources, resolver: SharedAssetResolver) -> Route
 ///
 /// URL: `GET /blob/<64-hex-chars>` where the hex is the blake3 hash
 /// of the bytes. Returns:
-/// - 200 with the bytes + `Cache-Control: public, max-age=31536000,
-///   immutable` if found. Content is immutable by construction (the
-///   URL IS the content hash), so the browser can cache forever.
-/// - 400 if the hex is malformed (wrong length or non-hex chars).
-/// - 404 if the blob isn't in the store. Browsers WILL retry on
-///   404 (HTTP cache treats it as a miss), which is what we want —
-///   a future call to `BlobStore::put` with the same bytes will
-///   make it available without any client-side coordination.
+/// - **200** with the bytes + `Cache-Control: private,
+///   max-age=31536000, immutable` if found. Content is immutable
+///   by construction (the URL IS the content hash), so the browser
+///   can cache forever. `private` keeps intermediary caches out of
+///   user-owned content.
+/// - **400** + `Cache-Control: no-store` if the hex is malformed.
+/// - **404** + `Cache-Control: no-store` if the blob isn't in the
+///   store. The explicit no-store matters: some HTTP cache
+///   implementations heuristic-cache 404 responses when no
+///   directive is set, which means a fetch that races ahead of the
+///   `BlobStore::put` would pin a "not found" in the browser cache
+///   even after the blob becomes available. With `no-store` a
+///   later retry (e.g. via `<img>` reload after a state update on
+///   the frontend) goes back to the network and gets the bytes.
+/// - **503** + `Cache-Control: no-store` if resources aren't
+///   initialised yet (rare; only possible if a request beats the
+///   splash window's close).
+///
+/// Zero-copy body: `BlobStore::get` returns `bytes::Bytes` which is
+/// reference-counted — `Body::from(bytes)` is an O(1) refcount bump,
+/// no whole-buffer clone per request. Previous version did
+/// `bytes.to_vec()` which copied the full payload (2–5 MB per manga
+/// page) on every fetch.
 ///
 /// Credit: this transport choice was proposed by @HetCreep in
 /// koharu-th#33; see docs/v2-arch.md §2 (Locked Decisions, blob
@@ -86,29 +101,23 @@ async fn serve_blob(
     Path(hex): Path<String>,
 ) -> Response {
     let Some(id) = parse_blob_hex(&hex) else {
-        return (StatusCode::BAD_REQUEST, "malformed blob hash").into_response();
+        return no_store_error(StatusCode::BAD_REQUEST, "malformed blob hash");
     };
     // SharedResources wraps AppResources in OnceCell — resources
-    // init asynchronously after the splash window comes up. If a
-    // blob request arrives before resources are ready (rare; would
-    // need the frontend to be ahead of the splash close) return 503
-    // so the browser can retry.
+    // init asynchronously after the splash window comes up.
     let Some(res) = shared.get() else {
-        return (
+        return no_store_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "app resources not yet initialized",
-        )
-            .into_response();
+        );
     };
     let Some(bytes) = res.blobs.get(id) else {
-        // 404 is the right signal — the browser's HTTP cache treats
-        // it as a miss, so a later `put` of the same bytes by some
-        // backend code becomes immediately available without us
-        // having to push an invalidation.
-        return (StatusCode::NOT_FOUND, "blob not found").into_response();
+        // Don't let browser caches pin the 404 — see the doc above.
+        return no_store_error(StatusCode::NOT_FOUND, "blob not found");
     };
 
-    let mut response = Response::new(Body::from(bytes.to_vec()));
+    // Body::from(Bytes) is O(1) — no buffer clone.
+    let mut response = Response::new(Body::from(bytes));
     let headers = response.headers_mut();
     // Bytes are stable for the URL forever (it's the content hash),
     // so immutable + 1y max-age is safe.
@@ -133,6 +142,19 @@ async fn serve_blob(
     headers.insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/octet-stream"),
+    );
+    response
+}
+
+/// Error response builder that sets `Cache-Control: no-store` so
+/// the browser's HTTP cache doesn't pin transient error states
+/// (especially 404s that flip to 200 once a `BlobStore::put` lands
+/// after a racing fetch).
+fn no_store_error(status: StatusCode, body: &'static str) -> Response {
+    let mut response = (status, body).into_response();
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store"),
     );
     response
 }

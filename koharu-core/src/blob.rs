@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use bytes::Bytes;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -62,20 +63,29 @@ pub enum BlobError {
 
 /// In-process content-addressed binary store.
 ///
-/// Backed by an `HashMap<BlobId, Arc<[u8]>>` so multiple readers
-/// share the same allocation without copying. Wrapped in `RwLock`
-/// because puts are rare (per page-import or per pipeline-stage
-/// completion) and gets are frequent (every render tick).
+/// Backed by `HashMap<BlobId, Bytes>` from the `bytes` crate — readers
+/// share the same allocation via the `Bytes` reference count. `Bytes`
+/// over `Arc<[u8]>` matters at the response boundary: axum's `Body`
+/// constructor accepts `Bytes` directly (O(1) refcount bump, zero
+/// copy), whereas `Arc<[u8]>` would force a `.to_vec()` clone of the
+/// whole buffer per request. For a manga page (2–5 MB) that copy
+/// dominates the response latency, which is the cost class Phase 2
+/// is explicitly chasing per #33.
+///
+/// Wrapped in `RwLock` because puts are rare (per page-import or per
+/// pipeline-stage completion) and gets are frequent (every render
+/// tick).
 #[derive(Clone)]
 pub struct BlobStore {
-    inner: Arc<RwLock<HashMap<BlobId, Arc<[u8]>>>>,
+    inner: Arc<RwLock<HashMap<BlobId, Bytes>>>,
     /// Optional on-disk directory for persistence beyond process
     /// lifetime. `None` = pure in-memory (testing / scratch).
     ///
-    /// Currently unread — the on-disk read/write path lands in
-    /// Phase 2 (when `BlobStore` is wired into the serialization
-    /// boundary). The field is here so the in-memory `BlobStore`
-    /// shape doesn't shift under callers between phases.
+    /// Currently unread — the on-disk read/write path lands later
+    /// (probably alongside the engine system in Phase 4 when blobs
+    /// need to survive process restart so re-renders can dedup
+    /// against prior outputs). The field is here so the in-memory
+    /// `BlobStore` shape doesn't shift under callers between phases.
     #[allow(dead_code)]
     backing_dir: Option<PathBuf>,
 }
@@ -103,18 +113,23 @@ impl BlobStore {
     /// Hash the bytes, store them, return the id. Idempotent: if the
     /// same bytes are put twice the second put is a cheap re-insert
     /// into the same key.
+    ///
+    /// `Vec<u8>` → `Bytes` conversion is O(1) (moves the buffer),
+    /// so the only real cost here is the blake3 hash.
     pub fn put(&self, bytes: Vec<u8>) -> BlobId {
         let hash = blake3::hash(&bytes);
         let id = BlobId(*hash.as_bytes());
-        let arc: Arc<[u8]> = bytes.into();
-        self.inner.write().insert(id, arc);
-        // On-disk backing write is Phase 2 work — leave the hook
-        // here so the in-memory shape is final.
+        let buf: Bytes = bytes.into();
+        self.inner.write().insert(id, buf);
+        // On-disk backing write lands later — leave the hook here so
+        // the in-memory shape is final.
         id
     }
 
-    /// Fetch the bytes. Returns `None` if not present.
-    pub fn get(&self, id: BlobId) -> Option<Arc<[u8]>> {
+    /// Fetch the bytes. Returns `None` if not present. The returned
+    /// `Bytes` is a refcount-bumped view of the stored buffer — clone
+    /// is O(1), `Body::from(bytes)` is zero-copy.
+    pub fn get(&self, id: BlobId) -> Option<Bytes> {
         self.inner.read().get(&id).cloned()
     }
 
