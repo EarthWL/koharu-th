@@ -168,6 +168,71 @@ Workspace `cargo build --workspace --lib` and `cargo test --workspace
 
 ## Known issues (workaround documented; no in-tree fix yet)
 
+### KI-2: Manual UI edits clear undo history (planned fix)
+
+**Symptom**: Engine actions (detect / OCR / translate / render) ARE
+undoable via Cmd+Z. Manual UI actions are NOT — pressing Del to
+delete a block, right-click → Delete, dragging a block to resize,
+or editing translation text via TextBlocksPanel all clear the
+undo stack. After such an edit the Undo button disables itself
+(post-audit #9 follow-up `2adbf85b`); pre-fix it would error on
+click.
+
+**Root cause**: 3 of the 4 Document-mutating RPCs in
+`ops::edit` route directly to `state_tx::mutate_doc` instead of
+through `session.apply`:
+
+| RPC | Routes through session? | Undoable? |
+|---|---|---|
+| Engine bridge (detect / OCR / etc.) | yes (`session.apply` + dual mirror) | ✅ |
+| `update_text_blocks` (bulk replace, used by Del + drag-resize) | no — invalidates session (#9/B1) | ❌ |
+| `update_text_block` (single field change — translation, font) | no — direct mutation, no invalidate | ❌ |
+| `add_text_block` (Add block button) | no — invalidates session | ❌ |
+| `remove_text_block` (currently unused; UI goes through bulk replace) | no — invalidates session | ❌ |
+
+The `Op::AddTextBlock` / `Op::UpdateTextBlock` / `Op::RemoveTextBlock`
+variants ARE defined in koharu-core. `ProjectSession::apply`
+handles them. `engine_bridge::apply_op` mirrors them to Document.
+What's missing is the wiring at the RPC boundary — each `ops::edit`
+RPC should:
+
+1. Build the corresponding `Op`
+2. Call `session.apply(op)` (mutates session.scene + pushes to history)
+3. Mirror to Document via `engine_bridge::apply_op` (dual-apply pattern)
+4. Write Document back via `state_tx::update_doc`
+
+Plus the frontend needs to switch from bulk-replace (Del →
+`updateTextBlocks(filtered)`) to a dedicated single-op API call
+(Del → `api.removeTextBlock(index)`) so the backend sees one
+structural change instead of a whole-array replacement that's
+hard to diff into Ops.
+
+**Planned scope** (3-4 hours):
+
+- Refactor `ops::edit::{remove_text_block, add_text_block,
+  update_text_block}` to route through `session.apply` first
+- Frontend: `useTextBlocks.removeBlock` → `api.removeTextBlock`
+  instead of `updateTextBlocks(filtered)`
+- `useTextBlocks.appendBlock` → `api.addTextBlock`
+- `useTextBlocks` edits (translation, font, region) → `api.updateTextBlock`
+- Keep `update_text_blocks` (bulk replace) on the invalidate
+  path — bulk diffing into Ops is complex and not worth it for
+  the call-sites that use it (Thai post-process, batch translate
+  flush) which run AFTER engine ops anyway
+- Unit tests mirroring the audit #5 / #7 / #8 session_slot tests
+- Self-test: confirm Del → Cmd+Z restores the block
+
+**Risk**: NodeId↔array_index mapping must match the bridge's
+`+1` shift (`index_to_node_id`). Off-by-one would route ops to
+the wrong block and trip the audit #6/P1 duplicate guard or the
+audit #5/F1 out-of-range warn.
+
+**Not in-flight yet** — recorded here so the next session can
+pick it up cleanly. Reason for the current invalidate-only fix:
+audit #9 had cuDNN crash (KI-1) and bridge dual-apply correctness
+as P0; making manual edits undoable is high-value polish but
+scope-isolated.
+
 ### KI-1: cuDNN TLS panic on Drop kills process (cudarc 0.19.3)
 
 **Symptom**: After a successful LaMa inpaint or text_renderer run, the
