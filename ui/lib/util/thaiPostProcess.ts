@@ -26,29 +26,56 @@
  * Issue: https://github.com/EarthWL/koharu-th/issues/21
  */
 
+import { usePreferencesStore } from '@/lib/stores/preferencesStore'
+
 const THAI_CLUSTER = /([฀-๿])\s+(?=[฀-๿])/g
 
 export function applyThaiPostProcess(text: string): string {
   if (!text) return text
 
+  const { cloudTargetLanguage } = usePreferencesStore.getState()
+  const targetLang = (cloudTargetLanguage || 'Thai').toLowerCase()
+
   let out = text
 
-  // 1. Collapse inter-Thai whitespace. Lookahead so consecutive runs
-  //    of "<Thai> <space>+ <Thai>" all collapse in one pass.
-  out = out.replace(THAI_CLUSTER, '$1')
+  if (targetLang === 'thai') {
+    // 1. Collapse inter-Thai whitespace. Lookahead so consecutive runs
+    //    of "<Thai> <space>+ <Thai>" all collapse in one pass.
+    out = out.replace(THAI_CLUSTER, '$1')
 
-  // 2. Smart double quotes — opening = after whitespace / start /
-  //    opening bracket / start-of-line; closing otherwise. Do opening
-  //    pass first so the catch-all closing-quote pass sees only the
-  //    leftover unmatched ones.
-  out = out.replace(/(^|[\s([{<])"/g, '$1“') // U+201C LEFT DOUBLE QUOTATION MARK
-  out = out.replace(/"/g, '”') // U+201D RIGHT DOUBLE QUOTATION MARK
+    // 2. Smart double quotes — opening = after whitespace / start /
+    //    opening bracket / start-of-line; closing otherwise. Do opening
+    //    pass first so the catch-all closing-quote pass sees only the
+    //    leftover unmatched ones.
+    out = out.replace(/(^|[\s([{<])"/g, '$1“') // U+201C LEFT DOUBLE QUOTATION MARK
+    out = out.replace(/"/g, '”') // U+201D RIGHT DOUBLE QUOTATION MARK
 
-  // 3. Same treatment for single quotes / apostrophes. Note this
-  //    converts "don't" → "don't" (U+2019 RIGHT SINGLE QUOTATION
-  //    MARK) — standard typography, not a bug.
-  out = out.replace(/(^|[\s([{<])'/g, '$1‘') // U+2018 LEFT SINGLE QUOTATION MARK
-  out = out.replace(/'/g, '’') // U+2019 RIGHT SINGLE QUOTATION MARK / APOSTROPHE
+    // 3. Same treatment for single quotes / apostrophes. Note this
+    //    converts "don't" → "don't" (U+2019 RIGHT SINGLE QUOTATION
+    //    MARK) — standard typography, not a bug.
+    out = out.replace(/(^|[\s([{<])'/g, '$1‘') // U+2018 LEFT SINGLE QUOTATION MARK
+    out = out.replace(/'/g, '’') // U+2019 RIGHT SINGLE QUOTATION MARK / APOSTROPHE
+  } else if (targetLang === 'french') {
+    // French Typography:
+    // 1. Double quotes to French guillemets with non-breaking spaces (U+00A0)
+    out = out.replace(/(^|[\s([{<])"/g, '$1«\u00a0')
+    out = out.replace(/"/g, '\u00a0»')
+    
+    // 2. Non-breaking space before high punctuation marks: ? ! ; :
+    out = out.replace(/\s*([?!;:])($|[\s)\]}])/g, '\u00a0$1$2')
+    out = out.replace(/\s*:\s*/g, '\u00a0:\u00a0')
+  } else if (targetLang === 'spanish') {
+    // Spanish Typography:
+    // 1. Guillemets « » without extra spaces
+    out = out.replace(/(^|[\s([{<])"/g, '$1«')
+    out = out.replace(/"/g, '»')
+  } else {
+    // Standard English / General typography: Curly quotes
+    out = out.replace(/(^|[\s([{<])"/g, '$1“')
+    out = out.replace(/"/g, '”')
+    out = out.replace(/(^|[\s([{<])'/g, '$1‘')
+    out = out.replace(/'/g, '’')
+  }
 
   return out
 }

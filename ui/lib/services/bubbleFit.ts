@@ -1,4 +1,6 @@
 import type { TextBlock } from '@/types'
+import { usePreferencesStore } from '@/lib/stores/preferencesStore'
+import i18n from '@/lib/i18n'
 
 export type BubbleFitLevel = 'ok' | 'tight' | 'overflow'
 
@@ -34,9 +36,10 @@ export function bubbleFitWarning(block: TextBlock): BubbleFitWarning | null {
   const area = Math.max(0, block.width) * Math.max(0, block.height)
   if (area <= 0) return null
 
-  // 1. Calculate effective character length for Thai, ignoring combining marks
-  const hasThai = /[\u0e01-\u0e7f]/.test(tgt)
-  const effectiveLength = hasThai 
+  // 1. Calculate effective character length based on target language
+  const { cloudTargetLanguage } = usePreferencesStore.getState()
+  const isThai = (cloudTargetLanguage || 'Thai').toLowerCase() === 'thai'
+  const effectiveLength = isThai 
     ? tgt.replace(THAI_COMBINING_REGEXP, '').length 
     : tgt.length
 
@@ -79,10 +82,10 @@ export function bubbleFitWarning(block: TextBlock): BubbleFitWarning | null {
 
     if (fill >= OVERFLOW_FILL) {
       level = 'overflow'
-      reason = `คำแปลล้นกรอบคำพูด (~${Math.round(fill * 100)}% ของความจุ) ที่ขนาดฟอนต์ ${Math.round(fontSize)}px — ข้อความจะไม่พอดีกรอบ; กรุณาลดขนาดฟอนต์, ตัดทอนคำแปล หรือขยายกรอบคำพูด`
+      reason = i18n.t('bubbleFit.overflowLocked', { fill: Math.round(fill * 100), fontSize: Math.round(fontSize) })
     } else if (fill >= TIGHT_FILL) {
       level = 'tight'
-      reason = `คำแปลค่อนข้างแน่น (~${Math.round(fill * 100)}% ของความจุ) ที่ขนาดฟอนต์ ${Math.round(fontSize)}px`
+      reason = i18n.t('bubbleFit.tightLocked', { fill: Math.round(fill * 100), fontSize: Math.round(fontSize) })
     } else {
       return null
     }
@@ -94,13 +97,13 @@ export function bubbleFitWarning(block: TextBlock): BubbleFitWarning | null {
     if (wouldBeTooSmall) {
       level = 'overflow'
       const estimatedAutoFs = Math.max(5, Math.round((usableArea / (effectiveLength * 0.42 * 1.1)) ** 0.5))
-      reason = `คำแปลยาวเกินไปสำหรับ Auto-fit (ฟอนต์จะย่อเหลือเพียง ~${estimatedAutoFs}px ซึ่งเล็กเกินกว่าจะอ่านได้สะดวก) — กรุณาตัดทอนคำแปลหรือขยายกรอบคำพูด`
+      reason = i18n.t('bubbleFit.overflowAutoTooSmall', { fontSize: estimatedAutoFs })
     } else if (fill >= 1.0 || ratio >= OVERFLOW_RATIO) {
       level = 'overflow'
-      reason = `คำแปลยาวมาก (~${Math.round(fill * 100)}% ของขนาดปกติ) — ระบบ Auto-fit จะทำการย่อตัวอักษรลงค่อนข้างมากเพื่อให้พอดี`
+      reason = i18n.t('bubbleFit.overflowAutoLarge', { fill: Math.round(fill * 100) })
     } else if (fill >= 0.75 || ratio >= TIGHT_RATIO) {
       level = 'tight'
-      reason = `คำแปลค่อนข้างแน่นเมื่อเทียบกับต้นฉบับ (${ratio.toFixed(1)} เท่า) — ระบบ Auto-fit อาจปรับตัวอักษรให้เล็กลงเล็กน้อย`
+      reason = i18n.t('bubbleFit.tightAutoRatio', { ratio: ratio.toFixed(1) })
     } else {
       return null
     }
@@ -108,4 +111,3 @@ export function bubbleFitWarning(block: TextBlock): BubbleFitWarning | null {
 
   return { level, reason, ratio, density }
 }
-

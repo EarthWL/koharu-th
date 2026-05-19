@@ -399,5 +399,12 @@
     "reset": "Reset",
     "confidenceMoreDetections": "More (noisy)",
     "confidenceFewerDetections": "Fewer (strict)"
+  },
+  "bubbleFit": {
+    "overflowLocked": "Translation overflows speech bubble (~{{fill}}% capacity) at locked font size {{fontSize}}px — text will not fit; please reduce font size, shorten translation, or expand the bubble",
+    "tightLocked": "Translation is quite tight (~{{fill}}% capacity) at locked font size {{fontSize}}px",
+    "overflowAutoTooSmall": "Translation is too long for Auto-fit (font would shrink to ~{{fontSize}}px which is too small to read comfortably) — please shorten translation or expand the bubble",
+    "overflowAutoLarge": "Translation is very long (~{{fill}}% of normal size) — Auto-fit system will scale down text significantly to fit",
+    "tightAutoRatio": "Translation is somewhat tight compared to source ({{ratio}}x) — Auto-fit system may scale down text slightly"
   }
 }

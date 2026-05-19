@@ -22,19 +22,10 @@ const applyRepeatedly = (re: RegExp, s: string, rep: string) => {
   return s
 }
 
+import { applyThaiPostProcess as delegateApply } from './util/thaiPostProcess'
+
 export function applyThaiPostProcess(text: string): string {
-  // 1. Straight double quotes → curly quotes
-  //    วางคู่ซ้าย-ขวาโดยดูจาก context (ซ้ายของคำ = เปิด, ขวาของคำ = ปิด)
-  text = text
-    .replace(/(^|[\s([{])"([^\s])/g, '$1\u201c$2')   // "word → "word
-    .replace(/([^\s])"([\s,!.?;:)\]}]|$)/g, '$1\u201d$2') // word" → word"
-    // กรณีที่เหลือ: แปลงตรงๆ
-    .replace(/"/g, '\u201c')
-
-  // 2. ลบ space ระหว่างตัวอักษรไทย
-  text = applyRepeatedly(THAI_SPACE_RE, text, '$1$2')
-
-  return text
+  return delegateApply(text)
 }
 
 /**
