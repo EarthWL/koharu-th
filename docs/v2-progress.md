@@ -11,9 +11,32 @@ diverge, update `v2-arch.md` first (design is locked there, not here).
 
 ---
 
-## Current phase: Phase 1 — `koharu-core` scaffold
+## Current phase: Phase 1.1 — re-review amendments
 
-**Status**: 🟡 in progress (started 2026-05-19)
+**Status**: ✅ COMPLETE (2026-05-19, branch tip after this commit)
+
+Applied the 10 issues caught in the post-#33 design re-review (see
+`docs/v2-arch.md` §12 on main):
+
+- **Subtractive** (commit `715c4982`):
+  - Dropped `OpInverse` trait (issue A — broken for Op::Batch)
+  - Removed `Op::NoteTmHit` (issue B — annotation, not state)
+  - Updated module docs to reflect inline-inverse pattern
+- **Additive** (this commit):
+  - New `op_project.rs`: `ProjectOp` enum + Character/Glossary/
+    SeriesMeta payloads + patches with three-state semantics
+  - New `artifact.rs`: `ArtifactKind` enum (replaces rigid
+    PipelineStage — issue I)
+  - New `settings.rs`: `SettingDescriptor` (Serialize-only because
+    schema travels backend → frontend only) + `SettingValue` trait
+    + `StoredValue` for round-tripping saved preferences
+  - `EngineResult { scene_ops, project_ops }` struct added to op.rs
+  - `lib.rs` re-exports all the new types
+- **Tests**: 29 unit + 2 proptest green (up from 18+2 in Phase 1)
+
+## Previous phase: Phase 1 — `koharu-core` scaffold
+
+**Status**: ✅ COMPLETE (2026-05-19, commit `fe484b7a`)
 
 ### Phase 1 sub-tasks
 
@@ -58,8 +81,9 @@ diverge, update `v2-arch.md` first (design is locked there, not here).
 
 | Phase | Status | Estimated weeks | Notes |
 |---|---|---|---|
-| 1 — `koharu-core` scaffold | 🟡 in progress | 2 | Substrate. No consumers yet. |
-| 2 — `BlobStore` wired into pipeline | ⏳ pending | 3 | `Document.image: Uint8Array` → `BlobId` at serialization boundary |
+| 1 — `koharu-core` scaffold | ✅ complete | 2 → 1 actual | Op/Scene/BlobStore/HardwareReq + 18+2 tests |
+| 1.1 — re-review amendments | ✅ complete | 0.5 actual | Drop OpInverse + NoteTmHit; add ProjectOp/ArtifactKind/SettingDescriptor; 29+2 tests |
+| 2 — `BlobStore` wired into pipeline | ⏳ next | 3 | HTTP `/blob/:hex` route + frontend fetch (from #33). `Document.image: Uint8Array` → `BlobId` at serialization boundary |
 | 3 — Engine trait + registry + hardware probe | ⏳ pending | 1 | Detector ported as first engine |
 | 4 — Engine migration + Engine Profile UI ⭐ | ⏳ pending | 8-10 | Largest phase. 6 stages × port + UI work |
 | 5 — `ProjectSession` + undo/redo | ⏳ pending | 2-3 | Per-chapter session ring buffer |
@@ -77,6 +101,7 @@ Weekly rebase of branch onto main. Cherry-picks documented per row.
 | Date | Branch HEAD before | main HEAD synced to | Cherry-picks | Notes |
 |---|---|---|---|---|
 | 2026-05-19 | (initial branch creation) | `18423265` | — | Branch forked from arch/v2-base (= docs(arch): land v2 architecture design doc) |
+| 2026-05-19 | `fe484b7a` | `64974db6` | — | Rebased to pull v1.2.1 release + design doc amendments (HTTP blob transport from #33, Op+Engine re-review). Conflict-free rebase. Phase 1.1 applies the amendments to koharu-core code in commits `715c4982` (subtractive) and the additive follow-up. |
 
 Add new rows weekly. Each row records:
 - Which commit on main the branch was rebased onto

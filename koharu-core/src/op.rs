@@ -38,7 +38,41 @@ use serde::{Deserialize, Serialize};
 
 use crate::blob::BlobId;
 use crate::id::{NodeId, PageId};
+use crate::op_project::ProjectOp;
 use crate::scene::{Region, TextBlock, TextStyle};
+
+/// What an engine returns from one `run`. Carries both Scene-layer
+/// mutations and project-layer mutations so the driver can apply
+/// both under a single SQLite transaction. An "extract entities"
+/// run, for instance, emits text-block translation updates
+/// (`scene_ops`) AND new character / glossary rows (`project_ops`);
+/// undo reverses both atomically.
+///
+/// Engines stream `EngineResult`s through the channel passed in
+/// `EngineCtx`. Each send is applied as a single Batch on both
+/// sides — the driver constructs `Op::Batch(scene_ops)` and
+/// `ProjectOp::Batch(project_ops)` from the vectors and applies
+/// them. An engine that doesn't need streaming sends one final
+/// `EngineResult` at the end of its `run`.
+///
+/// `Default` impl returns empty vectors so engines that produce
+/// only one side can construct via `EngineResult { scene_ops: ..,
+/// ..Default::default() }`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EngineResult {
+    #[serde(default)]
+    pub scene_ops: Vec<Op>,
+    #[serde(default)]
+    pub project_ops: Vec<ProjectOp>,
+}
+
+impl EngineResult {
+    /// True if there's nothing to apply on either side. Driver skips
+    /// the apply path entirely on an empty result.
+    pub fn is_empty(&self) -> bool {
+        self.scene_ops.is_empty() && self.project_ops.is_empty()
+    }
+}
 
 /// Sum type covering every legal mutation of a `Scene`.
 ///
@@ -147,7 +181,7 @@ pub struct TextBlockPatch {
 /// `Serialize` for `Option<Option<T>>` produces the same wire shape
 /// (`Some(None)` → null, `Some(Some(v))` → v, outer None skipped via
 /// `skip_serializing_if`).
-fn double_option<'de, T, D>(d: D) -> Result<Option<Option<T>>, D::Error>
+pub(crate) fn double_option<'de, T, D>(d: D) -> Result<Option<Option<T>>, D::Error>
 where
     T: serde::Deserialize<'de>,
     D: serde::Deserializer<'de>,
