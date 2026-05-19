@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { api, type ChapterDto, type ProviderProfileDto } from '@/lib/api'
 import { useProjectStore } from '@/lib/stores/projectStore'
+import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { useProjectMutations } from '@/lib/query/projectMutations'
 import { SLASH_COMMANDS } from '@/lib/services/chatSlashCommands'
@@ -76,7 +77,11 @@ export function CommandPalette() {
   const openChapter = async (c: ChapterDto) => {
     close()
     try {
-      await api.chapterOpen(c.id)
+      // Push the returned page count into the editor store so the
+      // MenuBar / palette gating + Navigator see the new chapter as
+      // populated (#28).
+      const count = await api.chapterOpen(c.id)
+      useEditorUiStore.getState().setTotalPages(count)
       setActiveChapterId(c.id)
       await queryClient.invalidateQueries({ queryKey: ['documents'] })
       router.push('/')

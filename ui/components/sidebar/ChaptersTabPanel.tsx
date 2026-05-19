@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/select'
 import { api, type ChapterDto, type ChapterStatus } from '@/lib/api'
 import { useProjectStore } from '@/lib/stores/projectStore'
+import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { ExtractEntitiesModal } from '@/components/project/ExtractEntitiesModal'
 import { useEnqueueChapter, useQueueList } from '@/lib/query/queue'
 
@@ -231,7 +232,12 @@ function ChapterRow({
   const openAndExtract = async () => {
     setOpeningForExtract(true)
     try {
-      await api.chapterOpen(chapter.id)
+      // `chapter_open` returns the new page count; we MUST push it into
+      // editorUiStore so MenuBar / palette gating + Navigator pickers
+      // see the document set is non-empty (#28 — was the regression
+      // from v1.2.0 where the menu items stayed disabled forever).
+      const count = await api.chapterOpen(chapter.id)
+      useEditorUiStore.getState().setTotalPages(count)
       setActiveChapterId(chapter.id)
       await queryClient.invalidateQueries({ queryKey: ['documents'] })
       setSidebarTab('pages')
@@ -246,7 +252,8 @@ function ChapterRow({
   const open = async () => {
     setOpening(true)
     try {
-      await api.chapterOpen(chapter.id)
+      const count = await api.chapterOpen(chapter.id)
+      useEditorUiStore.getState().setTotalPages(count)
       setActiveChapterId(chapter.id)
       await queryClient.invalidateQueries({ queryKey: ['documents'] })
       setSidebarTab('pages')

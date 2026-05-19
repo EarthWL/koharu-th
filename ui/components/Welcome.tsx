@@ -24,6 +24,7 @@ import {
 } from '@/lib/api'
 import { useProjectMutations } from '@/lib/query/projectMutations'
 import { useProjectStore } from '@/lib/stores/projectStore'
+import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { useDocumentMutations } from '@/lib/query/mutations'
 
 type WizardStep =
@@ -684,7 +685,11 @@ function ChaptersStep({
     }
     setOpening(true)
     try {
-      await api.chapterOpen(firstWithPages.id)
+      // Push the returned page count into the editor store so
+      // MenuBar / palette gating + Navigator see the new chapter as
+      // populated (#28).
+      const count = await api.chapterOpen(firstWithPages.id)
+      useEditorUiStore.getState().setTotalPages(count)
       useProjectStore.getState().setActiveChapterId(firstWithPages.id)
       onDone()
     } catch (e: any) {
