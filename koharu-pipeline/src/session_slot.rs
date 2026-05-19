@@ -100,6 +100,27 @@ impl SessionSlot {
         self.inner = None;
     }
 
+    /// Drop the session iff it was built for `doc_index`. Audit
+    /// #9/B1 root-cause fix: manual structural edits (UI add /
+    /// remove / bulk-replace text blocks) bypass session.apply, so
+    /// session.scene's NodeId↔array mapping drifts from Document.
+    /// Invalidating here forces the bridge's next engine run to
+    /// rebuild the session from the freshly-mutated Document via
+    /// `reset_with`, preventing the silent-skip undo bug.
+    ///
+    /// Content-only edits (translation text, font, etc.) preserve
+    /// the mapping so they should NOT call this — undo through
+    /// those is still useful and the bridge tolerates "scene region
+    /// is slightly stale relative to doc" as a soft drift.
+    ///
+    /// No-op when the active session is for a different doc — we
+    /// don't want a manual edit on doc 2 to wipe history for doc 1.
+    pub fn invalidate_if_doc(&mut self, doc_index: usize) {
+        if self.active_doc_index() == Some(doc_index) {
+            self.inner = None;
+        }
+    }
+
     /// The doc_index the session is currently built against,
     /// for diagnostics + tests.
     pub fn active_doc_index(&self) -> Option<usize> {
@@ -159,5 +180,32 @@ mod tests {
         // Old doc's session is gone, new doc's is in.
         assert!(slot.session_for(0).is_none());
         assert!(slot.session_for(5).is_some());
+    }
+
+    #[test]
+    fn invalidate_if_doc_drops_active_session() {
+        let mut slot = SessionSlot::new();
+        slot.reset_with(Scene::default(), 3);
+        assert!(slot.is_active());
+        slot.invalidate_if_doc(3);
+        assert!(!slot.is_active(), "manual edit on doc 3 invalidates");
+    }
+
+    #[test]
+    fn invalidate_if_doc_preserves_other_doc_session() {
+        let mut slot = SessionSlot::new();
+        slot.reset_with(Scene::default(), 1);
+        // User edits doc 2 (different doc). Session for doc 1
+        // should survive — undo on doc 1 should still work.
+        slot.invalidate_if_doc(2);
+        assert!(slot.is_active());
+        assert_eq!(slot.active_doc_index(), Some(1));
+    }
+
+    #[test]
+    fn invalidate_if_doc_on_empty_slot_is_noop() {
+        let mut slot = SessionSlot::new();
+        slot.invalidate_if_doc(0);
+        assert!(!slot.is_active());
     }
 }

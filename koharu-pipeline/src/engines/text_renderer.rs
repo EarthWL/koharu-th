@@ -106,8 +106,28 @@ impl Engine for TextRendererEngine {
             .get(&ctx.page)
             .ok_or_else(|| anyhow!("page {:?} not present in scene", ctx.page))?;
 
+        // Audit #9/B2: the bridge contract for engines that declare
+        // `produces: [RenderedImage]` is "emit a SetRenderedImage or
+        // return Err — never silent Ok(())". Pre-audit this returned
+        // Ok(()) which the bridge passed through but surfaced as a
+        // confusing toast ("renderer returned without setting
+        // doc.rendered"). Two early-return paths now hard-error
+        // with actionable messages instead.
         if page.text_blocks.is_empty() {
-            return Ok(());
+            anyhow::bail!(
+                "Nothing to render: page has no text blocks. \
+                 Run detect first."
+            );
+        }
+        let has_any_translation = page
+            .text_blocks
+            .values()
+            .any(|b| b.translation.as_deref().is_some_and(|t| !t.trim().is_empty()));
+        if !has_any_translation {
+            anyhow::bail!(
+                "Nothing to render: text blocks have no translations yet. \
+                 Run translate first (or fill the translation field manually)."
+            );
         }
 
         let image_bytes = ctx
@@ -183,9 +203,23 @@ impl Engine for TextRendererEngine {
 
         // Renderer writes the composite to `doc.rendered`. Encode
         // as PNG, register in BlobStore, emit Op::SetRenderedImage.
-        let rendered = tmp_doc
-            .rendered
-            .ok_or_else(|| anyhow!("renderer returned without setting doc.rendered"))?;
+        //
+        // Audit #9/B2: if renderer.render() succeeds but doesn't
+        // write doc.rendered, that means layout silently rejected
+        // every translation (e.g. all bubbles overflow at min font
+        // size, all translations are whitespace post-trim, target
+        // block index has no translation). Hard-error with
+        // actionable text so the user knows WHICH knob to tune
+        // (vs the previous "renderer returned without setting
+        // doc.rendered" mystery message).
+        let rendered = tmp_doc.rendered.ok_or_else(|| {
+            anyhow!(
+                "Renderer ran but produced no output. Common causes: \
+                 every translation rejected by bubble fit (try larger \
+                 min font size or shorter text), or target block has \
+                 no translation."
+            )
+        })?;
         let rendered_dyn: image::DynamicImage = rendered.into();
         let mut buf: Vec<u8> = Vec::new();
         rendered_dyn

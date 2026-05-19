@@ -205,7 +205,7 @@ pub async fn update_text_blocks(
     state: AppResources,
     payload: UpdateTextBlocksPayload,
 ) -> anyhow::Result<()> {
-    state_tx::mutate_doc(&state.state, payload.index, |document| {
+    let result = state_tx::mutate_doc(&state.state, payload.index, |document| {
         let previous = std::mem::take(&mut document.text_blocks);
         document.text_blocks = payload.text_blocks;
 
@@ -221,7 +221,11 @@ pub async fn update_text_blocks(
         }
         Ok(())
     })
-    .await
+    .await;
+    // Audit #9/B1: bulk replace breaks NodeId↔array mapping —
+    // invalidate session so the next engine run rebuilds.
+    state.session.write().await.invalidate_if_doc(payload.index);
+    result
 }
 
 pub async fn update_text_block(
@@ -445,7 +449,7 @@ pub async fn add_text_block(
     state: AppResources,
     payload: AddTextBlockPayload,
 ) -> anyhow::Result<usize> {
-    state_tx::mutate_doc(&state.state, payload.index, |document| {
+    let result = state_tx::mutate_doc(&state.state, payload.index, |document| {
         let mut block = TextBlock {
             x: payload.x,
             y: payload.y,
@@ -458,21 +462,33 @@ pub async fn add_text_block(
         document.text_blocks.push(block);
         Ok(document.text_blocks.len() - 1)
     })
-    .await
+    .await;
+    // Audit #9/B1: appending shifts no existing NodeId but adds a
+    // NodeId at len+1 that session.scene doesn't know about — next
+    // undo of an engine-emitted Op would silent-skip on this new
+    // block. Invalidate so the bridge rebuilds at next engine run.
+    state.session.write().await.invalidate_if_doc(payload.index);
+    result
 }
 
 pub async fn remove_text_block(
     state: AppResources,
     payload: RemoveTextBlockPayload,
 ) -> anyhow::Result<usize> {
-    state_tx::mutate_doc(&state.state, payload.index, |document| {
+    let result = state_tx::mutate_doc(&state.state, payload.index, |document| {
         if payload.text_block_index >= document.text_blocks.len() {
             anyhow::bail!("Text block {} not found", payload.text_block_index);
         }
         document.text_blocks.remove(payload.text_block_index);
         Ok(document.text_blocks.len())
     })
-    .await
+    .await;
+    // Audit #9/B1: the canonical drift trigger from self-test —
+    // removing a block makes NodeId(k) for k > removed-index shift
+    // by -1 in array terms, so every prior AddTextBlock entry in
+    // session history now maps to the wrong row. Invalidate.
+    state.session.write().await.invalidate_if_doc(payload.index);
+    result
 }
 
 pub async fn dilate_mask(state: AppResources, payload: MaskMorphPayload) -> anyhow::Result<()> {

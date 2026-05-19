@@ -66,13 +66,33 @@ pub async fn session_undo(
     // don't try to roll back the session (the session is correct;
     // the doc just lags).
     let mut doc = state_tx::read_doc(&state.state, payload.index).await?;
-    if let Err(e) = engine_bridge::apply_op(&mut doc, inverse_op, &state.blobs) {
-        tracing::warn!(
-            error = ?e,
-            "mirroring undo to Document failed — RPC reads may show stale state until next refetch"
-        );
-    } else {
-        state_tx::update_doc(&state.state, payload.index, doc).await?;
+    let mirror_outcome = engine_bridge::apply_op(&mut doc, inverse_op, &state.blobs);
+    match mirror_outcome {
+        Ok(engine_bridge::ApplyOutcome::Clean) => {
+            state_tx::update_doc(&state.state, payload.index, doc).await?;
+        }
+        Ok(engine_bridge::ApplyOutcome::DriftSkipped) => {
+            // Audit #9/B1 surface: session pop succeeded (so the
+            // session's redo stack now has the entry — user could
+            // redo to recover), but the Document mirror skipped at
+            // least one op because session.scene drifted from
+            // Document via a non-engine mutation. Write back what
+            // partial state did land so RPC reads reflect any ops
+            // that DID succeed, then surface as Err so the frontend
+            // toasts the drift instead of silently no-op'ing.
+            state_tx::update_doc(&state.state, payload.index, doc).await?;
+            anyhow::bail!(
+                "Undo applied to history but Document state is out of sync \
+                 (some blocks may have been deleted outside undo/redo). \
+                 Try refreshing the page; if it persists, re-run detect."
+            );
+        }
+        Err(e) => {
+            tracing::warn!(
+                error = ?e,
+                "mirroring undo to Document failed — RPC reads may show stale state until next refetch"
+            );
+        }
     }
 
     Ok(read_history_state_for(&state, payload.index).await)
@@ -97,13 +117,25 @@ pub async fn session_redo(
     };
 
     let mut doc = state_tx::read_doc(&state.state, payload.index).await?;
-    if let Err(e) = engine_bridge::apply_op(&mut doc, forward_op, &state.blobs) {
-        tracing::warn!(
-            error = ?e,
-            "mirroring redo to Document failed — RPC reads may show stale state until next refetch"
-        );
-    } else {
-        state_tx::update_doc(&state.state, payload.index, doc).await?;
+    let mirror_outcome = engine_bridge::apply_op(&mut doc, forward_op, &state.blobs);
+    match mirror_outcome {
+        Ok(engine_bridge::ApplyOutcome::Clean) => {
+            state_tx::update_doc(&state.state, payload.index, doc).await?;
+        }
+        Ok(engine_bridge::ApplyOutcome::DriftSkipped) => {
+            state_tx::update_doc(&state.state, payload.index, doc).await?;
+            anyhow::bail!(
+                "Redo applied to history but Document state is out of sync \
+                 (some blocks may have been modified outside undo/redo). \
+                 Try refreshing the page; if it persists, re-run detect."
+            );
+        }
+        Err(e) => {
+            tracing::warn!(
+                error = ?e,
+                "mirroring redo to Document failed — RPC reads may show stale state until next refetch"
+            );
+        }
     }
 
     Ok(read_history_state_for(&state, payload.index).await)

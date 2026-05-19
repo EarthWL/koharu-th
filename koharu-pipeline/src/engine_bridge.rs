@@ -41,8 +41,10 @@
 //! - `Op::Batch` ✅ (recurse).
 
 use anyhow::{Context, Result, anyhow};
+use futures::FutureExt;
 use image::codecs::webp::WebPEncoder;
 use indexmap::IndexMap;
+use std::panic::AssertUnwindSafe;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
@@ -168,7 +170,33 @@ pub async fn run_engine_on_document(
     // its final result and we're still pulling it off the channel
     // (we drop ops_tx via the run-future taking ownership; channel
     // closes when run returns, ops_rx.recv() then returns None).
-    let run_future = engine.run(ctx, ops_tx);
+    //
+    // Audit #9/B3: wrap with `catch_unwind` so a panic inside any
+    // engine (notably cudarc's `cudnn/safe/core.rs:43` unwrap on
+    // `CUDNN_STATUS_INTERNAL_ERROR` from LaMa inpaint) doesn't
+    // unwind the whole Tauri process. Convert the caught panic
+    // payload into an `anyhow::Error` so the existing engine
+    // failure path surfaces it as a user-visible toast.
+    //
+    // Caveats:
+    //   1. After a cuDNN panic the model handle state may be
+    //      corrupted — subsequent runs of the same engine may
+    //      fail. We still recover the process; the user can save
+    //      + restart cleanly.
+    //   2. `AssertUnwindSafe` is required because EngineCtx /
+    //      ml / llm Arcs aren't `UnwindSafe`. We accept this — the
+    //      alternative is a process death from a third-party
+    //      unwrap that we don't control.
+    let run_future = AssertUnwindSafe(engine.run(ctx, ops_tx))
+        .catch_unwind()
+        .map(|outcome| match outcome {
+            Ok(result) => result,
+            Err(payload) => Err(anyhow!(
+                "engine '{}' panicked: {}",
+                engine_id,
+                panic_payload_message(&payload),
+            )),
+        });
 
     // Audit #7/P1 + audit #8/P1: prepare the session BEFORE the
     // apply loop so it's guaranteed to be (a) initialised and (b)
@@ -406,16 +434,49 @@ async fn apply_engine_result_dual(
     Ok(())
 }
 
+/// Outcome of applying an `Op` to the legacy `Document`.
+///
+/// Audit #9/B1 surface: distinguishes "applied cleanly" from
+/// "skipped due to drift between session.scene + Document". The
+/// session/undo path uses this to decide whether to surface a
+/// toast on partial undo — silent skips were invisible to the
+/// user pre-audit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApplyOutcome {
+    /// Every leaf op in this Op (incl. nested Batch) hit valid
+    /// Document state and mutated it.
+    Clean,
+    /// At least one leaf op was warn-and-skipped — usually because
+    /// the session's NodeId references a `text_blocks` index the
+    /// Document no longer has (drift via a non-engine UI mutation,
+    /// e.g. TextBlocksPanel manual delete that bypassed
+    /// `session.apply`).
+    DriftSkipped,
+}
+
+impl ApplyOutcome {
+    fn merge(self, other: ApplyOutcome) -> ApplyOutcome {
+        match (self, other) {
+            (ApplyOutcome::Clean, ApplyOutcome::Clean) => ApplyOutcome::Clean,
+            _ => ApplyOutcome::DriftSkipped,
+        }
+    }
+}
+
 /// Translate a single `Op` into the corresponding `Document`
 /// mutation. Variants not yet handled log a warning + are skipped.
 ///
 /// `pub` since Phase 5.4 — `ops::session` calls this to mirror
 /// the undo/redo result onto the legacy Document so RPC reads
 /// stay consistent with `ProjectSession::scene`.
-pub fn apply_op(doc: &mut Document, op: Op, blobs: &BlobStore) -> Result<()> {
-    match op {
+///
+/// Returns [`ApplyOutcome::DriftSkipped`] if any leaf op was
+/// warn-skipped (used by audit #9/B1 to surface drift toast).
+pub fn apply_op(doc: &mut Document, op: Op, blobs: &BlobStore) -> Result<ApplyOutcome> {
+    let outcome = match op {
         Op::AddTextBlock { block, .. } => {
             doc.text_blocks.push(scene_block_to_v1(block));
+            ApplyOutcome::Clean
         }
         Op::UpdateTextBlock { id, patch, .. } => {
             // Bridge maps `NodeId(idx + 1)` → v1 `text_blocks[idx]`.
@@ -427,7 +488,7 @@ pub fn apply_op(doc: &mut Document, op: Op, blobs: &BlobStore) -> Result<()> {
             // so the mapping is stable across the run.
             let Some(idx) = node_id_to_index(id) else {
                 warn!(node_id = id.0, "UpdateTextBlock: node id is NONE, skipping");
-                return Ok(());
+                return Ok(ApplyOutcome::DriftSkipped);
             };
             let Some(target) = doc.text_blocks.get_mut(idx) else {
                 warn!(
@@ -436,17 +497,19 @@ pub fn apply_op(doc: &mut Document, op: Op, blobs: &BlobStore) -> Result<()> {
                     blocks_len = doc.text_blocks.len(),
                     "UpdateTextBlock: node id out of range, skipping"
                 );
-                return Ok(());
+                return Ok(ApplyOutcome::DriftSkipped);
             };
             apply_text_block_patch(target, patch);
+            ApplyOutcome::Clean
         }
         Op::RemoveTextBlock { id, .. } => {
             let Some(idx) = node_id_to_index(id) else {
                 warn!(node_id = id.0, "RemoveTextBlock: node id is NONE, skipping");
-                return Ok(());
+                return Ok(ApplyOutcome::DriftSkipped);
             };
             if idx < doc.text_blocks.len() {
                 doc.text_blocks.remove(idx);
+                ApplyOutcome::Clean
             } else {
                 warn!(
                     node_id = id.0,
@@ -454,30 +517,39 @@ pub fn apply_op(doc: &mut Document, op: Op, blobs: &BlobStore) -> Result<()> {
                     blocks_len = doc.text_blocks.len(),
                     "RemoveTextBlock: node id out of range, skipping"
                 );
+                ApplyOutcome::DriftSkipped
             }
         }
         Op::SetSegmentationMask { mask, .. } => {
             doc.segment = blob_to_serializable_image(blobs, mask)?;
+            ApplyOutcome::Clean
         }
         Op::SetInpaintedImage { image, .. } => {
             doc.inpainted = blob_to_serializable_image(blobs, image)?;
+            ApplyOutcome::Clean
         }
         Op::SetRenderedImage { image, .. } => {
             doc.rendered = blob_to_serializable_image(blobs, image)?;
+            ApplyOutcome::Clean
         }
         Op::SetBrushLayer { brush, .. } => {
             doc.brush_layer = blob_to_serializable_image(blobs, brush)?;
+            ApplyOutcome::Clean
         }
         Op::Batch(inner) => {
+            let mut combined = ApplyOutcome::Clean;
             for op in inner {
-                apply_op(doc, op, blobs)?;
+                let leaf = apply_op(doc, op, blobs)?;
+                combined = combined.merge(leaf);
             }
+            combined
         }
         op => {
             warn!(?op, "Op variant not yet handled by engine_bridge");
+            ApplyOutcome::DriftSkipped
         }
-    }
-    Ok(())
+    };
+    Ok(outcome)
 }
 
 /// Apply a v2 `TextBlockPatch` to a v1 `TextBlock`. Mirrors the
@@ -618,6 +690,22 @@ fn merge_profile_settings(
 /// which koharu-core reserves as the "no node" sentinel.
 pub fn index_to_node_id(idx: usize) -> NodeId {
     NodeId(idx as u64 + 1)
+}
+
+/// Best-effort string extraction from a `catch_unwind` payload.
+/// Rust panic payloads are `Box<dyn Any>`; common shapes are
+/// `&str` (from `panic!("literal")`) and `String` (from
+/// `panic!("{}", fmt)`). Fall back to a generic message when the
+/// downcast fails — cudarc's panics come through as one of these
+/// two shapes in practice.
+fn panic_payload_message(payload: &Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "<non-string panic payload>".to_string()
+    }
 }
 
 /// Inverse of [`index_to_node_id`]. Returns `None` for `NodeId(0)`
@@ -1435,6 +1523,28 @@ mod tests {
         assert_eq!(
             session.scene().pages.get(&page_id).unwrap().text_blocks.len(),
             1
+        );
+    }
+
+    #[test]
+    fn panic_payload_message_extracts_str_and_string() {
+        // Audit #9/B3 helper: panics arrive as `Box<dyn Any>` with
+        // either &str or String inside (panic!("literal") vs
+        // panic!("{fmt}")). The bridge converts to a user-facing
+        // toast string — this test pins both shapes.
+        let str_payload: Box<dyn std::any::Any + Send> = Box::new("boom");
+        assert_eq!(panic_payload_message(&str_payload), "boom");
+
+        let string_payload: Box<dyn std::any::Any + Send> = Box::new("dynamic".to_string());
+        assert_eq!(panic_payload_message(&string_payload), "dynamic");
+
+        // Unknown payload type → fall back to generic message
+        // instead of dropping the panic on the floor.
+        struct Weird;
+        let weird_payload: Box<dyn std::any::Any + Send> = Box::new(Weird);
+        assert_eq!(
+            panic_payload_message(&weird_payload),
+            "<non-string panic payload>",
         );
     }
 
