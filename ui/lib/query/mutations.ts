@@ -692,11 +692,8 @@ export const useDocumentMutations = () => {
     // and let the user know once.
     const effectiveEngine: 'mit48px' | 'manga' | 'auto' =
       ocrEngine === 'cloud' ? 'mit48px' : ocrEngine
-    if (ocrEngine === 'cloud') {
-      console.info(
-        '[processAll] Cloud Vision OCR is not used for batch — falling back to MIT-48px. Use Process current for individual pages with Cloud Vision.',
-      )
-    }
+    // Cloud Vision OCR is not supported in batch mode; falls back to MIT-48px.
+    // Use "Process current page" for Cloud Vision on individual pages.
     startOperation({
       type: 'process-all',
       cancellable: true,
@@ -731,7 +728,7 @@ export const useDocumentMutations = () => {
         index ?? useEditorUiStore.getState().currentDocumentIndex
       const { selectedModel, selectedLanguage } = useLlmUiStore.getState()
       const { renderEffect, renderStroke } = useEditorUiStore.getState()
-      const { fontFamily, inpaintMaxSide, thaiPostProcess } =
+      const { cloudProvider, cloudTargetLanguage, fontFamily, inpaintMaxSide, thaiPostProcess } =
         usePreferencesStore.getState()
       const { startOperation, finishOperation } = useOperationStore.getState()
       startOperation({
@@ -741,29 +738,80 @@ export const useDocumentMutations = () => {
         total: 2,
       })
       try {
-        await api.process({
-          index: resolvedIndex,
-          llmModelId: selectedModel,
-          language: selectedLanguage,
-          shaderEffect: renderEffect,
-          shaderStroke: renderStroke,
-          fontFamily,
-          skipDetect: true,
-          skipOcr: true,
-          skipInpaint: true,
-          inpaintMaxSide,
-        })
-        // Apply Thai post-processing ถ้าเปิดใช้งาน
-        if (thaiPostProcess) {
-          const doc = await api.getDocument(resolvedIndex)
-          if (doc.textBlocks.some((b: any) => b.translation)) {
-            const updated = doc.textBlocks.map((b: any) => ({
-              ...b,
-              translation: b.translation
-                ? applyThaiPostProcess(b.translation)
-                : b.translation,
-            }))
-            await api.updateTextBlocks(resolvedIndex, updated)
+        if (cloudProvider !== 'none') {
+          // Cloud path: skip Rust LLM step entirely — Rust pipeline has no
+          // knowledge of cloud providers. Instead: re-translate all blocks
+          // that have OCR text (force — no existing-translation filter) then
+          // render via the normal Rust render step.
+          const queryKey = queryKeys.documents.current(resolvedIndex)
+          const cached = queryClient.getQueryData<any>(queryKey)
+          const doc = cached ?? await api.getDocument(resolvedIndex)
+          const blocks: any[] = doc?.textBlocks ?? []
+
+          const blocksToTranslate = blocks
+            .map((b: any, i: number) => ({ index: i, text: b.text ?? '' }))
+            .filter((b) => b.text)  // force: no !translation filter
+
+          if (blocksToTranslate.length > 0) {
+            const { generateCloudBatchTranslation } = await import(
+              '@/lib/services/cloudLlm'
+            )
+            const language = cloudTargetLanguage || 'Thai'
+            const translatedResult = await generateCloudBatchTranslation(
+              blocksToTranslate,
+              language,
+            )
+            const nextBlocks = [...blocks]
+            for (const result of translatedResult) {
+              if (
+                result &&
+                typeof result.index === 'number' &&
+                typeof result.translation === 'string'
+              ) {
+                const b = nextBlocks[result.index]
+                if (b) {
+                  nextBlocks[result.index] = { ...b, translation: result.translation }
+                }
+              }
+            }
+            const processed = thaiPostProcess
+              ? applyThaiPostProcessToBlocks(nextBlocks)
+              : nextBlocks
+            await updateTextBlocks(processed, resolvedIndex)
+          }
+
+          // Render with existing inpaint (skip inpaint in Rust)
+          await api.render(resolvedIndex, {
+            shaderEffect: renderEffect,
+            shaderStroke: renderStroke,
+            fontFamily,
+          })
+        } else {
+          // Local LLM path — Rust pipeline handles translate + render
+          await api.process({
+            index: resolvedIndex,
+            llmModelId: selectedModel,
+            language: selectedLanguage,
+            shaderEffect: renderEffect,
+            shaderStroke: renderStroke,
+            fontFamily,
+            skipDetect: true,
+            skipOcr: true,
+            skipInpaint: true,
+            inpaintMaxSide,
+          })
+          // Apply Thai post-processing ถ้าเปิดใช้งาน
+          if (thaiPostProcess) {
+            const doc = await api.getDocument(resolvedIndex)
+            if (doc.textBlocks.some((b: any) => b.translation)) {
+              const updated = doc.textBlocks.map((b: any) => ({
+                ...b,
+                translation: b.translation
+                  ? applyThaiPostProcess(b.translation)
+                  : b.translation,
+              }))
+              await api.updateTextBlocks(resolvedIndex, updated)
+            }
           }
         }
         await invalidateCurrentDocument(queryClient, resolvedIndex)
@@ -776,7 +824,7 @@ export const useDocumentMutations = () => {
         finishOperation()
       }
     },
-    [queryClient, clearProgress],
+    [queryClient, clearProgress, updateTextBlocks],
   )
 
   // Stream-translate ทีละ block — แปลและแสดงผลแต่ละ bubble ทันทีที่เสร็จ
@@ -834,7 +882,16 @@ export const useDocumentMutations = () => {
       const resolvedIndex =
         index ?? useEditorUiStore.getState().currentDocumentIndex
       try {
-        const doc = await api.getDocument(resolvedIndex)
+        // Strategy: use whichever source actually has OCR text.
+        // - Cloud OCR: cache is updated immediately via setQueryData but
+        //   the sync queue to Rust may still be in-flight → prefer cache.
+        // - Local Rust OCR: Rust has the text but cache may still be stale
+        //   (not yet re-fetched) → fall back to api.getDocument().
+        const cached = queryClient.getQueryData<{ textBlocks?: { text?: string | null }[] }>(
+          queryKeys.documents.current(resolvedIndex),
+        )
+        const cacheHasText = (cached?.textBlocks ?? []).some((b: any) => b.text)
+        const doc = cacheHasText ? cached! : await api.getDocument(resolvedIndex)
         const texts = (doc.textBlocks ?? [])
           .map((b: any) => b.text ?? '')
           .filter(Boolean)
@@ -843,7 +900,7 @@ export const useDocumentMutations = () => {
         return null
       }
     },
-    [],
+    [queryClient],
   )
 
   const exportDocument = useCallback(async () => {
@@ -1007,7 +1064,7 @@ export const useLlmMutations = () => {
           if (block?.text) {
             try {
               const translation = await generateCloudTranslation(block.text, language, undefined, style)
-              const nextBlocks = currentDocument.textBlocks.map((b: any, i: number) =>
+              const nextBlocks = (currentDocument?.textBlocks ?? []).map((b: any, i: number) =>
                  i === textBlockIndex ? { ...b, translation } : b
               )
               // Issue #21 — Thai post-process before save (no extra
@@ -1031,12 +1088,24 @@ export const useLlmMutations = () => {
         } else if (currentDocument?.textBlocks) {
           // Batch translation utilizing structured JSON
           try {
+            // Generate = Inpaint first so bubble backgrounds are cleared
+            // before translations are painted. Re-translate skips this step.
+            await api.inpaint(resolvedIndex)
+
             const nextBlocks = [...currentDocument.textBlocks]
-            
-            // Collect only the blocks that need translation
-            const blocksToTranslate = nextBlocks
+
+            // Prefer untranslated blocks. If every block already has a
+            // translation (user re-clicked Generate), force-retranslate all
+            // so the button never silently does nothing.
+            const untranslated = nextBlocks
               .map((b, i) => ({ index: i, text: b.text || '' }))
-              .filter(b => b.text && !nextBlocks[b.index].translation)
+              .filter((b) => b.text && !nextBlocks[b.index].translation)
+            const blocksToTranslate =
+              untranslated.length > 0
+                ? untranslated
+                : nextBlocks
+                    .map((b, i) => ({ index: i, text: b.text || '' }))
+                    .filter((b) => b.text)
 
             if (blocksToTranslate.length > 0) {
               const { generateCloudBatchTranslation } = await import('@/lib/services/cloudLlm')
@@ -1099,7 +1168,27 @@ export const useLlmMutations = () => {
               : languages[0]
             : undefined
 
-        await api.llmGenerate(resolvedIndex, textBlockIndex, language)
+        if (typeof textBlockIndex === 'number') {
+          // Single block — translate only (inpaint per-block is not meaningful)
+          await api.llmGenerate(resolvedIndex, textBlockIndex, language)
+        } else {
+          // Batch mode: Generate = Inpaint + Translate + Render via Rust pipeline.
+          // api.process() with skipDetect+skipOcr runs inpaint then LLM then render
+          // in one shot — Re-translate uses skipInpaint:true to skip this step.
+          const { renderEffect, renderStroke } = useEditorUiStore.getState()
+          const { fontFamily, inpaintMaxSide } = usePreferencesStore.getState()
+          await api.process({
+            index: resolvedIndex,
+            llmModelId: selectedModel,
+            language,
+            shaderEffect: renderEffect,
+            shaderStroke: renderStroke,
+            fontFamily,
+            skipDetect: true,
+            skipOcr: true,
+            inpaintMaxSide,
+          })
+        }
         // Issue #21 — local LLM writes translations directly via Rust
         // pipeline, so we post-process server-side state via the helper
         // (fetch + apply + save back if changed).
