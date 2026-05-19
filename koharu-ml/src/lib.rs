@@ -22,8 +22,12 @@ use std::sync::RwLock;
 static CUSTOM_DEVICE_SELECTION: RwLock<Option<String>> = RwLock::new(None);
 
 pub fn set_custom_device_selection(selection: Option<String>) {
-    if let Ok(mut guard) = CUSTOM_DEVICE_SELECTION.write() {
-        *guard = selection;
+    match CUSTOM_DEVICE_SELECTION.write() {
+        Ok(mut guard) => *guard = selection,
+        Err(err) => tracing::error!(
+            "Device selection lock poisoned; selection not applied: {err}. \
+             GPU/CPU preference from Settings will be ignored this session."
+        ),
     }
 }
 
@@ -78,7 +82,31 @@ pub fn device(cpu: bool) -> Result<Device> {
                     }
                 }
             }
-            _ => {}
+            sel => {
+                // Support CUDA:N for any index beyond the named cases above.
+                if let Some(idx_str) = sel.strip_prefix("CUDA:") {
+                    match idx_str.parse::<usize>() {
+                        Ok(idx) => match Device::new_cuda(idx) {
+                            Ok(dev) => return Ok(dev),
+                            Err(err) => {
+                                tracing::warn!(
+                                    "CUDA:{idx} requested but failed: {err}. Falling back to CPU."
+                                );
+                                return Ok(Device::Cpu);
+                            }
+                        },
+                        Err(_) => {
+                            tracing::warn!(
+                                "Unknown device selection {sel:?}. Falling back to auto-detection."
+                            );
+                        }
+                    }
+                } else {
+                    tracing::warn!(
+                        "Unknown device selection {sel:?}. Falling back to auto-detection."
+                    );
+                }
+            }
         }
     }
 
