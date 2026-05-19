@@ -2,12 +2,24 @@
 //!
 //! Same `Engine` wrapper pattern as [`super::mit48px_ocr`], routed
 //! through `koharu_ml::facade::Model::ocr_with(OcrEngine::Manga)`.
-//! Lazy weights download (~100 MB) on first inference — handled by
-//! the legacy facade's fallback logic; on download failure the
-//! facade quietly degrades to MIT-48px. The engine wrapper does
-//! not duplicate that fallback — if the user *picked* manga-ocr
-//! in the Profile UI, we want the failure to surface explicitly
-//! so they know to retry vs. switch engine.
+//! Lazy weights download (~100 MB) on first inference.
+//!
+//! ## ⚠ Inherits the legacy facade fallback (TODO)
+//!
+//! `Model::ocr_with(OcrEngine::Manga)` falls back to MIT-48px
+//! silently if Manga OCR fails to load (e.g. network down for the
+//! first-time weights fetch). The fallback is baked into the
+//! facade — this engine wrapper invokes the facade and therefore
+//! INHERITS that behaviour even though the engine description
+//! claims a Manga-specific OCR pass.
+//!
+//! This is a known wart called out in the post-Phase-4.3 audit
+//! (#5/F2). The right fix is a new `ml.ocr_with_strict(...)`
+//! facade method that surfaces load failures instead of silently
+//! degrading, then this engine calls that instead. Deferred until
+//! a real user reports the surprise — for now the fallback is the
+//! pre-v2 status quo and the docstring is the only behavioural
+//! contract we can keep honest.
 //!
 //! Better at handwritten + stylised Japanese, sometimes worse at
 //! SFX / latin script. Cost-wise still local (no spend), but the
@@ -73,11 +85,12 @@ impl Engine for MangaOcrEngine {
         let block_ids: Vec<NodeId> = page.text_blocks.keys().copied().collect();
 
         // `OcrEngineKind::Manga` triggers the lazy weights download
-        // on first call. The legacy `ocr_with` falls back to MIT-48px
-        // silently on download failure — we DON'T inherit that
-        // fallback here; if the user picked manga-ocr explicitly,
-        // surfacing the failure is the right UX (yellow chip in the
-        // Profile UI when the model isn't cached yet).
+        // on first call. ⚠ The legacy `ocr_with` falls back to
+        // MIT-48px silently on download failure — and this wrapper
+        // INHERITS that fallback because it goes through `ocr_with`
+        // (Phase 4.3 audit F2). Surfacing the failure cleanly needs
+        // a new `ocr_with_strict` facade method that doesn't degrade;
+        // tracked in the module docstring.
         ctx.ml
             .ocr_with(&mut tmp_doc, OcrEngineKind::Manga)
             .await

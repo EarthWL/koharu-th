@@ -48,9 +48,13 @@ windows-sys = { workspace = true }
 winreg = { workspace = true }
 
 [features]
-cuda = ["koharu-runtime/cuda", "koharu-ml/cuda"]
+# Audit #5 F4: `koharu-pipeline/{cuda,metal}` is the passthrough
+# chain that lights up `koharu-engines/{cuda,metal}` — without
+# this, a release build with `--features cuda` would still
+# compile `koharu_engines::probe()` with the stub paths.
+cuda = ["koharu-runtime/cuda", "koharu-ml/cuda", "koharu-pipeline/cuda"]
 cudnn = ["koharu-runtime/cudnn", "koharu-ml/cudnn"]
-metal = ["koharu-ml/metal"]
+metal = ["koharu-ml/metal", "koharu-pipeline/metal"]
 
 [build-dependencies]
 tauri-build = { workspace = true }

@@ -30,12 +30,14 @@ use image::{DynamicImage, ImageFormat};
 use tokio::sync::mpsc;
 
 use koharu_core::{
-    ArtifactKind, BackendSupport, EngineCost, EngineResult, HardwareReq, NodeId, Op, Region,
+    ArtifactKind, BackendSupport, EngineCost, EngineResult, HardwareReq, Op, Region,
     SettingDescriptor,
 };
 use koharu_core::scene::TextBlock as SceneTextBlock;
 use koharu_engines::{Engine, EngineCtx, EngineInfo, inventory};
 use koharu_types::{DetectorEngine, Document, SerializableDynamicImage};
+
+use crate::engine_bridge::index_to_node_id;
 
 /// Stable id used by the engine profile UI + saved profiles.
 /// Importing this from `engines/mod.rs` keeps the inventory
@@ -118,8 +120,10 @@ impl Engine for ComicTextDetectorEngine {
         //     bridge can re-key these against the existing scene's
         //     node ids (for merge-vs-replace policy).
         for (idx, v1) in tmp_doc.text_blocks.iter().enumerate() {
+            // `+1` shift to skip NodeId::NONE sentinel — see
+            // engine_bridge::index_to_node_id.
             let block = SceneTextBlock {
-                id: NodeId(idx as u64),
+                id: index_to_node_id(idx),
                 region: Region {
                     x: v1.x.max(0.0) as u32,
                     y: v1.y.max(0.0) as u32,

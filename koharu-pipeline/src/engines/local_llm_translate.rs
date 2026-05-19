@@ -6,6 +6,24 @@
 //! the engine system; same generation path as the legacy
 //! `ops::llm::llm_generate`.
 //!
+//! ## ⚠ ProjectView is built but not yet consumed (audit #5/F3)
+//!
+//! `engine_bridge::build_project_view` populates `ctx.project`
+//! with characters / glossary / series_meta read from the open
+//! koharu-project SQLite — that work is real and lands in
+//! every engine run. The translate engine, however, currently
+//! drives the legacy `Model::translate(&mut Document)` which
+//! ignores `ctx.project` entirely; glossary injection still flows
+//! through the frontend prompt-render service before the LLM call
+//! reaches the backend.
+//!
+//! Phase 5 will add a `Translatable::with_project_context` path
+//! that lets the engine weave glossary + characters into the
+//! prompt itself, making it self-sufficient regardless of caller.
+//! Until then, the description on `EngineInfo` is updated to
+//! reflect the current state (no false promises about glossary
+//! reads).
+//!
 //! ## Settings
 //!
 //! - `target_language` (String, default empty) — overrides the
@@ -207,7 +225,14 @@ inventory::submit! {
     EngineInfo {
         id: ENGINE_ID,
         display_name: "Local LLM Translate",
-        description: "On-device LLM (whichever model is loaded via llm_load — VNTL, Sakura, Hunyuan, etc.). Reads glossary + characters from project context; no per-call cost.",
+        // Note: glossary + character context is currently woven
+        // into the prompt by the frontend (`cloudLlm.ts` →
+        // `prompt_render` RPC) before the LLM call lands here. The
+        // engine itself doesn't yet consume `ctx.project` —
+        // tracked as audit #5/F3 follow-up. Phase 5 will land a
+        // `Translatable::with_project_context` path so the engine
+        // becomes self-sufficient.
+        description: "On-device LLM (whichever model is loaded via llm_load — VNTL, Sakura, Hunyuan, etc.). No per-call cost.",
         consumes: CONSUMES,
         produces: PRODUCES,
         settings_schema: SETTINGS,

@@ -229,12 +229,18 @@ fn build_scene_from_document(doc: &Document, blobs: &BlobStore) -> Result<(Scene
         .map(|img| register_image(blobs, img))
         .transpose()?;
 
-    // Convert existing TextBlocks (v1 -> v2). Engines that consume
+    // Convert existing TextBlocks (v1 → v2). Engines that consume
     // OcrText / Translation / FontPrediction get to see whatever
     // upstream stages already produced.
+    //
+    // NodeId(idx + 1) — `+1` because `NodeId::NONE = 0` is the
+    // koharu-core sentinel for "no node". Using NodeId(0) for a
+    // real block would conflate it with NONE downstream. The
+    // mapping is documented next to `index_to_node_id` /
+    // `node_id_to_index`.
     let mut text_blocks: IndexMap<NodeId, SceneTextBlock> = IndexMap::new();
     for (idx, v1) in doc.text_blocks.iter().enumerate() {
-        let id = NodeId(idx as u64);
+        let id = index_to_node_id(idx);
         text_blocks.insert(
             id,
             SceneTextBlock {
@@ -254,10 +260,12 @@ fn build_scene_from_document(doc: &Document, blobs: &BlobStore) -> Result<(Scene
         );
     }
 
-    // PageId(0) — Phase 4.1 runs one engine per page invocation, so
-    // we don't need stable cross-call page ids. Phase 4.6's batch
-    // runner will assign stable ids.
-    let page_id = PageId(0);
+    // `PageId(1)` (not `PageId(0)`) — Phase 4.1 runs one engine per
+    // page invocation so we don't need stable cross-call page ids,
+    // but we must skip the `PageId::NONE` (= 0) sentinel reserved
+    // by koharu-core. Phase 4.6's batch runner will assign real
+    // ids from `koharu_project::chapter::pages`.
+    let page_id = PageId(1);
     let page = Page {
         id: page_id,
         source_image: image_id,
@@ -322,22 +330,21 @@ fn apply_op(doc: &mut Document, op: Op, blobs: &BlobStore) -> Result<()> {
             doc.text_blocks.push(scene_block_to_v1(block));
         }
         Op::UpdateTextBlock { id, patch, .. } => {
-            // Phase 4.3: bridge maps NodeId → v1 array index 1:1.
-            // build_scene_from_document assigns `NodeId(idx)` where
-            // idx is the v1 array position, and nothing reorders
-            // text_blocks between build_scene and apply_op (engines
-            // are read-only on Scene; mutations come back through
-            // here). So a NodeId(7) targets text_blocks[7].
-            //
-            // If the index is out of bounds, the engine emitted an
-            // Op for a block that doesn't exist — log + skip rather
-            // than crash. Future engines that genuinely Add+Update
-            // in the same batch will need an in-batch insert index
-            // tracker (TBD when first such engine lands).
-            let idx = id.0 as usize;
+            // Bridge maps `NodeId(idx + 1)` → v1 `text_blocks[idx]`.
+            // The `+ 1` skips `NodeId::NONE` (= 0), reserved by
+            // koharu-core as the "no node" sentinel — see id.rs.
+            // build_scene_from_document assigns ids by array
+            // position so the inverse mapping is `id.0 - 1`.
+            // Engines never reorder Scene's IndexMap (read-only),
+            // so the mapping is stable across the run.
+            let Some(idx) = node_id_to_index(id) else {
+                warn!(node_id = id.0, "UpdateTextBlock: node id is NONE, skipping");
+                return Ok(());
+            };
             let Some(target) = doc.text_blocks.get_mut(idx) else {
                 warn!(
                     node_id = id.0,
+                    array_index = idx,
                     blocks_len = doc.text_blocks.len(),
                     "UpdateTextBlock: node id out of range, skipping"
                 );
@@ -346,12 +353,16 @@ fn apply_op(doc: &mut Document, op: Op, blobs: &BlobStore) -> Result<()> {
             apply_text_block_patch(target, patch);
         }
         Op::RemoveTextBlock { id, .. } => {
-            let idx = id.0 as usize;
+            let Some(idx) = node_id_to_index(id) else {
+                warn!(node_id = id.0, "RemoveTextBlock: node id is NONE, skipping");
+                return Ok(());
+            };
             if idx < doc.text_blocks.len() {
                 doc.text_blocks.remove(idx);
             } else {
                 warn!(
                     node_id = id.0,
+                    array_index = idx,
                     blocks_len = doc.text_blocks.len(),
                     "RemoveTextBlock: node id out of range, skipping"
                 );
@@ -461,6 +472,25 @@ fn scene_block_to_v1(block: SceneTextBlock) -> koharu_types::TextBlock {
 /// `Op::ReplaceTextBlocks` variant.
 pub fn clear_doc_text_blocks(doc: &mut Document) {
     doc.text_blocks.clear();
+}
+
+/// Convert a v1 `text_blocks[idx]` array index to its v2 `NodeId`.
+/// Shifts by `+1` so we don't collide with `NodeId::NONE` (= 0),
+/// which koharu-core reserves as the "no node" sentinel.
+pub fn index_to_node_id(idx: usize) -> NodeId {
+    NodeId(idx as u64 + 1)
+}
+
+/// Inverse of [`index_to_node_id`]. Returns `None` for `NodeId(0)`
+/// because that's the NONE sentinel — receiving it through an
+/// `Op::UpdateTextBlock` is a sign the emitting engine is buggy
+/// (or skipped the bridge's `+1` convention).
+pub fn node_id_to_index(id: NodeId) -> Option<usize> {
+    if id.0 == 0 {
+        None
+    } else {
+        Some((id.0 - 1) as usize)
+    }
 }
 
 /// Read characters, glossary, and series meta from the currently-
@@ -671,5 +701,93 @@ mod tests {
         let dyn_img: DynamicImage = seg.into();
         assert_eq!(dyn_img.width(), 2);
         assert_eq!(dyn_img.height(), 2);
+    }
+
+    /// Audit #5/F1 regression: Scene-built TextBlocks must NOT
+    /// occupy `NodeId::NONE` (= 0). Bridge shifts by `+1` so
+    /// `text_blocks[0]` → `NodeId(1)`, etc. Inverse mapping in
+    /// `node_id_to_index` recovers the original index.
+    #[test]
+    fn scene_text_block_ids_skip_none_sentinel() {
+        let blobs = BlobStore::in_memory();
+        let mut doc = one_pixel_doc();
+        // Seed with two existing text blocks so build_scene has
+        // something to assign ids to.
+        doc.text_blocks.push(koharu_types::TextBlock {
+            x: 0.0, y: 0.0, width: 1.0, height: 1.0, confidence: 1.0,
+            line_polygons: None, source_direction: None, source_language: None,
+            rotation_deg: None, detected_font_size_px: None, detector: None,
+            text: Some("first".into()), translation: None, style: None,
+            font_prediction: None, rendered: None, lock_layout_box: false,
+            layout_seed_x: None, layout_seed_y: None,
+            layout_seed_width: None, layout_seed_height: None,
+        });
+        doc.text_blocks.push(koharu_types::TextBlock {
+            x: 0.0, y: 0.0, width: 1.0, height: 1.0, confidence: 1.0,
+            line_polygons: None, source_direction: None, source_language: None,
+            rotation_deg: None, detected_font_size_px: None, detector: None,
+            text: Some("second".into()), translation: None, style: None,
+            font_prediction: None, rendered: None, lock_layout_box: false,
+            layout_seed_x: None, layout_seed_y: None,
+            layout_seed_width: None, layout_seed_height: None,
+        });
+
+        let (scene, page_id) = build_scene_from_document(&doc, &blobs).unwrap();
+        assert_ne!(page_id.0, 0, "PageId must skip NONE sentinel");
+        let page = scene.pages.get(&page_id).unwrap();
+        let ids: Vec<NodeId> = page.text_blocks.keys().copied().collect();
+        assert_eq!(ids, vec![NodeId(1), NodeId(2)], "NodeIds must skip 0");
+        // Inverse mapping recovers the v1 array indices.
+        assert_eq!(node_id_to_index(NodeId(1)), Some(0));
+        assert_eq!(node_id_to_index(NodeId(2)), Some(1));
+        // NONE rejected.
+        assert_eq!(node_id_to_index(NodeId(0)), None);
+    }
+
+    /// Updating block via its shifted NodeId hits the correct v1
+    /// row. If the bridge's `+1` shift weren't matched by the
+    /// inverse `-1` in apply, this test would assert on the wrong
+    /// block.
+    #[test]
+    fn apply_update_text_block_uses_shifted_id_mapping() {
+        let blobs = BlobStore::in_memory();
+        let mut doc = one_pixel_doc();
+        doc.text_blocks.push(koharu_types::TextBlock {
+            x: 0.0, y: 0.0, width: 1.0, height: 1.0, confidence: 1.0,
+            line_polygons: None, source_direction: None, source_language: None,
+            rotation_deg: None, detected_font_size_px: None, detector: None,
+            text: Some("a-before".into()), translation: None, style: None,
+            font_prediction: None, rendered: None, lock_layout_box: false,
+            layout_seed_x: None, layout_seed_y: None,
+            layout_seed_width: None, layout_seed_height: None,
+        });
+        doc.text_blocks.push(koharu_types::TextBlock {
+            x: 0.0, y: 0.0, width: 1.0, height: 1.0, confidence: 1.0,
+            line_polygons: None, source_direction: None, source_language: None,
+            rotation_deg: None, detected_font_size_px: None, detector: None,
+            text: Some("b-before".into()), translation: None, style: None,
+            font_prediction: None, rendered: None, lock_layout_box: false,
+            layout_seed_x: None, layout_seed_y: None,
+            layout_seed_width: None, layout_seed_height: None,
+        });
+
+        // Update the SECOND block (array index 1) via its shifted id
+        // NodeId(2). Bridge inverse maps id-1 → index 1.
+        apply_op(
+            &mut doc,
+            Op::UpdateTextBlock {
+                page: PageId(1),
+                id: NodeId(2),
+                patch: koharu_core::TextBlockPatch {
+                    source_text: Some(Some("b-after".into())),
+                    ..Default::default()
+                },
+            },
+            &blobs,
+        )
+        .unwrap();
+
+        assert_eq!(doc.text_blocks[0].text.as_deref(), Some("a-before"));
+        assert_eq!(doc.text_blocks[1].text.as_deref(), Some("b-after"));
     }
 }

@@ -39,3 +39,16 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 walkdir = "2"
+
+# Phase 4 / audit #5 F4: propagate GPU backend features from the
+# `koharu` binary all the way down to `koharu-engines` so the
+# probe (cudarc / metal-rs) compiles into the released binary
+# instead of returning the stub. The koharu binary's `cuda` /
+# `metal` features add `koharu-pipeline/cuda` etc. — without
+# this passthrough, a `--features cuda` build would still see
+# `koharu_engines::probe()` return "nothing detected" because
+# the cuda feature never lit up the engines crate.
+[features]
+default = []
+cuda = ["koharu-engines/cuda"]
+metal = ["koharu-engines/metal"]
