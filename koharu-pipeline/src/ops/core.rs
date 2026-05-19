@@ -149,7 +149,7 @@ pub async fn open_documents(
     if inputs.is_empty() {
         let chosen = tokio::task::spawn_blocking(|| {
             FileDialog::new()
-                .add_filter("Images", &["png", "jpg", "jpeg", "webp"])
+                .add_filter("Koharu / Images", &["khr", "png", "jpg", "jpeg", "webp"])
                 .pick_files()
         })
         .await?;
@@ -190,7 +190,7 @@ pub async fn add_documents(
     if inputs.is_empty() {
         let chosen = tokio::task::spawn_blocking(|| {
             FileDialog::new()
-                .add_filter("Images", &["png", "jpg", "jpeg", "webp"])
+                .add_filter("Koharu / Images", &["khr", "png", "jpg", "jpeg", "webp"])
                 .pick_files()
         })
         .await?;
