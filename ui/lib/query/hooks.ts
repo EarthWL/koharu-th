@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query/keys'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
@@ -25,6 +25,7 @@ export const useCurrentDocumentQuery = (index: number, enabled = true) =>
   })
 
 export const useCurrentDocumentState = () => {
+  const queryClient = useQueryClient()
   const currentDocumentIndex = useEditorUiStore(
     (state) => state.currentDocumentIndex,
   )
@@ -33,6 +34,28 @@ export const useCurrentDocumentState = () => {
     currentDocumentIndex,
     totalPages > 0,
   )
+
+  useEffect(() => {
+    if (totalPages <= 0) return
+
+    // Prefetch next page
+    if (currentDocumentIndex + 1 < totalPages) {
+      const nextIdx = currentDocumentIndex + 1
+      void queryClient.prefetchQuery({
+        queryKey: queryKeys.documents.current(nextIdx),
+        queryFn: () => api.getDocument(nextIdx),
+      })
+    }
+
+    // Prefetch previous page
+    if (currentDocumentIndex - 1 >= 0) {
+      const prevIdx = currentDocumentIndex - 1
+      void queryClient.prefetchQuery({
+        queryKey: queryKeys.documents.current(prevIdx),
+        queryFn: () => api.getDocument(prevIdx),
+      })
+    }
+  }, [currentDocumentIndex, totalPages, queryClient])
 
   return {
     currentDocumentIndex,

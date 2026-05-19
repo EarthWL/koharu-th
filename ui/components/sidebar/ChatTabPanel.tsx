@@ -380,6 +380,12 @@ export function ChatTabPanel() {
       priorRows.pop()
     }
 
+    // Rolling Window Context: Keep only the most recent 12 turns to speed up responses and save context window tokens
+    const ROLLING_WINDOW_LIMIT = 12
+    const rollingPriorRows = priorRows.length > ROLLING_WINDOW_LIMIT
+      ? priorRows.slice(priorRows.length - ROLLING_WINDOW_LIMIT)
+      : priorRows
+
     // Replace the just-persisted user message's display content with
     // the expanded prompt before sending. Attachments travel as-is —
     // provider adapters convert to native multi-modal blocks.
@@ -390,7 +396,7 @@ export function ChatTabPanel() {
     }
     const allMessages: ChatMessage[] = [
       { role: 'system', content: systemContent },
-      ...priorRows,
+      ...rollingPriorRows,
       lastUser,
     ]
 
