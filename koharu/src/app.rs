@@ -146,6 +146,22 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
     // missing — std::fs::rename refuses to overwrite a non-empty directory.
     migrate_legacy_model_cache();
 
+    // Migrate WebView2 local storage and cache from the old identifier directory to the new one
+    if let Some(local_dir) = dirs::data_local_dir() {
+        let old_webview_path = APP_ROOT.join("EBWebView");
+        let new_appdata_path = local_dir.join("com.earthwl.koharu-th");
+        let new_webview_path = new_appdata_path.join("EBWebView");
+
+        if old_webview_path.exists() && !new_webview_path.exists() {
+            tracing::info!("Migrating legacy WebView2 user data from {:?} to {:?}", old_webview_path, new_webview_path);
+            if let Err(err) = std::fs::create_dir_all(&new_appdata_path) {
+                tracing::warn!(?err, "Failed to create new appdata directory for WebView2 migration");
+            } else if let Err(err) = std::fs::rename(&old_webview_path, &new_webview_path) {
+                tracing::warn!(?err, "Failed to migrate legacy WebView2 user data automatically");
+            }
+        }
+    }
+
     std::fs::create_dir_all(MODEL_ROOT.as_path()).ok();
     std::fs::create_dir_all(LIB_ROOT.as_path()).ok();
 
