@@ -1,5 +1,5 @@
 use koharu_api::commands::{DetectPayload, IndexPayload, OcrPayload, RenderPayload};
-use koharu_core::PipelineRunOptions;
+use koharu_core::{PipelineRunOptions, StoredValue};
 use koharu_types::{DetectorEngine, OcrEngine};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
@@ -14,37 +14,41 @@ pub async fn detect(state: AppResources, payload: DetectPayload) -> anyhow::Resu
     // engine choice — same external API surface (DetectPayload) so
     // no RPC churn.
     let detector = payload.detector_engine.unwrap_or_default();
-    match detector {
-        DetectorEngine::Default => {
-            engine_bridge::run_engine_on_document(
-                &state,
-                payload.index,
-                engines::COMIC_TEXT_DETECTOR_ID,
-                PipelineRunOptions::new(),
-                engine_bridge::RunPolicy {
-                    clear_text_blocks_first: true,
-                },
-                CancellationToken::new(),
-            )
-            .await
-        }
+    let (engine_id, options) = match detector {
+        DetectorEngine::Default => (engines::COMIC_TEXT_DETECTOR_ID, PipelineRunOptions::new()),
         DetectorEngine::AnimeYolo => {
-            // Legacy direct call kept until Phase 4.3 ports Anime
-            // YOLO as its own engine. State_tx round-trip preserves
-            // the original mutate-Document shape.
-            let mut snapshot = state_tx::read_doc(&state.state, payload.index).await?;
-            state
-                .ml
-                .detect_with(
-                    &mut snapshot,
-                    DetectorEngine::AnimeYolo,
-                    payload.anime_yolo_variant,
-                    payload.anime_yolo_confidence,
-                )
-                .await?;
-            state_tx::update_doc(&state.state, payload.index, snapshot).await
+            // Bundle the per-call variant + confidence as engine
+            // settings. PipelineRunOptions carries them through the
+            // bridge → EngineCtx → `ctx.setting::<T>` chain so the
+            // engine reads the same shape it would from a saved
+            // profile.
+            let mut opts = PipelineRunOptions::new();
+            if let Some(variant) = payload.anime_yolo_variant {
+                opts = opts.with(
+                    "variant",
+                    StoredValue::String(variant.as_str().to_string()),
+                );
+            }
+            if let Some(confidence) = payload.anime_yolo_confidence {
+                opts = opts.with(
+                    "confidence_threshold",
+                    StoredValue::Number(confidence as f64),
+                );
+            }
+            (engines::ANIME_YOLO_DETECTOR_ID, opts)
         }
-    }
+    };
+    engine_bridge::run_engine_on_document(
+        &state,
+        payload.index,
+        engine_id,
+        options,
+        engine_bridge::RunPolicy {
+            clear_text_blocks_first: true,
+        },
+        CancellationToken::new(),
+    )
+    .await
 }
 
 #[instrument(level = "info", skip_all)]

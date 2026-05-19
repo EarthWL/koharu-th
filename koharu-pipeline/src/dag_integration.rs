@@ -44,9 +44,13 @@ fn assert_topological(plan: &[&'static EngineInfo]) {
 
 #[test]
 fn single_target_resolves_to_its_producer() {
+    // DetectionBoxes now has two producers (comic_text_detector,
+    // anime_yolo_detector) — must disambiguate via `prefer`.
     let plan = resolve_plan(PlanRequest {
         targets: vec![ArtifactKind::DetectionBoxes],
-        prefer: HashMap::new(),
+        prefer: [(ArtifactKind::DetectionBoxes, "comic_text_detector")]
+            .into_iter()
+            .collect(),
     })
     .expect("DetectionBoxes resolvable");
     assert_eq!(plan.len(), 1);
@@ -57,9 +61,16 @@ fn single_target_resolves_to_its_producer() {
 fn multi_artifact_from_same_engine_dedupes() {
     // comic_text_detector produces BOTH DetectionBoxes AND
     // SegmentationMask in one pass — must not be added twice.
+    // Both anime_yolo + comic_text are candidates for each
+    // artifact, so we disambiguate to the default detector.
     let plan = resolve_plan(PlanRequest {
         targets: vec![ArtifactKind::DetectionBoxes, ArtifactKind::SegmentationMask],
-        prefer: HashMap::new(),
+        prefer: [
+            (ArtifactKind::DetectionBoxes, "comic_text_detector"),
+            (ArtifactKind::SegmentationMask, "comic_text_detector"),
+        ]
+        .into_iter()
+        .collect(),
     })
     .expect("plan resolvable");
     assert_eq!(plan.len(), 1, "single engine produces both artifacts");
@@ -69,12 +80,17 @@ fn multi_artifact_from_same_engine_dedupes() {
 #[test]
 fn transitive_deps_walked_in_topological_order() {
     // Translation → OcrText → DetectionBoxes → SourceImage chain.
-    // mit48px_ocr disambiguates the OCR choice.
+    // OcrText (mit48px vs manga) AND DetectionBoxes (comic_text vs
+    // anime_yolo) both have multiple producers; pass `prefer` to
+    // disambiguate both.
     let plan = resolve_plan(PlanRequest {
         targets: vec![ArtifactKind::Translation],
-        prefer: [(ArtifactKind::OcrText, "mit48px_ocr")]
-            .into_iter()
-            .collect(),
+        prefer: [
+            (ArtifactKind::OcrText, "mit48px_ocr"),
+            (ArtifactKind::DetectionBoxes, "comic_text_detector"),
+        ]
+        .into_iter()
+        .collect(),
     })
     .expect("Translation resolvable");
     let ids: Vec<&str> = plan.iter().map(|e| e.id).collect();
@@ -83,6 +99,29 @@ fn transitive_deps_walked_in_topological_order() {
         vec!["comic_text_detector", "mit48px_ocr", "local_llm_translate"]
     );
     assert_topological(&plan);
+}
+
+#[test]
+fn detection_boxes_now_has_two_producers() {
+    // Regression test for the AnimeYolo port — without `prefer`,
+    // DetectionBoxes must be reported as ambiguous between the two
+    // detector engines, surfacing both candidates to the UI.
+    let err = resolve_plan(PlanRequest {
+        targets: vec![ArtifactKind::DetectionBoxes],
+        prefer: HashMap::new(),
+    })
+    .expect_err("ambiguous");
+    match err {
+        ResolveError::AmbiguousProducer {
+            artifact,
+            candidates,
+        } => {
+            assert_eq!(artifact, ArtifactKind::DetectionBoxes);
+            assert!(candidates.contains(&"comic_text_detector"));
+            assert!(candidates.contains(&"anime_yolo_detector"));
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
 }
 
 #[test]
@@ -165,12 +204,18 @@ fn prefer_wrong_output_errors() {
 fn multiple_targets_share_upstream_engine() {
     // Both Translation AND InpaintedImage depend on the detector.
     // The detector must appear once + before both downstream
-    // engines.
+    // engines. With AnimeYolo in the mix the detector slot needs
+    // disambiguation (pick comic_text_detector — produces bubble
+    // mask which lama_inpaint consumes).
     let plan = resolve_plan(PlanRequest {
         targets: vec![ArtifactKind::Translation, ArtifactKind::InpaintedImage],
-        prefer: [(ArtifactKind::OcrText, "manga_ocr")]
-            .into_iter()
-            .collect(),
+        prefer: [
+            (ArtifactKind::OcrText, "manga_ocr"),
+            (ArtifactKind::DetectionBoxes, "comic_text_detector"),
+            (ArtifactKind::SegmentationMask, "comic_text_detector"),
+        ]
+        .into_iter()
+        .collect(),
     })
     .expect("plan resolvable");
     let ids: Vec<&str> = plan.iter().map(|e| e.id).collect();
