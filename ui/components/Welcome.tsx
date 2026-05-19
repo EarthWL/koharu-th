@@ -947,6 +947,9 @@ export function WelcomeGate() {
     void refreshCurrent()
   }, [refreshCurrent])
 
-  if (projectInfo || standaloneAllowed) return null
+  const hasRealProject = projectInfo && projectInfo.name !== 'Global Scratchpad'
+
+  if (hasRealProject || standaloneAllowed) return null
   return <Welcome />
 }
+

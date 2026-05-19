@@ -117,13 +117,32 @@ fn to_dto(m: ChatMessage) -> ChatMessageDto {
 async fn require_project(
     state: &AppResources,
 ) -> anyhow::Result<koharu_project::Project> {
-    state
-        .project
-        .read()
-        .await
-        .clone()
-        .context("No project is currently open")
+    let guard = state.project.read().await;
+    if let Some(p) = guard.as_ref() {
+        return Ok(p.clone());
+    }
+    drop(guard);
+
+    let mut write_guard = state.project.write().await;
+    if let Some(p) = write_guard.as_ref() {
+        return Ok(p.clone());
+    }
+
+    let app_root = state.lib_root.parent().unwrap_or(&state.lib_root);
+    let global_project_path = app_root.join("global_project");
+    std::fs::create_dir_all(&global_project_path).ok();
+
+    let project = if global_project_path.join("series.koharuproj").exists() {
+        koharu_project::Project::open(&global_project_path)?
+    } else {
+        koharu_project::Project::create(&global_project_path, "Global Scratchpad", state.version)?
+    };
+
+    *write_guard = Some(project.clone());
+    Ok(project)
 }
+
+
 
 // ---------------------------------------------------------------
 // web_fetch_url — agentic tool for the AI Chat. Lets the assistant

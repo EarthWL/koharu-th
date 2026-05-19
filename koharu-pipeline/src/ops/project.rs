@@ -297,12 +297,10 @@ pub async fn project_close(state: AppResources) -> anyhow::Result<()> {
 }
 
 pub async fn project_current(state: AppResources) -> anyhow::Result<Option<ProjectInfo>> {
-    let guard = state.project.read().await;
-    match guard.as_ref() {
-        Some(project) => Ok(Some(build_info(project)?)),
-        None => Ok(None),
-    }
+    let project = require_project(&state).await?;
+    Ok(Some(build_info(&project)?))
 }
+
 
 // ---------------------------------------------------------------
 // helpers
@@ -2057,13 +2055,32 @@ fn glossary_to_dto(g: GlossaryEntry) -> GlossaryDto {
 }
 
 async fn require_project(state: &AppResources) -> anyhow::Result<Project> {
-    state
-        .project
-        .read()
-        .await
-        .clone()
-        .context("No project is currently open")
+    let guard = state.project.read().await;
+    if let Some(p) = guard.as_ref() {
+        return Ok(p.clone());
+    }
+    drop(guard);
+
+    let mut write_guard = state.project.write().await;
+    if let Some(p) = write_guard.as_ref() {
+        return Ok(p.clone());
+    }
+
+    let app_root = state.lib_root.parent().unwrap_or(&state.lib_root);
+    let global_project_path = app_root.join("global_project");
+    std::fs::create_dir_all(&global_project_path).ok();
+
+    let project = if global_project_path.join("series.koharuproj").exists() {
+        Project::open(&global_project_path)?
+    } else {
+        Project::create(&global_project_path, "Global Scratchpad", state.version)?
+    };
+
+    *write_guard = Some(project.clone());
+    Ok(project)
 }
+
+
 
 fn series_meta_to_dto(m: SeriesMeta) -> SeriesMetaDto {
     SeriesMetaDto {
