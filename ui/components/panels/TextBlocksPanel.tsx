@@ -6,6 +6,8 @@ import { motion } from 'motion/react'
 import { TextBlock } from '@/types'
 import {
   AlertTriangleIcon,
+  ArrowDown,
+  ArrowUp,
   Download,
   ExpandIcon,
   Languages,
@@ -52,6 +54,17 @@ export function TextBlocksPanel() {
   const { data: llmReady = false } = useLlmReadyQuery()
   const { cloudProvider } = usePreferencesStore()
   const [generatingIndex, setGeneratingIndex] = useState<number | null>(null)
+
+  const handleMoveBlock = async (index: number, direction: 'up' | 'down') => {
+    const nextIndex = direction === 'up' ? index - 1 : index + 1
+    if (nextIndex < 0 || nextIndex >= textBlocks.length) return
+    const updatedBlocks = [...textBlocks]
+    const temp = updatedBlocks[index]
+    updatedBlocks[index] = updatedBlocks[nextIndex]
+    updatedBlocks[nextIndex] = temp
+    await replaceAllBlocks(updatedBlocks)
+    setSelectedBlockIndex(nextIndex)
+  }
   
   const isLlmAvailable = llmReady || cloudProvider !== 'none'
 
@@ -241,6 +254,9 @@ export function TextBlocksPanel() {
                   onChange={(updates) => void replaceBlock(index, updates)}
                   onGenerate={() => void handleGenerate(index)}
                   onFitToBubble={() => void fitBlockToBubble(index)}
+                  onMoveBlock={(direction) => void handleMoveBlock(index, direction)}
+                  isFirst={index === 0}
+                  isLast={index === textBlocks.length - 1}
                   generating={generatingIndex === index}
                   llmReady={isLlmAvailable}
                 />
@@ -260,6 +276,9 @@ type BlockCardProps = {
   onChange: (updates: Partial<TextBlock>) => void
   onGenerate: () => void | Promise<void>
   onFitToBubble: () => void | Promise<void>
+  onMoveBlock: (direction: 'up' | 'down') => void
+  isFirst: boolean
+  isLast: boolean
   generating: boolean
   llmReady: boolean
 }
@@ -271,6 +290,9 @@ function BlockCard({
   onChange,
   onGenerate,
   onFitToBubble,
+  onMoveBlock,
+  isFirst,
+  isLast,
   generating,
   llmReady,
 }: BlockCardProps) {
@@ -417,6 +439,28 @@ function BlockCard({
                 onValueChange={([val]) => onChange({ rotationDeg: val })}
                 className='py-2'
               />
+            </div>
+            <div className='flex gap-1.5 pt-1'>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => onMoveBlock('up')}
+                disabled={isFirst}
+                className='h-7 flex-1 gap-1 text-[10px]'
+              >
+                <ArrowUp className='size-3' />
+                เลื่อนขึ้น
+              </Button>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => onMoveBlock('down')}
+                disabled={isLast}
+                className='h-7 flex-1 gap-1 text-[10px]'
+              >
+                <ArrowDown className='size-3' />
+                เลื่อนลง
+              </Button>
             </div>
             <Button
               variant='outline'
