@@ -171,13 +171,21 @@ impl Lama {
             return Ok(image.clone());
         }
 
-        // bubble เดียว: ไม่ spawn thread เพื่อหลีกเลี่ยง overhead
+        // bubble เดียว: ไม่ spawn thread เพื่อหลีกเลี่ยง overhead.
+        // Wrap inference_model_rgb in catch_unwind because cudarc
+        // 0.19.3 can panic on CUDNN_STATUS_INTERNAL_ERROR — converting
+        // the panic to an Err keeps the process alive (the wider
+        // engine_bridge catch_unwind from audit #9/B3 ALSO catches,
+        // but only if the panic propagates through the future; thread
+        // panics with `panic = unwind` SHOULD propagate via .join()
+        // but Windows MSVC fast-fail can short-circuit it. Belt +
+        // braces here at the cudarc call site.)
         if crops.len() == 1 {
             let crop = &crops[0];
             let output = if let Some(filled) = try_fill_balloon(&crop.image, &crop.mask) {
                 filled
             } else {
-                self.inference_model_rgb(&crop.image, &crop.mask)?
+                catch_cudnn_panic(|| self.inference_model_rgb(&crop.image, &crop.mask))?
             };
             let mut result = image.clone();
             replace(
@@ -192,6 +200,11 @@ impl Lama {
         // หลาย bubble: run inference พร้อมกันด้วย scoped threads
         // &self ถูกยืมแบบ immutable — LaMa weights เป็น Arc-backed tensor (read-only)
         // จึงปลอดภัยที่จะ access จากหลาย thread พร้อมกัน
+        //
+        // Each worker wraps its cudarc call in catch_unwind so a
+        // cuDNN panic in ONE thread becomes an Err for THAT crop
+        // (callers see partial inpaint failure as a clear error
+        // instead of process abort).
         let outputs: Vec<(Xyxy, Result<RgbImage>)> = std::thread::scope(|scope| {
             let handles: Vec<_> = crops
                 .iter()
@@ -200,7 +213,9 @@ impl Lama {
                         let out = if let Some(filled) = try_fill_balloon(&crop.image, &crop.mask) {
                             Ok(filled)
                         } else {
-                            self.inference_model_rgb(&crop.image, &crop.mask)
+                            catch_cudnn_panic(|| {
+                                self.inference_model_rgb(&crop.image, &crop.mask)
+                            })
                         };
                         (crop.xyxy_e, out)
                     })
@@ -311,6 +326,39 @@ impl Lama {
         let image = RgbImage::from_raw(width as u32, height as u32, raw)
             .ok_or_else(|| anyhow::anyhow!("failed to create image buffer from model output"))?;
         Ok(DynamicImage::ImageRgb8(image))
+    }
+}
+
+/// Run `f` and convert any Rust panic into an `Err`. Used at the
+/// cudarc/cuDNN call boundary because cudarc 0.19.3 has
+/// `Result::unwrap()` paths that fire on transient errors
+/// (`CUDNN_STATUS_INTERNAL_ERROR` is the one we hit). Without this,
+/// the unwrap panics — and with Windows MSVC's __fastfail behaviour
+/// the panic stack-aborts the entire process before tracing logs
+/// can flush.
+///
+/// `AssertUnwindSafe` because `&self` borrowed by the inference
+/// call carries `LaMa` weights (Arc<Tensor>) which aren't formally
+/// `UnwindSafe` but ARE safe to re-read after a thread panic
+/// (weights are read-only post-load).
+fn catch_cudnn_panic<F, T>(f: F) -> Result<T>
+where
+    F: FnOnce() -> Result<T>,
+{
+    use std::panic::AssertUnwindSafe;
+    match std::panic::catch_unwind(AssertUnwindSafe(f)) {
+        Ok(result) => result,
+        Err(payload) => {
+            let msg = if let Some(s) = payload.downcast_ref::<&str>() {
+                (*s).to_string()
+            } else if let Some(s) = payload.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "<non-string panic payload>".to_string()
+            };
+            tracing::warn!(msg = %msg, "LaMa cudarc call panicked, recovering");
+            bail!("LaMa inpaint panicked in cuDNN: {msg}")
+        }
     }
 }
 

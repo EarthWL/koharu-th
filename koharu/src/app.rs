@@ -95,11 +95,36 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
 
     if headless {
         std::panic::set_hook(Box::new(|info| {
+            // Audit #9 follow-up: log the panic before printing so
+            // it lands in any tracing subscribers (file appender,
+            // log aggregator, etc.) even when stderr is detached.
+            tracing::error!(panic = %info, "panic in headless mode");
             eprintln!("panic: {info}");
+            if let Some(loc) = info.location() {
+                eprintln!("  at {}:{}:{}", loc.file(), loc.line(), loc.column());
+            }
+            let bt = std::backtrace::Backtrace::force_capture();
+            eprintln!("backtrace:\n{bt}");
         }));
     } else {
         std::panic::set_hook(Box::new(|info| {
             let msg = info.to_string();
+            // Audit #9 follow-up: emit panic to tracing FIRST so
+            // log files capture it before the dialog blocks the
+            // thread. Previously the dialog took the message and
+            // process::exit jumped out before any log flush, so
+            // panics that escaped catch_unwind left zero trace.
+            tracing::error!(panic = %msg, "panic surfaced to dialog");
+            if let Some(loc) = info.location() {
+                tracing::error!(
+                    file = loc.file(),
+                    line = loc.line(),
+                    col = loc.column(),
+                    "panic location"
+                );
+            }
+            let bt = std::backtrace::Backtrace::force_capture();
+            tracing::error!(backtrace = %bt, "panic backtrace");
             MessageDialog::new()
                 .set_level(rfd::MessageLevel::Error)
                 .set_title("Panic")
