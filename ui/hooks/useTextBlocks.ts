@@ -3,7 +3,10 @@
 import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCurrentDocumentState } from '@/lib/query/hooks'
-import { useTextBlockMutations } from '@/lib/query/mutations'
+import {
+  useDocumentMutations,
+  useTextBlockMutations,
+} from '@/lib/query/mutations'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { TextBlock } from '@/types'
 import { api } from '@/lib/api'
@@ -58,8 +61,19 @@ export function useTextBlocks() {
     (state) => state.setSelectedBlockIndex,
   )
   const { updateTextBlocks, renderTextBlock } = useTextBlockMutations()
+  const { render: renderFullPage } = useDocumentMutations()
   const renderTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(
     new Map(),
+  )
+  // Self-test follow-up: shared timer for the FULL-page composite
+  // re-bake. Triggered after any geometry change (move / resize /
+  // rotate) so doc.rendered refreshes with the new block state.
+  // Without this the composite stays frozen at the last manual
+  // Render until the user clicks Render again — even though
+  // per-block sprites re-render via `scheduleRender` above, those
+  // aren't what the canvas displays once Render has been clicked.
+  const fullPageRenderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
   )
 
   useEffect(() => {
@@ -86,6 +100,16 @@ export function useTextBlocks() {
     renderTimersRef.current.set(index, timer)
   }
 
+  const scheduleFullPageRender = () => {
+    if (fullPageRenderTimerRef.current) {
+      clearTimeout(fullPageRenderTimerRef.current)
+    }
+    fullPageRenderTimerRef.current = setTimeout(() => {
+      fullPageRenderTimerRef.current = null
+      void renderFullPage(undefined, currentDocumentIndex)
+    }, TEXT_BLOCK_RENDER_DEBOUNCE_MS)
+  }
+
   const replaceBlock = async (index: number, updates: Partial<TextBlock>) => {
     const currentBlocks = document?.textBlocks ?? []
     const nextBlocks = currentBlocks.map((block, idx) =>
@@ -93,13 +117,21 @@ export function useTextBlocks() {
     )
     await updateTextBlocks(nextBlocks)
 
+    // Self-test follow-up: do NOT toggle showRenderedImage to false
+    // here. Full Render produces doc.rendered (page composite) but
+    // doesn't populate per-block `block.rendered` — so hiding the
+    // composite + showing the SpriteLayer used to result in a blank
+    // canvas (no per-block sprites existed). Keep the composite
+    // visible during editing — annotation handles overlay on top —
+    // and rely on the debounced full-page re-bake below to refresh
+    // the composite once the user stops dragging. The composite
+    // shows stale translation positions mid-drag but that beats
+    // a fully-blank canvas.
     if (hasGeometryChange(updates)) {
-      const ui = useEditorUiStore.getState()
-      ui.setShowRenderedImage(false)
-      ui.setShowTextBlocksOverlay(true)
+      // Schedule a full-page composite re-bake so doc.rendered
+      // catches up with the new block state.
+      scheduleFullPageRender()
     }
-
-    const doc = document
 
     if (shouldRenderSprite(updates)) {
       if (shouldRenderSpriteImmediately(updates)) {
