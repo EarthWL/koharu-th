@@ -97,3 +97,4 @@ export type Document = {
   brushLayer?: Uint8Array
   rendered?: Uint8Array
 }
+

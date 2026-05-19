@@ -158,6 +158,16 @@ export type RpcMethodMap = {
   llm_call_log: [any, any]
   llm_cost_stats: [void, any]
   llm_cost_breakdown: [void, any]
+  cloud_llm_call: [
+    {
+      profileId: number
+      prompt: string
+      modelName: string
+      apiUrl?: string | null
+      jsonMode: boolean
+    },
+    { text: string }
+  ]
 
   // ── AI Chat ──────────────────────────────────────────────────
   chat_messages_list: [any, any]

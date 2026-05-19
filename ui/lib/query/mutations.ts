@@ -961,8 +961,21 @@ export const useLlmMutations = () => {
     }
   }, [clearProgress, queryClient, setProgress])
 
+  /**
+   * [llmGenerate] — จุดรวมศูนย์การเรียก LLM ทั้ง local และ cloud
+   *
+   * ทำงาน 2 โหมด:
+   *  - Cloud Provider (cloudProvider !== 'none'): ส่งตรงไปยัง cloudLlm.ts
+   *    โดย inject `style` เข้า prompt ก่อนยิง API
+   *  - Local LLM (cloudProvider === 'none'): เรียก Rust backend ผ่าน api.llmGenerate()
+   *    ไม่รองรับ style parameter (Rust pipeline ไม่รู้จัก style)
+   *
+   * @param style - น้ำเสียงการแปล ('standard' | 'shonen' | 'polite')
+   *   ใช้ได้เฉพาะ cloud provider — local LLM ไม่ได้รับ parameter นี้
+   *   ถ้าไม่ส่ง (undefined) → cloud path ใช้ prompt แบบ default
+   */
   const llmGenerate = useCallback(
-    async (_?: any, index?: number, textBlockIndex?: number) => {
+    async (_?: any, index?: number, textBlockIndex?: number, style?: 'standard' | 'shonen' | 'polite') => {
       const resolvedIndex =
         index ?? useEditorUiStore.getState().currentDocumentIndex
       
@@ -976,11 +989,12 @@ export const useLlmMutations = () => {
         const language = cloudTargetLanguage || 'Thai'
 
         if (typeof textBlockIndex === 'number') {
-          // Single block translation
+          // [Single block] แปลแค่ bubble เดียวที่ผู้ใช้กดปุ่ม
+          // ส่ง style ไปด้วยเพื่อให้ cloudLlm.ts inject style instruction ลง prompt
           const block = currentDocument?.textBlocks?.[textBlockIndex]
           if (block?.text) {
             try {
-              const translation = await generateCloudTranslation(block.text, language)
+              const translation = await generateCloudTranslation(block.text, language, undefined, style)
               const nextBlocks = currentDocument.textBlocks.map((b: any, i: number) =>
                  i === textBlockIndex ? { ...b, translation } : b
               )

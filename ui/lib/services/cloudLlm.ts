@@ -273,23 +273,40 @@ export type ProviderOverride = {
   model: string
 }
 
-/** Detailed sibling of {@link generateCloudTranslation} — returns
- *  metadata about TM/glossary/template alongside the text. */
+/**
+ * [ฟังก์ชัน public แบบ Detailed]
+ * คืนผลการแปลพร้อม metadata ครบชุด (TM hit, glossary, template ที่ใช้, เวลาที่ใช้)
+ * เหมาะสำหรับ QA Page หรือ Debug UI ที่ต้องการข้อมูลเชิงลึก
+ *
+ * @param style - สไตล์การแปล (ดู generateCloudTranslationImpl สำหรับรายละเอียด)
+ */
 export async function generateCloudTranslationDetailed(
   text: string,
   language: string,
   onChunk?: StreamHandler,
   override?: ProviderOverride,
+  style?: 'standard' | 'shonen' | 'polite',
 ): Promise<TranslationDetailed> {
-  return generateCloudTranslationImpl(text, language, onChunk, override)
+  return generateCloudTranslationImpl(text, language, onChunk, override, style)
 }
 
+/**
+ * [ฟังก์ชัน public แบบ Simple]
+ * คืนแค่ข้อความที่แปลแล้ว (string ล้วนๆ) ไม่มี metadata พ่วงมาด้วย
+ * เรียกใช้จาก llmGenerate() ใน mutations.ts เพื่อแปลแต่ละ bubble
+ *
+ * @param style - กำหนดน้ำเสียงการแปล:
+ *   - 'standard'  → ภาษาทั่วไป สมดุล เหมาะกับการ์ตูนทุกแนว (default)
+ *   - 'shonen'    → ดุดัน ร้อนแรง มีพลัง เหมาะกับมังงะแนวต่อสู้
+ *   - 'polite'    → สุภาพ อ่อนโยน เหมาะกับมังงะแนวดราม่า ชีวิต โรแมนซ์
+ */
 export async function generateCloudTranslation(
   text: string,
   language: string,
   onChunk?: StreamHandler,
+  style?: 'standard' | 'shonen' | 'polite',
 ): Promise<string> {
-  return (await generateCloudTranslationImpl(text, language, onChunk)).text
+  return (await generateCloudTranslationImpl(text, language, onChunk, undefined, style)).text
 }
 
 // Map of profile ID to recovery timestamp (Date.now() + cooldownDuration)
@@ -325,13 +342,32 @@ function getCooldownDurationForProvider(provider: string, errorMessage: string):
   return 1 * 60 * 1000 // Default 1 minute
 }
 
+/**
+ * [ฟังก์ชัน core — ไม่ export โดยตรง]
+ * รับ text + language + style แล้วสร้าง prompt → ส่งไปหา Cloud LLM
+ * ผ่าน failover หลายโปรไฟล์ → คืน TranslationDetailed
+ *
+ * ลำดับการทำงาน:
+ *  1. ตรวจ Translation Memory (TM) ก่อน — ถ้า hit ตรงๆ ไม่เปลือง token เลย
+ *  2. ถ้าไม่มี TM hit → ดึง Project Prompt จาก backend (ถ้ามี project เปิดอยู่)
+ *  3. เติม style instruction ต่อท้าย prompt ตามค่า `style` ที่รับมา
+ *  4. วน failover ลิสต์โปรไฟล์ → ส่ง request → คืนผลตัวแรกที่สำเร็จ
+ *  5. บันทึกผลลงใน TM เพื่อใช้ซ้ำในอนาคต (best-effort)
+ */
 async function generateCloudTranslationImpl(
   text: string,
   language: string,
   onChunk?: StreamHandler,
   override?: ProviderOverride,
+  // [AI Translation Style Switcher — Issue #25]
+  // style เป็น parameter ที่ใช้ปรับน้ำเสียงของ translation prompt
+  // ถ้าไม่ส่งมา (undefined) → prompt จะเป็นแบบ default ไม่มี style instruction พ่วง
+  style?: 'standard' | 'shonen' | 'polite',
 ): Promise<TranslationDetailed> {
   const live = usePreferencesStore.getState()
+
+  // [ด่านที่ 1] ตรวจ TM ก่อนเลย — ถ้าเจอ exact/fuzzy match ไม่ต้องยิง API เลย
+  // ช่วยประหยัด token ได้มากสำหรับ dialogue ที่ซ้ำบ่อยในมังงะ
   const tmHit = await tryTmHit(text, language)
   if (tmHit) {
     if (onChunk) onChunk(tmHit.entry.targetText)
@@ -350,12 +386,32 @@ async function generateCloudTranslationImpl(
     }
   }
 
+  // [ด่านที่ 2] ดึง Project Prompt — ถ้ามี project เปิดอยู่ backend จะ inject
+  // glossary + ตัวละคร + rolling context เข้าไปในตัว prompt อัตโนมัติ
+  // ถ้าไม่มี project → ใช้ fallback prompt stub ทั่วไปแทน
   const projectPrompt = await tryProjectPrompt(text, language)
   const t0 = performance.now()
-  const prompt = projectPrompt?.prompt ??
+  let basePrompt = projectPrompt?.prompt ??
     `You are a professional manga translator. Translate the following text to ${language}.
 The translation should sound natural, conversational, and appropriate for comic book characters, keeping the original tone and context intact.
 Only return the translation, no extra text:\n\n${text}`
+
+  // [ด่านที่ 3] เติม Style Instruction ท้าย prompt
+  // หมายเหตุ: ถ้า projectPrompt มีอยู่ (project mode) style instruction จะ append ต่อท้าย
+  // project prompt นั้น — ไม่ override ทั้งหมด เพื่อรักษา glossary/character context ไว้
+  if (style === 'shonen') {
+    // โชเน็น: ดุดัน ร้อนแรง มีพลังงาน เหมาะกับมังงะต่อสู้อย่าง Dragon Ball, Naruto, One Piece
+    basePrompt += `\n\n[STYLE INSTRUCTION: Translate with an energetic, raw, passionate, and aggressive Shonen battle manga tone. Use energetic pronouns (e.g. in Thai, use 'แก'/'ฉัน', 'ข้า'/'เจ้า') and passionate exclamation endings (e.g. 'ว้อย!', 'ย้าก!', 'เซ่!').]`
+  } else if (style === 'polite') {
+    // สุภาพ: อ่อนโยน ประณีต เหมาะกับมังงะแนวดราม่า ชีวิต โรแมนซ์ หรือตัวละครผู้ใหญ่
+    basePrompt += `\n\n[STYLE INSTRUCTION: Translate with a highly polite, soft, respectful, and elegant tone. Use formal/gentle pronouns (e.g. in Thai, use 'คุณ'/'ผม'/'ดิฉัน'/'ฉัน') and polite sentence endings (e.g. 'ครับ'/'ค่ะ'/'นะคะ').]`
+  } else if (style === 'standard') {
+    // ทั่วไป: สมดุล เป็นธรรมชาติ ไม่เอนไปทางใดทางหนึ่ง ใช้ได้กับมังงะทุกแนว
+    basePrompt += `\n\n[STYLE INSTRUCTION: Translate in a standard manga dialogue tone - natural, conversational, expressive, and fitting the general scene without being overly aggressive or overly formal.]`
+  }
+  // style === undefined → ไม่เติมอะไร ใช้ prompt ตามที่มีอยู่โดยตรง
+
+  const prompt = basePrompt
 
   // Build failover attempts list if enabled
   type ConfigAttempt = {

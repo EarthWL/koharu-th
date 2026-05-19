@@ -79,10 +79,21 @@ export function TextBlocksPanel() {
   const accordionValue =
     selectedBlockIndex !== undefined ? selectedBlockIndex.toString() : ''
 
-  const handleGenerate = async (blockIndex: number) => {
+  /**
+   * [handleGenerate] — เรียก LLM แปล bubble เดียว พร้อมส่ง style
+   *
+   * เป็น wrapper บาง ๆ รอบ llmGenerate() เพื่อจัดการสถานะ generating
+   * (แสดง spinner ระหว่างรอ, ซ่อนเมื่อเสร็จ) โดยไม่ต้องยุ่งกับ
+   * logic การแปลโดยตรง — ทุกอย่างเดินทางผ่าน mutations.ts → cloudLlm.ts
+   *
+   * @param style - ถ้าผู้ใช้กด '⚔️ โชเน็น' จะส่ง 'shonen' มา
+   *   ถ้ากด '💬 ทั่วไป' ส่ง 'standard', ถ้ากด '👔 สุภาพ' ส่ง 'polite'
+   *   ปุ่ม Languages icon (🌐) จะส่ง 'standard' เป็น default
+   */
+  const handleGenerate = async (blockIndex: number, style?: 'standard' | 'shonen' | 'polite') => {
     setGeneratingIndex(blockIndex)
     try {
-      await llmGenerate(undefined, undefined, blockIndex)
+      await llmGenerate(undefined, undefined, blockIndex, style)
     } catch (error) {
       console.error(error)
     } finally {
@@ -252,7 +263,7 @@ export function TextBlocksPanel() {
                   index={index}
                   selected={index === selectedBlockIndex}
                   onChange={(updates) => void replaceBlock(index, updates)}
-                  onGenerate={() => void handleGenerate(index)}
+                  onGenerate={(style) => void handleGenerate(index, style)}
                   onFitToBubble={() => void fitBlockToBubble(index)}
                   onMoveBlock={(direction) => void handleMoveBlock(index, direction)}
                   isFirst={index === 0}
@@ -274,7 +285,7 @@ type BlockCardProps = {
   index: number
   selected: boolean
   onChange: (updates: Partial<TextBlock>) => void
-  onGenerate: () => void | Promise<void>
+  onGenerate: (style?: 'standard' | 'shonen' | 'polite') => void | Promise<void>
   onFitToBubble: () => void | Promise<void>
   onMoveBlock: (direction: 'up' | 'down') => void
   isFirst: boolean
@@ -386,10 +397,57 @@ function BlockCard({
               />
             </div>
             <div className='flex flex-col gap-0.5'>
-              <div className='flex items-center justify-between'>
+              <div className='flex items-center justify-between gap-1'>
                 <span className='text-muted-foreground text-[10px] uppercase'>
                   {t('textBlocks.translationLabel')}
                 </span>
+                
+                {/*
+                  [AI Translation Style Switcher]
+                  แสดงเฉพาะเมื่อ llmReady (Cloud Provider พร้อมใช้งาน)
+                  ผู้ใช้เลือกสไตล์ก่อนกดแปล → ส่ง style string ไปตลอด call chain:
+                    BlockCard.onGenerate(style)
+                      → TextBlocksPanel.handleGenerate(blockIndex, style)
+                        → useLlmMutations.llmGenerate(_, _, blockIndex, style)
+                          → generateCloudTranslation(text, lang, _, style)
+                            → generateCloudTranslationImpl() inject style instruction ใน prompt
+
+                  หมายเหตุ: local LLM (Rust backend) ไม่รองรับ style
+                  เพราะ api.llmGenerate() ไม่มี style parameter
+                  Style Switcher จึงซ่อนตัวเองเมื่อไม่มี Cloud Provider
+                */}
+                {llmReady && (
+                  <div className='flex items-center gap-0.5 bg-muted/60 p-0.5 rounded border border-border/40 select-none'>
+                    <button
+                      type='button'
+                      disabled={generating}
+                      onClick={() => onGenerate('standard')}
+                      className='text-[9px] px-1 py-0.5 rounded hover:bg-background/80 text-muted-foreground hover:text-foreground transition'
+                      title='แปลสไตล์ทั่วไป (Standard)'
+                    >
+                      💬 ทั่วไป
+                    </button>
+                    <button
+                      type='button'
+                      disabled={generating}
+                      onClick={() => onGenerate('shonen')}
+                      className='text-[9px] px-1 py-0.5 rounded hover:bg-background/80 text-muted-foreground hover:text-foreground transition font-medium'
+                      title='แปลสไตล์ต่อสู้/โชเน็น (Shonen)'
+                    >
+                      ⚔️ โชเน็น
+                    </button>
+                    <button
+                      type='button'
+                      disabled={generating}
+                      onClick={() => onGenerate('polite')}
+                      className='text-[9px] px-1 py-0.5 rounded hover:bg-background/80 text-muted-foreground hover:text-foreground transition'
+                      title='แปลสไตล์สุภาพ (Polite)'
+                    >
+                      👔 สุภาพ
+                    </button>
+                  </div>
+                )}
+
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -397,7 +455,7 @@ function BlockCard({
                       variant='ghost'
                       size='icon-xs'
                       disabled={!llmReady || generating}
-                      onClick={onGenerate}
+                      onClick={() => onGenerate('standard')}
                       className='size-5'
                       aria-label={t('textBlocks.generateAria')}
                     >
