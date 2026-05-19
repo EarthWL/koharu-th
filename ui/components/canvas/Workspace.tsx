@@ -438,13 +438,6 @@ export function Workspace() {
                             style={{ zIndex: 30 }}
                           />
                         )}
-                        {showTextBlocksOverlay && (
-                          <TextBlockAnnotations
-                            selectedIndex={selectedBlockIndex}
-                            onSelect={setSelectedBlockIndex}
-                            style={{ zIndex: 30 }}
-                          />
-                        )}
                         {currentDocument.rendered && showRenderedImage && (
                           <Image
                             data-testid='workspace-rendered-image'
@@ -453,6 +446,25 @@ export function Workspace() {
                             style={{ zIndex: 40 }}
                           />
                         )}
+                        {/*
+                          Self-test follow-up: TextBlockAnnotations is the
+                          interaction layer — block outlines, selection
+                          handles, drag/resize affordances. It MUST stay
+                          visible even when the rendered composite is
+                          shown, otherwise the user has nothing to grab.
+                          Always mount, place at z=50 (above the composite
+                          at z=40 — handles appear ON TOP of the baked
+                          page render). The showTextBlocksOverlay flag
+                          remains a manual visibility override for the
+                          SpriteLayer only (currently unused on the
+                          composite-is-truth flow but kept for the future
+                          per-block sprite display).
+                        */}
+                        <TextBlockAnnotations
+                          selectedIndex={selectedBlockIndex}
+                          onSelect={setSelectedBlockIndex}
+                          style={{ zIndex: 50 }}
+                        />
                       </div>
                       {draftBlock && (
                         <div
