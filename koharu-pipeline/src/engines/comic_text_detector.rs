@@ -104,7 +104,7 @@ impl Engine for ComicTextDetectorEngine {
         //    legacy facade to a Scene-native API.
         let mut tmp_doc = empty_document_with_image(image, width, height);
         ctx.ml
-            .detect_with(&mut tmp_doc, DetectorEngine::Default, None, None)
+            .detect_with(&mut tmp_doc, DetectorEngine::Default, None, None, None)
             .await
             .context("ml.detect_with failed")?;
 

@@ -168,6 +168,7 @@ async fn run_pipeline_inner(
                                 req.detector_engine.unwrap_or_default(),
                                 req.anime_yolo_variant,
                                 req.anime_yolo_confidence,
+                                None, // legacy pipeline doesn't carry nms; engine path does
                             )
                             .await?;
                     }

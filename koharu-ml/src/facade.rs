@@ -137,7 +137,7 @@ impl Model {
     /// `detect_with` for callers that haven't been threaded the
     /// engine preference yet.
     pub async fn detect(&self, doc: &mut Document) -> Result<()> {
-        self.detect_with(doc, DetectorEngine::default(), None, None)
+        self.detect_with(doc, DetectorEngine::default(), None, None, None)
             .await
     }
 
@@ -160,6 +160,7 @@ impl Model {
         engine: DetectorEngine,
         anime_yolo_variant: Option<AnimeTextYoloVariant>,
         anime_yolo_confidence: Option<f32>,
+        anime_yolo_nms: Option<f32>,
     ) -> Result<()> {
         let variant = anime_yolo_variant.unwrap_or(AnimeTextYoloVariant::N);
         let effective = match engine {
@@ -199,11 +200,16 @@ impl Model {
                 let conf = anime_yolo_confidence
                     .unwrap_or(crate::anime_text::DEFAULT_CONFIDENCE_THRESHOLD)
                     .clamp(0.05, 0.95);
-                let anime = yolo.inference_with_thresholds(
-                    &doc.image,
-                    conf,
-                    crate::anime_text::DEFAULT_NMS_THRESHOLD,
-                )?;
+                // Audit #9 follow-up: NMS threshold is now tunable
+                // alongside confidence. Lower NMS → more aggressive
+                // suppression of overlapping boxes → fewer stacked
+                // partial/full detections of the same text region.
+                // Clamp to a safe range; below 0.30 starts merging
+                // genuinely separate bubbles that sit close.
+                let nms = anime_yolo_nms
+                    .unwrap_or(crate::anime_text::DEFAULT_NMS_THRESHOLD)
+                    .clamp(0.30, 0.70);
+                let anime = yolo.inference_with_thresholds(&doc.image, conf, nms)?;
                 doc.text_blocks = anime.text_blocks;
             }
         }

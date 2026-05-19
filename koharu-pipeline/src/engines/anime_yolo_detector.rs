@@ -52,6 +52,8 @@ pub const ENGINE_ID: &str = "anime_yolo_detector";
 
 const SETTING_VARIANT: &str = "variant";
 const SETTING_CONFIDENCE: &str = "confidence_threshold";
+const SETTING_NMS: &str = "nms_threshold";
+const SETTING_CONTAINMENT: &str = "merge_contained_pct";
 
 const SETTINGS: &[SettingDescriptor] = &[
     SettingDescriptor::Select {
@@ -75,6 +77,36 @@ const SETTINGS: &[SettingDescriptor] = &[
         step: 0.01,
         default: 0.25,
         help_i18n_key: Some("engineSettings.animeYolo.confidence.help"),
+    },
+    // NMS IoU threshold — overlapping detections with IoU above
+    // this value are suppressed by YOLO's built-in NMS. Lower =
+    // more aggressive suppression. 0.50 default matches upstream;
+    // 0.35-0.40 helps when partial+full detections of the same
+    // text stack.
+    SettingDescriptor::Slider {
+        id: SETTING_NMS,
+        label_i18n_key: "engineSettings.animeYolo.nms",
+        min: 0.30,
+        max: 0.70,
+        step: 0.01,
+        default: 0.50,
+        help_i18n_key: Some("engineSettings.animeYolo.nms.help"),
+    },
+    // Containment merge — runs AFTER NMS. If box A is at least
+    // this fraction inside box B (intersection.area / a.area),
+    // drop A. Catches the "partial-text inside full-text" pattern
+    // that IoU NMS misses because IoU of nested boxes can stay
+    // below the NMS threshold. Set to 1.0 to disable (no boxes
+    // are ≥100% contained except identical ones, which NMS
+    // already handles).
+    SettingDescriptor::Slider {
+        id: SETTING_CONTAINMENT,
+        label_i18n_key: "engineSettings.animeYolo.containment",
+        min: 0.50,
+        max: 1.0,
+        step: 0.05,
+        default: 0.80,
+        help_i18n_key: Some("engineSettings.animeYolo.containment.help"),
     },
 ];
 
@@ -111,12 +143,15 @@ impl Engine for AnimeYoloDetectorEngine {
             .with_context(|| format!("decoding source image for page {:?}", ctx.page))?;
         let (width, height) = (image.width(), image.height());
 
-        // Settings: variant (n/s/m/l/x) + confidence (0.05-0.95).
-        // Driver builds PipelineRunOptions from saved prefs; engine
-        // reads via ctx.setting with the schema default as fallback.
+        // Settings: variant (n/s/m/l/x) + confidence (0.05-0.95)
+        // + NMS IoU + containment merge percentage. Driver builds
+        // PipelineRunOptions from saved prefs; engine reads via
+        // ctx.setting with the schema default as fallback.
         let variant_str: String = ctx.setting(SETTING_VARIANT, "n".to_string());
         let variant = parse_variant(&variant_str);
         let confidence: f64 = ctx.setting(SETTING_CONFIDENCE, 0.25);
+        let nms: f64 = ctx.setting(SETTING_NMS, 0.50);
+        let containment_pct: f64 = ctx.setting(SETTING_CONTAINMENT, 0.80);
 
         if ctx.cancel.is_cancelled() {
             return Ok(());
@@ -129,12 +164,36 @@ impl Engine for AnimeYoloDetectorEngine {
                 DetectorEngine::AnimeYolo,
                 Some(variant),
                 Some(confidence as f32),
+                Some(nms as f32),
             )
             .await
             .context("ml.detect_with(AnimeYolo) failed")?;
 
         if ctx.cancel.is_cancelled() {
             return Ok(());
+        }
+
+        // Tier 3: post-NMS containment merge. YOLO's IoU NMS keeps
+        // BOTH partial-text box A and full-text box B when A is
+        // mostly INSIDE B (IoU(A, B) = |A| / |B| which can stay
+        // below the NMS threshold for nested boxes). User sees
+        // two stacked detections of the same text — classic
+        // multi-scale feature pyramid artifact. Drop A when
+        // intersection-over-A reaches `containment_pct`.
+        if containment_pct < 1.0 {
+            let before = tmp_doc.text_blocks.len();
+            tmp_doc.text_blocks =
+                drop_contained_boxes(&tmp_doc.text_blocks, containment_pct as f32);
+            let dropped = before - tmp_doc.text_blocks.len();
+            if dropped > 0 {
+                tracing::info!(
+                    dropped,
+                    before,
+                    after = tmp_doc.text_blocks.len(),
+                    containment_pct,
+                    "containment merge dropped nested detections"
+                );
+            }
         }
 
         let mut scene_ops: Vec<Op> = Vec::with_capacity(tmp_doc.text_blocks.len() + 1);
@@ -195,6 +254,77 @@ fn parse_variant(s: &str) -> AnimeYoloVariant {
         "l" => AnimeYoloVariant::L,
         "x" => AnimeYoloVariant::X,
         _ => AnimeYoloVariant::N, // covers "n" + any unknown
+    }
+}
+
+/// Drop boxes that are mostly contained inside another box from
+/// the same list. "Mostly" = `intersection.area / box.area >=
+/// containment_pct`. For each box A, if any OTHER box B in the
+/// list contains A by ≥`containment_pct`, A is dropped.
+///
+/// O(n²) — fine for typical page detections (< 200 boxes); skip
+/// the work entirely when `containment_pct >= 1.0` (caller gates).
+///
+/// Symmetric ambiguity: if A and B are mutually contained (e.g.,
+/// identical boxes), we keep the FIRST occurrence and drop later
+/// duplicates. NMS already removes near-identical boxes by IoU so
+/// this case is rare in practice.
+fn drop_contained_boxes(
+    blocks: &[koharu_types::TextBlock],
+    containment_pct: f32,
+) -> Vec<koharu_types::TextBlock> {
+    let mut keep = vec![true; blocks.len()];
+    for (i, a) in blocks.iter().enumerate() {
+        if !keep[i] {
+            continue;
+        }
+        let a_area = (a.width.max(0.0)) * (a.height.max(0.0));
+        if a_area <= 0.0 {
+            keep[i] = false; // degenerate box — drop
+            continue;
+        }
+        for (j, b) in blocks.iter().enumerate() {
+            if i == j || !keep[j] {
+                continue;
+            }
+            let b_area = (b.width.max(0.0)) * (b.height.max(0.0));
+            // If b is smaller-or-equal to a, b can't contain a by
+            // ≥containment_pct without a being a near-duplicate.
+            // Skip the bigger-than-self check for performance.
+            if b_area < a_area {
+                continue;
+            }
+            let inter = intersection_area(a, b);
+            if inter / a_area >= containment_pct {
+                keep[i] = false;
+                break;
+            }
+        }
+    }
+    blocks
+        .iter()
+        .zip(keep.iter())
+        .filter_map(|(b, &k)| if k { Some(b.clone()) } else { None })
+        .collect()
+}
+
+fn intersection_area(a: &koharu_types::TextBlock, b: &koharu_types::TextBlock) -> f32 {
+    let ax0 = a.x;
+    let ay0 = a.y;
+    let ax1 = a.x + a.width;
+    let ay1 = a.y + a.height;
+    let bx0 = b.x;
+    let by0 = b.y;
+    let bx1 = b.x + b.width;
+    let by1 = b.y + b.height;
+    let ix0 = ax0.max(bx0);
+    let iy0 = ay0.max(by0);
+    let ix1 = ax1.min(bx1);
+    let iy1 = ay1.min(by1);
+    if ix1 <= ix0 || iy1 <= iy0 {
+        0.0
+    } else {
+        (ix1 - ix0) * (iy1 - iy0)
     }
 }
 
@@ -263,7 +393,79 @@ mod tests {
         assert_eq!(info.produces.len(), 2);
         assert!(info.produces.contains(&ArtifactKind::DetectionBoxes));
         assert!(info.produces.contains(&ArtifactKind::SegmentationMask));
-        assert_eq!(info.settings_schema.len(), 2, "variant + confidence");
+        assert_eq!(
+            info.settings_schema.len(),
+            4,
+            "variant + confidence + NMS + containment"
+        );
+    }
+
+    #[test]
+    fn drop_contained_boxes_drops_partial_inside_full() {
+        // Realistic case: full text bbox (50,50)-(250,150), and a
+        // partial detection covering just the first character at
+        // (50,50)-(120,150). Partial is 100% inside full → drop.
+        let full = koharu_types::TextBlock {
+            x: 50.0, y: 50.0, width: 200.0, height: 100.0,
+            ..Default::default()
+        };
+        let partial = koharu_types::TextBlock {
+            x: 50.0, y: 50.0, width: 70.0, height: 100.0,
+            ..Default::default()
+        };
+        let kept = drop_contained_boxes(&[partial, full.clone()], 0.80);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].width, 200.0, "kept full box, dropped partial");
+    }
+
+    #[test]
+    fn drop_contained_boxes_keeps_separate_bubbles() {
+        // Two non-overlapping bubbles must both survive.
+        let a = koharu_types::TextBlock {
+            x: 0.0, y: 0.0, width: 100.0, height: 100.0,
+            ..Default::default()
+        };
+        let b = koharu_types::TextBlock {
+            x: 200.0, y: 0.0, width: 100.0, height: 100.0,
+            ..Default::default()
+        };
+        let kept = drop_contained_boxes(&[a, b], 0.80);
+        assert_eq!(kept.len(), 2);
+    }
+
+    #[test]
+    fn drop_contained_boxes_threshold_below_one_keeps_majority_overlap_only() {
+        // Box A is 70% inside box B (30% sticks out). At 0.80
+        // threshold A survives; at 0.65 A is dropped.
+        let inner = koharu_types::TextBlock {
+            x: 0.0, y: 0.0, width: 100.0, height: 100.0,
+            ..Default::default()
+        };
+        let outer = koharu_types::TextBlock {
+            x: -30.0, y: 0.0, width: 100.0, height: 100.0,
+            ..Default::default()
+        };
+        // overlap = 70x100 = 7000; inner area = 100x100 = 10000.
+        // ratio = 0.70.
+        let kept_strict = drop_contained_boxes(&[inner.clone(), outer.clone()], 0.80);
+        assert_eq!(kept_strict.len(), 2, "0.70 < 0.80 → keep both");
+        let kept_relaxed = drop_contained_boxes(&[inner, outer], 0.65);
+        assert_eq!(kept_relaxed.len(), 1, "0.70 >= 0.65 → drop inner");
+    }
+
+    #[test]
+    fn drop_contained_boxes_drops_degenerate_zero_area() {
+        let degen = koharu_types::TextBlock {
+            x: 0.0, y: 0.0, width: 0.0, height: 50.0,
+            ..Default::default()
+        };
+        let real = koharu_types::TextBlock {
+            x: 0.0, y: 0.0, width: 50.0, height: 50.0,
+            ..Default::default()
+        };
+        let kept = drop_contained_boxes(&[degen, real], 0.80);
+        assert_eq!(kept.len(), 1, "zero-area box dropped");
+        assert_eq!(kept[0].width, 50.0);
     }
 
     #[test]
