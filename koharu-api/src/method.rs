@@ -54,6 +54,10 @@ pub enum Method {
     // Storage management (Settings → Storage panel + NSIS uninstall hook)
     AppStorageStats,
     AppStorageClear,
+    // Phase 4.7: engine system surface — list of registered engines
+    // + hardware probe snapshot for the Engine Profile sidebar UI.
+    EnginesList,
+    HardwareDetected,
     // Phase 2: series metadata + chapter index
     SeriesMetaGet,
     SeriesMetaUpdate,
@@ -160,6 +164,8 @@ impl Method {
         Method::RecentProjectsRemove,
         Method::AppStorageStats,
         Method::AppStorageClear,
+        Method::EnginesList,
+        Method::HardwareDetected,
         Method::SeriesMetaGet,
         Method::SeriesMetaUpdate,
         Method::ChaptersList,
@@ -258,6 +264,8 @@ impl Method {
             Method::RecentProjectsRemove => "recent_projects_remove",
             Method::AppStorageStats => "app_storage_stats",
             Method::AppStorageClear => "app_storage_clear",
+            Method::EnginesList => "engines_list",
+            Method::HardwareDetected => "hardware_detected",
             Method::SeriesMetaGet => "series_meta_get",
             Method::SeriesMetaUpdate => "series_meta_update",
             Method::ChaptersList => "chapters_list",
@@ -367,6 +375,8 @@ impl FromStr for Method {
             "recent_projects_remove" => Method::RecentProjectsRemove,
             "app_storage_stats" => Method::AppStorageStats,
             "app_storage_clear" => Method::AppStorageClear,
+            "engines_list" => Method::EnginesList,
+            "hardware_detected" => Method::HardwareDetected,
             "series_meta_get" => Method::SeriesMetaGet,
             "series_meta_update" => Method::SeriesMetaUpdate,
             "chapters_list" => Method::ChaptersList,

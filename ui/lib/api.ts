@@ -7,7 +7,7 @@ import {
   type ProcessProgress,
   type DownloadProgress,
 } from '@/lib/backend'
-import type { DeviceInfo } from '@/lib/rpc-types'
+import type { DetectedHardware, DeviceInfo, EngineInfoView } from '@/lib/rpc-types'
 import {
   Document,
   InpaintRegion,
@@ -783,9 +783,32 @@ export const api = {
   async queueClearFinished(): Promise<{ removed: number }> {
     return invoke('queue_clear_finished') as Promise<{ removed: number }>
   },
+
+  // ── Phase 4.7: Engine system surfaces ──────────────────────────
+  /** List every engine registered via `inventory::submit!` in the
+   *  Rust binary. Used by the Engine Profile sidebar tab. */
+  async enginesList(): Promise<EngineInfoView[]> {
+    return invoke('engines_list')
+  },
+
+  /** Host hardware snapshot from `koharu_engines::probe()`. Drives
+   *  the compatibility chips in the Engine Profile UI. */
+  async hardwareDetected(): Promise<DetectedHardware> {
+    return invoke('hardware_detected')
+  },
 }
 
 export type { QueueStatus, QueueEntryDto } from '@/lib/rpc-types'
+export type {
+  ArtifactKind,
+  BackendSupport,
+  DetectedHardware,
+  EngineCost,
+  EngineInfoView,
+  GpuVendor,
+  HardwareReq,
+  SettingDescriptor,
+} from '@/lib/rpc-types'
 
 export type ChatMessageDto = {
   id: number

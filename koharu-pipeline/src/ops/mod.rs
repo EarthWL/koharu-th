@@ -1,6 +1,7 @@
 mod chat;
 mod core;
 mod edit;
+mod engines;
 mod llm;
 mod process;
 mod project;
@@ -12,6 +13,7 @@ mod vision;
 pub use chat::*;
 pub use core::*;
 pub use edit::*;
+pub use engines::{engines_list, hardware_detected};
 pub use llm::*;
 pub use process::*;
 pub use project::*;

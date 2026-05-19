@@ -136,6 +136,8 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         }
         Method::AppStorageStats => call0(operations::app_storage_stats, state).await,
         Method::AppStorageClear => call(operations::app_storage_clear, state, params).await,
+        Method::EnginesList => call0(operations::engines_list, state).await,
+        Method::HardwareDetected => call0(operations::hardware_detected, state).await,
         Method::SeriesMetaGet => call0(operations::series_meta_get, state).await,
         Method::SeriesMetaUpdate => call(operations::series_meta_update, state, params).await,
         Method::ChaptersList => call0(operations::chapters_list, state).await,

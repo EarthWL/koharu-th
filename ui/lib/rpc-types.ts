@@ -28,6 +28,101 @@ export type DeviceInfo = {
   mlDevice: string
 }
 
+// ── Phase 4.7: Engine system surfaces ─────────────────────────
+//
+// Mirror of Rust types in koharu-core + koharu-engines. Wire shape
+// is camelCase (Serialize impl on EngineInfoView is rename_all).
+//
+// SettingDescriptor is a tagged union — the `kind` discriminator
+// matches the `#[serde(tag = "kind")]` on koharu-core's enum.
+
+export type ArtifactKind =
+  | 'source_image'
+  | 'detection_boxes'
+  | 'segmentation_mask'
+  | 'ocr_text'
+  | 'inpainted_image'
+  | 'translation'
+  | 'rendered_image'
+  | 'brush_layer'
+  | 'font_prediction'
+  | 'layout_analysis'
+
+export type SettingDescriptor =
+  | {
+      kind: 'slider'
+      id: string
+      labelI18nKey: string
+      min: number
+      max: number
+      step: number
+      default: number
+    }
+  | {
+      kind: 'number_input'
+      id: string
+      labelI18nKey: string
+      min: number
+      max: number
+      step: number
+      default: number
+    }
+  | {
+      kind: 'toggle'
+      id: string
+      labelI18nKey: string
+      default: boolean
+    }
+  | {
+      kind: 'select'
+      id: string
+      labelI18nKey: string
+      options: [string, string][] // (value, label-i18n-key)
+      default: string
+    }
+
+export type BackendSupport = {
+  cuda: boolean
+  metal: boolean
+  vulkan: boolean
+  cpuFallback: boolean
+}
+
+export type HardwareReq = {
+  minVramMb: number | null
+  prefersComputeCap: number | null
+  backends: BackendSupport
+  weightsSizeMb: number
+}
+
+export type EngineCost = {
+  perCallUsd: number | null
+  local: boolean
+}
+
+export type EngineInfoView = {
+  id: string
+  displayName: string
+  description: string
+  consumes: ArtifactKind[]
+  produces: ArtifactKind[]
+  settingsSchema: SettingDescriptor[]
+  hardware: HardwareReq
+  cost: EngineCost
+}
+
+export type GpuVendor = 'Nvidia' | 'Apple' | 'Amd' | 'Intel' | 'Unknown'
+
+export type DetectedHardware = {
+  gpuVendor: GpuVendor | null
+  gpuName: string | null
+  vramMb: number | null
+  computeCap: number | null
+  cudaAvailable: boolean
+  metalAvailable: boolean
+  vulkanAvailable: boolean
+}
+
 export type LlmModelInfo = {
   id: string
   languages: string[]
@@ -102,6 +197,9 @@ export type RpcMethodMap = {
   queue_enqueue: [{ chapterId: number }, QueueEntryDto]
   queue_cancel: [{ id: number }, void]
   queue_clear_finished: [void, { removed: number }]
+  // ── Phase 4.7: engine system surfaces ────────────────────────
+  engines_list: [void, EngineInfoView[]]
+  hardware_detected: [void, DetectedHardware]
 }
 
 export type QueueStatus =

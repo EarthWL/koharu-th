@@ -10,6 +10,7 @@ import {
   ImagesIcon,
   KeyRoundIcon,
   MessageSquareIcon,
+  MicrochipIcon,
   UsersIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -21,6 +22,7 @@ import { GlossaryTabPanel } from '@/components/sidebar/GlossaryTabPanel'
 import { PromptsTabPanel } from '@/components/sidebar/PromptsTabPanel'
 import { ProfilesTabPanel } from '@/components/sidebar/ProfilesTabPanel'
 import { ChatTabPanel } from '@/components/sidebar/ChatTabPanel'
+import { EnginesTabPanel } from '@/components/sidebar/EnginesTabPanel'
 import { useProjectStore, type SidebarTabKey } from '@/lib/stores/projectStore'
 import { api } from '@/lib/api'
 
@@ -82,6 +84,16 @@ const TABS: {
     labelKey: 'sidebar.tabChat',
     fallback: 'AI Chat',
     needsProject: true,
+  },
+  // Engines tab is global (not per-project) — the engine list +
+  // hardware probe come from the binary's compile-time inventory
+  // and the host machine. Phase 4.7c will add per-project profile
+  // overrides; until then, no project requirement.
+  {
+    key: 'engines',
+    icon: MicrochipIcon,
+    labelKey: 'sidebar.tabEngines',
+    fallback: 'Engines',
   },
 ]
 
@@ -163,6 +175,7 @@ export function SidebarTabs() {
         {active === 'prompts' && projectInfo && <PromptsTabPanel />}
         {active === 'profiles' && projectInfo && <ProfilesTabPanel />}
         {active === 'chat' && projectInfo && <ChatTabPanel />}
+        {active === 'engines' && <EnginesTabPanel />}
       </div>
     </div>
   )

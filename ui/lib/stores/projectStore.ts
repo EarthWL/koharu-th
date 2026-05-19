@@ -13,6 +13,7 @@ export type SidebarTabKey =
   | 'prompts'
   | 'profiles'
   | 'chat'
+  | 'engines'
 
 type ProjectState = {
   /** Last-known summary of the open project. `null` = no project open. */
