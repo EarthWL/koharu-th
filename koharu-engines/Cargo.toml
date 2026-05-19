@@ -21,5 +21,18 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 
+# Phase 3.2 hardware probe — optional, gated on the same features
+# the main `koharu` binary uses to pick its GPU backend. Probe falls
+# back to stub values when the feature isn't compiled in.
+cudarc = { workspace = true, optional = true }
+objc2 = { workspace = true, optional = true }
+objc2-foundation = { workspace = true, optional = true }
+objc2-metal = { workspace = true, optional = true }
+
+[features]
+default = []
+cuda = ["dep:cudarc"]
+metal = ["dep:objc2", "dep:objc2-foundation", "dep:objc2-metal"]
+
 [dev-dependencies]
 serde_json = { workspace = true }

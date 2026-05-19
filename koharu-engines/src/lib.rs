@@ -13,6 +13,10 @@
 //! - [`info`]   — `EngineInfo` static descriptor + `inventory`
 //!   registry so engines self-register at compile time
 //!   (`inventory::submit!`).
+//! - [`probe`]  — `probe()` returning a `DetectedHardware` snapshot.
+//!   Features `cuda` + `metal` gate the real probes; default build
+//!   returns the stub. Replaces `DetectedHardware::stub()` for app
+//!   launches.
 //!
 //! ## Scope of Phase 3.1
 //!
@@ -48,9 +52,11 @@
 
 pub mod engine;
 pub mod info;
+pub mod probe;
 
 pub use engine::{Engine, EngineCtx};
 pub use info::EngineInfo;
+pub use probe::probe;
 
 /// Re-export `inventory` so engine modules in OTHER crates can write
 /// `koharu_engines::inventory::submit! { koharu_engines::EngineInfo { … } }`

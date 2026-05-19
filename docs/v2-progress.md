@@ -43,11 +43,29 @@ concrete engines yet (Phase 3.3 ports the detector).
 - **Tests**: 3 unit (no_engines_registered_yet_in_phase_3_1 +
   setting helper smoke + EngineInfoView camelCase serde).
 
-### Phase 3.2 — Hardware probe ⏳ NEXT
+### Phase 3.2 — Hardware probe ✅
 
-DetectedHardware::probe() replacing stub(). cudarc::driver for
-CUDA, objc2-metal stub for macOS Metal, ash for Vulkan if it
-lands. Falls back to stub on probe failure (no panics).
+`koharu_engines::probe()` returns a `DetectedHardware` snapshot.
+Replaces `DetectedHardware::stub()` for app launches; stub stays
+for tests that want a deterministic "nothing detected" baseline.
+
+- **CUDA probe** (feature `cuda`): `cudarc::driver::CudaContext::
+  new(0)` to confirm device + queries `CU_DEVICE_ATTRIBUTE_*` for
+  compute cap (major + minor encoded as `7.5`-style float, matching
+  the `CUDA_COMPUTE_CAP` env-var in `build.yml`), `total_mem` for
+  VRAM (rounded to MB), `get_name` for GPU display name. Dynamic-
+  loading patch from `mayocream/candle` means we gracefully fail
+  on missing CUDA libs (returns `None`, no panic).
+- **Metal probe** (feature `metal`, target `macos`): basic
+  `MTLCreateSystemDefaultDevice` check + `device.name()`. Full
+  enumeration deferred to a follow-up.
+- **Vulkan**: not yet implemented; `vulkan_available` stays
+  `false`. Future commit can add `ash` under a `vulkan` feature.
+- **Failure handling**: every probe arm returns `Option`; worst
+  case the result equals stub. UI degrades gracefully.
+
+Tests: 5 unit pass (default-feature build). With `--features cuda`,
+4 pass (the `not(any(...))` cfg-gated test correctly drops out).
 
 ### Phase 3.3 — Port detector as first engine ⏳
 
@@ -170,8 +188,8 @@ Applied the 10 issues caught in the post-#33 design re-review (see
 | 2 — `BlobStore` wired into pipeline | ✅ complete | ~1 actual | HTTP `/blob/:hex` + DocumentDto + frontend; survived 2 external audits |
 | 1.2 — Phase 3 prep stubs | ✅ complete | 0.1 actual | Add ProjectView + PipelineRunOptions stubs; 43+2 tests |
 | 3.1 — `koharu-engines` crate scaffold | ✅ complete | 0.2 actual | Engine trait + EngineCtx + EngineInfo + inventory; 3 tests |
-| 3.2 — Hardware probe | ⏳ next | 0.3 | CUDA via cudarc::driver; Metal stub; Vulkan via ash |
-| 3.3 — Port detector as first engine | ⏳ pending | 0.5 | Engine impl + hybrid bridge + golden-page test |
+| 3.2 — Hardware probe | ✅ complete | 0.1 actual | CUDA via cudarc (compute cap + VRAM + name); Metal basic; 5 tests |
+| 3.3 — Port detector as first engine | ⏳ next | 0.5 | Engine impl + hybrid bridge + golden-page test |
 | 4 — Engine migration + Engine Profile UI ⭐ | ⏳ pending | 8-10 | Largest phase. 6 stages × port + UI work |
 | 5 — `ProjectSession` + undo/redo | ⏳ pending | 2-3 | Per-chapter session ring buffer |
 | 6 — Migration script + integration tests green | ⏳ pending | 1-2 | v1 → v2 atomic migration |
