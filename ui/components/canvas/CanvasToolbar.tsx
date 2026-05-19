@@ -76,6 +76,9 @@ function WorkflowButtons() {
     operation?.type === 'process-current' && operation?.step === 'inpaint'
   const isRendering =
     operation?.type === 'process-current' && operation?.step === 'render'
+  // Disable all pipeline buttons while a document is still loading so the
+  // user cannot trigger detect/ocr/etc before the document is ready.
+  const isLoading = operation?.type === 'load-khr'
 
   const handleTranslate = async () => {
     setGenerating(true)
@@ -95,7 +98,7 @@ function WorkflowButtons() {
         size='xs'
         onClick={detect}
         data-testid='toolbar-detect'
-        disabled={isDetecting}
+        disabled={isDetecting || isLoading}
       >
         {isDetecting ? (
           <LoaderCircleIcon className='size-4 animate-spin' />
@@ -112,7 +115,7 @@ function WorkflowButtons() {
         size='xs'
         onClick={ocr}
         data-testid='toolbar-ocr'
-        disabled={isOcr}
+        disabled={isOcr || isLoading}
       >
         {isOcr ? (
           <LoaderCircleIcon className='size-4 animate-spin' />
@@ -128,7 +131,7 @@ function WorkflowButtons() {
         variant='ghost'
         size='xs'
         onClick={handleTranslate}
-        disabled={!isLlmAvailable || generating}
+        disabled={!isLlmAvailable || generating || isLoading}
         data-testid='toolbar-translate'
       >
         {generating ? (
@@ -146,7 +149,7 @@ function WorkflowButtons() {
         size='xs'
         onClick={inpaint}
         data-testid='toolbar-inpaint'
-        disabled={isInpainting}
+        disabled={isInpainting || isLoading}
       >
         {isInpainting ? (
           <LoaderCircleIcon className='size-4 animate-spin' />
@@ -163,7 +166,7 @@ function WorkflowButtons() {
         size='xs'
         onClick={render}
         data-testid='toolbar-render'
-        disabled={isRendering}
+        disabled={isRendering || isLoading}
       >
         {isRendering ? (
           <LoaderCircleIcon className='size-4 animate-spin' />

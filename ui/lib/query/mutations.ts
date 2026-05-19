@@ -369,7 +369,19 @@ export const useDocumentMutations = () => {
           animeYoloVariant,
           animeYoloConfidence,
         })
-        await invalidateCurrentDocument(queryClient, resolvedIndex)
+        // Force-fetch the document directly instead of invalidating.
+        // invalidateQueries only triggers a background refetch when there
+        // is an active React Query observer — if the user clicks Detect
+        // immediately after opening an image, openDocuments' prefetchQuery
+        // may still be in-flight or have just completed with pre-detect
+        // data, leaving no active observer at the time of invalidation.
+        // fetchQuery bypasses the observer/enabled check and always waits
+        // for fresh data, so text blocks are guaranteed to be in the cache
+        // before setShowTextBlocksOverlay(true) is called.
+        await queryClient.fetchQuery({
+          queryKey: queryKeys.documents.current(resolvedIndex),
+          queryFn: () => api.getDocument(resolvedIndex),
+        })
         await invalidateThumbnailAtIndex(queryClient, resolvedIndex)
         useEditorUiStore.getState().setShowRenderedImage(false)
         useEditorUiStore.getState().setShowTextBlocksOverlay(true)
