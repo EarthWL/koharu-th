@@ -2,7 +2,9 @@ name: Lint
 
 on:
   push:
-    branches: ['main']
+    # See test.yml for branch rationale (v2 refactor; Ubuntu only,
+    # safe billing-wise).
+    branches: ['main', 'arch/v2-foundation']
   pull_request:
 
 env:

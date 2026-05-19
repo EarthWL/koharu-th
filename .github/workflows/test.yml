@@ -2,7 +2,10 @@ name: Test
 
 on:
   push:
-    branches: ['main']
+    # `arch/v2-foundation` is the long-lived v2 refactor branch
+    # (4-5 month build). Catch regressions on every push. Ubuntu-only
+    # workflow — no macOS-minutes (10× billing) concern.
+    branches: ['main', 'arch/v2-foundation']
   pull_request:
 
 env:
