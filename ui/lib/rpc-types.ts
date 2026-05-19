@@ -231,7 +231,7 @@ export type RpcMethodMap = {
   // ── Phase 5.4: undo/redo backed by ProjectSession ────────────
   session_undo: [{ index: number }, HistoryState]
   session_redo: [{ index: number }, HistoryState]
-  session_history_state: [void, HistoryState]
+  session_history_state: [{ index: number }, HistoryState]
 }
 
 /// Snapshot of `ProjectSession::History` pointers for the toolbar.

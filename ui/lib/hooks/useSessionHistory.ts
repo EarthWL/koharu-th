@@ -6,7 +6,11 @@ import { api, type HistoryState } from '@/lib/api'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { queryKeys } from '@/lib/query/keys'
 
-export const HISTORY_KEY = ['session', 'historyState'] as const
+/// Audit #8/P3: history state is per-doc — the key includes the
+/// doc index so React Query refetches when the user switches docs
+/// and the toolbar's enabled-state reflects the right session.
+export const historyKey = (docIndex: number) =>
+  ['session', 'historyState', docIndex] as const
 
 /// Helper for engine mutation onSuccess paths — call after any
 /// engine_bridge run (detect/ocr/inpaint/translate/render) so the
@@ -14,10 +18,14 @@ export const HISTORY_KEY = ['session', 'historyState'] as const
 /// waiting for the next poll. Phase 5.5 wires this from
 /// `useDocumentMutations` + `useLlmMutations` alongside the
 /// existing `invalidateCurrentDocument` calls.
+///
+/// Invalidates all per-doc keys via prefix — cheap, and we don't
+/// want a stale entry hanging around for a doc the user just
+/// closed.
 export async function invalidateSessionHistory(
   queryClient: import('@tanstack/react-query').QueryClient,
 ): Promise<void> {
-  await queryClient.invalidateQueries({ queryKey: HISTORY_KEY })
+  await queryClient.invalidateQueries({ queryKey: ['session', 'historyState'] })
 }
 
 const EMPTY_STATE: HistoryState = {
@@ -45,8 +53,8 @@ export function useSessionHistory() {
   )
 
   const query = useQuery({
-    queryKey: HISTORY_KEY,
-    queryFn: () => api.sessionHistoryState(),
+    queryKey: historyKey(currentDocumentIndex),
+    queryFn: () => api.sessionHistoryState(currentDocumentIndex),
     staleTime: 5_000,
   })
 
@@ -63,7 +71,7 @@ export function useSessionHistory() {
   const undoMutation = useMutation({
     mutationFn: () => api.sessionUndo(currentDocumentIndex),
     onSuccess: async (state) => {
-      queryClient.setQueryData(HISTORY_KEY, state)
+      queryClient.setQueryData(historyKey(currentDocumentIndex), state)
       await invalidateDocument()
     },
   })
@@ -71,7 +79,7 @@ export function useSessionHistory() {
   const redoMutation = useMutation({
     mutationFn: () => api.sessionRedo(currentDocumentIndex),
     onSuccess: async (state) => {
-      queryClient.setQueryData(HISTORY_KEY, state)
+      queryClient.setQueryData(historyKey(currentDocumentIndex), state)
       await invalidateDocument()
     },
   })

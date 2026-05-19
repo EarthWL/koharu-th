@@ -75,7 +75,7 @@ pub async fn session_undo(
         state_tx::update_doc(&state.state, payload.index, doc).await?;
     }
 
-    Ok(read_history_state(&state).await)
+    Ok(read_history_state_for(&state, payload.index).await)
 }
 
 /// Mirror of [`session_undo`]: pop from the redo stack + re-apply
@@ -106,7 +106,7 @@ pub async fn session_redo(
         state_tx::update_doc(&state.state, payload.index, doc).await?;
     }
 
-    Ok(read_history_state(&state).await)
+    Ok(read_history_state_for(&state, payload.index).await)
 }
 
 /// Read-only snapshot of the session's history pointers — used
@@ -114,21 +114,32 @@ pub async fn session_redo(
 /// invalidations to keep undo/redo button enabled-states + the
 /// dev op-count badge in sync.
 ///
-/// Returns the EMPTY_HISTORY baseline when the session hasn't
-/// been created yet — the toolbar shows the buttons disabled in
-/// that state, which is correct. This op doesn't take a
-/// doc_index because the toolbar polls it before knowing which
-/// doc will be the next mutation target; if the session is for
-/// a different doc than the user's currently-viewed doc, the
-/// `undo` button STILL shows the count of the doc the session
-/// is for (the user will see it disabled after switching docs
-/// via the per-doc session_for_mut guard in `session_undo`).
-pub async fn session_history_state(state: AppResources) -> Result<HistoryState> {
-    Ok(read_history_state(&state).await)
+/// Audit #8/P3: the request carries the doc_index the caller is
+/// asking about. If the session was built for a DIFFERENT doc,
+/// return the empty baseline so the toolbar shows the buttons
+/// disabled rather than enabled-then-error-on-click. Pre-audit
+/// this op didn't take an index and the toolbar polled it
+/// before knowing which doc would be the next mutation target —
+/// turning the doc switch into a confusing "click → error" UX.
+pub async fn session_history_state(
+    state: AppResources,
+    payload: SessionMutationPayload,
+) -> Result<HistoryState> {
+    Ok(read_history_state_for(&state, payload.index).await)
 }
 
-async fn read_history_state(state: &AppResources) -> HistoryState {
+/// Internal helper for session_undo / session_redo: read history
+/// state for the doc the mutation just ran against. The mutation
+/// path has already confirmed the session is for `doc_index` via
+/// `session_for_mut`, so the doc_index gate here is essentially a
+/// noop — but routing both reads through the same helper keeps
+/// undo/redo agreeing with `session_history_state` on the policy
+/// (audit #8/P3: history is per-doc, mismatched → empty).
+async fn read_history_state_for(state: &AppResources, doc_index: usize) -> HistoryState {
     let guard = state.session.read().await;
+    if guard.active_doc_index() != Some(doc_index) {
+        return EMPTY_HISTORY;
+    }
     guard
         .session_ref()
         .map(|s| s.history_state())

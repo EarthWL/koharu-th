@@ -95,12 +95,24 @@ pub async fn project_open(
     payload: ProjectOpenPayload,
 ) -> anyhow::Result<ProjectInfo> {
     let root = resolve_root(&PathBuf::from(payload.path));
+    let project = open_with_migration_gate(root).await?;
+    let info = build_info(&project)?;
+    push_recent_safe(&state, &project);
+    *state.project.write().await = Some(project);
+    after_project_open(state).await;
+    Ok(info)
+}
 
-    // Phase 6.2 — peek at the manifest BEFORE calling Project::open
-    // so we can show the migration confirm dialog when v1 → v2 is
-    // about to run. Project::open does the actual migration in
-    // its pre_open + post_open hooks (Phase 6.1); this op layer
-    // wraps the gating consent.
+/// Phase 6.2 + audit #8/P2 — wraps `Project::open` with the v1→v2
+/// migration confirm dialog. Both the path-based `project_open`
+/// and the file-picker `project_open_picker` route through this
+/// so the consent gate can't be bypassed by which entry point the
+/// frontend calls.
+///
+/// 1. `peek_migration` looks at the manifest without opening anything.
+/// 2. If v1 detected → rfd::MessageDialog confirm; reject bails.
+/// 3. `Project::open` runs the actual migration in its pre/post hooks.
+async fn open_with_migration_gate(root: PathBuf) -> anyhow::Result<Project> {
     let preview = {
         let root = root.clone();
         tokio::task::spawn_blocking(move || koharu_project::migration::peek_migration(&root))
@@ -116,17 +128,10 @@ pub async fn project_open(
             );
         }
     }
-
-    let project = tokio::task::spawn_blocking(move || {
+    tokio::task::spawn_blocking(move || {
         Project::open(&root).with_context(|| format!("opening project at {}", root.display()))
     })
-    .await??;
-
-    let info = build_info(&project)?;
-    push_recent_safe(&state, &project);
-    *state.project.write().await = Some(project);
-    after_project_open(state).await;
-    Ok(info)
+    .await?
 }
 
 /// Phase 6.2 — show the v1→v2 confirm dialog. Returns `true` if
@@ -173,10 +178,7 @@ pub async fn project_open_picker(state: AppResources) -> anyhow::Result<Option<P
     };
 
     let root = resolve_root(&file);
-    let project = tokio::task::spawn_blocking(move || {
-        Project::open(&root).with_context(|| format!("opening project at {}", root.display()))
-    })
-    .await??;
+    let project = open_with_migration_gate(root).await?;
 
     let info = build_info(&project)?;
     push_recent_safe(&state, &project);

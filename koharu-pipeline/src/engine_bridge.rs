@@ -119,6 +119,19 @@ pub async fn run_engine_on_document(
     // Read the document snapshot we'll feed to the engine.
     let mut doc = crate::state_tx::read_doc(&state.state, doc_index).await?;
 
+    // Audit #8/P1: clear v1 text_blocks BEFORE build_scene_from_document
+    // so the Scene we pass to the engine + clone into the session reset
+    // below reflects the post-clear state. Doing the clear later (audit
+    // #7 fix) left scene.text_blocks populated with NodeId(1)..N — the
+    // session got reset with that stale scene and the engine's first
+    // AddTextBlock(NodeId(1)) tripped audit #6/P1's duplicate-id guard.
+    // The audit #7 regression test missed it because the test rebuilt
+    // scene from the cleared doc manually instead of following the real
+    // run_engine_on_document order.
+    if policy.clear_text_blocks_first {
+        doc.text_blocks.clear();
+    }
+
     // Build the Scene shape the engine reads + the page id it
     // operates on.
     let (scene, page_id) = build_scene_from_document(&doc, &state.blobs)?;
@@ -157,23 +170,21 @@ pub async fn run_engine_on_document(
     // closes when run returns, ops_rx.recv() then returns None).
     let run_future = engine.run(ctx, ops_tx);
 
-    // Replace-policy: clear v1 text_blocks BEFORE applying any
-    // AddTextBlock ops from the engine. We do this even if the
-    // engine emits zero blocks — a fresh detection that returns
-    // empty is still "no blocks", not "keep old ones".
-    if policy.clear_text_blocks_first {
-        doc.text_blocks.clear();
-    }
-
-    // Audit #7/P1: prepare the session BEFORE the apply loop so
-    // it's guaranteed to be (a) initialised and (b) tagged with
-    // the current doc_index. Two reset conditions:
+    // Audit #7/P1 + audit #8/P1: prepare the session BEFORE the
+    // apply loop so it's guaranteed to be (a) initialised and (b)
+    // tagged with the current doc_index. Two reset conditions:
     //   - session is missing or built for a DIFFERENT doc → init
     //     from the freshly-built scene, history starts empty
     //   - `clear_text_blocks_first` policy → destructive boundary
     //     (re-detect), prior history no longer maps to the new
     //     block set; reset so apply doesn't trip the
     //     NodeAlreadyExists guard on duplicate AddTextBlock ids
+    //
+    // The doc.text_blocks.clear() now runs BEFORE
+    // build_scene_from_document above, so scene already reflects
+    // the cleared state — reset_with gets an empty-text-blocks
+    // Scene and the engine's AddTextBlock(NodeId(1)) doesn't
+    // collide.
     {
         let mut session_guard = state.session.write().await;
         let needs_reset = policy.clear_text_blocks_first
@@ -1371,5 +1382,93 @@ mod tests {
             block: make_scene_block(1, 10),
         }).expect("re-detect after clear must not collide with old ids");
         assert_eq!(session.scene().pages.get(&page_id).unwrap().text_blocks.len(), 1);
+    }
+
+    #[test]
+    fn run_engine_order_clear_before_scene_build_avoids_duplicate_node_ids() {
+        // Audit #8/P1 regression: the audit #7 test above rebuilt
+        // scene from the cleared doc by hand, which masked the
+        // real bug — `run_engine_on_document` originally did
+        // `build_scene_from_document` BEFORE `doc.text_blocks.clear()`,
+        // then reset the session with `scene.clone()` of the
+        // stale scene. The session ended up with NodeId(1)..N
+        // still populated and the engine's first
+        // AddTextBlock(NodeId(1)) collided.
+        //
+        // This test follows the FIXED order verbatim: clear →
+        // build → reset → apply. It pins the order so a future
+        // refactor that moves the clear back below the build
+        // fails loudly here instead of in production.
+        use koharu_app::{ProjectSession, SessionConfig};
+
+        let blobs = BlobStore::in_memory();
+        let mut doc = doc_with_n_blocks(3);
+        doc.text_blocks[0].text = Some("stale 1".into());
+        doc.text_blocks[1].text = Some("stale 2".into());
+        doc.text_blocks[2].text = Some("stale 3".into());
+
+        // Real order (matches run_engine_on_document after audit #8):
+        //   1. clear doc.text_blocks (if clear_text_blocks_first)
+        //   2. build_scene_from_document — scene now reflects the
+        //      cleared state, no NodeId(1)..N populated
+        //   3. session.reset_with(scene.clone(), doc_index)
+        //   4. engine emits AddTextBlock(NodeId(1))
+        //   5. session.apply succeeds — no duplicate
+        doc.text_blocks.clear();
+        let (scene, page_id) = build_scene_from_document(&doc, &blobs).unwrap();
+        assert_eq!(
+            scene.pages.get(&page_id).unwrap().text_blocks.len(),
+            0,
+            "scene built post-clear must have no text blocks — \
+             this is the audit #8/P1 invariant",
+        );
+        let mut session = ProjectSession::new(scene.clone(), SessionConfig::default());
+
+        // Detector emits its first AddTextBlock. Pre-fix, scene
+        // (built before clear) still had NodeId(1) populated and
+        // this trip-wired the audit #6/P1 duplicate guard.
+        session.apply(Op::AddTextBlock {
+            page: page_id,
+            block: make_scene_block(1, 50),
+        }).expect("audit #8/P1: re-detect on a populated doc must not \
+                   collide after the clear-then-build-then-reset order");
+        assert_eq!(
+            session.scene().pages.get(&page_id).unwrap().text_blocks.len(),
+            1
+        );
+    }
+
+    #[test]
+    fn scene_built_from_doc_with_blocks_before_clear_would_collide() {
+        // Negative control: documents the bug that audit #8/P1
+        // fixes. If scene is built BEFORE doc.text_blocks.clear(),
+        // the resulting Scene carries NodeId(1)..N from the prior
+        // detection. A session initialised from that stale scene
+        // will reject AddTextBlock(NodeId(1)) — exactly the user-
+        // visible NodeAlreadyExists this audit closes.
+        use koharu_app::{ProjectSession, SessionConfig};
+
+        let blobs = BlobStore::in_memory();
+        let mut doc = doc_with_n_blocks(2);
+
+        // BUGGY ORDER (what run_engine_on_document did before #8):
+        //   1. build scene FIRST — scene carries stale NodeIds
+        //   2. clear doc.text_blocks AFTER (doesn't touch scene)
+        //   3. reset session with stale scene
+        //   4. engine emits AddTextBlock(NodeId(1)) → DUPLICATE
+        let (scene_stale, page_id) = build_scene_from_document(&doc, &blobs).unwrap();
+        doc.text_blocks.clear(); // clear after build — too late
+        let mut session = ProjectSession::new(scene_stale, SessionConfig::default());
+
+        let err = session.apply(Op::AddTextBlock {
+            page: page_id,
+            block: make_scene_block(1, 50),
+        });
+        assert!(
+            err.is_err(),
+            "stale scene should still carry NodeId(1) and reject \
+             the detector's AddTextBlock — this is the bug audit \
+             #8/P1 fixed by reordering clear before build",
+        );
     }
 }

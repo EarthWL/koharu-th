@@ -852,10 +852,13 @@ export const api = {
     return invoke('session_redo', { index })
   },
 
-  /** Read-only snapshot of the session's history pointers. Used
-   *  by the toolbar on mount + after every engine run. */
-  async sessionHistoryState(): Promise<HistoryState> {
-    return invoke('session_history_state')
+  /** Read-only snapshot of the session's history pointers for the
+   *  given doc. Audit #8/P3: passes `index` so the backend returns
+   *  the empty baseline when the session was built for a different
+   *  doc — toolbar shows buttons disabled rather than clickable-
+   *  then-error. */
+  async sessionHistoryState(index: number): Promise<HistoryState> {
+    return invoke('session_history_state', { index })
   },
 }
 
