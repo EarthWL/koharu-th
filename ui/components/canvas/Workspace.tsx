@@ -463,7 +463,13 @@ export function Workspace() {
                         <TextBlockAnnotations
                           selectedIndex={selectedBlockIndex}
                           onSelect={setSelectedBlockIndex}
-                          style={{ zIndex: 50 }}
+                          // z=41 sits just above the composite (z=40)
+                          // so handles overlay correctly, but stays
+                          // BELOW any portal-rendered Radix dialog /
+                          // popover / sidebar modal (typically z=50+).
+                          // User reported annotations punching through
+                          // an Edit Profile modal at z=50.
+                          style={{ zIndex: 41 }}
                         />
                       </div>
                       {draftBlock && (
