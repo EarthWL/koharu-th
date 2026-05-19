@@ -344,6 +344,31 @@ const TOOLS: ToolDef[] = [
 
   // ── Text block edit (for QC fixes) ────────────────────────────
   {
+    name: 'get_text_blocks',
+    description:
+      'Return the text_blocks array for the currently-open page as a compact JSON list. Each entry has { index, x, y, width, height, sourceText, translation }. Use this when you need the 0-based block indices before calling update_text_block, e.g. for the /translate-page workflow. Read-only — no mutation.',
+    parameters: empty(),
+    handler: async () => {
+      const idx = useEditorUiStore.getState().currentDocumentIndex
+      const doc = await api.getDocument(idx)
+      const blocks = (doc.textBlocks ?? []).map((b: any, i: number) => ({
+        index: i,
+        x: b.x,
+        y: b.y,
+        width: b.width,
+        height: b.height,
+        sourceText: b.text ?? null,
+        translation: b.translation ?? null,
+      }))
+      return {
+        pageIndex: idx,
+        blockCount: blocks.length,
+        blocks,
+      }
+    },
+  },
+
+  {
     name: 'update_text_block',
     description:
       'Update a single text block on a specific page. Use to fix translations after a QC scan finds a glossary / character name mismatch. Index is the page (0-based), textBlockIndex is the block within that page.',
