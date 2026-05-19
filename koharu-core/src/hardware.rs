@@ -140,16 +140,33 @@ impl DetectedHardware {
     /// Returns a result the UI can display directly (chip colour +
     /// warning text).
     pub fn check_compatibility(&self, req: &HardwareReq) -> CompatibilityCheck {
-        // CPU-fallback engines always fit.
-        if req.backends.cpu_fallback && req.min_vram_mb.is_none() {
-            return CompatibilityCheck::Fits;
-        }
-
-        let backend_ok = (req.backends.cuda && self.cuda_available)
+        // First: is there ANY GPU backend the engine declares AND
+        // we detected? CPU fallback doesn't count yet — we want to
+        // distinguish "runs on GPU comfortably" from "runs on CPU
+        // because no GPU backend matched".
+        let any_gpu_declared = req.backends.cuda || req.backends.metal || req.backends.vulkan;
+        let gpu_backend_ok = (req.backends.cuda && self.cuda_available)
             || (req.backends.metal && self.metal_available)
-            || (req.backends.vulkan && self.vulkan_available)
-            || req.backends.cpu_fallback;
-        if !backend_ok {
+            || (req.backends.vulkan && self.vulkan_available);
+
+        if !gpu_backend_ok {
+            // No GPU backend matched. Three sub-cases:
+            if any_gpu_declared && req.backends.cpu_fallback {
+                // Engine WOULD prefer GPU but declared a CPU fallback.
+                // It WILL run on CPU, but typically 50-100× slower.
+                // Pre-fix this returned `Fits` — the UI showed a green
+                // chip while the model ran at multi-minute latency,
+                // leaving the user confused why "Process all" took
+                // half an hour. Now surfaces a yellow warning chip.
+                return CompatibilityCheck::CpuFallbackOnly;
+            }
+            if !any_gpu_declared && req.backends.cpu_fallback {
+                // Engine is CPU-native by design (no GPU backend
+                // declared, just `cpu_fallback: true`). Lightweight
+                // classifiers, text processors, etc. Runs comfortably
+                // on any host — green chip.
+                return CompatibilityCheck::Fits;
+            }
             return CompatibilityCheck::NoBackend;
         }
 
@@ -171,18 +188,32 @@ impl DetectedHardware {
 
 /// Outcome of `DetectedHardware::check_compatibility`. UI maps each
 /// variant to a chip colour + tooltip text.
+///
+/// Severity ordering for UI affordance design (rough green → red):
+/// `Fits` < `BelowComputeCap` < `CpuFallbackOnly` < `OverVram` <
+/// `NoBackend`. The first three are pickable with warning chips;
+/// the last two should be greyed (still pickable, but require an
+/// explicit "I know what I'm doing" confirm per locked decision
+/// "never lock").
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum CompatibilityCheck {
-    /// Engine runs comfortably on this hardware.
+    /// Engine runs comfortably on the user's GPU.
     Fits,
-    /// Requested VRAM exceeds detected. User can still proceed with
-    /// warning — the engine may fall back to CPU or fail at load.
+    /// Engine declares a GPU backend (CUDA / Metal / Vulkan) but none
+    /// of them are available on this host. The engine also declares
+    /// `cpu_fallback: true`, so it WILL run — but on CPU, typically
+    /// 50–100× slower than the intended GPU path. UI surfaces with a
+    /// yellow chip + tooltip explaining the speed penalty.
+    CpuFallbackOnly,
+    /// Requested VRAM exceeds detected. User can still proceed
+    /// (engine might handle gracefully or might fail at load).
     OverVram { need: u32, have: u32 },
     /// Engine prefers a higher CUDA compute cap. Will run but at
     /// reduced performance.
     BelowComputeCap { prefers: f32, have: f32 },
-    /// No backend overlap — engine can't run on this hardware at all.
-    /// UI should grey-out + tooltip "requires CUDA/Metal/Vulkan".
+    /// No backend overlap AND no CPU fallback — engine can't run on
+    /// this hardware at all. UI should grey-out + tooltip "requires
+    /// CUDA/Metal/Vulkan".
     NoBackend,
 }
 
@@ -252,6 +283,47 @@ mod tests {
             weights_size_mb: 50,
         };
         assert_eq!(hw.check_compatibility(&req), CompatibilityCheck::NoBackend);
+    }
+
+    #[test]
+    fn cpu_box_with_gpu_engine_returns_cpu_fallback_only() {
+        // Pre-fix this returned `Fits` because the early-return at
+        // line 144 short-circuited on `cpu_fallback && vram.is_none()`.
+        // Now distinguishes: engine wants CUDA, host has no CUDA →
+        // CpuFallbackOnly so the UI can warn about the speed penalty.
+        let hw = DetectedHardware::stub(); // no GPU detected
+        let req = HardwareReq {
+            min_vram_mb: Some(2000),
+            prefers_compute_cap: Some(7.5),
+            backends: BackendSupport {
+                cuda: true,
+                metal: false,
+                vulkan: false,
+                cpu_fallback: true,
+            },
+            weights_size_mb: 80,
+        };
+        assert_eq!(
+            hw.check_compatibility(&req),
+            CompatibilityCheck::CpuFallbackOnly
+        );
+    }
+
+    #[test]
+    fn cpu_box_with_no_fallback_engine_returns_no_backend() {
+        // Engine declares no cpu_fallback — should be ungated as
+        // truly incompatible. UI greys it out.
+        let hw = DetectedHardware::stub();
+        let req = HardwareReq {
+            min_vram_mb: Some(2000),
+            prefers_compute_cap: None,
+            backends: BackendSupport::cuda_only(),
+            weights_size_mb: 80,
+        };
+        assert_eq!(
+            hw.check_compatibility(&req),
+            CompatibilityCheck::NoBackend
+        );
     }
 
     #[test]

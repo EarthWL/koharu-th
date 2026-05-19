@@ -126,16 +126,35 @@ pub struct CharacterAdd {
     pub sort_order: Option<i32>,
 }
 
-/// Partial character update — three-state semantics matching
-/// `TextBlockPatch`. Outer `None` = leave unchanged; outer
-/// `Some(None)` = explicitly clear (for nullable columns);
-/// outer `Some(Some(v))` = set to v.
+/// Partial character update. Field-by-field choice between two
+/// shapes depending on the column's nullability in `series.db`:
+///
+/// - **Required column** (NOT NULL in SQL) → `Option<T>`:
+///   `None` = leave unchanged, `Some(v)` = set. Can't be cleared,
+///   so the three-state shape would let a caller construct a Patch
+///   that violates the schema and surfaces as an apply-time error
+///   far from the bug source. Making "clear" unrepresentable in the
+///   type keeps the error at the API boundary.
+/// - **Nullable column** → `Option<Option<T>>`:
+///   `None` = leave unchanged, `Some(None)` = clear (write NULL),
+///   `Some(Some(v))` = set. Three-state via the `double_option`
+///   deserializer (see [`crate::op::TextBlockPatch`]).
+///
+/// Nullability per migration V001 (`characters` table):
+/// required: `original_name`, `translated_name`, `is_main`.
+/// nullable: `aliases`, `role`, `gender`, `age`, `speech_style`,
+/// `personality`, `notes`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CharacterPatch {
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
-    pub original_name: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
-    pub translated_name: Option<Option<String>>,
+    // ── Required columns (single Option) ─────────────────────
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub translated_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_main: Option<bool>,
+
+    // ── Nullable columns (double Option) ─────────────────────
     #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
     pub aliases: Option<Option<Vec<CharacterAlias>>>,
     #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
@@ -150,8 +169,6 @@ pub struct CharacterPatch {
     pub personality: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
     pub notes: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
-    pub is_main: Option<Option<bool>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,27 +183,52 @@ pub struct GlossaryAdd {
     pub approved: bool,
 }
 
+/// Partial glossary update. Same field-by-field nullability split
+/// as `CharacterPatch` — see that doc for the rationale.
+///
+/// Nullability per migration V001 (`glossary` table):
+/// required: `source_text`, `target_text`, `category`, `approved`
+/// (also `confidence` but it's not in the patch surface — confidence
+/// reflects HOW the entry was created, mutating it post-hoc is
+/// nonsense). nullable: `aliases`, `context_note`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GlossaryPatch {
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
-    pub source_text: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
-    pub target_text: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
-    pub category: Option<Option<GlossaryCategory>>,
+    // ── Required columns (single Option) ─────────────────────
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<GlossaryCategory>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approved: Option<bool>,
+
+    // ── Nullable columns (double Option) ─────────────────────
     #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
     pub aliases: Option<Option<Vec<String>>>,
     #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
     pub context_note: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
-    pub approved: Option<Option<bool>>,
 }
 
-/// Series-meta patch. All fields nullable in the DB; same three-state.
+/// Series-meta patch. Same field-by-field nullability split as
+/// `CharacterPatch`.
+///
+/// Nullability per migration V001 (`series_meta` table, single row):
+/// required: `title`, `source_language`, `target_language` (the
+/// last two have NOT NULL DEFAULTs in SQL but the row can't carry
+/// a NULL once it exists — patching with NULL would violate the
+/// constraint). nullable: everything else.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SeriesMetaPatch {
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
-    pub title: Option<Option<String>>,
+    // ── Required columns (single Option) ─────────────────────
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_language: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_language: Option<String>,
+
+    // ── Nullable columns (double Option) ─────────────────────
     #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
     pub title_original: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
@@ -195,10 +237,6 @@ pub struct SeriesMetaPatch {
     pub genre: Option<Option<Vec<String>>>,
     #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
     pub target_audience: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
-    pub source_language: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
-    pub target_language: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
     pub tone: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
@@ -278,8 +316,13 @@ mod tests {
     }
 
     #[test]
-    fn character_patch_explicit_clear_round_trips() {
-        // outer Some(None) on the wire = "translated_name": null
+    fn character_patch_explicit_clear_round_trips_on_nullable_field() {
+        // outer Some(None) on the wire = "role": null. Works on
+        // nullable columns (role, personality, etc.) — but the patch
+        // SHAPE forbids it on required columns: original_name is
+        // Option<String>, so you can't construct
+        // `CharacterPatch { original_name: Some(None), .. }` — won't
+        // typecheck.
         let mut p = CharacterPatch::default();
         p.role = Some(None);
         p.personality = Some(Some("calm".into()));
@@ -292,6 +335,36 @@ mod tests {
         assert!(matches!(p2.role, Some(None)));
         assert!(matches!(p2.personality, Some(Some(ref v)) if v == "calm"));
         assert!(matches!(p2.original_name, None));
+    }
+
+    #[test]
+    fn character_patch_required_field_uses_single_option() {
+        // Set a required field (original_name) to a value. The type
+        // is Option<String>, not Option<Option<String>> — making
+        // "clear the required field" unrepresentable so the schema
+        // constraint is enforced at the API boundary, not at apply
+        // time.
+        let mut p = CharacterPatch::default();
+        p.original_name = Some("新しい名前".into());
+        let s = serde_json::to_string(&p).unwrap();
+        assert!(s.contains("\"original_name\":\"新しい名前\""));
+
+        let p2: CharacterPatch = serde_json::from_str(&s).unwrap();
+        assert_eq!(p2.original_name.as_deref(), Some("新しい名前"));
+    }
+
+    #[test]
+    fn glossary_patch_required_fields_cant_be_cleared_by_type() {
+        // Same shape contract on the glossary side. source_text /
+        // target_text / category / approved are required → single
+        // Option. aliases / context_note are nullable → double Option.
+        let mut p = GlossaryPatch::default();
+        p.source_text = Some("魔法剣".into());
+        p.context_note = Some(None); // explicit clear of nullable field
+        let s = serde_json::to_string(&p).unwrap();
+        assert!(s.contains("\"source_text\":\"魔法剣\""));
+        assert!(s.contains("\"context_note\":null"));
+        assert!(!s.contains("\"target_text\""));
     }
 
     #[test]

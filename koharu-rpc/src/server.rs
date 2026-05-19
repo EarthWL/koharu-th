@@ -110,11 +110,21 @@ async fn serve_blob(
 
     let mut response = Response::new(Body::from(bytes.to_vec()));
     let headers = response.headers_mut();
-    // Bytes are stable for the URL forever (it's the content hash).
-    // 1 year max-age + immutable is the standard cdn-safe pattern.
+    // Bytes are stable for the URL forever (it's the content hash),
+    // so immutable + 1y max-age is safe.
+    //
+    // `private` (not `public`): blobs hold user-owned manga pages
+    // and the user's translations — potentially copyrighted source
+    // material and certainly private work. `private` instructs any
+    // intermediary cache (proxy, future cloud-sync layer, dev tools
+    // share session) NOT to cache the bytes; only the user's own
+    // browser cache holds the copy. For a localhost-only app today
+    // this is moot (no intermediary exists), but the principle is
+    // correct and `private` doesn't reduce the browser-cache hit
+    // rate — the standard immutability + max-age still apply.
     headers.insert(
         header::CACHE_CONTROL,
-        HeaderValue::from_static("public, max-age=31536000, immutable"),
+        HeaderValue::from_static("private, max-age=31536000, immutable"),
     );
     // We don't sniff content type — the consumer (most often <img>)
     // does content sniffing for image types. application/octet-stream

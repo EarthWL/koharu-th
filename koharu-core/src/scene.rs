@@ -71,11 +71,23 @@ impl Region {
     }
 
     /// True if `other` is fully inside `self`.
+    ///
+    /// The addition is widened to u64 before comparison — `u32 + u32`
+    /// can overflow at extreme inputs (panics in debug, silently
+    /// wraps to a tiny value in release, which would produce a false
+    /// positive `contains` for a clearly-outside region). Page
+    /// dimensions never approach u32 max in practice, but a malformed
+    /// DTO from RPC or a future engine emitting wild bounds shouldn't
+    /// be able to crash the canvas thread.
     pub fn contains(&self, other: &Region) -> bool {
+        let other_right = other.x as u64 + other.width as u64;
+        let other_bottom = other.y as u64 + other.height as u64;
+        let self_right = self.x as u64 + self.width as u64;
+        let self_bottom = self.y as u64 + self.height as u64;
         other.x >= self.x
             && other.y >= self.y
-            && other.x + other.width <= self.x + self.width
-            && other.y + other.height <= self.y + self.height
+            && other_right <= self_right
+            && other_bottom <= self_bottom
     }
 }
 
@@ -168,6 +180,36 @@ mod tests {
         let overhang = Region { x: 60, y: 0, width: 50, height: 50 };
         assert!(outer.contains(&inner));
         assert!(outer.contains(&edge), "edge-aligned box is contained");
+        assert!(!outer.contains(&overhang));
+    }
+
+    #[test]
+    fn region_contains_no_overflow_at_u32_extremes() {
+        // Pre-fix: `other.x + other.width` on u32 would have panicked
+        // in debug or wrapped to a tiny number in release, returning
+        // a wrong `contains` result. Widened to u64 internally — this
+        // case must not panic.
+        let outer = Region {
+            x: 0,
+            y: 0,
+            width: u32::MAX,
+            height: u32::MAX,
+        };
+        let edge_case = Region {
+            x: u32::MAX - 10,
+            y: u32::MAX - 10,
+            width: 10,
+            height: 10,
+        };
+        assert!(outer.contains(&edge_case));
+
+        // Doesn't fit — extends past u32::MAX horizontally.
+        let overhang = Region {
+            x: u32::MAX - 5,
+            y: 0,
+            width: 10,
+            height: 10,
+        };
         assert!(!outer.contains(&overhang));
     }
 
