@@ -679,9 +679,11 @@ no dead code; the foundation laid waits for the next phase.
     in parallel. No JS heap allocation for decoded bitmaps.
   - HTTP cache works automatically. Since blobs are content-
     addressed (hash = id), the response can set
-    `Cache-Control: public, max-age=31536000, immutable` and the
+    `Cache-Control: private, max-age=31536000, immutable` and the
     browser will never re-fetch — paging back and forth between
-    chapters is zero-cost.
+    chapters is zero-cost. (`private` not `public` — see F4 in
+    §13: blobs are user-owned content, must not be cached by any
+    intermediary proxy.)
   - HTTP/1.1 multi-connection (or HTTP/2 multiplexing in dev) lets
     multiple page thumbnails fetch in parallel without queueing
     behind the single WS pipe carrying RPC / tool calls.
