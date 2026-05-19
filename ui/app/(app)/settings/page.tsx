@@ -34,6 +34,13 @@ import { api, type StorageClearTarget, type StorageEntry } from '@/lib/api'
 import { supportsVision } from '@/lib/services/visionSupport'
 import { useProjectStore } from '@/lib/stores/projectStore'
 
+import frFR from '@/public/locales/fr-FR/translation.json'
+import esES from '@/public/locales/es-ES/translation.json'
+import ptPT from '@/public/locales/pt-PT/translation.json'
+import zhCN from '@/public/locales/zh-CN/translation.json'
+import ruRU from '@/public/locales/ru-RU/translation.json'
+
+
 const THEME_OPTIONS = [
   { value: 'light', icon: SunIcon, labelKey: 'settings.themeLight' },
   { value: 'dark', icon: MoonIcon, labelKey: 'settings.themeDark' },
@@ -982,23 +989,7 @@ const AVAILABLE_ADDONS: AddonItem[] = [
     version: '1.0.0',
     badgeEn: 'French Spacing & Guillemets',
     badgeTh: 'วรรณยุกต์และเครื่องหมายฝรั่งเศส',
-    resources: {
-      "settings.title": "Paramètres de Koharu",
-      "settings.appearance": "Apparence et Thème",
-      "settings.appearanceDescription": "Configurez l'apparence de l'interface utilisateur de Koharu.",
-      "settings.theme": "Thème actif",
-      "settings.themeLight": "Clair",
-      "settings.themeDark": "Sombre",
-      "settings.themeSystem": "Système",
-      "settings.language": "Langue de l'interface",
-      "settings.languageDescription": "Choisissez la langue d'affichage du panneau.",
-      "settings.engines": "Configuration des moteurs d'IA",
-      "settings.translation": "Configuration de Traduction",
-      "settings.translationDescription": "Ajustements de post-traitement et performances.",
-      "settings.device": "Informations sur l'appareil",
-      "settings.deviceDescription": "Matériel de calcul ML actif.",
-      "settings.updaterTitle": "Mises à jour automatiques"
-    }
+    resources: frFR
   },
   {
     id: 'addon-es',
@@ -1012,23 +1003,7 @@ const AVAILABLE_ADDONS: AddonItem[] = [
     version: '1.0.0',
     badgeEn: 'Spanish Quotes & Spacing',
     badgeTh: 'เครื่องหมายโควตภาษาสเปน',
-    resources: {
-      "settings.title": "Ajustes de Koharu",
-      "settings.appearance": "Apariencia y Tema",
-      "settings.appearanceDescription": "Personaliza el aspecto visual del editor Koharu.",
-      "settings.theme": "Tema activo",
-      "settings.themeLight": "Claro",
-      "settings.themeDark": "Oscuro",
-      "settings.themeSystem": "Sistema",
-      "settings.language": "Idioma del panel",
-      "settings.languageDescription": "Selecciona el idioma para la interfaz.",
-      "settings.engines": "Motores de IA",
-      "settings.translation": "Traducción",
-      "settings.translationDescription": "Parámetros del pipeline de traducción.",
-      "settings.device": "Hardware del sistema",
-      "settings.deviceDescription": "Dispositivos ML activos.",
-      "settings.updaterTitle": "Actualizaciones"
-    }
+    resources: esES
   },
   {
     id: 'addon-pt',
@@ -1042,23 +1017,7 @@ const AVAILABLE_ADDONS: AddonItem[] = [
     version: '1.0.0',
     badgeEn: 'Portuguese Dynamic Adjuster',
     badgeTh: 'ความจุข้อความโปรตุเกส',
-    resources: {
-      "settings.title": "Configurações do Koharu",
-      "settings.appearance": "Aparência e Tema",
-      "settings.appearanceDescription": "Personalize o estilo de interface do Koharu.",
-      "settings.theme": "Tema activo",
-      "settings.themeLight": "Claro",
-      "settings.themeDark": "Escuro",
-      "settings.themeSystem": "Sistema",
-      "settings.language": "Idioma da interface",
-      "settings.languageDescription": "Selecione o idioma de exibição do painel.",
-      "settings.engines": "Motores de IA",
-      "settings.translation": "Tradução",
-      "settings.translationDescription": "Ajustes e filtros do pipeline de tradução.",
-      "settings.device": "Informações do dispositivo",
-      "settings.deviceDescription": "Hardware de execução activa.",
-      "settings.updaterTitle": "Atualizações automáticas"
-    }
+    resources: ptPT
   },
   {
     id: 'addon-cn',
@@ -1072,23 +1031,7 @@ const AVAILABLE_ADDONS: AddonItem[] = [
     version: '1.0.0',
     badgeEn: 'CJK Vertical Writing & UI',
     badgeTh: 'ข้อความภาษาจีนแนวตั้ง & UI',
-    resources: {
-      "settings.title": "Koharu 设置中心",
-      "settings.appearance": "外观与主题",
-      "settings.appearanceDescription": "调整 Koharu 编辑器界面的视觉风格。",
-      "settings.theme": "当前主题模式",
-      "settings.themeLight": "浅色主题",
-      "settings.themeDark": "深色主题",
-      "settings.themeSystem": "跟随系统",
-      "settings.language": "界面显示语言",
-      "settings.languageDescription": "选择您习惯的操作面板语言。",
-      "settings.engines": "AI 引擎配置",
-      "settings.translation": "翻译后处理配置",
-      "settings.translationDescription": "配置翻译流程和智能合并规则。",
-      "settings.device": "运算加速设备",
-      "settings.deviceDescription": "当前的 ML 硬件运行环境。",
-      "settings.updaterTitle": "自动升级偏好设置"
-    }
+    resources: zhCN
   },
   {
     id: 'addon-ru',
@@ -1102,23 +1045,7 @@ const AVAILABLE_ADDONS: AddonItem[] = [
     version: '1.0.0',
     badgeEn: 'Cyrillic Fonts & Spacing',
     badgeTh: 'ระบบฟอนต์ซีริลลิก & UI',
-    resources: {
-      "settings.title": "Панель настроек Koharu",
-      "settings.appearance": "Тема и оформление",
-      "settings.appearanceDescription": "Настройте внешний вид графического интерфейса.",
-      "settings.theme": "Активная тема",
-      "settings.themeLight": "Светлая",
-      "settings.themeDark": "Тёмная",
-      "settings.themeSystem": "Системная",
-      "settings.language": "Язык интерфейса",
-      "settings.languageDescription": "Выберите язык панели Koharu.",
-      "settings.engines": "Модели нейросетей",
-      "settings.translation": "Настройки перевода",
-      "settings.translationDescription": "Параметры постобработки и разметки.",
-      "settings.device": "Информация об устройстве",
-      "settings.deviceDescription": "Активное оборудование вычислений.",
-      "settings.updaterTitle": "Автообновление"
-    }
+    resources: ruRU
   }
 ]
 

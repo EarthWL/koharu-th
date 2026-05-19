@@ -78,7 +78,9 @@
       "ja-JP": "日本語",
       "ru-RU": "Русский",
       "es-ES": "Español",
-      "th-TH": "ไทย"
+      "th-TH": "ไทย",
+      "fr-FR": "Français",
+      "pt-PT": "Português"
     }
   },
   "operations": {
