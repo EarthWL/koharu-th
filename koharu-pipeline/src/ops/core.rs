@@ -187,16 +187,19 @@ pub async fn export_document(
         .path
         .extension()
         .and_then(|e| e.to_str())
-        .unwrap_or("jpg")
+        .unwrap_or("png")
         .to_string();
 
-    let rendered = document
-        .rendered
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("No rendered image found"))?;
+    let (rendered, suffix) = if let Some(r) = document.rendered.as_ref() {
+        (r, "rendered")
+    } else if let Some(i) = document.inpainted.as_ref() {
+        (i, "inpainted")
+    } else {
+        (&document.image, "original")
+    };
 
     let bytes = encode_image(rendered, &ext)?;
-    let filename = format!("{}_koharu.{}", document.name, ext);
+    let filename = format!("{}_{}.{}", document.name, suffix, ext);
     let content_type = mime_from_ext(&ext).to_string();
 
     Ok(FileResult {
