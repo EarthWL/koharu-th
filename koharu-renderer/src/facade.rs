@@ -391,6 +391,23 @@ impl Renderer {
         }
         align_layout_horizontally(&mut layout, writing_mode, layout_box.width, text_align);
 
+        // Expand the layout surface to match layout_box dimensions before rendering.
+        //
+        // `align_layout_horizontally` shifts glyph baseline positions for center/right
+        // alignment relative to `layout_box.width`, but `renderer.render()` creates a
+        // Pixmap of `layout.width × layout.height` (the tight ink-bounds size).  When
+        // center/right offsets push glyphs beyond `layout.width`, they are drawn outside
+        // the Pixmap and silently clipped — the translation visually "overflows" the
+        // text block on canvas.
+        //
+        // By setting layout.width/height to layout_box dimensions here, the renderer
+        // allocates a surface that is exactly the block size.  Glyphs at their final
+        // (alignment-adjusted) positions are always within bounds.  For overflow text
+        // (auto-fit fell back to min_font_size), tiny_skia clips at the surface edge —
+        // truncation is visible but does not exceed the block boundary.
+        layout.width = layout_box.width;
+        layout.height = layout_box.height;
+
         let resolved_stroke = resolve_stroke_style(
             text_block,
             style.stroke.as_ref(),
