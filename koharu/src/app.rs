@@ -16,9 +16,28 @@ use koharu_runtime::{ensure_dylibs, preload_dylibs};
 use koharu_types::State;
 
 static APP_ROOT: Lazy<PathBuf> = Lazy::new(|| {
-    dirs::data_local_dir()
+    let path = dirs::data_local_dir()
         .map(|path| path.join("KoharuTH"))
-        .unwrap_or_default()
+        .unwrap_or_default();
+
+    #[cfg(target_os = "windows")]
+    {
+        if path.as_os_str().is_empty() {
+            path
+        } else {
+            let abs_path = std::path::absolute(&path).unwrap_or(path);
+            let path_str = abs_path.to_string_lossy();
+            if !path_str.starts_with(r"\\?\") {
+                PathBuf::from(format!(r"\\?\{}", path_str.replace('/', r"\")))
+            } else {
+                abs_path
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        path
+    }
 });
 static LIB_ROOT: Lazy<PathBuf> = Lazy::new(|| APP_ROOT.join("libs"));
 /// HuggingFace model cache directory.

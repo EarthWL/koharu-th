@@ -46,14 +46,52 @@ fn get_cache_dir() -> &'static PathBuf {
              cache will land in dirs::cache_dir()/Koharu/hf rather \
              than the MODEL_ROOT path (issue #41)."
         );
-        dirs::cache_dir()
+        let path = dirs::cache_dir()
             .unwrap_or_default()
             .join("Koharu")
-            .join("hf")
+            .join("hf");
+
+        #[cfg(target_os = "windows")]
+        {
+            if path.as_os_str().is_empty() {
+                path
+            } else {
+                let abs_path = std::path::absolute(&path).unwrap_or(path);
+                let path_str = abs_path.to_string_lossy();
+                if !path_str.starts_with(r"\\?\") {
+                    PathBuf::from(format!(r"\\?\{}", path_str.replace('/', r"\")))
+                } else {
+                    abs_path
+                }
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            path
+        }
     })
 }
 
 pub fn set_cache_dir(path: PathBuf) -> anyhow::Result<()> {
+    #[cfg(target_os = "windows")]
+    let path = {
+        if path.as_os_str().is_empty() {
+            path
+        } else {
+            let abs_path = std::path::absolute(&path).unwrap_or(path);
+            let path_str = abs_path.to_string_lossy();
+            if !path_str.starts_with(r"\\?\") {
+                PathBuf::from(format!(r"\\?\{}", path_str.replace('/', r"\")))
+            } else {
+                abs_path
+            }
+        }
+    };
+
+    use anyhow::Context;
+    std::fs::create_dir_all(&path)
+        .with_context(|| format!("failed to create cache directory: {}", path.display()))?;
+
     CACHE_DIR
         .set(path)
         .map_err(|_| anyhow::anyhow!("cache dir has already been set"))
