@@ -168,6 +168,56 @@ Workspace `cargo build --workspace --lib` and `cargo test --workspace
 
 ## Known issues (workaround documented; no in-tree fix yet)
 
+### KI-3: LaMa tensor `narrow` error on degenerate crop (planned fix)
+
+**Symptom**: Toast surfaces
+`narrow invalid args start + len > dim_len: [1, 128, 1, 13], dim: 2, start: 1, len: 1`
+when running inpaint (full or partial) on a region where the
+mask has been edited down to a very thin strip — e.g. 1-pixel
+tall after eraser brush cleanup. The tensor shape `[1, 128, 1, 13]`
+shows the model intermediate has `height=1` after preprocess +
+resize → the model's downstream slicing fails because internal
+dim 2 has size 1 and the op tries `start=1, len=1`.
+
+**Status**: process survives — the audit #9 / KI-1 #2 path
+correctly converts the candle tensor error into an
+`anyhow::Error`, which surfaces as the toast above instead of a
+panic. Pipeline is alive; user just can't inpaint that
+specific malformed region.
+
+**Root cause**: no min-size validation on the crop passed to
+`LaMa::inference_model_rgb`. `koharu-ml/src/lama/mod.rs:246`
+accepts whatever crop the caller hands over; if the user has
+narrowed the mask to a sub-model-minimum region (LaMa expects
+≥ ~16-32 pixels per dimension after letterbox), candle's
+internal narrow / split ops fail mid-inference.
+
+**Planned fix** (5-10 mins):
+
+Bounds-check `crop.image.dimensions()` at the top of
+`inference_model_rgb` (or in `inference_blockwise` before the
+per-crop loop):
+
+```rust
+const MIN_INPAINT_DIM: u32 = 16;
+if w < MIN_INPAINT_DIM || h < MIN_INPAINT_DIM {
+    bail!(
+        "Region too small for inpaint ({w}x{h}, min {min}x{min}). \
+         Try expanding the mask brush or use Fit to Bubble.",
+         min = MIN_INPAINT_DIM,
+    );
+}
+```
+
+Friendly Thai-language toast replaces the cryptic
+candle/cuDNN tensor shape error. No model change required —
+just gate the input.
+
+**Not in-flight yet** — recorded so the next session picks it
+up. Tensor error is non-fatal; user can work around by
+re-running detect + auto-inpaint (which uses bubble-mask sized
+regions) or by enlarging the mask before inpaint_partial.
+
 ### KI-2: Manual UI edits clear undo history (planned fix)
 
 **Symptom**: Engine actions (detect / OCR / translate / render) ARE
