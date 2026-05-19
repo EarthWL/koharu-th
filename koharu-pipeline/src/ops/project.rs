@@ -1564,6 +1564,25 @@ pub async fn provider_profile_remove(
     Ok(removed)
 }
 
+#[cfg(windows)]
+fn check_debugger() -> anyhow::Result<()> {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn IsDebuggerPresent() -> i32;
+    }
+    unsafe {
+        if IsDebuggerPresent() != 0 {
+            anyhow::bail!("Security violation: Debugger or memory-monitoring agent detected.");
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn check_debugger() -> anyhow::Result<()> {
+    Ok(())
+}
+
 struct SecureApiKey(String);
 
 impl Drop for SecureApiKey {
@@ -1581,6 +1600,8 @@ pub async fn cloud_llm_call(
     state: AppResources,
     payload: CloudLlmCallPayload,
 ) -> anyhow::Result<CloudLlmCallResult> {
+    check_debugger()?;
+
     let project = require_project(&state).await?;
     let api_key_plaintext = tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
         let conn = project.pool().get()?;
@@ -1605,6 +1626,7 @@ pub async fn cloud_llm_call(
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(45))
+        .min_tls_version(reqwest::tls::Version::TLS_1_2)
         .build()?;
 
     let text = match provider.as_str() {
