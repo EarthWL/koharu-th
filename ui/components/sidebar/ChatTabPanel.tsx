@@ -52,6 +52,9 @@ const UI_LOCALE_TO_LANGUAGE: Record<string, string> = {
   'en-US': 'English',
   'th-TH': 'Thai',
   'ja-JP': 'Japanese',
+  'en': 'English',
+  'th': 'Thai',
+  'ja': 'Japanese',
 }
 
 function uiLanguageName(): string {
@@ -71,7 +74,7 @@ async function buildSystemPrompt(): Promise<string> {
   if (!project) {
     return [
       'You are an AI assistant for manga translation. No project is currently open.',
-      `Reply to the user in ${uiLang}.`,
+      `Reply to the user in the same language they write their message in (e.g., if they chat in Thai, respond in Thai; if they chat in English, respond in English). Default to ${uiLang} if the language cannot be determined.`,
     ].join('\n')
   }
   let series: any = null
@@ -81,7 +84,7 @@ async function buildSystemPrompt(): Promise<string> {
   return [
     'You are an AI assistant embedded in the Koharu manga translation editor.',
     `The user is working on project "${project.name}".`,
-    `Reply to the user in ${uiLang} unless they explicitly ask for another language.`,
+    `Reply to the user in the same language they write their message in (e.g., if they chat in Thai, respond in Thai; if they chat in English, respond in English). Default to ${uiLang} if the language cannot be determined.`,
     'You have tools to read and modify series metadata, characters, glossary, chapters, prompt templates, and to fetch web pages (wikis).',
     'When the user asks you to populate or update project data, propose changes first, wait for approval, then call the matching tool.',
     'Keep your replies concise. Use markdown tables for proposals.',
