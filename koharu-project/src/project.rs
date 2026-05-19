@@ -66,8 +66,31 @@ impl Project {
         if !manifest_path.exists() {
             return Err(Error::NotAProject(root.into()));
         }
-        let manifest = Manifest::read(&manifest_path)?;
+        let mut manifest = Manifest::read(&manifest_path)?;
+
+        // Phase 6.1 — v1 → v2 migration pre-flight: back up the
+        // SQLite file before any schema mutations land. Idempotent
+        // (skips when manifest is already v2 OR backup exists),
+        // so re-opens after a successful migration cost ~one
+        // metadata read.
+        crate::migration::pre_open_v1_to_v2(root, &manifest)?;
+
+        // The migration runner inside `db::open` applies any
+        // pending SQL migrations (including V007__v2_blob_index for
+        // v1 projects). Failure here leaves the manifest at v1,
+        // the .bak.v1 backup intact, and the user can re-try by
+        // re-opening — manifest stays untouched until SQL
+        // succeeds.
         let pool = db::open(root.join(&manifest.paths.db))?;
+
+        // Phase 6.1 — post-flight: create `blobs/` directory at
+        // the project root + bump manifest schema_version 1 → 2
+        // with atomic temp+rename. Reached only after SQL
+        // migration succeeded. If we crash between this point and
+        // returning, the next open's idempotent guards re-run the
+        // post-flight without harm.
+        crate::migration::post_open_v1_to_v2(root, &mut manifest)?;
+
         // Legacy file_path-only chapters (V001 schema) get auto-wrapped
         // into the new folder layout on first open after the V002 migration.
         {

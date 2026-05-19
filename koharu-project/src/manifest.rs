@@ -13,7 +13,16 @@ use uuid::Uuid;
 use crate::error::{Error, Result};
 
 /// Highest manifest schema version this build understands.
-pub const SUPPORTED_SCHEMA_VERSION: u32 = 1;
+///
+/// v1 = pre-v2 layout (no `blobs/` directory, in-memory blob
+/// store, no v2 SQL surface). v2 = post-Phase-6 (adds
+/// `blob_index` table via V007 migration + `blobs/` directory
+/// at the project root for future on-disk BlobStore backing).
+///
+/// Bumping this version triggers the host-process migration in
+/// `Project::open` when a v1 manifest is detected — see
+/// `migration::pre_open_v1_to_v2` + `post_open_v1_to_v2`.
+pub const SUPPORTED_SCHEMA_VERSION: u32 = 2;
 
 /// Filename of the manifest inside a project root.
 pub const MANIFEST_FILENAME: &str = "series.koharuproj";
