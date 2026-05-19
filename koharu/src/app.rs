@@ -165,6 +165,15 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
     std::fs::create_dir_all(MODEL_ROOT.as_path()).ok();
     std::fs::create_dir_all(LIB_ROOT.as_path()).ok();
 
+    // Remove IObit Uninstaller / Advanced SystemCare temp files from the
+    // libs directory. IObit marks files it cannot delete immediately by
+    // appending `_IObitDel` (potentially multiple times on retry) to the
+    // filename. These stale rename-targets are safe to remove on startup
+    // because: (a) the real DLL with the original name still exists, and
+    // (b) the renamed copy is never loaded — it is only kept around for
+    // IObit's own deferred-delete queue.
+    cleanup_iobit_temp_files(LIB_ROOT.as_path());
+
     // hook model cache dir
     koharu_ml::set_cache_dir(MODEL_ROOT.to_path_buf())?;
 
@@ -567,6 +576,38 @@ fn set_ml_device_config(selection: String) -> std::result::Result<(), String> {
 /// removed until ALL copies have succeeded. A mid-copy failure on disk-full /
 /// permission-error / antivirus-lock leaves the source directory intact with
 /// no data loss.
+/// Remove IObit Uninstaller / Advanced SystemCare stale temp files from `dir`.
+///
+/// When IObit cannot immediately delete a locked file it renames it by
+/// appending `_IObitDel` to the stem (e.g. `cudart64_13_IObitDel.dll`).
+/// If the file is still locked on the next scan the suffix is appended again,
+/// producing `_IObitDel_IObitDel`, and so on. The real library with the
+/// original name is never renamed — only the "marked for deletion" copies
+/// accumulate. Deleting them on startup keeps the directory tidy and prevents
+/// false-positive load failures when the OS lists the directory.
+fn cleanup_iobit_temp_files(dir: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if name_str.contains("IObitDel") || name_str.contains("iobitdel") {
+            match std::fs::remove_file(entry.path()) {
+                Ok(()) => tracing::debug!(
+                    path = ?entry.path(),
+                    "removed IObit temp file"
+                ),
+                Err(err) => tracing::warn!(
+                    path = ?entry.path(),
+                    ?err,
+                    "failed to remove IObit temp file (will retry next launch)"
+                ),
+            }
+        }
+    }
+}
+
 ///
 /// Symlinks and Windows NTFS junctions are skipped rather than traversed, to
 /// prevent accidentally deleting the contents of an unrelated directory that a
