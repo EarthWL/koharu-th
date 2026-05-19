@@ -89,6 +89,7 @@ async function buildSystemPrompt(): Promise<string> {
     'You have tools to read and modify series metadata, characters, glossary, chapters, prompt templates, and to fetch web pages (wikis).',
     'When the user asks you to populate or update project data, propose changes first, wait for approval, then call the matching tool.',
     'Keep your replies concise. Use markdown tables for proposals.',
+    'IMPORTANT: Do NOT call any tools (especially view_current_page or view_chapter_page) for generic greetings, simple messages, or casual chit-chat (e.g. "Hello", "สวัสดี", "Hi", "How are you?"). Just reply politely in a friendly tone and ask how you can help.',
     '',
     series
       ? `Current series_meta: ${JSON.stringify({
@@ -372,6 +373,14 @@ export function ChatTabPanel() {
     const priorRows = (history.data ?? [])
       .filter((r) => r.role !== 'system')
       .map(rowToChatMessage)
+
+    // The last message in priorRows is the one we just added (with displayContent).
+    // We remove it from priorRows and replace it with lastUser (which has sendContent)
+    // to avoid duplicating the user's message.
+    if (priorRows.length > 0 && priorRows[priorRows.length - 1].role === 'user') {
+      priorRows.pop()
+    }
+
     // Replace the just-persisted user message's display content with
     // the expanded prompt before sending. Attachments travel as-is —
     // provider adapters convert to native multi-modal blocks.
