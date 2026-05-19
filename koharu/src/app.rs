@@ -173,6 +173,19 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
         APP_ROOT.as_path(),
     ]);
 
+    // Register .khr and .koharuproj file associations unconditionally so
+    // double-clicking either extension opens Koharu regardless of GPU mode.
+    // Previously this was gated behind cuda_is_available() in
+    // build_resources_inner, meaning CPU-only machines never got the
+    // associations registered at all.
+    #[cfg(target_os = "windows")]
+    if let Err(err) = crate::windows::register_file_associations() {
+        tracing::warn!(
+            ?err,
+            "Failed to register .khr / .koharuproj file associations"
+        );
+    }
+
     // Remove stale temp files left by cleaner tools from the libs directory. IObit marks files it cannot delete immediately by
     // appending `_IObitDel` (potentially multiple times on retry) to the
     // filename. These stale rename-targets are safe to remove on startup
@@ -342,13 +355,6 @@ async fn build_resources_inner(cpu: bool, file: Option<PathBuf>) -> Result<AppRe
 
         #[cfg(target_os = "windows")]
         {
-            if let Err(err) = crate::windows::register_file_associations() {
-                tracing::warn!(
-                    ?err,
-                    "Failed to register .khr / .koharuproj file associations"
-                );
-            }
-
             crate::windows::add_dll_directory(&LIB_ROOT).context("Failed to add DLL directory")?;
         }
 

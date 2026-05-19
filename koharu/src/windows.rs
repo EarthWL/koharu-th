@@ -7,6 +7,7 @@ use windows::Win32::System::Console::{
     ATTACH_PARENT_PROCESS, AllocConsole, AttachConsole, ENABLE_VIRTUAL_TERMINAL_PROCESSING,
     GetConsoleMode, GetStdHandle, STD_OUTPUT_HANDLE, SetConsoleMode,
 };
+use windows::Win32::UI::Shell::{SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify};
 
 use std::os::windows::ffi::OsStrExt;
 use windows_sys::Win32::System::LibraryLoader::{
@@ -85,6 +86,17 @@ pub fn register_file_associations() -> Result<()> {
         Some("application/json"),
         None,
     )?;
+
+    // Notify the Windows Shell so Explorer picks up the new associations
+    // immediately without requiring a reboot or Explorer restart.
+    unsafe {
+        SHChangeNotify(
+            SHCNE_ASSOCCHANGED,
+            SHCNF_IDLIST,
+            std::ptr::null(),
+            std::ptr::null(),
+        );
+    }
 
     Ok(())
 }
