@@ -140,14 +140,34 @@ pub async fn open_documents(
     state: AppResources,
     payload: OpenDocumentsPayload,
 ) -> anyhow::Result<usize> {
-    let inputs: Vec<(PathBuf, Vec<u8>)> = payload
+    let mut inputs: Vec<(PathBuf, Vec<u8>)> = payload
         .files
         .into_iter()
         .map(|f| (PathBuf::from(f.name), f.data))
         .collect();
 
     if inputs.is_empty() {
-        anyhow::bail!("No files uploaded");
+        let chosen = tokio::task::spawn_blocking(|| {
+            FileDialog::new()
+                .add_filter("Images", &["png", "jpg", "jpeg", "webp"])
+                .pick_files()
+        })
+        .await?;
+        if let Some(files) = chosen {
+            for path in files {
+                let data = std::fs::read(&path)?;
+                let name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                inputs.push((PathBuf::from(name), data));
+            }
+        }
+    }
+
+    if inputs.is_empty() {
+        anyhow::bail!("No files selected");
     }
 
     let docs = load_documents(inputs)?;
@@ -161,14 +181,34 @@ pub async fn add_documents(
     state: AppResources,
     payload: OpenDocumentsPayload,
 ) -> anyhow::Result<usize> {
-    let inputs: Vec<(PathBuf, Vec<u8>)> = payload
+    let mut inputs: Vec<(PathBuf, Vec<u8>)> = payload
         .files
         .into_iter()
         .map(|f| (PathBuf::from(f.name), f.data))
         .collect();
 
     if inputs.is_empty() {
-        anyhow::bail!("No files uploaded");
+        let chosen = tokio::task::spawn_blocking(|| {
+            FileDialog::new()
+                .add_filter("Images", &["png", "jpg", "jpeg", "webp"])
+                .pick_files()
+        })
+        .await?;
+        if let Some(files) = chosen {
+            for path in files {
+                let data = std::fs::read(&path)?;
+                let name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                inputs.push((PathBuf::from(name), data));
+            }
+        }
+    }
+
+    if inputs.is_empty() {
+        anyhow::bail!("No files selected");
     }
 
     let docs = load_documents(inputs)?;

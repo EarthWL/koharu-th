@@ -200,27 +200,14 @@ export async function invoke<M extends keyof RpcMethodMap>(
 async function openDocumentsRpc(
   method: 'open_documents' | 'add_documents',
 ): Promise<number> {
-  let files: File[]
+  // Use zero-copy native file dialog on the Rust backend side.
+  // This bypasses browser-fs-access and transferring large binary buffers over WebSocket.
   try {
-    files = await fileOpen({
-      description: 'Documents',
-      mimeTypes: ['image/*'],
-      extensions: ['.png', '.jpg', '.jpeg', '.webp'],
-      multiple: true,
-    })
-  } catch {
+    return await getClient().invoke<number>(method, { files: [] })
+  } catch (error) {
+    reportRpcError(method, error)
     return 0
   }
-  if (!files.length) return 0
-
-  const entries = await Promise.all(
-    files.map(async (file: File) => ({
-      name: file.name,
-      data: new Uint8Array(await file.arrayBuffer()),
-    })),
-  )
-
-  return getClient().invoke<number>(method, { files: entries })
 }
 
 // --- Thumbnail fetch ---
