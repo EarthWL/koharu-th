@@ -22,10 +22,11 @@
 use serde::Serialize;
 use thiserror::Error;
 
-use koharu_core::{Op, Scene};
+use koharu_core::scene::Page;
+use koharu_core::{NodeId, Op, PageId, Scene, TextBlockPatch};
 
 use crate::event::{EventBus, SessionEvent};
-use crate::history::{History, HistoryState};
+use crate::history::{History, HistoryEntry, HistoryState};
 
 /// Configuration knobs for [`ProjectSession`]. Sized so default
 /// = production behaviour; tests override capacity to exercise
@@ -129,40 +130,70 @@ impl ProjectSession {
         self.history.state()
     }
 
-    /// Apply one `Op` (or a `Batch` of Ops). Phase 5.2 fills the
-    /// body:
+    /// Apply one `Op` (or a `Batch` of Ops).
     ///
-    /// 1. Compute inverse Op from current Scene.
-    /// 2. Mutate Scene.
-    /// 3. Push `HistoryEntry { op, inverse }` onto undo stack
-    ///    (clears redo).
-    /// 4. Emit `SessionEvent::OpsApplied` on the bus.
+    /// 1. Compute inverse Op from the current Scene state.
+    /// 2. Mutate the Scene.
+    /// 3. Push `HistoryEntry { op, inverse }` onto the undo stack
+    ///    (clears redo — branched timeline).
+    /// 4. Emit `SessionEvent::OpsApplied { page, op_count }`.
     ///
-    /// Returns `Err` (without touching history) when the Op
-    /// targets a missing page/node — caller surfaces the error.
-    pub fn apply(&mut self, _op: Op) -> Result<(), SessionError> {
-        todo!("Phase 5.2 — apply + inverse computation")
+    /// Returns `Err` (without touching history or Scene) when the
+    /// Op targets a missing page/node. The order matters: inverse
+    /// computation runs BEFORE mutation so a failed inverse leaves
+    /// the Scene untouched.
+    pub fn apply(&mut self, op: Op) -> Result<(), SessionError> {
+        // Empty Batch — nothing to do, nothing to record.
+        if matches!(&op, Op::Batch(inner) if inner.is_empty()) {
+            return Ok(());
+        }
+
+        let inverse = compute_inverse(&self.scene, &op)?;
+        apply_to_scene(&mut self.scene, &op)?;
+        self.history.push(HistoryEntry {
+            op: op.clone(),
+            inverse,
+        });
+        let (page, op_count) = summarise(&op);
+        self.bus.emit(SessionEvent::OpsApplied { page, op_count });
+        Ok(())
     }
 
-    /// Undo the most recent applied Op. Phase 5.2 fills the body:
-    ///
-    /// 1. Pop the top history entry.
-    /// 2. Apply `entry.inverse` to the Scene (using the same
-    ///    internal mutation path as `apply`, but WITHOUT pushing
-    ///    a new history entry — we're walking the stack, not
-    ///    branching).
-    /// 3. Push the popped entry onto the redo stack.
-    /// 4. Emit `SessionEvent::OpsUndone`.
+    /// Undo the most recent applied Op.
     pub fn undo(&mut self) -> Result<(), SessionError> {
-        todo!("Phase 5.2 — undo")
+        let entry = self
+            .history
+            .pop_undo()
+            .ok_or(SessionError::NothingToUndo)?;
+        // Apply the inverse directly (NOT via apply() — that would
+        // recurse + double-record). On error, push the entry back
+        // so the user can retry, and the history stays consistent.
+        if let Err(e) = apply_to_scene(&mut self.scene, &entry.inverse) {
+            self.history.push_replay(entry);
+            return Err(e);
+        }
+        let (page, op_count) = summarise(&entry.inverse);
+        self.history.push_redo(entry);
+        self.bus.emit(SessionEvent::OpsUndone { page, op_count });
+        Ok(())
     }
 
-    /// Redo the most recently undone Op. Mirror of `undo` —
-    /// applies `entry.op` then pushes back onto undo via
-    /// `History::push_replay` (which preserves the redo stack
-    /// below this one, in case the user redoes multiple steps).
+    /// Redo the most recently undone Op.
     pub fn redo(&mut self) -> Result<(), SessionError> {
-        todo!("Phase 5.2 — redo")
+        let entry = self
+            .history
+            .pop_redo()
+            .ok_or(SessionError::NothingToRedo)?;
+        if let Err(e) = apply_to_scene(&mut self.scene, &entry.op) {
+            // Re-push to redo so the cursor is unchanged on
+            // failure — symmetric with `undo`'s error recovery.
+            self.history.push_redo(entry);
+            return Err(e);
+        }
+        let (page, op_count) = summarise(&entry.op);
+        self.history.push_replay(entry);
+        self.bus.emit(SessionEvent::OpsRedone { page, op_count });
+        Ok(())
     }
 
     /// Wipe history — used on chapter close (per-chapter session
@@ -178,10 +209,364 @@ impl ProjectSession {
     }
 }
 
+fn summarise(op: &Op) -> (PageId, usize) {
+    // Best-effort page-id resolution — for events we want SOME
+    // page id to scope subscriber work. For an empty/no-op batch
+    // (filtered earlier in apply) this branch is unreachable.
+    // For a heterogeneous batch (rare today), we pick the FIRST
+    // op's page — subscribers that need a different scope can
+    // re-fetch the full op list.
+    fn first_page(op: &Op) -> Option<PageId> {
+        match op {
+            Op::Batch(inner) => inner.iter().find_map(first_page),
+            Op::AddPage { id, .. } | Op::RemovePage { id } | Op::UpdatePageImage { id, .. } => {
+                Some(*id)
+            }
+            Op::AddTextBlock { page, .. }
+            | Op::UpdateTextBlock { page, .. }
+            | Op::RemoveTextBlock { page, .. }
+            | Op::SetSegmentationMask { page, .. }
+            | Op::SetInpaintedImage { page, .. }
+            | Op::SetRenderedImage { page, .. }
+            | Op::SetBrushLayer { page, .. } => Some(*page),
+        }
+    }
+    fn count(op: &Op) -> usize {
+        match op {
+            Op::Batch(inner) => inner.iter().map(count).sum(),
+            _ => 1,
+        }
+    }
+    (first_page(op).unwrap_or(PageId(0)), count(op))
+}
+
+/// Apply `op` to `scene` IN PLACE. No history involvement — this
+/// is the raw mutation primitive used by both `apply()` and the
+/// undo/redo replay paths.
+fn apply_to_scene(scene: &mut Scene, op: &Op) -> Result<(), SessionError> {
+    match op {
+        Op::Batch(inner) => {
+            for sub in inner {
+                apply_to_scene(scene, sub)?;
+            }
+        }
+        Op::AddPage {
+            id,
+            image,
+            width,
+            height,
+        } => {
+            scene.pages.insert(
+                *id,
+                Page {
+                    id: *id,
+                    source_image: *image,
+                    width: *width,
+                    height: *height,
+                    text_blocks: Default::default(),
+                    segmentation_mask: None,
+                    inpainted_image: None,
+                    rendered_image: None,
+                    brush_layer: None,
+                },
+            );
+        }
+        Op::RemovePage { id } => {
+            scene
+                .pages
+                .shift_remove(id)
+                .ok_or(SessionError::PageNotFound(*id))?;
+        }
+        Op::UpdatePageImage { id, image } => {
+            let page = scene
+                .pages
+                .get_mut(id)
+                .ok_or(SessionError::PageNotFound(*id))?;
+            page.source_image = *image;
+        }
+        Op::AddTextBlock { page, block } => {
+            let p = scene
+                .pages
+                .get_mut(page)
+                .ok_or(SessionError::PageNotFound(*page))?;
+            p.text_blocks.insert(block.id, block.clone());
+        }
+        Op::UpdateTextBlock { page, id, patch } => {
+            let p = scene
+                .pages
+                .get_mut(page)
+                .ok_or(SessionError::PageNotFound(*page))?;
+            let block = p
+                .text_blocks
+                .get_mut(id)
+                .ok_or(SessionError::NodeNotFound(*id, *page))?;
+            apply_text_block_patch(block, patch);
+        }
+        Op::RemoveTextBlock { page, id } => {
+            let p = scene
+                .pages
+                .get_mut(page)
+                .ok_or(SessionError::PageNotFound(*page))?;
+            p.text_blocks
+                .shift_remove(id)
+                .ok_or(SessionError::NodeNotFound(*id, *page))?;
+        }
+        Op::SetSegmentationMask { page, mask } => {
+            let p = scene
+                .pages
+                .get_mut(page)
+                .ok_or(SessionError::PageNotFound(*page))?;
+            p.segmentation_mask = *mask;
+        }
+        Op::SetInpaintedImage { page, image } => {
+            let p = scene
+                .pages
+                .get_mut(page)
+                .ok_or(SessionError::PageNotFound(*page))?;
+            p.inpainted_image = *image;
+        }
+        Op::SetRenderedImage { page, image } => {
+            let p = scene
+                .pages
+                .get_mut(page)
+                .ok_or(SessionError::PageNotFound(*page))?;
+            p.rendered_image = *image;
+        }
+        Op::SetBrushLayer { page, brush } => {
+            let p = scene
+                .pages
+                .get_mut(page)
+                .ok_or(SessionError::PageNotFound(*page))?;
+            p.brush_layer = *brush;
+        }
+    }
+    Ok(())
+}
+
+/// Apply a `TextBlockPatch` field by field. Mirror of the v2
+/// double-option semantics: outer `None` = leave alone; outer
+/// `Some(None)` = explicitly clear; outer `Some(Some(v))` = set.
+fn apply_text_block_patch(
+    block: &mut koharu_core::scene::TextBlock,
+    patch: &TextBlockPatch,
+) {
+    if let Some(region) = patch.region {
+        block.region = region;
+    }
+    if let Some(source_text) = &patch.source_text {
+        block.source_text = source_text.clone();
+    }
+    if let Some(translation) = &patch.translation {
+        block.translation = translation.clone();
+    }
+    if let Some(style) = &patch.style {
+        block.style = style.clone();
+    }
+    if let Some(source_lang) = &patch.source_lang {
+        block.source_lang = source_lang.clone();
+    }
+}
+
+/// Compute the inverse Op for `op` against the CURRENT (pre-apply)
+/// `scene`. Caller invokes this before `apply_to_scene` so the
+/// returned inverse captures the right prior state.
+///
+/// Strategy per variant:
+///
+/// - `Batch(ops)` → `Batch(reversed inverses)`. Each sub-op's
+///   inverse is computed against the Scene as it would look
+///   AFTER all preceding sub-ops are applied — so we apply on a
+///   clone, walk forward, computing inverses against that
+///   evolving clone. Cost is O(n) clones in the worst case; in
+///   practice batches are small (≤30 ops per engine result).
+///
+/// - Lifecycle ops swap: Add ↔ Remove. The Remove inverse needs
+///   the FULL prior state (block.clone() for text blocks; whole
+///   Page for AddPage's inverse RemovePage … no wait, RemovePage
+///   needs to RECREATE the page with ALL its prior contents,
+///   which means RemovePage's inverse must carry the full page
+///   data. That's `Op::Batch(AddPage + every AddTextBlock +
+///   every Set*Image)`.
+///
+/// - Set* ops on optional artifacts: inverse Set* with the
+///   prior value (None or Some(prior_id)).
+///
+/// - UpdateTextBlock: inverse UpdateTextBlock with a patch
+///   carrying the prior values for the fields the forward patch
+///   changed. Fields the forward patch leaves alone stay alone
+///   in the inverse.
+fn compute_inverse(scene: &Scene, op: &Op) -> Result<Op, SessionError> {
+    match op {
+        Op::Batch(inner) => {
+            // Walk forward on a clone; collect inverses; reverse
+            // at the end so Batch(inverses).apply() rolls back in
+            // the right order.
+            let mut working = scene.clone();
+            let mut inverses = Vec::with_capacity(inner.len());
+            for sub in inner {
+                let inv = compute_inverse(&working, sub)?;
+                apply_to_scene(&mut working, sub)?;
+                inverses.push(inv);
+            }
+            inverses.reverse();
+            Ok(Op::Batch(inverses))
+        }
+        Op::AddPage { id, .. } => Ok(Op::RemovePage { id: *id }),
+        Op::RemovePage { id } => {
+            let page = scene
+                .pages
+                .get(id)
+                .ok_or(SessionError::PageNotFound(*id))?;
+            // Restore via Batch: AddPage (image + dims) then every
+            // text block + every artifact in the right order.
+            let mut restore: Vec<Op> = Vec::new();
+            restore.push(Op::AddPage {
+                id: *id,
+                image: page.source_image,
+                width: page.width,
+                height: page.height,
+            });
+            for block in page.text_blocks.values() {
+                restore.push(Op::AddTextBlock {
+                    page: *id,
+                    block: block.clone(),
+                });
+            }
+            if page.segmentation_mask.is_some() {
+                restore.push(Op::SetSegmentationMask {
+                    page: *id,
+                    mask: page.segmentation_mask,
+                });
+            }
+            if page.inpainted_image.is_some() {
+                restore.push(Op::SetInpaintedImage {
+                    page: *id,
+                    image: page.inpainted_image,
+                });
+            }
+            if page.rendered_image.is_some() {
+                restore.push(Op::SetRenderedImage {
+                    page: *id,
+                    image: page.rendered_image,
+                });
+            }
+            if page.brush_layer.is_some() {
+                restore.push(Op::SetBrushLayer {
+                    page: *id,
+                    brush: page.brush_layer,
+                });
+            }
+            Ok(Op::Batch(restore))
+        }
+        Op::UpdatePageImage { id, .. } => {
+            let page = scene
+                .pages
+                .get(id)
+                .ok_or(SessionError::PageNotFound(*id))?;
+            Ok(Op::UpdatePageImage {
+                id: *id,
+                image: page.source_image,
+            })
+        }
+        Op::AddTextBlock { page, block } => Ok(Op::RemoveTextBlock {
+            page: *page,
+            id: block.id,
+        }),
+        Op::UpdateTextBlock { page, id, patch } => {
+            let p = scene
+                .pages
+                .get(page)
+                .ok_or(SessionError::PageNotFound(*page))?;
+            let block = p
+                .text_blocks
+                .get(id)
+                .ok_or(SessionError::NodeNotFound(*id, *page))?;
+            // For each field the forward patch sets, capture the
+            // PRIOR value. Fields the patch leaves alone stay
+            // unset (outer None) in the inverse.
+            let inverse_patch = TextBlockPatch {
+                region: patch.region.map(|_| block.region),
+                source_text: patch.source_text.as_ref().map(|_| block.source_text.clone()),
+                translation: patch.translation.as_ref().map(|_| block.translation.clone()),
+                style: patch.style.as_ref().map(|_| block.style.clone()),
+                source_lang: patch.source_lang.as_ref().map(|_| block.source_lang.clone()),
+            };
+            Ok(Op::UpdateTextBlock {
+                page: *page,
+                id: *id,
+                patch: inverse_patch,
+            })
+        }
+        Op::RemoveTextBlock { page, id } => {
+            let p = scene
+                .pages
+                .get(page)
+                .ok_or(SessionError::PageNotFound(*page))?;
+            let block = p
+                .text_blocks
+                .get(id)
+                .ok_or(SessionError::NodeNotFound(*id, *page))?;
+            Ok(Op::AddTextBlock {
+                page: *page,
+                block: block.clone(),
+            })
+        }
+        Op::SetSegmentationMask { page, .. } => {
+            let p = scene
+                .pages
+                .get(page)
+                .ok_or(SessionError::PageNotFound(*page))?;
+            Ok(Op::SetSegmentationMask {
+                page: *page,
+                mask: p.segmentation_mask,
+            })
+        }
+        Op::SetInpaintedImage { page, .. } => {
+            let p = scene
+                .pages
+                .get(page)
+                .ok_or(SessionError::PageNotFound(*page))?;
+            Ok(Op::SetInpaintedImage {
+                page: *page,
+                image: p.inpainted_image,
+            })
+        }
+        Op::SetRenderedImage { page, .. } => {
+            let p = scene
+                .pages
+                .get(page)
+                .ok_or(SessionError::PageNotFound(*page))?;
+            Ok(Op::SetRenderedImage {
+                page: *page,
+                image: p.rendered_image,
+            })
+        }
+        Op::SetBrushLayer { page, .. } => {
+            let p = scene
+                .pages
+                .get(page)
+                .ok_or(SessionError::PageNotFound(*page))?;
+            Ok(Op::SetBrushLayer {
+                page: *page,
+                brush: p.brush_layer,
+            })
+        }
+    }
+}
+
+// Silence unused-import warnings for NodeId — it's used in the
+// match arms above via SessionError variants but rustc sometimes
+// fails to notice when used purely through type-driven constructors.
+#[allow(dead_code)]
+fn _node_id_used(id: NodeId) -> NodeId {
+    id
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use koharu_core::Scene;
+    use koharu_core::{BlobId, NodeId, Op, PageId, Region, Scene, scene::Page, scene::TextBlock as SceneTextBlock};
+    use indexmap::IndexMap;
 
     #[test]
     fn new_session_starts_with_empty_history() {
@@ -207,13 +592,244 @@ mod tests {
     fn clear_history_emits_event() {
         let session = ProjectSession::new(Scene::default(), SessionConfig::default());
         let mut rx = session.subscribe();
-        // Apply some history first… wait, apply is todo!() until
-        // 5.2. For 5.1, just exercise clear_history directly.
-        let mut session = session; // mut binding
+        let mut session = session;
         session.clear_history();
         match rx.try_recv() {
             Ok(SessionEvent::HistoryCleared) => {}
             other => panic!("expected HistoryCleared, got {other:?}"),
+        }
+    }
+
+    fn one_page_scene() -> Scene {
+        let mut pages = IndexMap::new();
+        pages.insert(
+            PageId(1),
+            Page {
+                id: PageId(1),
+                source_image: BlobId([0u8; 32]),
+                width: 100,
+                height: 100,
+                text_blocks: IndexMap::new(),
+                segmentation_mask: None,
+                inpainted_image: None,
+                rendered_image: None,
+                brush_layer: None,
+            },
+        );
+        Scene { pages }
+    }
+
+    fn sample_block(id: u64, text: &str) -> SceneTextBlock {
+        SceneTextBlock {
+            id: NodeId(id),
+            region: Region {
+                x: 0,
+                y: 0,
+                width: 10,
+                height: 10,
+            },
+            source_text: Some(text.into()),
+            translation: None,
+            style: None,
+            source_lang: None,
+            font_prediction: None,
+        }
+    }
+
+    #[test]
+    fn apply_add_text_block_then_undo_restores() {
+        let mut session = ProjectSession::new(one_page_scene(), SessionConfig::default());
+        session
+            .apply(Op::AddTextBlock {
+                page: PageId(1),
+                block: sample_block(1, "hello"),
+            })
+            .unwrap();
+        assert_eq!(session.scene().pages.get(&PageId(1)).unwrap().text_blocks.len(), 1);
+        assert_eq!(session.history_state().undo_len, 1);
+
+        session.undo().unwrap();
+        assert_eq!(session.scene().pages.get(&PageId(1)).unwrap().text_blocks.len(), 0);
+        assert_eq!(session.history_state().undo_len, 0);
+        assert_eq!(session.history_state().redo_len, 1);
+
+        session.redo().unwrap();
+        assert_eq!(session.scene().pages.get(&PageId(1)).unwrap().text_blocks.len(), 1);
+        assert_eq!(session.history_state().redo_len, 0);
+    }
+
+    #[test]
+    fn update_text_block_inverse_captures_prior_values() {
+        let mut scene = one_page_scene();
+        scene
+            .pages
+            .get_mut(&PageId(1))
+            .unwrap()
+            .text_blocks
+            .insert(NodeId(1), sample_block(1, "before"));
+        let mut session = ProjectSession::new(scene, SessionConfig::default());
+
+        session
+            .apply(Op::UpdateTextBlock {
+                page: PageId(1),
+                id: NodeId(1),
+                patch: TextBlockPatch {
+                    source_text: Some(Some("after".into())),
+                    ..Default::default()
+                },
+            })
+            .unwrap();
+
+        assert_eq!(
+            session.scene().pages.get(&PageId(1)).unwrap()
+                .text_blocks.get(&NodeId(1)).unwrap()
+                .source_text.as_deref(),
+            Some("after"),
+        );
+
+        session.undo().unwrap();
+
+        assert_eq!(
+            session.scene().pages.get(&PageId(1)).unwrap()
+                .text_blocks.get(&NodeId(1)).unwrap()
+                .source_text.as_deref(),
+            Some("before"),
+            "undo restores the prior source_text",
+        );
+    }
+
+    #[test]
+    fn set_segmentation_mask_inverse_restores_prior_blob() {
+        let mut session = ProjectSession::new(one_page_scene(), SessionConfig::default());
+        let blob_a = BlobId([1u8; 32]);
+        let blob_b = BlobId([2u8; 32]);
+
+        session
+            .apply(Op::SetSegmentationMask {
+                page: PageId(1),
+                mask: Some(blob_a),
+            })
+            .unwrap();
+        assert_eq!(
+            session.scene().pages.get(&PageId(1)).unwrap().segmentation_mask,
+            Some(blob_a),
+        );
+
+        session
+            .apply(Op::SetSegmentationMask {
+                page: PageId(1),
+                mask: Some(blob_b),
+            })
+            .unwrap();
+        assert_eq!(
+            session.scene().pages.get(&PageId(1)).unwrap().segmentation_mask,
+            Some(blob_b),
+        );
+
+        // Undo b → expect a.
+        session.undo().unwrap();
+        assert_eq!(
+            session.scene().pages.get(&PageId(1)).unwrap().segmentation_mask,
+            Some(blob_a),
+        );
+        // Undo a → expect None (initial state).
+        session.undo().unwrap();
+        assert_eq!(
+            session.scene().pages.get(&PageId(1)).unwrap().segmentation_mask,
+            None,
+        );
+    }
+
+    #[test]
+    fn batch_undoes_in_reverse_order() {
+        let mut session = ProjectSession::new(one_page_scene(), SessionConfig::default());
+        session
+            .apply(Op::Batch(vec![
+                Op::AddTextBlock {
+                    page: PageId(1),
+                    block: sample_block(1, "a"),
+                },
+                Op::AddTextBlock {
+                    page: PageId(1),
+                    block: sample_block(2, "b"),
+                },
+            ]))
+            .unwrap();
+        assert_eq!(
+            session.scene().pages.get(&PageId(1)).unwrap().text_blocks.len(),
+            2,
+        );
+        session.undo().unwrap();
+        assert_eq!(
+            session.scene().pages.get(&PageId(1)).unwrap().text_blocks.len(),
+            0,
+            "batch undo removes both",
+        );
+    }
+
+    #[test]
+    fn empty_batch_apply_is_noop_no_history() {
+        let mut session = ProjectSession::new(one_page_scene(), SessionConfig::default());
+        session.apply(Op::Batch(vec![])).unwrap();
+        assert_eq!(session.history_state().undo_len, 0);
+    }
+
+    #[test]
+    fn new_apply_clears_redo() {
+        let mut session = ProjectSession::new(one_page_scene(), SessionConfig::default());
+        session
+            .apply(Op::AddTextBlock {
+                page: PageId(1),
+                block: sample_block(1, "a"),
+            })
+            .unwrap();
+        session.undo().unwrap();
+        assert_eq!(session.history_state().redo_len, 1);
+
+        // New apply branches the timeline → redo cleared.
+        session
+            .apply(Op::AddTextBlock {
+                page: PageId(1),
+                block: sample_block(2, "b"),
+            })
+            .unwrap();
+        assert_eq!(session.history_state().redo_len, 0);
+    }
+
+    #[test]
+    fn apply_to_missing_page_errors_without_history_push() {
+        let mut session = ProjectSession::new(Scene::default(), SessionConfig::default());
+        let result = session.apply(Op::AddTextBlock {
+            page: PageId(99),
+            block: sample_block(1, "x"),
+        });
+        assert!(matches!(result, Err(SessionError::PageNotFound(_))));
+        // Failed apply must NOT have touched history.
+        assert_eq!(session.history_state().undo_len, 0);
+    }
+
+    #[test]
+    fn undo_with_empty_history_errors() {
+        let mut session = ProjectSession::new(Scene::default(), SessionConfig::default());
+        assert!(matches!(session.undo(), Err(SessionError::NothingToUndo)));
+    }
+
+    #[test]
+    fn apply_emits_ops_applied_event() {
+        let mut session = ProjectSession::new(one_page_scene(), SessionConfig::default());
+        let mut rx = session.subscribe();
+        session
+            .apply(Op::AddTextBlock {
+                page: PageId(1),
+                block: sample_block(1, "a"),
+            })
+            .unwrap();
+        match rx.try_recv() {
+            Ok(SessionEvent::OpsApplied { page, op_count }) => {
+                assert_eq!(page, PageId(1));
+                assert_eq!(op_count, 1);
+            }
+            other => panic!("expected OpsApplied, got {other:?}"),
         }
     }
 }

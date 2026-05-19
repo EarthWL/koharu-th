@@ -17,4 +17,5 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+indexmap = { version = "2", features = ["serde"] }
 serde_json = { workspace = true }

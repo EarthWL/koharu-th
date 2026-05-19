@@ -3886,6 +3886,7 @@ name = "koharu-app"
 version = "1.2.1"
 dependencies = [
  "anyhow",
+ "indexmap 2.13.0",
  "koharu-core",
  "serde",
  "serde_json",
