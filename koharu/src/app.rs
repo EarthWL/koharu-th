@@ -248,7 +248,14 @@ fn migrate_legacy_model_cache() {
     // APP_ROOT but APP_ROOT might not have been created yet on a
     // first-of-its-kind install (legacy was the only thing here).
     if let Some(parent) = modern.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        if let Err(err) = std::fs::create_dir_all(parent) {
+            tracing::warn!(
+                ?err,
+                dir = %parent.display(),
+                "Failed to create parent directory for HF cache migration; skipping rename"
+            );
+            return;
+        }
     }
 
     match std::fs::rename(legacy, modern) {
@@ -361,7 +368,13 @@ async fn build_resources_inner(cpu: bool, file: Option<PathBuf>) -> Result<AppRe
                 .map(|e| e.eq_ignore_ascii_case("koharuproj"))
                 == Some(true)
         {
-            path.parent().unwrap_or(&path).to_path_buf()
+            // `path.parent()` can return `Some("")` for bare filenames like
+            // `foo.koharuproj` with no directory component. Fall back to the
+            // current working directory so Project::open receives a valid dir.
+            path.parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| path.clone()))
         } else {
             path
         };
@@ -444,7 +457,8 @@ fn set_ml_device_config(selection: String) -> std::result::Result<(), String> {
         return Err(format!("Failed to create APP_ROOT directory: {err}"));
     }
     let val = serde_json::json!({ "selection": selection });
-    let content = serde_json::to_string_pretty(&val).unwrap();
+    let content = serde_json::to_string_pretty(&val)
+        .map_err(|e| format!("Failed to serialize ML device config: {e}"))?;
     std::fs::write(ML_DEVICE_CONFIG_PATH.as_path(), content)
         .map_err(|err| format!("Failed to write ml-device.json: {err}"))?;
     Ok(())
@@ -548,6 +562,15 @@ fn set_ml_device_config(selection: String) -> std::result::Result<(), String> {
 }
 
 /// ย้ายโฟลเดอร์แบบปลอดภัยรองรับการย้ายข้ามพาร์ทิชันดิสก์ (Cross-device partition move fallback)
+///
+/// Two-phase design (collect → copy → delete) ensures source files are NEVER
+/// removed until ALL copies have succeeded. A mid-copy failure on disk-full /
+/// permission-error / antivirus-lock leaves the source directory intact with
+/// no data loss.
+///
+/// Symlinks and Windows NTFS junctions are skipped rather than traversed, to
+/// prevent accidentally deleting the contents of an unrelated directory that a
+/// junction inside the source tree might point at.
 fn move_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
     if !src.exists() {
         return Ok(());
@@ -560,24 +583,61 @@ fn move_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result
         std::fs::remove_file(src)?;
         return Ok(());
     }
-    std::fs::create_dir_all(dst)?;
+
+    // Phase 1: collect all (src_file, dst_file) pairs recursively.
+    let mut pairs: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::new();
+    collect_file_pairs(src, dst, &mut pairs)?;
+
+    // Phase 2: copy everything — abort on first error, sources untouched.
+    for (s, d) in &pairs {
+        if let Some(parent) = d.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::copy(s, d)?;
+    }
+
+    // Phase 3: delete sources — only reached after ALL copies succeeded.
+    for (s, _) in &pairs {
+        let _ = std::fs::remove_file(s);
+    }
+
+    // Remove now-empty source directories (best-effort; non-fatal).
+    remove_empty_dirs(src).ok();
+    Ok(())
+}
+
+/// Recursively collect (src, dst) file path pairs, skipping symlinks/junctions.
+fn collect_file_pairs(
+    src: &std::path::Path,
+    dst: &std::path::Path,
+    out: &mut Vec<(std::path::PathBuf, std::path::PathBuf)>,
+) -> std::io::Result<()> {
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
-        let file_type = entry.file_type()?;
-        let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
-        if file_type.is_dir() {
-            move_dir_all(&src_path, &dst_path)?;
+        let ft = entry.file_type()?;
+        let s = entry.path();
+        let d = dst.join(entry.file_name());
+        if ft.is_symlink() {
+            tracing::warn!(path = ?s, "skipping symlink/junction during directory migration");
+            continue;
+        }
+        if ft.is_dir() {
+            collect_file_pairs(&s, &d, out)?;
         } else {
-            if let Some(parent) = dst_path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::copy(&src_path, &dst_path)?;
-            std::fs::remove_file(&src_path)?;
+            out.push((s, d));
         }
     }
-    std::fs::remove_dir(src)?;
     Ok(())
+}
+
+/// Remove a directory tree bottom-up, stopping as soon as any directory is non-empty.
+fn remove_empty_dirs(path: &std::path::Path) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(path)?.flatten() {
+        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            remove_empty_dirs(&entry.path()).ok();
+        }
+    }
+    std::fs::remove_dir(path)
 }
 
 /// พยายามย้ายไดเรกทอรีด้วย std::fs::rename ก่อน และถ้าล้มเหลว (เช่น ย้ายข้าม Drive) จะใช้ move_dir_all คัดลอกและลบแทน
