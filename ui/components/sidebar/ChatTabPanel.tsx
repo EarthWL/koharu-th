@@ -33,6 +33,7 @@ import {
   PlusIcon,
   DownloadIcon,
 } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { getHttpUrl } from '@/lib/backend'
 import { Textarea } from '@/components/ui/textarea'
@@ -53,6 +54,7 @@ import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 
 import { useProjectStore } from '@/lib/stores/projectStore'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
+import { useChatActivityStore } from '@/lib/stores/chatActivityStore'
 import { runChatTurn, type ChatMessage } from '@/lib/services/chatWithTools'
 import { expandSlash, SLASH_COMMANDS } from '@/lib/services/chatSlashCommands'
 import { blobToAttachment, parseAttachments } from '@/lib/services/imageAttach'
@@ -328,17 +330,24 @@ export function ChatTabPanel() {
   })
 
   const [input, setInput] = useState('')
-  const [sending, setSending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [showSlash, setShowSlash] = useState(false)
   const [pendingAttachments, setPendingAttachments] = useState<
     ChatAttachment[]
   >([])
   const [attaching, setAttaching] = useState(false)
-  /** Partial assistant text that's currently streaming in. */
-  const [streamingText, setStreamingText] = useState('')
+  // Self-test fix: sending / streamingText / error / abort now live
+  // in `useChatActivityStore`. The component used to host these as
+  // local state, which meant switching the sidebar away from chat
+  // unmounted the panel and dropped the in-flight stream from the
+  // user's view (the DB writes survived but the live indicator was
+  // gone). The store lifecycle is independent of the panel mount.
+  const sending = useChatActivityStore((s) => s.sending)
+  const streamingText = useChatActivityStore((s) => s.streamingText)
+  const error = useChatActivityStore((s) => s.error)
+  const startChat = useChatActivityStore((s) => s.start)
+  const stopChat = useChatActivityStore((s) => s.stop)
+  const clearChatError = useChatActivityStore((s) => s.clearError)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const currentDocIndex = useEditorUiStore((s) => s.currentDocumentIndex)
 
@@ -866,150 +875,71 @@ export function ChatTabPanel() {
     setPendingAttachments((prev) => prev.filter((_, idx) => idx !== i))
   }
 
+  const queryClient = useQueryClient()
+
   const triggerChatCompletion = async (
     sendContent: string,
     turnAttachments: ChatAttachment[],
+    skipPersistUser?: boolean,
   ) => {
-    // Build the message list sent to the LLM: system + prior turns
-    // (from DB, oldest-first) + the just-sent user (use sendContent
-    // which contains the expanded slash prompt).
-    let systemContent = ''
-    try {
-      systemContent = await buildSystemPrompt(agenticMode)
-    } catch {
-      systemContent = 'You are an AI assistant for manga translation.'
+    await startChat({
+      input: sendContent,
+      attachments: turnAttachments,
+      provider: { provider, apiKey, apiUrl, model },
+      priorMessages: history.data ?? [],
+      queryClient,
+      skipPersistUser,
+      regeneratingUserMsgId: regeneratingUserMsgIdRef.current,
+      agenticMode,
+      temperature,
+      maxTokens,
+    })
+  }
+
+  const send = async () => {
+    // Allow attachment-only turns through — image-only QA ("what does
+    // this bubble say?") is a legitimate flow and the Send button
+    // (see disabled prop below) already enables itself for that case.
+    if ((!input.trim() && pendingAttachments.length === 0) || sending) return
+    if (provider === 'none') {
+      // Local pre-flight guard surface — the store also no-ops on
+      // empty input, but reporting "no provider" here keeps the
+      // error in the component flow (cleared on next type).
+      useChatActivityStore.setState({
+        error: 'Cloud LLM not selected — pick a profile from the LLM badge or Profiles tab.',
+      })
+      return
     }
-    const priorRows = (history.data ?? [])
-      .filter((r) => r.role !== 'system')
-      .map(rowToChatMessage)
-
-    // The last message in priorRows is the one we just added (with displayContent).
-    // We remove it from priorRows and replace it with lastUser (which has sendContent)
-    // to avoid duplicating the user's message.
-    if (
-      priorRows.length > 0 &&
-      priorRows[priorRows.length - 1].role === 'user'
-    ) {
-      priorRows.pop()
+    const isLocal =
+      kindOf({ provider: provider as any, modelName: model, apiUrl }) ===
+      'local'
+    if (!isLocal && !apiKey) {
+      const keyUrl =
+        KINDS.find((k) => k.dbProvider === provider)?.keyUrl ?? 'your provider'
+      useChatActivityStore.setState({
+        error: `No API key for the active "${provider}" profile. Open the Profiles tab, edit the profile, paste the key from ${keyUrl}, and click Save (which also re-applies it).`,
+      })
+      return
     }
 
-    // Rolling Window Context: Keep only the most recent 12 turns to speed up responses and save context window tokens
-    const ROLLING_WINDOW_LIMIT = 12
-    const rollingPriorRows =
-      priorRows.length > ROLLING_WINDOW_LIMIT
-        ? priorRows.slice(priorRows.length - ROLLING_WINDOW_LIMIT)
-        : priorRows
+    // Capture input + attachments BEFORE clearing the inputs so the
+    // store has them even if the user types something else mid-stream.
+    const inputSnapshot = input
+    const attachmentsSnapshot = pendingAttachments
+    setInput('')
+    setPendingAttachments([])
 
-    // Replace the just-persisted user message's display content with
-    // the expanded prompt before sending. Attachments travel as-is —
-    // provider adapters convert to native multi-modal blocks.
-    const lastUser: ChatMessage = {
-      role: 'user',
-      content: sendContent,
-      attachments: turnAttachments.length ? turnAttachments : undefined,
-    }
-    const allMessages: ChatMessage[] = [
-      { role: 'system', content: systemContent },
-      ...rollingPriorRows,
-      lastUser,
-    ]
-
-    const controller = new AbortController()
-    abortRef.current = controller
-    setStreamingText('')
-
-    try {
-      await runChatTurn(
-        {
-          provider,
-          apiKey,
-          apiUrl,
-          model,
-          signal: controller.signal,
-          temperature,
-          maxTokens,
-        },
-        allMessages,
-        async (e) => {
-          if (e.kind === 'text-delta') {
-            setStreamingText((prev) => prev + e.delta)
-          } else if (e.kind === 'tool-call') {
-            // Don't blank the bubble — append a progress line so the
-            // user sees the model is dispatching a tool. Otherwise the
-            // bubble looks empty during tool-dispatch + round-N latency
-            // and the user thinks the chat is hung.
-            setStreamingText((prev) => {
-              const sep = prev ? '\n\n' : ''
-              return `${prev}${sep}🔧 calling ${e.call.name}…`
-            })
-          } else if (e.kind === 'tool-result') {
-            const result = e.result as { error?: string } | unknown
-            const failed =
-              result && typeof result === 'object' && 'error' in (result as any)
-            setStreamingText((prev) => prev + (failed ? ' ✗' : ' ✓'))
-          } else if (e.kind === 'done') {
-            // Persist each new assistant + tool message from the
-            // suffix that came after our `lastUser`. Skip messages
-            // tagged `_synthetic` — those are tool-image follow-ups
-            // the chat loop generated for the model's eyes only and
-            // shouldn't appear in user-facing chat history (would
-            // also dump base64 image bytes into SQLite).
-            const before = allMessages.length
-            const tail = e.finalMessages.slice(before)
-            let lastAssistantMsg: ChatMessage | null = null
-            for (const m of tail) {
-              if (m._synthetic) continue
-              await api.chatMessageAdd({
-                role: m.role,
-                content: m.content,
-                toolCalls: m.toolCalls ? JSON.stringify(m.toolCalls) : null,
-                toolCallId: m.toolCallId ?? null,
-                model: `${provider}:${model}`,
-              })
-              if (m.role === 'assistant') {
-                lastAssistantMsg = m
-              }
-            }
-
-            // Save to virtual branch if we are regenerating
-            if (
-              regeneratingUserMsgIdRef.current !== null &&
-              lastAssistantMsg &&
-              projectInfo
-            ) {
-              const userMsgId = regeneratingUserMsgIdRef.current
-              const key = `koharu_chat_branches_${projectInfo.id}_${userMsgId}`
-              const currentBranches = JSON.parse(
-                localStorage.getItem(key) || '[]',
-              )
-
-              currentBranches.push({
-                content: lastAssistantMsg.content,
-                model: `${provider}:${model}`,
-                toolCalls: lastAssistantMsg.toolCalls
-                  ? JSON.stringify(lastAssistantMsg.toolCalls)
-                  : null,
-                toolCallId: lastAssistantMsg.toolCallId ?? null,
-              })
-
-              localStorage.setItem(key, JSON.stringify(currentBranches))
-              regeneratingUserMsgIdRef.current = null
-            }
-          }
-        },
-      )
-    } catch (err: any) {
-      if (err?.name === 'AbortError') {
-        // User clicked Stop — don't surface as a hard error.
-      } else {
-        setError(err?.message ?? String(err))
-      }
-    } finally {
-      abortRef.current = null
-      setStreamingText('')
-      setSending(false)
-      refresh()
-    }
+    // Fire-and-forget — the store owns the lifecycle.
+    void startChat({
+      input: inputSnapshot,
+      attachments: attachmentsSnapshot,
+      provider: { provider, apiKey, apiUrl, model },
+      priorMessages: history.data ?? [],
+      queryClient,
+      agenticMode,
+      temperature,
+      maxTokens,
+    })
   }
 
   const cancelArena = () => {
@@ -1507,7 +1437,7 @@ export function ChatTabPanel() {
   }
 
   const stop = () => {
-    abortRef.current?.abort()
+    stopChat()
   }
 
   const [clearing, setClearing] = useState(false)
