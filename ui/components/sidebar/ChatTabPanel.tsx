@@ -675,6 +675,7 @@ export function ChatTabPanel() {
                   key={m.id}
                   message={m}
                   onDelete={() => void deleteMessage(m.id)}
+                  onUndoFromHere={() => void revokeFromMessage(m)}
                 />
               ))
             )}
@@ -965,12 +966,14 @@ const StreamingBubble = memo(function StreamingBubble({
 function MessageRow({
   message: m,
   onDelete,
+  onUndoFromHere,
 }: {
   message: ChatMessageDto
   onDelete: () => void
+  onUndoFromHere?: () => void
 }) {
   if (m.role === 'tool') {
-    return <ToolResultRow message={m} onDelete={onDelete} />
+    return <ToolResultRow message={m} onDelete={onDelete} onUndoFromHere={onUndoFromHere} />
   }
   const isUser = m.role === 'user'
   const attachments = parseAttachments(m.attachments)
@@ -986,6 +989,18 @@ function MessageRow({
       <div className='text-muted-foreground mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase'>
         {isUser ? <UserIcon className='size-3' /> : <BotIcon className='size-3' />}
         {m.role}
+        {/* Undo from here button */}
+        {onUndoFromHere && (
+          <button
+            type='button'
+            onClick={onUndoFromHere}
+            aria-label='Undo from this message'
+            title='ลบประวัติตั้งแต่ข้อความนี้ย้อนหลัง (Undo from here)'
+            className='text-muted-foreground hover:text-amber-500 ml-auto mr-1.5 opacity-0 transition group-hover:opacity-100 focus:opacity-100'
+          >
+            <Undo2Icon className='size-3' />
+          </button>
+        )}
         {/* Per-message delete (#24). Only visible on hover so it
          *  doesn't clutter the message list, and only on resolved
          *  rows (rendered ones, not the streaming bubble). */}
@@ -994,7 +1009,7 @@ function MessageRow({
           onClick={onDelete}
           aria-label='Delete this message'
           title='Delete this message'
-          className='text-muted-foreground hover:text-destructive ml-auto opacity-0 transition group-hover:opacity-100 focus:opacity-100'
+          className={onUndoFromHere ? 'text-muted-foreground hover:text-destructive opacity-0 transition group-hover:opacity-100 focus:opacity-100' : 'text-muted-foreground hover:text-destructive ml-auto opacity-0 transition group-hover:opacity-100 focus:opacity-100'}
         >
           <XIcon className='size-3' />
         </button>
@@ -1039,7 +1054,7 @@ function MessageRow({
                 src={a.dataUrl}
                 alt={`attachment ${i + 1}`}
                 className='h-full w-full object-cover'
-              />
+                />
             </a>
           ))}
         </div>
@@ -1076,9 +1091,11 @@ function ToolCallsBadge({ raw }: { raw: string }) {
 function ToolResultRow({
   message: m,
   onDelete,
+  onUndoFromHere,
 }: {
   message: ChatMessageDto
   onDelete: () => void
+  onUndoFromHere?: () => void
 }) {
   const [open, setOpen] = useState(false)
   return (
@@ -1094,6 +1111,17 @@ function ToolResultRow({
           <WrenchIcon className='size-2.5' />
           tool result · {m.toolCallId?.slice(0, 12) ?? ''}
         </button>
+        {onUndoFromHere && (
+          <button
+            type='button'
+            onClick={onUndoFromHere}
+            aria-label='Undo from this tool result'
+            title='ลบประวัติตั้งแต่ผลลัพธ์เครื่องมือนี้ย้อนหลัง (Undo from here)'
+            className='text-muted-foreground hover:text-amber-500 opacity-0 transition group-hover:opacity-100 focus:opacity-100 mr-1.5'
+          >
+            <Undo2Icon className='size-2.5' />
+          </button>
+        )}
         <button
           type='button'
           onClick={onDelete}

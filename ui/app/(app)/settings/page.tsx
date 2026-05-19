@@ -43,6 +43,10 @@ import ptPT from '@/public/locales/pt-PT/translation.json'
 import zhCN from '@/public/locales/zh-CN/translation.json'
 import ruRU from '@/public/locales/ru-RU/translation.json'
 
+import { DynamicEngineSettingsForm } from '@/components/settings/DynamicEngineSettingsForm'
+import { CollaborativeSessionHUD } from '@/components/settings/CollaborativeSessionHUD'
+
+
 
 const THEME_OPTIONS = [
   { value: 'light', icon: SunIcon, labelKey: 'settings.themeLight', fallbackLabel: 'Light' },
@@ -1288,9 +1292,10 @@ function NextGenStudioSection() {
   const [benchmarking, setBenchmarking] = useState(false);
   const [syncEnabled, setSyncEnabled] = useState(false);
   const [modelManagerOpen, setModelManagerOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'models' | 'dynamicForm'>('models');
 
   return (
-    <section className='mb-8 relative overflow-hidden rounded-xl border border-primary/30 bg-primary/5 p-1'>
+    <section className='mb-8 relative overflow-hidden rounded-xl border border-primary/30 bg-primary/5 p-1 shadow-lg shadow-primary/5'>
       <div className='absolute -right-4 -top-4 size-24 bg-primary/20 blur-2xl rounded-full pointer-events-none' />
       <div className='absolute -left-4 -bottom-4 size-24 bg-accent/20 blur-2xl rounded-full pointer-events-none' />
       
@@ -1310,12 +1315,12 @@ function NextGenStudioSection() {
 
         <div className='grid gap-4 sm:grid-cols-2'>
           {/* 1. Dynamic Theme */}
-          <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2'>
+          <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2 shadow-sm'>
             <div className='flex items-center gap-2'>
               <Heart className='text-rose-400 size-4' />
               <h3 className='text-xs font-bold'>Dynamic Theme Customizer</h3>
             </div>
-            <p className='text-muted-foreground text-[10px]'>
+            <p className='text-muted-foreground text-[10px] leading-relaxed'>
               ปลดล็อกธีมกระจกโปร่งแสง (Cyberpunk, Sakura, Obsidian) ในหมวด Appearance
             </p>
             <div className='mt-auto flex justify-end'>
@@ -1325,47 +1330,47 @@ function NextGenStudioSection() {
             </div>
           </div>
 
-          {/* 2. Model Manager */}
-          <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2'>
+          {/* 2. Model Manager & Dynamic Spec */}
+          <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2 shadow-sm'>
             <div className='flex items-center gap-2'>
               <Download className='text-blue-400 size-4' />
-              <h3 className='text-xs font-bold'>AI Model Manager</h3>
+              <h3 className='text-xs font-bold'>AI Model & Engine Manager</h3>
             </div>
-            <p className='text-muted-foreground text-[10px]'>
-              จัดการดาวน์โหลดและสลับโมเดล YOLO, PaddleOCR, LaMa
+            <p className='text-muted-foreground text-[10px] leading-relaxed'>
+              จัดการดาวน์โหลดสลับโมเดล และทดลองใช้งานระบบเจนหน้าตั้งค่า UI (Phase 4 Spec)
             </p>
-            <Button size='sm' variant='secondary' className='mt-auto h-7 text-[10px]' onClick={() => setModelManagerOpen(true)}>
-              Open Manager
+            <Button size='sm' variant='secondary' className='mt-auto h-7 text-[10px] bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20' onClick={() => setModelManagerOpen(true)}>
+              Open Manager & Form Builder
             </Button>
           </div>
 
           {/* 3. Real-time Sync */}
-          <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2'>
+          <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2 shadow-sm'>
             <div className='flex items-center gap-2'>
               <MonitorIcon className='text-green-400 size-4' />
-              <h3 className='text-xs font-bold'>Collaborative Sync</h3>
+              <h3 className='text-xs font-bold'>Collaborative Sync (Phase 5 Spec)</h3>
             </div>
-            <p className='text-muted-foreground text-[10px]'>
-              เชื่อมต่อ P2P / Cloud เพื่อแชร์ Glossary และ TM ให้ทีมแปลแบบสดๆ
+            <p className='text-muted-foreground text-[10px] leading-relaxed'>
+              เชื่อม P2P / Cloud เพื่อแชร์ประวัติแก้ไขและพจนานุกรมให้ทีมแปลแบบสดๆ
             </p>
-            <Button size='sm' variant={syncEnabled ? 'default' : 'outline'} className='mt-auto h-7 text-[10px]' onClick={() => setSyncEnabled(!syncEnabled)}>
-              {syncEnabled ? 'Connected to Room #8472' : 'Connect Studio'}
+            <Button size='sm' variant={syncEnabled ? 'default' : 'outline'} className={`mt-auto h-7 text-[10px] transition-all duration-300 ${syncEnabled ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-0' : 'bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/20'}`} onClick={() => setSyncEnabled(!syncEnabled)}>
+              {syncEnabled ? 'Connected to Room #8472' : 'Connect Studio Room'}
             </Button>
           </div>
 
           {/* 4. Hardware Fallback */}
-          <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2'>
+          <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2 shadow-sm'>
             <div className='flex items-center gap-2'>
               <Gem className='text-purple-400 size-4' />
               <h3 className='text-xs font-bold'>Hardware Fallback</h3>
             </div>
-            <p className='text-muted-foreground text-[10px]'>
+            <p className='text-muted-foreground text-[10px] leading-relaxed'>
               รัน Micro-benchmark สแกนหาตัวเร่งที่ดีที่สุดสำหรับฮาร์ดแวร์ปัจจุบัน
             </p>
             <Button 
               size='sm' 
               variant='secondary' 
-              className='mt-auto h-7 text-[10px]'
+              className='mt-auto h-7 text-[10px] bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20'
               disabled={benchmarking}
               onClick={() => {
                 setBenchmarking(true)
@@ -1379,45 +1384,80 @@ function NextGenStudioSection() {
             </Button>
           </div>
         </div>
+
+        {/* Slide down Collaborative Sync HUD if enabled */}
+        {syncEnabled && (
+          <div className='mt-5 border-t border-border/50 pt-5 animate-in slide-in-from-top duration-300'>
+            <CollaborativeSessionHUD />
+          </div>
+        )}
       </div>
 
-      {/* Model Manager Modal Mock */}
+      {/* Model Manager Modal Mock (Including Tab Switcher to Dynamic Form Generator!) */}
       {modelManagerOpen && (
-        <div className='fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200'>
+        <div className='fixed inset-0 mountaineer z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200'>
           <div className='bg-card border-border max-w-md w-full border rounded-xl p-6 shadow-2xl relative flex flex-col gap-4 animate-in zoom-in-95 duration-200'>
             <div className='flex items-center justify-between border-b border-border pb-3'>
               <div className='flex items-center gap-3'>
                 <Download className='text-primary size-5' />
-                <h3 className='text-foreground text-base font-bold'>AI Model Manager</h3>
+                <h3 className='text-foreground text-base font-bold'>AI Model & Engine Settings</h3>
               </div>
-              <button onClick={() => setModelManagerOpen(false)} className='text-muted-foreground hover:text-foreground'>✕</button>
+              <button onClick={() => setModelManagerOpen(false)} className='text-muted-foreground hover:text-foreground text-sm font-semibold p-1 hover:bg-muted rounded-full transition'>✕</button>
+            </div>
+
+            {/* Premium Tab Switcher */}
+            <div className='flex border-b border-border/50 p-0.5 bg-background/50 rounded-lg'>
+              <button
+                onClick={() => setActiveTab('models')}
+                className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all duration-200 ${
+                  activeTab === 'models' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Model Packages
+              </button>
+              <button
+                onClick={() => setActiveTab('dynamicForm')}
+                className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all duration-200 ${
+                  activeTab === 'dynamicForm' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Profile Dynamic Spec (V2 Phase 4)
+              </button>
             </div>
             
-            <div className='flex flex-col gap-3 max-h-[60vh] overflow-y-auto pr-2'>
-              {/* YOLO */}
-              <div className='flex items-center justify-between p-3 border border-border rounded-lg bg-background/50'>
-                <div>
-                  <h4 className='text-sm font-bold'>Anime YOLOv8x</h4>
-                  <p className='text-[10px] text-muted-foreground'>ขนาด: 180MB (ความแม่นยำสูงสุด)</p>
+            <div className='flex flex-col gap-3 max-h-[60vh] overflow-y-auto pr-1 py-1'>
+              {activeTab === 'models' ? (
+                <>
+                  {/* YOLO */}
+                  <div className='flex items-center justify-between p-3 border border-border rounded-lg bg-background/30 hover:border-primary/20 transition'>
+                    <div>
+                      <h4 className='text-xs font-bold text-foreground'>Anime YOLOv12x (Next-Gen)</h4>
+                      <p className='text-[9px] text-muted-foreground/80 mt-0.5'>ขนาด: 250MB (ความแม่นยำสูงสุด · วาด SFX และชื่อเรื่อง)</p>
+                    </div>
+                    <Button size='sm' variant='outline' className='h-6 text-[9px]'>Install</Button>
+                  </div>
+                  <div className='flex items-center justify-between p-3 border border-primary/30 rounded-lg bg-primary/5 hover:border-primary/50 transition'>
+                    <div>
+                      <h4 className='text-xs font-bold text-foreground'>Anime YOLOv12s (Stable)</h4>
+                      <p className='text-[9px] text-muted-foreground/80 mt-0.5'>ขนาด: 30MB (สมดุล/ใช้งานอยู่)</p>
+                    </div>
+                    <span className='text-[9px] text-primary font-bold px-2 py-0.5 bg-primary/10 rounded-full border border-primary/10'>Installed</span>
+                  </div>
+                  
+                  {/* LaMa */}
+                  <div className='flex items-center justify-between p-3 border border-border rounded-lg bg-background/30 hover:border-primary/20 transition mt-1'>
+                    <div>
+                      <h4 className='text-xs font-bold text-foreground'>LaMa Inpainting (High-Res)</h4>
+                      <p className='text-[9px] text-muted-foreground/80 mt-0.5'>ขนาด: 350MB (ลบภาพความละเอียดสูงเทียบเท่า Photoshop)</p>
+                    </div>
+                    <Button size='sm' variant='outline' className='h-6 text-[9px]'>Install</Button>
+                  </div>
+                </>
+              ) : (
+                <div className='animate-in fade-in duration-200'>
+                  <DynamicEngineSettingsForm />
                 </div>
-                <Button size='sm' variant='outline' className='h-7 text-[10px]'>Install</Button>
-              </div>
-              <div className='flex items-center justify-between p-3 border border-primary/30 rounded-lg bg-primary/10'>
-                <div>
-                  <h4 className='text-sm font-bold'>Anime YOLOv8s</h4>
-                  <p className='text-[10px] text-muted-foreground'>ขนาด: 30MB (สมดุล/ใช้งานอยู่)</p>
-                </div>
-                <span className='text-[10px] text-primary font-bold px-2'>Installed</span>
-              </div>
-              
-              {/* LaMa */}
-              <div className='flex items-center justify-between p-3 border border-border rounded-lg bg-background/50 mt-2'>
-                <div>
-                  <h4 className='text-sm font-bold'>LaMa (Resolution H)</h4>
-                  <p className='text-[10px] text-muted-foreground'>ขนาด: 350MB (ลบภาพความละเอียดสูง)</p>
-                </div>
-                <Button size='sm' variant='outline' className='h-7 text-[10px]'>Install</Button>
-              </div>
+              )}
             </div>
           </div>
         </div>
