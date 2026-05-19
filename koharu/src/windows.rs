@@ -14,24 +14,37 @@ use windows_sys::Win32::System::LibraryLoader::{
     SetDefaultDllDirectories,
 };
 
-const CLASS_NAME: &str = "Koharu.khr";
-// const THUMBNAIL_PROVIDER: &str = "{e357fccd-a995-4576-b01f-234630154e96}";
+/// Register a single file extension under HKCU\Software\Classes so
+/// Windows knows to launch Koharu when the user double-clicks files
+/// of that type. We use HKCU (per-user) instead of HKLM (machine-
+/// wide) so the registration doesn't require admin privileges.
+///
+/// The launch command is `"<exe>" "%1"` — Windows substitutes the
+/// file path. Today the binary's CLI parser doesn't capture the
+/// positional path (no `Cli.file` arg), so this currently just
+/// LAUNCHES the app on double-click. Auto-opening the picked file
+/// is queued for a follow-up that also adds tauri-plugin-single-
+/// instance so a second double-click sends the path to the running
+/// instance instead of spawning a new copy.
+fn register_extension(
+    classes: &RegKey,
+    extension: &str,
+    class_name: &str,
+    display_name: &str,
+    content_type: Option<&str>,
+    perceived_type: Option<&str>,
+) -> Result<()> {
+    let (ext_key, _) = classes.create_subkey(extension)?;
+    ext_key.set_value("", &class_name)?;
+    if let Some(ct) = content_type {
+        ext_key.set_value("Content Type", &ct)?;
+    }
+    if let Some(pt) = perceived_type {
+        ext_key.set_value("PerceivedType", &pt)?;
+    }
 
-pub fn register_khr() -> Result<()> {
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let classes = hkcu.create_subkey("Software\\Classes")?.0;
-
-    let (ext_key, _) = classes.create_subkey(".khr")?;
-    ext_key.set_value("", &CLASS_NAME)?;
-    ext_key.set_value("Content Type", &"image/jpeg")?;
-    ext_key.set_value("PerceivedType", &"image")?;
-    // let (ext_thumb, _) = ext_key.create_subkey(format!("ShellEx\\{THUMBNAIL_PROVIDER}"))?;
-    // ext_thumb.set_value("", &THUMBNAIL_PROVIDER)?;
-
-    let (class_key, _) = classes.create_subkey(CLASS_NAME)?;
-    class_key.set_value("", &"Koharu Document")?;
-    // let (thumb_key, _) = class_key.create_subkey(format!("ShellEx\\{THUMBNAIL_PROVIDER}"))?;
-    // thumb_key.set_value("", &THUMBNAIL_PROVIDER)?;
+    let (class_key, _) = classes.create_subkey(class_name)?;
+    class_key.set_value("", &display_name)?;
 
     if let Some(exe) = std::env::current_exe()
         .ok()
@@ -39,17 +52,48 @@ pub fn register_khr() -> Result<()> {
     {
         let (icon_key, _) = class_key.create_subkey("DefaultIcon")?;
         icon_key.set_value("", &format!("{exe},0"))?;
-    }
-    // add default open with
-    let (shell_key, _) = class_key.create_subkey("shell\\open\\command")?;
-    if let Some(exe) = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.to_str().map(|s| s.to_owned()))
-    {
+        let (shell_key, _) = class_key.create_subkey("shell\\open\\command")?;
         shell_key.set_value("", &format!("\"{exe}\" \"%1\""))?;
     }
+    Ok(())
+}
+
+pub fn register_file_associations() -> Result<()> {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let classes = hkcu.create_subkey("Software\\Classes")?.0;
+
+    // .khr — standalone single-file Koharu document. Inherits a
+    // jpeg-ish Content-Type since it's image-backed.
+    register_extension(
+        &classes,
+        ".khr",
+        "Koharu.khr",
+        "Koharu Document",
+        Some("image/jpeg"),
+        Some("image"),
+    )?;
+
+    // .koharuproj — Series Project manifest (#30). It's the JSON
+    // sentinel that sits next to series.db at a project's root, so
+    // we declare it as application/json content (informational only,
+    // doesn't affect launch behavior).
+    register_extension(
+        &classes,
+        ".koharuproj",
+        "Koharu.koharuproj",
+        "Koharu Series Project",
+        Some("application/json"),
+        None,
+    )?;
 
     Ok(())
+}
+
+/// Kept as an alias for callers that grep'd for the original name.
+/// Routes to the new combined registrar so updates land for both
+/// extensions in one place.
+pub fn register_khr() -> Result<()> {
+    register_file_associations()
 }
 
 pub fn enable_ansi_support() -> Result<()> {

@@ -148,8 +148,11 @@ async fn build_resources_inner(cpu: bool) -> Result<AppResources> {
 
         #[cfg(target_os = "windows")]
         {
-            if let Err(err) = crate::windows::register_khr() {
-                tracing::warn!(?err, "Failed to register .khr file association");
+            if let Err(err) = crate::windows::register_file_associations() {
+                tracing::warn!(
+                    ?err,
+                    "Failed to register .khr / .koharuproj file associations"
+                );
             }
 
             crate::windows::add_dll_directory(&LIB_ROOT).context("Failed to add DLL directory")?;
