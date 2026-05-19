@@ -12,6 +12,11 @@ Decisions captured here are locked unless the doc is amended via PR.
 Progress (which phase we're in, what's done, what's blocked) lives in
 the sibling [`v2-progress.md`](./v2-progress.md) on the branch.
 
+> **Design changelog**: amendments to locked decisions are logged
+> at the bottom of this doc (§12). Read there first if you're
+> coming back to the design after a break — it tells you what
+> changed and why, so you don't have to re-read the whole doc.
+
 ---
 
 ## 1. Why we're doing this
@@ -119,46 +124,171 @@ tests/integration/  ⭐ NEW — end-to-end pipeline regression tests against gol
 These are **sketches** for design alignment, not final API. Phase 1
 will finalise these in `koharu-core/src/`.
 
-### 4.1 `Op` enum — the unit of state change
+### 4.1 `Op` and `ProjectOp` — units of state change
+
+**Amended 2026-05-19** after design re-review (issues A–F below).
+Original spec wedged everything into one `Op` enum + an `OpInverse`
+trait. Both were wrong in load-bearing ways. New shape:
 
 ```rust
 // koharu-core/src/op.rs
 
 use serde::{Serialize, Deserialize};
 
+/// Scene-layer mutations — page geometry, text blocks, pipeline
+/// artifacts. Anything that lives in `Scene` (read model).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Op {
-    /// Batch of ops applied atomically. Engines emit Vec<Op>; the
-    /// driver wraps as Batch before handing to ProjectSession.
+    /// Batch of ops applied atomically. Engines never emit Batch
+    /// directly — the driver wraps the engine's `Vec<Op>` return
+    /// as a single Batch before handing to `ProjectSession`.
     Batch(Vec<Op>),
 
-    // --- Scene structure ---
+    // ── Scene structure ──────────────────────────────────────
     AddPage { id: PageId, image: BlobId, width: u32, height: u32 },
     RemovePage { id: PageId },
     UpdatePageImage { id: PageId, image: BlobId },
 
-    // --- Text block lifecycle ---
+    // ── Text block lifecycle ─────────────────────────────────
     AddTextBlock { page: PageId, id: NodeId, region: Region, source_lang: Option<String> },
     UpdateTextBlock { page: PageId, id: NodeId, patch: TextBlockPatch },
     RemoveTextBlock { page: PageId, id: NodeId },
 
-    // --- Pipeline artifacts ---
-    SetSegmentationMask { page: PageId, mask: BlobId },
-    SetInpaintedImage { page: PageId, image: BlobId },
-    SetRenderedImage { page: PageId, image: BlobId },
-    SetBrushLayer { page: PageId, brush: BlobId },
-
-    // --- Translation memory + glossary application notes ---
-    /// Not strictly state — a hint that a TM hit was used so undo can
-    /// surface "the translation came from TM not LLM" if user reverts.
-    NoteTmHit { page: PageId, node: NodeId, tm_entry: TmEntryId },
+    // ── Pipeline artifacts ───────────────────────────────────
+    SetSegmentationMask { page: PageId, mask: Option<BlobId> },
+    SetInpaintedImage { page: PageId, image: Option<BlobId> },
+    SetRenderedImage { page: PageId, image: Option<BlobId> },
+    SetBrushLayer { page: PageId, brush: Option<BlobId> },
+    // `NoteTmHit` REMOVED — see issue B below.
 }
 
-/// Every Op must have an inverse for undo support. For ops where
-/// inverse needs prior state (e.g. UpdateTextBlock), the driver
-/// captures before-state alongside the op when pushing to history.
-pub trait OpInverse {
-    fn inverse(&self, before: &Scene) -> Op;
+/// Project-layer mutations — characters, glossary, prompt templates,
+/// series meta, TM. These live in `koharu-project` (SQLite), NOT
+/// in `Scene`. Separated from `Op` so engines can emit both kinds in
+/// one atomic apply (driver groups them; SQLite transaction wraps
+/// the whole batch).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ProjectOp {
+    AddCharacter { input: CharacterAddInput },
+    UpdateCharacter { id: i64, patch: CharacterPatch },
+    RemoveCharacter { id: i64 },
+
+    AddGlossaryEntry { input: GlossaryAddInput },
+    UpdateGlossaryEntry { id: i64, patch: GlossaryPatch },
+    RemoveGlossaryEntry { id: i64 },
+
+    UpdateSeriesMeta { patch: SeriesMetaPatch },
+
+    UpdatePromptTemplate { use_case: String, body: String },
+    // TM rows are append-only via `TmHit` events on the bus,
+    // not mutated through ProjectOp — keeps the cache write path
+    // out of the undo log (don't want every cached translation
+    // to consume an undo slot).
+}
+
+/// Engine return shape — both Scene and Project ops emitted in one
+/// atomic step.
+pub struct EngineResult {
+    pub scene_ops: Vec<Op>,
+    pub project_ops: Vec<ProjectOp>,
+}
+```
+
+#### Issues caught in re-review (2026-05-19, post-#33)
+
+**A. `Batch` inverse can't be computed from a single `before`
+snapshot.** The middle Op of `Batch([A, B, C])` needs the Scene
+state AFTER A applied, not the original `before`. The
+`OpInverse::inverse(&self, before: &Scene) -> Op` trait signature
+hid this.
+
+→ **Resolution**: Drop the `OpInverse` trait. Compute inverses
+**inline at apply time** in `ProjectSession::apply()` — the driver
+walks the Scene as it applies each Op, captures the per-Op inverse
+against the just-mutated state, stores `(op, captured_inverse)`
+pairs in history. Single computation, no trait gymnastics, correct
+for Batch.
+
+**B. `NoteTmHit` doesn't fit the "Op = state change" model.** It's
+pure annotation (TM cache hit happened); no meaningful inverse.
+
+→ **Resolution**: Remove from `Op`. Surface via the event bus
+(Phase 5) as `SessionEvent::TmHit { page, node, tm_entry }`. Cost
+dashboard + UI subscribers can react; nothing enters the undo log.
+
+**C. No-op Ops would pollute the history ring.** Applying
+`SetInpaintedImage { image: None }` when the image is already
+`None` is a no-op, but would still consume an undo slot.
+
+→ **Resolution**: `ProjectSession::apply()` runs a cheap
+before-vs-after diff per Op; if unchanged, drop the Op silently
+(don't push to history, don't publish event). Filter step happens
+before history insertion.
+
+**D. `RemovePage` undo capture cost is large but tractable.**
+A removed page's inverse needs all its text blocks + artifact blob
+references. For a heavy chapter (100 pages × ~20 MB rendered each
+in worst case) this could be 2 GB of captured inverse state.
+
+→ **Resolution**: Captured inverse stores `BlobId` references, NOT
+blob bytes. The `BlobStore` already keeps the bytes alive (one
+copy, dedup'd by hash); inverse only needs the hash to reconstitute.
+Acceptable cost: ~32 bytes per blob ref × 100 ops = trivial.
+
+**E. `Set*` variants were `BlobId`, not `Option<BlobId>`.** Made it
+impossible to clear an artifact (e.g. retranslate flow that wipes
+the rendered image to force re-render).
+
+→ **Resolution**: All four `Set*` variants now `Option<BlobId>`.
+`None` clears, `Some(blob)` sets. Aligns with `TextBlockPatch`'s
+three-state pattern.
+
+**F. Engines couldn't mutate project entities (characters,
+glossary, series_meta).** Forced the extract-entities flow to call
+into `koharu-project` directly, breaking the
+"engines-emit-ops-never-mutate" invariant.
+
+→ **Resolution**: New `ProjectOp` enum (above) + engines return
+`EngineResult { scene_ops, project_ops }`. Driver applies both in
+one SQLite transaction wrapping the in-memory Scene mutation.
+Undo of an extract-entities run reverses both the Scene side
+(added text-block translations) AND the Project side (added
+character/glossary rows).
+
+```rust
+// koharu-app/src/session.rs — applies ops + captures inverses
+impl ProjectSession {
+    pub fn apply(&self, ops: EngineResult) -> Result<()> {
+        let tx = self.project.begin_tx()?;  // SQLite transaction
+        let mut scene = self.scene.write();
+
+        let mut inverse_scene_ops = Vec::with_capacity(ops.scene_ops.len());
+        for op in &ops.scene_ops {
+            if let Some(inv) = scene.apply_with_inverse(op)? {
+                inverse_scene_ops.push(inv);    // skips no-ops (Issue C)
+            }
+        }
+
+        let mut inverse_project_ops = Vec::with_capacity(ops.project_ops.len());
+        for op in &ops.project_ops {
+            if let Some(inv) = project::apply_with_inverse(&tx, op)? {
+                inverse_project_ops.push(inv);
+            }
+        }
+
+        tx.commit()?;
+        if !inverse_scene_ops.is_empty() || !inverse_project_ops.is_empty() {
+            self.history.write().push(HistoryEntry {
+                forward: ops,
+                inverse: EngineResult {
+                    scene_ops: inverse_scene_ops.into_iter().rev().collect(),
+                    project_ops: inverse_project_ops.into_iter().rev().collect(),
+                },
+            });
+            self.bus.publish(SessionEvent::OpsApplied);
+        }
+        Ok(())
+    }
 }
 ```
 
@@ -224,61 +354,200 @@ entry. Currently `Document.image: Uint8Array` duplicates per page.
 
 ### 4.4 `Engine` trait + `EngineCtx` (fork-flavoured)
 
+**Amended 2026-05-19** after design re-review (issues E–J below).
+Original spec had 6 load-bearing problems that would have surfaced
+during Phase 4 engine porting and forced rework. New shape:
+
 ```rust
 // koharu-engines/src/engine.rs
 
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
+
 #[async_trait]
 pub trait Engine: Send + Sync + 'static {
-    /// Returns ops to apply. Empty Vec = nothing changed (still success).
-    async fn run(&self, ctx: EngineCtx<'_>) -> Result<Vec<Op>>;
+    /// Run the engine for one page. Emit ops via `ops_tx` as work
+    /// progresses — driver applies in batches as they arrive, so
+    /// long-running engines (translate, multi-stage segmentation)
+    /// can stream partial results to the UI instead of blocking
+    /// the page until done.
+    ///
+    /// Engines that don't need streaming just send one final
+    /// `EngineResult` at the end. Driver wraps each send as a
+    /// `Batch` Op before applying.
+    ///
+    /// Returns Ok(()) on success; Err on engine failure (driver
+    /// surfaces in ActivityBubble). Cancellation via
+    /// `ctx.cancel.is_cancelled()` returns Ok(()) cleanly — driver
+    /// drops the in-flight ops, history isn't polluted.
+    async fn run(
+        &self,
+        ctx: EngineCtx<'_>,
+        ops_tx: mpsc::Sender<EngineResult>,
+    ) -> Result<()>;
 }
 
 pub struct EngineCtx<'a> {
     pub scene: &'a Scene,
     pub page: PageId,
 
-    /// Fork addition: engines see project context. Translate engine
-    /// reads glossary; OCR engine can hint at source language; etc.
-    pub project: &'a ProjectSession,
+    /// Read-only project view — glossary, characters, prompt
+    /// templates, series metadata, TM lookup primitive. Engine
+    /// can READ but never mutate; mutation happens via the
+    /// `ProjectOp` variants in the returned `EngineResult`.
+    /// (Was `&ProjectSession` in the original spec — issue F.)
+    pub project: &'a ProjectView,
 
     pub blobs: &'a BlobStore,
     pub runtime: &'a RuntimeManager,
     pub llm: &'a llm::Model,
     pub renderer: &'a renderer::Renderer,
 
+    /// Per-run options threaded from the pipeline driver. Engine
+    /// reads settings via `ctx.setting::<T>("key")` — driver loads
+    /// the typed value from the engine's settings store using the
+    /// schema declared on `EngineInfo`. (Issue J.)
     pub options: &'a PipelineRunOptions,
-    pub cancel: &'a AtomicBool,
+
+    /// Cancellation primitive. Use `tokio::select!` to interrupt
+    /// long awaits, or `ctx.cancel.is_cancelled()` for cooperative
+    /// checking. (Was `&AtomicBool` in the original spec — issue G.)
+    pub cancel: &'a CancellationToken,
+}
+
+impl EngineCtx<'_> {
+    /// Typed setting lookup. Driver pre-loads the engine's settings
+    /// store into a typed map before calling `run`. Panics on schema
+    /// mismatch (caught in dev; engine declares schema, driver
+    /// validates).
+    pub fn setting<T: SettingValue>(&self, key: &str) -> T { /* … */ }
 }
 
 pub struct EngineInfo {
     pub id: &'static str,
-    pub stage: PipelineStage,
     pub display_name: &'static str,
     pub description: &'static str,
 
-    /// Fork addition: hardware declaration drives user-facing
-    /// engine picker UI.
+    /// Artifacts this engine consumes (must exist on Scene before
+    /// run) and produces (will exist after run). DAG resolver
+    /// derives execution order from the produces/consumes graph;
+    /// one engine can cover multiple traditional stages (e.g.
+    /// Anime Text YOLO produces both DetectionBoxes AND
+    /// SegmentationMask in one pass). (Was a rigid PipelineStage
+    /// enum in the original spec — issue I.)
+    pub consumes: &'static [ArtifactKind],
+    pub produces: &'static [ArtifactKind],
+
+    /// User-configurable settings exposed in the Engine Profile UI.
+    /// UI auto-generates form controls from this schema; engine
+    /// reads typed values via `ctx.setting::<T>(key)` at run time.
+    /// Plugin engines ship their own schema → no UI work per engine.
+    /// (Issue J — drives Profile UI for #18, #31, future engines.)
+    pub settings_schema: &'static [SettingDescriptor],
+
     pub hardware: HardwareReq,
     pub cost: EngineCost,
 
     pub load: fn() -> BoxedFuture<Box<dyn Engine>>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum PipelineStage {
-    Detector,
-    Segmentation,
-    Ocr,
-    Inpaint,
-    Translate,
-    Render,
-    /// Catch-all for engines that don't fit the canonical pipeline
-    /// (font detection, layout analysis, etc.)
-    Auxiliary,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArtifactKind {
+    SourceImage,           // always present per page (the raw scan)
+    DetectionBoxes,        // text-block bounding boxes
+    SegmentationMask,      // pixel-level mask for inpainting
+    OcrText,               // source_text on each text block
+    InpaintedImage,        // cleaned page background
+    Translation,           // translated text per block
+    RenderedImage,         // final composite
+    BrushLayer,            // user paint overlay
+    FontPrediction,        // per-block font + color guess
+    LayoutAnalysis,        // reading order, paragraph grouping
+}
+
+pub enum SettingDescriptor {
+    Slider {
+        id: &'static str,
+        label: &'static str,  // i18n key; resolved at render time
+        min: f32, max: f32, step: f32, default: f32,
+    },
+    NumberInput { id: &'static str, label: &'static str, min: f32, max: f32, step: f32, default: f32 },
+    Toggle { id: &'static str, label: &'static str, default: bool },
+    Select {
+        id: &'static str, label: &'static str,
+        options: &'static [(&'static str, &'static str)],  // (value, label-i18n-key)
+        default: &'static str,
+    },
 }
 
 inventory::collect!(EngineInfo);
 ```
+
+#### Issues caught in re-review (2026-05-19, post-#33)
+
+**E. `EngineCtx.project: &ProjectSession` exposed too much.** Gave
+engines direct access to `session.apply()` / `.undo()` — engine
+could bypass the Op pipeline and mutate state without the driver
+knowing.
+
+→ **Resolution**: Split. New `ProjectView` type is read-only
+(immutable refs to glossary/characters/prompts/tm/series_meta).
+Engine sees `&ProjectView` for reads; driver still owns
+`ProjectSession`, applies engine's returned `EngineResult` after
+`run` completes.
+
+**F. Engines that mutate project entities had no path.** Extract-
+entities, glossary-bulk-add, and similar engines need to insert
+project rows but `Op` was Scene-only.
+
+→ **Resolution**: New `ProjectOp` enum (see §4.1). Engine return
+shape is `EngineResult { scene_ops, project_ops }`. Driver applies
+both in one SQLite transaction so the extract-entities undo
+reverses scene + project in one shot.
+
+**G. `&AtomicBool` cancellation is error-prone.** Engine has to
+remember to check the bool between long operations; forget = engine
+runs to completion after user cancels.
+
+→ **Resolution**: `tokio_util::sync::CancellationToken`. Engine
+can `tokio::select!` over `cancel.cancelled()` and its work
+(structured cancellation that aborts long awaits) or call
+`cancel.is_cancelled()` for cooperative checks. Standard idiom.
+
+**H. No streaming/incremental Op emission — blocks #19.** Original
+`Result<Vec<Op>>` return forced engines to batch ops to end of run.
+Stream translation (#19) needs per-bubble updates as the LLM
+returns each translation.
+
+→ **Resolution**: Channel-based — engine receives `ops_tx:
+mpsc::Sender<EngineResult>` and sends as work progresses. Driver
+applies each send as a Batch immediately, publishes
+`SessionEvent::OpsApplied` to the bus → frontend re-renders that
+block. Engine that doesn't need streaming just sends one final
+EngineResult. Combines cleanly with cancellation via `select!`.
+
+**I. Rigid `PipelineStage` enum forced artificial engine splits.**
+Anime Text YOLO detects AND segments in one pass; OCR + layout
+analysis often share a model. Forcing one stage per engine = code
+duplication + lost performance.
+
+→ **Resolution**: Drop `PipelineStage`. Replace with
+**`ArtifactKind` declarations** — engine says "I consume X, produce
+Y". DAG resolver walks the artifact graph to derive execution
+order. One engine can produce multiple artifacts, multiple engines
+can produce the same artifact (user picks via Profile UI). Matches
+upstream's design + unlocks multi-artifact engines.
+
+**J. No user-configurable engine settings — blocks #18 + makes
+Profile UI inconsistent.** LaMa's max-crop-size (#18), Anime YOLO's
+confidence threshold, translate engines' temperature — all would
+have been hardcoded in UI per engine. Plugin engines couldn't ship
+their own controls.
+
+→ **Resolution**: `SettingDescriptor` schema declared on
+`EngineInfo`. UI auto-generates form per engine from the schema;
+engine reads typed values via `ctx.setting::<T>(key)`. Plugin
+engines work for free. Profile UI becomes generic.
 
 ### 4.5 `HardwareReq` — drives the engine picker UI
 
@@ -712,3 +981,121 @@ Decisions deferred until a phase forces them.
 - v1.2.0 audit cycle commits `9509030d` through `cacb7f92` — taught us
   every place where sync queues / project swap leak; Op-based state
   fixes the root cause
+
+---
+
+## 12. Design changelog
+
+Tracks amendments to the locked spec after the doc first landed.
+Each entry: date, trigger (issue / re-review), summary of what
+changed, link to the affected section(s).
+
+### 2026-05-19 — Phase 2 blob transport: WS-RPC → HTTP
+
+**Trigger**: [#33](https://github.com/EarthWL/koharu-th/issues/33) by
+@HetCreep.
+
+**Changed**: Phase 2 wire mechanism for binary blobs. Was a new
+WS-RPC method `blob_get(BlobId)` carrying bytes through msgpack;
+became HTTP `GET /blob/:hex` on the existing Axum server with
+`Cache-Control: public, max-age=31536000, immutable` (safe — URL
+is the content hash).
+
+**Why**: Browser gains (1) native + GPU-accelerated image decode
+via `<img>` / `createImageBitmap(url)`, (2) automatic HTTP cache
+on the immutable URL, (3) parallel multi-connection / HTTP/2
+multiplexing instead of queueing every binary behind the single
+WS pipe also carrying RPC tool calls. The WS-RPC approach gave us
+dedup but none of those.
+
+**Sections amended**: §2 (Locked Decisions, new row), §5 Phase 2.
+**Commit**: [`ad0d14c9`](https://github.com/EarthWL/koharu-th/commit/ad0d14c9)
+
+### 2026-05-19 — Op / Engine deep re-review (post-#33 follow-through)
+
+**Trigger**: After #33 surfaced a class of blind spot (didn't think
+about client-side capabilities), did a targeted re-review of the
+two most load-bearing type sketches — `Op` and `Engine` — before
+Phase 2 implementation locks in shape decisions. Found 10 real
+issues across both.
+
+**Changed — `Op` (§4.1)**:
+
+- **A.** Dropped `OpInverse` trait. Inverses now computed inline at
+  apply time in `ProjectSession::apply()` — the trait signature
+  `fn inverse(&self, before: &Scene) -> Op` was broken for
+  `Op::Batch` because the middle Op's inverse needs the state AFTER
+  prior Ops, not the original `before`. Driver walks the Scene as
+  it applies, captures per-Op inverse, stores `(op, captured_inverse)`
+  pairs in history. Simpler, correct, no trait gymnastics.
+- **B.** Removed `Op::NoteTmHit`. Pure annotation (TM cache hit)
+  has no meaningful state inverse — wedging it into Op forced
+  awkward decisions. Moved to the event bus as
+  `SessionEvent::TmHit { … }`. Cost dashboard + UI subscribers can
+  react; nothing enters the undo log.
+- **C.** No-op Ops (e.g. `SetInpaintedImage { image: None }` over
+  already-`None`) silently dropped at apply time. Filter step
+  before history insertion.
+- **D.** `RemovePage` inverse captures `BlobId` references, not
+  blob bytes. BlobStore keeps the bytes alive (dedup'd by hash);
+  inverse only needs the hash. ~32 bytes per blob ref × 100 ops
+  history = trivial cost, even for heavy chapters.
+- **E.** `Set*` artifact variants are now `Option<BlobId>` (not
+  `BlobId`) so clearing a stage's output is a first-class Op —
+  needed for retranslate flows that wipe the rendered image to
+  force re-render.
+- **F.** New `ProjectOp` enum + `EngineResult { scene_ops,
+  project_ops }`. Engines can now mutate project entities
+  (characters, glossary, series_meta, prompt templates) through
+  the Op pipeline — extract-entities engine was the boundary case
+  this fixes. Driver wraps both kinds in one SQLite transaction
+  for atomic undo.
+
+**Changed — `Engine` (§4.4)**:
+
+- **E.** `EngineCtx.project` is `&ProjectView` (read-only) not
+  `&ProjectSession` (which has `.apply()`). Engine can read
+  project entities but can't bypass the Op pipeline.
+- **F.** Engine return shape changed from `Result<Vec<Op>>` to
+  the new `EngineResult { scene_ops, project_ops }` to carry both
+  kinds.
+- **G.** Cancellation changed from `&AtomicBool` to
+  `&CancellationToken` (`tokio_util::sync::CancellationToken`).
+  Enables structured cancellation via `tokio::select!` for
+  long awaits, not just cooperative bool-checking.
+- **H.** Engine `run()` now receives `ops_tx: mpsc::Sender<EngineResult>`
+  for streaming — long-running engines emit incrementally instead
+  of batching to end. Driver applies each `send` as a Batch
+  immediately + publishes `SessionEvent::OpsApplied` so frontend
+  re-renders per block. Unblocks #19 (Stream Translation).
+- **I.** Dropped `PipelineStage` enum. Replaced with
+  `ArtifactKind` declarations on `EngineInfo`
+  (`consumes: &[ArtifactKind], produces: &[ArtifactKind]`) — DAG
+  resolver walks the graph to derive order. One engine can produce
+  multiple artifacts (Anime Text YOLO = DetectionBoxes +
+  SegmentationMask in one pass).
+- **J.** New `SettingDescriptor` schema on `EngineInfo`. UI
+  auto-generates form per engine; engine reads typed values via
+  `ctx.setting::<T>(key)`. Drives Engine Profile UI uniformly,
+  unblocks #18 (LaMa max-crop slider), works for plugin engines
+  without UI code.
+
+**Sections amended**: §4.1, §4.4.
+**Commit**: this commit.
+
+**Net impact on phasing**: Phase 1 koharu-core code (`op.rs`,
+`hardware.rs`, etc. on `arch/v2-foundation` branch tip `fe484b7a`)
+will need a small follow-up commit to:
+1. Remove the `OpInverse` trait (no impls, only declaration —
+   cheap to delete).
+2. Remove `Op::NoteTmHit` variant (already in proptest scope —
+   regenerate the regression file).
+3. Switch `Set*` variants to `Option<BlobId>` (already partially
+   done — verify).
+4. Add `ProjectOp` enum scaffold (new file `op_project.rs`).
+5. Add `ArtifactKind` enum to `koharu-core` (consumed by
+   `koharu-engines` in Phase 3).
+6. Add `SettingDescriptor` enum to `koharu-core`.
+
+Estimated effort: half a day. Land as Phase 1.1 on the branch
+before Phase 2 work begins.
