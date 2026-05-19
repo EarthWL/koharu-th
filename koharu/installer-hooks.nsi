@@ -37,7 +37,7 @@
 !macro NSIS_HOOK_PREUNINSTALL
   ; ─── Belt 1: refuse if $LOCALAPPDATA is unset ─────────────────
   ; CSIDL_LOCAL_APPDATA is always set on a healthy Windows install,
-  ; but if it ever resolved to "" we'd be running `RMDir /r "\Koharu"`
+  ; but if it ever resolved to "" we'd be running `RMDir /r "\KoharuTH"`
   ; against the current drive's root — refuse outright.
   StrCmp "$LOCALAPPDATA" "" koharu_purge_unsafe
 
@@ -46,14 +46,14 @@
   ; the artefacts koharu itself creates. If none of these exist, we
   ; either never installed any cache here (already clean — nothing
   ; to do), OR the folder belongs to something else (don't touch).
-  IfFileExists "$LOCALAPPDATA\Koharu\libs\*.*" koharu_purge_ask
+  IfFileExists "$LOCALAPPDATA\KoharuTH\libs\*.*" koharu_purge_ask
   ; v1.2.2+ HF model cache path; "models" kept as a v1.2.1-and-earlier
   ; marker so an uninstall after an upgrade-without-launch still
   ; recognises the folder as ours (see issue #34).
-  IfFileExists "$LOCALAPPDATA\Koharu\hf\*.*" koharu_purge_ask
-  IfFileExists "$LOCALAPPDATA\Koharu\models\*.*" koharu_purge_ask
-  IfFileExists "$LOCALAPPDATA\Koharu\fonts\*.*" koharu_purge_ask
-  IfFileExists "$LOCALAPPDATA\Koharu\recent-projects.json" koharu_purge_ask
+  IfFileExists "$LOCALAPPDATA\KoharuTH\hf\*.*" koharu_purge_ask
+  IfFileExists "$LOCALAPPDATA\KoharuTH\models\*.*" koharu_purge_ask
+  IfFileExists "$LOCALAPPDATA\KoharuTH\fonts\*.*" koharu_purge_ask
+  IfFileExists "$LOCALAPPDATA\KoharuTH\recent-projects.json" koharu_purge_ask
   Goto koharu_purge_not_ours
 
 koharu_purge_ask:
@@ -61,7 +61,7 @@ koharu_purge_ask:
   ; /SD IDNO = silent uninstall also defaults to No, so unattended
   ; deployments don't accidentally wipe cached models.
   MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 \
-    "Also remove downloaded AI models, CUDA runtime libraries, custom fonts, and saved settings from:$\r$\n$\r$\n  $LOCALAPPDATA\Koharu\$\r$\n$\r$\nThis can reclaim 1-3 GB of disk space.$\r$\n$\r$\nYour translated project files (.khr databases, chapter folders, render output) are NOT in this location and will be kept regardless of your choice." \
+    "Also remove downloaded AI models, CUDA runtime libraries, custom fonts, and saved settings from:$\r$\n$\r$\n  $LOCALAPPDATA\KoharuTH\$\r$\n$\r$\nThis can reclaim 1-3 GB of disk space.$\r$\n$\r$\nYour translated project files (.khr databases, chapter folders, render output) are NOT in this location and will be kept regardless of your choice." \
     /SD IDNO \
     IDNO koharu_purge_skip
 
@@ -69,31 +69,31 @@ koharu_purge_verified:
   ; ─── Belt 3: bounded named-subfolder deletion ─────────────────
   ; We ONLY remove subfolders we created ourselves, by name. We do
   ; NOT `RMDir /r` the parent — that would follow any junction the
-  ; user might have placed at `$LOCALAPPDATA\Koharu` itself.
+  ; user might have placed at `$LOCALAPPDATA\KoharuTH` itself.
   ;
   ; Inside each named subfolder we still use /r (those folders are
   ; ours by definition; if a user redirected `models` to D:\ via a
   ; junction, blast radius is bounded to whatever they linked to).
-  DetailPrint "Removing Koharu cached data from $LOCALAPPDATA\Koharu ..."
-  RMDir /r "$LOCALAPPDATA\Koharu\libs"
-  RMDir /r "$LOCALAPPDATA\Koharu\hf"
+  DetailPrint "Removing KoharuTH cached data from $LOCALAPPDATA\KoharuTH ..."
+  RMDir /r "$LOCALAPPDATA\KoharuTH\libs"
+  RMDir /r "$LOCALAPPDATA\KoharuTH\hf"
   ; Legacy v1.2.1-and-earlier HF cache path (issue #34). Kept in the
   ; purge list so a user who never launched v1.2.2 (skipping the
   ; auto-migration) still gets a clean uninstall.
-  RMDir /r "$LOCALAPPDATA\Koharu\models"
-  RMDir /r "$LOCALAPPDATA\Koharu\fonts"
-  Delete "$LOCALAPPDATA\Koharu\recent-projects.json"
+  RMDir /r "$LOCALAPPDATA\KoharuTH\models"
+  RMDir /r "$LOCALAPPDATA\KoharuTH\fonts"
+  Delete "$LOCALAPPDATA\KoharuTH\recent-projects.json"
 
   ; ─── Belt 4: non-recursive parent removal ─────────────────────
   ; `RMDir` (without /r) only succeeds if the parent is empty. If
   ; the user has dropped any unknown file/folder in there, it stays
   ; intact and the parent remains.
-  RMDir "$LOCALAPPDATA\Koharu"
+  RMDir "$LOCALAPPDATA\KoharuTH"
   DetailPrint "Done."
   Goto koharu_purge_end
 
 koharu_purge_not_ours:
-  DetailPrint "No Koharu data found at $LOCALAPPDATA\Koharu — nothing to remove."
+  DetailPrint "No KoharuTH data found at $LOCALAPPDATA\KoharuTH — nothing to remove."
   Goto koharu_purge_end
 
 koharu_purge_unsafe:
@@ -101,7 +101,7 @@ koharu_purge_unsafe:
   Goto koharu_purge_end
 
 koharu_purge_skip:
-  DetailPrint "Kept Koharu data at $LOCALAPPDATA\Koharu (re-install will reuse cached models)."
+  DetailPrint "Kept KoharuTH data at $LOCALAPPDATA\KoharuTH (re-install will reuse cached models)."
 
 koharu_purge_end:
 !macroend

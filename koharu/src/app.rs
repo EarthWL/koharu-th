@@ -17,7 +17,7 @@ use koharu_types::State;
 
 static APP_ROOT: Lazy<PathBuf> = Lazy::new(|| {
     dirs::data_local_dir()
-        .map(|path| path.join("Koharu"))
+        .map(|path| path.join("KoharuTH"))
         .unwrap_or_default()
 });
 static LIB_ROOT: Lazy<PathBuf> = Lazy::new(|| APP_ROOT.join("libs"));
@@ -105,12 +105,23 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
         )
         .init();
 
-    // Migrate legacy `Koharu/models/` → `Koharu/hf/` for v1.2.1
-    // users upgrading to v1.2.2+. Best-effort: failure logs + we
-    // continue with the new path (hf-hub will re-download). Runs
-    // BEFORE create_dir_all on the new path so the rename target
-    // is still missing — std::fs::rename refuses to overwrite a
-    // non-empty directory on Windows.
+    // Migrate legacy Koharu folder → KoharuTH (branding rename). Must run
+    // before migrate_legacy_model_cache() so APP_ROOT exists first.
+    if let Some(local_dir) = dirs::data_local_dir() {
+        let legacy_path = local_dir.join("Koharu");
+        if legacy_path.exists() && !APP_ROOT.exists() {
+            tracing::info!("Migrating legacy Koharu directory from {:?} to {:?}", legacy_path, *APP_ROOT);
+            if let Err(err) = std::fs::rename(&legacy_path, &*APP_ROOT) {
+                tracing::warn!(?err, "Failed to migrate legacy Koharu directory automatically");
+            }
+        }
+    }
+
+    // Migrate legacy `KoharuTH/models/` → `KoharuTH/hf/` for users
+    // upgrading from v1.2.1. Best-effort: failure logs and we continue
+    // with the new path (hf-hub will re-download if needed). Runs BEFORE
+    // create_dir_all on the new path so the rename target is still
+    // missing — std::fs::rename refuses to overwrite a non-empty directory.
     migrate_legacy_model_cache();
 
     std::fs::create_dir_all(MODEL_ROOT.as_path()).ok();
