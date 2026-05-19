@@ -206,6 +206,12 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
             call(operations::chat_messages_list, state, params).await
         }
         Method::ChatMessageAdd => call(operations::chat_message_add, state, params).await,
+        Method::ChatMessageDelete => {
+            call(operations::chat_message_delete, state, params).await
+        }
+        Method::ChatMessagesDeleteFrom => {
+            call(operations::chat_messages_delete_from, state, params).await
+        }
         Method::ChatMessagesClear => call0(operations::chat_messages_clear, state).await,
         Method::WebFetchUrl => call(operations::web_fetch_url, state, params).await,
         Method::QueueList => call0(operations::queue_list, state).await,

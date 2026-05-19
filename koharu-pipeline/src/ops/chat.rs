@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use anyhow::Context;
 use koharu_api::commands::{
-    ChatClearResult, ChatListPayload, ChatMessageAddPayload, ChatMessageDto, WebFetchPayload,
-    WebFetchResult,
+    ChatClearResult, ChatListPayload, ChatMessageAddPayload, ChatMessageDeleteFromPayload,
+    ChatMessageDeletePayload, ChatMessageDto, WebFetchPayload, WebFetchResult,
 };
 use koharu_project::chat::{self as chat_ops, ChatMessage, ChatMessageInsert};
 
@@ -62,6 +62,38 @@ pub async fn chat_messages_clear(state: AppResources) -> anyhow::Result<ChatClea
     let removed = tokio::task::spawn_blocking(move || -> anyhow::Result<usize> {
         let conn = project.pool().get()?;
         Ok(chat_ops::clear(&conn)?)
+    })
+    .await??;
+    Ok(ChatClearResult {
+        removed: removed as u32,
+    })
+}
+
+pub async fn chat_message_delete(
+    state: AppResources,
+    payload: ChatMessageDeletePayload,
+) -> anyhow::Result<ChatClearResult> {
+    let project = require_project(&state).await?;
+    let id = payload.id;
+    let removed = tokio::task::spawn_blocking(move || -> anyhow::Result<usize> {
+        let conn = project.pool().get()?;
+        Ok(chat_ops::delete(&conn, id)?)
+    })
+    .await??;
+    Ok(ChatClearResult {
+        removed: removed as u32,
+    })
+}
+
+pub async fn chat_messages_delete_from(
+    state: AppResources,
+    payload: ChatMessageDeleteFromPayload,
+) -> anyhow::Result<ChatClearResult> {
+    let project = require_project(&state).await?;
+    let from_id = payload.from_id;
+    let removed = tokio::task::spawn_blocking(move || -> anyhow::Result<usize> {
+        let conn = project.pool().get()?;
+        Ok(chat_ops::delete_from(&conn, from_id)?)
     })
     .await??;
     Ok(ChatClearResult {

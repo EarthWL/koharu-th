@@ -117,6 +117,29 @@ pub fn clear(conn: &Conn) -> Result<usize> {
     Ok(n)
 }
 
+/// Delete a single chat message by id. Returns 1 if a row was
+/// removed, 0 if the id didn't match (already gone, or never
+/// existed). Doesn't error on missing — callers driving an undo
+/// flow over a stale UI list shouldn't blow up when the row's been
+/// trimmed by another tab.
+pub fn delete(conn: &Conn, id: i64) -> Result<usize> {
+    let n = conn.execute("DELETE FROM chat_messages WHERE id = ?1", [id])?;
+    Ok(n)
+}
+
+/// Delete every message with id >= `from_id`. Powers the "undo last
+/// turn" / "delete from this point" flow: pick the user turn that
+/// kicked off the regret, hand its id here, every assistant /
+/// tool / follow-up message inserted after it goes too. Returns
+/// the number of rows removed.
+pub fn delete_from(conn: &Conn, from_id: i64) -> Result<usize> {
+    let n = conn.execute(
+        "DELETE FROM chat_messages WHERE id >= ?1",
+        [from_id],
+    )?;
+    Ok(n)
+}
+
 fn row_to_msg(r: &rusqlite::Row<'_>) -> rusqlite::Result<ChatMessage> {
     Ok(ChatMessage {
         id: r.get(0)?,

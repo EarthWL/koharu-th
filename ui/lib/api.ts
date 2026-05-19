@@ -737,6 +737,22 @@ export const api = {
     return invoke('chat_messages_clear') as Promise<{ removed: number }>
   },
 
+  /** Delete one chat message by id. Returns {removed: 0|1}. */
+  async chatMessageDelete(id: number): Promise<{ removed: number }> {
+    return invoke('chat_message_delete', { id }) as Promise<{ removed: number }>
+  },
+
+  /** "Undo from this point" — delete every message with id >= fromId.
+   *  Powers the "remove this turn and everything after" flow when the
+   *  user wants to retry a question with different context. */
+  async chatMessagesDeleteFrom(
+    fromId: number,
+  ): Promise<{ removed: number }> {
+    return invoke('chat_messages_delete_from', { fromId }) as Promise<{
+      removed: number
+    }>
+  },
+
   /** Server-side HTTP GET — bypasses CORS, capped to 1.5MB / 12s.
    *  Returns title + HTML-stripped text, suitable for piping into the
    *  active LLM to summarise into project metadata. */

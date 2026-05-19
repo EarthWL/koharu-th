@@ -371,6 +371,18 @@ export function ChatTabPanel() {
     }
   }
 
+  // Per-message delete (#24). Confirm before destructive; refetch on
+  // success. Errors surface in the same inline banner as send / clear.
+  const deleteMessage = async (id: number) => {
+    if (!confirm('Delete this message from chat history?')) return
+    try {
+      await api.chatMessageDelete(id)
+      await history.refetch()
+    } catch (err: any) {
+      setError(err?.message ?? String(err))
+    }
+  }
+
   return (
     <div className='flex h-full min-h-0 flex-1 flex-col'>
       <div className='border-border flex items-center justify-between border-b px-2 py-1.5'>
@@ -441,7 +453,13 @@ export function ChatTabPanel() {
           {!history.data?.length ? (
             <EmptyState />
           ) : (
-            history.data.map((m) => <MessageRow key={m.id} message={m} />)
+            history.data.map((m) => (
+              <MessageRow
+                key={m.id}
+                message={m}
+                onDelete={() => void deleteMessage(m.id)}
+              />
+            ))
           )}
           {sending && (
             <StreamingBubble streamingText={streamingText} onStop={stop} />
@@ -649,16 +667,22 @@ const StreamingBubble = memo(function StreamingBubble({
   )
 })
 
-function MessageRow({ message: m }: { message: ChatMessageDto }) {
+function MessageRow({
+  message: m,
+  onDelete,
+}: {
+  message: ChatMessageDto
+  onDelete: () => void
+}) {
   if (m.role === 'tool') {
-    return <ToolResultRow message={m} />
+    return <ToolResultRow message={m} onDelete={onDelete} />
   }
   const isUser = m.role === 'user'
   const attachments = parseAttachments(m.attachments)
   return (
     <div
       className={
-        'rounded-md border p-2 text-xs ' +
+        'group relative rounded-md border p-2 text-xs ' +
         (isUser
           ? 'border-primary/30 bg-primary/5'
           : 'border-border bg-card')
@@ -667,6 +691,18 @@ function MessageRow({ message: m }: { message: ChatMessageDto }) {
       <div className='text-muted-foreground mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase'>
         {isUser ? <UserIcon className='size-3' /> : <BotIcon className='size-3' />}
         {m.role}
+        {/* Per-message delete (#24). Only visible on hover so it
+         *  doesn't clutter the message list, and only on resolved
+         *  rows (rendered ones, not the streaming bubble). */}
+        <button
+          type='button'
+          onClick={onDelete}
+          aria-label='Delete this message'
+          title='Delete this message'
+          className='text-muted-foreground hover:text-destructive ml-auto opacity-0 transition group-hover:opacity-100 focus:opacity-100'
+        >
+          <XIcon className='size-3' />
+        </button>
       </div>
       {/* Don't render an "(empty)" placeholder when the assistant
        *  turn has tool_calls — Claude / Gemini often dispatch a tool
@@ -742,20 +778,37 @@ function ToolCallsBadge({ raw }: { raw: string }) {
   )
 }
 
-function ToolResultRow({ message: m }: { message: ChatMessageDto }) {
+function ToolResultRow({
+  message: m,
+  onDelete,
+}: {
+  message: ChatMessageDto
+  onDelete: () => void
+}) {
   const [open, setOpen] = useState(false)
   return (
-    <div className='border-border/60 bg-muted/30 rounded-md border p-1.5 text-[10px]'>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className='text-muted-foreground hover:text-foreground flex w-full items-center gap-1 font-mono'
-      >
-        <ChevronDownIcon
-          className={'size-2.5 transition ' + (open ? '' : '-rotate-90')}
-        />
-        <WrenchIcon className='size-2.5' />
-        tool result · {m.toolCallId?.slice(0, 12) ?? ''}
-      </button>
+    <div className='group border-border/60 bg-muted/30 rounded-md border p-1.5 text-[10px]'>
+      <div className='flex items-center gap-1'>
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className='text-muted-foreground hover:text-foreground flex flex-1 items-center gap-1 font-mono'
+        >
+          <ChevronDownIcon
+            className={'size-2.5 transition ' + (open ? '' : '-rotate-90')}
+          />
+          <WrenchIcon className='size-2.5' />
+          tool result · {m.toolCallId?.slice(0, 12) ?? ''}
+        </button>
+        <button
+          type='button'
+          onClick={onDelete}
+          aria-label='Delete this tool result'
+          title='Delete this tool result'
+          className='text-muted-foreground hover:text-destructive opacity-0 transition group-hover:opacity-100 focus:opacity-100'
+        >
+          <XIcon className='size-2.5' />
+        </button>
+      </div>
       {open && (
         <pre className='mt-1 max-h-48 overflow-auto rounded bg-black/30 p-1.5 text-[10px] select-text whitespace-pre-wrap break-all'>
           {m.content}

@@ -1099,6 +1099,20 @@ pub struct ChatClearResult {
     pub removed: u32,
 }
 
+/// Delete a single chat message by id.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMessageDeletePayload {
+    pub id: i64,
+}
+
+/// "Undo from this point" — delete every message with id >= `from_id`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMessageDeleteFromPayload {
+    pub from_id: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct WebFetchPayload {
