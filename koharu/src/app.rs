@@ -133,7 +133,7 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
         let legacy_path = local_dir.join("Koharu");
         if legacy_path.exists() && !APP_ROOT.exists() {
             tracing::info!("Migrating legacy Koharu directory from {:?} to {:?}", legacy_path, *APP_ROOT);
-            if let Err(err) = std::fs::rename(&legacy_path, &*APP_ROOT) {
+            if let Err(err) = robust_move_dir(&legacy_path, &*APP_ROOT) {
                 tracing::warn!(?err, "Failed to migrate legacy Koharu directory automatically");
             }
         }
@@ -156,7 +156,7 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
             tracing::info!("Migrating legacy WebView2 user data from {:?} to {:?}", old_webview_path, new_webview_path);
             if let Err(err) = std::fs::create_dir_all(&new_appdata_path) {
                 tracing::warn!(?err, "Failed to create new appdata directory for WebView2 migration");
-            } else if let Err(err) = std::fs::rename(&old_webview_path, &new_webview_path) {
+            } else if let Err(err) = robust_move_dir(&old_webview_path, &new_webview_path) {
                 tracing::warn!(?err, "Failed to migrate legacy WebView2 user data automatically");
             }
         }
@@ -539,4 +539,45 @@ fn set_ml_device_config(selection: String) -> std::result::Result<(), String> {
     }
 
     Ok(())
+}
+
+/// ย้ายโฟลเดอร์แบบปลอดภัยรองรับการย้ายข้ามพาร์ทิชันดิสก์ (Cross-device partition move fallback)
+fn move_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    if !src.exists() {
+        return Ok(());
+    }
+    if src.is_file() {
+        if let Some(parent) = dst.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::copy(src, dst)?;
+        std::fs::remove_file(src)?;
+        return Ok(());
+    }
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if file_type.is_dir() {
+            move_dir_all(&src_path, &dst_path)?;
+        } else {
+            if let Some(parent) = dst_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(&src_path, &dst_path)?;
+            std::fs::remove_file(&src_path)?;
+        }
+    }
+    std::fs::remove_dir(src)?;
+    Ok(())
+}
+
+/// พยายามย้ายไดเรกทอรีด้วย std::fs::rename ก่อน และถ้าล้มเหลว (เช่น ย้ายข้าม Drive) จะใช้ move_dir_all คัดลอกและลบแทน
+fn robust_move_dir(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    if std::fs::rename(src, dst).is_ok() {
+        return Ok(());
+    }
+    move_dir_all(src, dst)
 }
