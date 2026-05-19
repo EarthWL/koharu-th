@@ -12,6 +12,85 @@ itself, see [their CHANGELOG](https://github.com/mayocream/koharu/blob/main/CHAN
 
 ---
 
+## [1.2.1] — 2026-05-19
+
+Small batch on top of 1.2.0. One regression from the 1.2.0 MenuBar
+audit + three concrete community asks from
+[@HetCreep](https://github.com/HetCreep) on the koharu-th issue
+tracker (#23, #24, #28, #30). Two more of HetCreep's asks (#18 LaMa
+resolution slider and #31 translation style switcher) are deferred
+because they overlap with the v2 Engine Profile UI — see
+[`docs/v2-arch.md`](docs/v2-arch.md) for the v2 plan.
+
+### Fixed
+
+- **#28 — MenuBar View / Process items stayed disabled after loading
+  a chapter.** Regression from 1.2.0's MenuBar audit (`f0265b93`):
+  the audit added `disabled: !hasDocument` gating based on
+  `editorUiStore.totalPages`, but the chapter-open path (Chapters
+  tab, Command Palette, Welcome) discarded the page count returned
+  by `api.chapterOpen` — `totalPages` only updated on File > Open /
+  Add File, so the menu items stayed disabled forever when the user
+  came in through the project workflow. Now all four chapter-open
+  call sites capture the returned count and push it into the editor
+  store. Side benefit: the Navigator also auto-resets to the first
+  page of the newly opened chapter, since `setTotalPages` resets
+  `currentDocumentIndex` to 0 on a count change.
+
+### Added
+
+- **#23 — Photoshop-style canvas navigation.** Hold **Space** and
+  drag to pan the viewport regardless of active tool — the
+  convention every graphics editor (Photoshop / Figma / Procreate)
+  uses so a quick reposition mid-stroke-prep doesn't need a tool
+  switch. Cursor changes to `grab` while Space is held. **Alt +
+  scroll wheel** now zooms toward the cursor (the canvas point under
+  the cursor stays stationary across the scale change), in addition
+  to the existing Ctrl + scroll wheel (center-based zoom kept for
+  muscle memory). Form-input guard so Space typed into a textarea
+  doesn't trigger pan mode; window-blur reset so alt-tabbing mid-pan
+  doesn't leave Space stuck pressed.
+- **#24 — Delete a chat message.** Hover any AI Chat row → small ✕
+  button appears top-right → click → confirm → message gone from
+  `series.db` and the next assistant turn doesn't see it in
+  context. Works on user, assistant, and tool-result rows. Backend
+  also gained an `chat_messages_delete_from(from_id)` op that
+  deletes every message at or after a given id — wired through the
+  RPC + MCP surface but not yet surfaced in the UI; that ships in
+  v1.3.x as an "Undo last turn" command-palette entry. External MCP
+  agents can use it today.
+- **#30 — Windows `.koharuproj` file association.** Double-clicking
+  a Series Project manifest in Explorer now launches Koharu (was
+  previously "How do you want to open this file?"). Registered
+  alongside the existing `.khr` association under
+  `HKCU\Software\Classes` (per-user, no admin needed). Auto-OPENING
+  the project on launch — i.e. the project actually loads on
+  double-click instead of just launching the app — is queued for
+  v1.3.x; it needs a positional-arg parser on `Cli`,
+  `tauri-plugin-single-instance`, and a frontend deeplink handler.
+  Same limitation the `.khr` association has had since day one.
+
+### Internal
+
+- New SQLite helpers `koharu_project::chat::delete(conn, id)` +
+  `delete_from(conn, from_id)`, both idempotent (return rows-
+  affected, don't error on missing).
+- New RPC methods `chat_message_delete` + `chat_messages_delete_from`
+  plumbed end-to-end (api commands → method enum → pipeline ops →
+  rpc dispatch → frontend api.ts).
+- `register_khr()` refactored into a generic `register_extension()`
+  helper + a single `register_file_associations()` entry point that
+  registers both `.khr` and `.koharuproj` from one call site. Old
+  `register_khr` kept as an alias.
+
+### Rebuild
+
+- Per-GPU binaries (Turing / Ampere / Ada / Blackwell) re-cut from
+  the same toolchain as 1.2.0. No Cargo dependency churn — only
+  the koharu-* workspace member versions bumped.
+
+---
+
 ## [1.2.0] — 2026-05-19
 
 The "audit cycle" release. Surface area was largely stable since
