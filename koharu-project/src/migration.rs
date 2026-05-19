@@ -40,6 +40,48 @@ use crate::manifest::{MANIFEST_FILENAME, Manifest};
 /// from Settings → Storage or via the manual downgrade flow.
 pub const V1_BACKUP_SUFFIX: &str = ".bak.v1";
 
+/// Summary of what a v1→v2 migration would do — used by the
+/// frontend dialog (Phase 6.2) to compose the confirm message
+/// + the post-fail recovery hint.
+#[derive(Debug, Clone)]
+pub struct MigrationPreview {
+    /// Display name from the manifest (`Manifest.name`). Used in
+    /// the dialog heading: "Upgrading 'MyManga' to v2…".
+    pub project_name: String,
+    /// Path to the SQLite db that will be backed up.
+    pub db_path: std::path::PathBuf,
+    /// Path of the `.bak.v1` file the backup will create. Same
+    /// helper as `pre_open_v1_to_v2` uses internally.
+    pub backup_path: std::path::PathBuf,
+}
+
+/// Peek at the manifest without running any migration steps.
+/// Returns `Some(...)` when a v1→v2 migration is needed (caller
+/// shows the confirm dialog), `None` when the manifest is already
+/// at the supported version.
+///
+/// Errors on missing/corrupt manifest — same shape as
+/// `Manifest::read`. Caller surfaces those as "this isn't a
+/// koharu project" / "manifest unreadable" rather than as a
+/// migration question.
+pub fn peek_migration(root: &Path) -> Result<Option<MigrationPreview>> {
+    let manifest_path = root.join(MANIFEST_FILENAME);
+    if !manifest_path.exists() {
+        return Err(Error::NotAProject(root.into()));
+    }
+    let manifest = Manifest::read(&manifest_path)?;
+    if manifest.schema_version >= 2 {
+        return Ok(None);
+    }
+    let db_path = root.join(&manifest.paths.db);
+    let backup_path = backup_path_for(&db_path);
+    Ok(Some(MigrationPreview {
+        project_name: manifest.name,
+        db_path,
+        backup_path,
+    }))
+}
+
 /// Pre-open: idempotent backup of the v1 SQLite db so a failed
 /// migration is recoverable. No-op when manifest is already v2.
 pub fn pre_open_v1_to_v2(root: &Path, manifest: &Manifest) -> Result<()> {
@@ -196,6 +238,41 @@ mod tests {
         // On-disk manifest reflects the bump.
         let on_disk = Manifest::read(&manifest_path).unwrap();
         assert_eq!(on_disk.schema_version, 2);
+    }
+
+    #[test]
+    fn peek_returns_some_for_v1_manifest() {
+        let dir = TempDir::new().unwrap();
+        let mut manifest = test_manifest();
+        manifest.name = "My V1 Project".into();
+        let manifest_path = dir.path().join(MANIFEST_FILENAME);
+        write_manifest_atomic(&manifest, &manifest_path).unwrap();
+        let preview = peek_migration(dir.path()).unwrap().unwrap();
+        assert_eq!(preview.project_name, "My V1 Project");
+        assert_eq!(preview.db_path, dir.path().join("series.db"));
+        assert_eq!(
+            preview.backup_path,
+            dir.path().join("series.db.bak.v1"),
+        );
+    }
+
+    #[test]
+    fn peek_returns_none_for_v2_manifest() {
+        let dir = TempDir::new().unwrap();
+        let manifest = Manifest {
+            schema_version: 2,
+            ..test_manifest()
+        };
+        let manifest_path = dir.path().join(MANIFEST_FILENAME);
+        write_manifest_atomic(&manifest, &manifest_path).unwrap();
+        assert!(peek_migration(dir.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn peek_errors_for_missing_manifest() {
+        let dir = TempDir::new().unwrap();
+        let err = peek_migration(dir.path()).unwrap_err();
+        assert!(matches!(err, Error::NotAProject(_)));
     }
 
     #[test]

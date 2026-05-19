@@ -95,6 +95,28 @@ pub async fn project_open(
     payload: ProjectOpenPayload,
 ) -> anyhow::Result<ProjectInfo> {
     let root = resolve_root(&PathBuf::from(payload.path));
+
+    // Phase 6.2 — peek at the manifest BEFORE calling Project::open
+    // so we can show the migration confirm dialog when v1 → v2 is
+    // about to run. Project::open does the actual migration in
+    // its pre_open + post_open hooks (Phase 6.1); this op layer
+    // wraps the gating consent.
+    let preview = {
+        let root = root.clone();
+        tokio::task::spawn_blocking(move || koharu_project::migration::peek_migration(&root))
+            .await??
+    };
+    if let Some(preview) = preview {
+        let approved = ask_confirm_migration(&preview).await;
+        if !approved {
+            anyhow::bail!(
+                "v1 → v2 migration cancelled by user (project '{}' kept at v1; \
+                 reopen with v2 binary when ready to migrate)",
+                preview.project_name,
+            );
+        }
+    }
+
     let project = tokio::task::spawn_blocking(move || {
         Project::open(&root).with_context(|| format!("opening project at {}", root.display()))
     })
@@ -105,6 +127,38 @@ pub async fn project_open(
     *state.project.write().await = Some(project);
     after_project_open(state).await;
     Ok(info)
+}
+
+/// Phase 6.2 — show the v1→v2 confirm dialog. Returns `true` if
+/// the user clicked "Migrate", `false` if they cancelled or
+/// dismissed the dialog. rfd's MessageDialog is sync + blocking
+/// so we wrap in `spawn_blocking`.
+async fn ask_confirm_migration(preview: &koharu_project::migration::MigrationPreview) -> bool {
+    let preview = preview.clone();
+    tokio::task::spawn_blocking(move || {
+        let message = format!(
+            "Upgrading \"{name}\" to project format v2\n\n\
+             A backup of the current database will be saved to:\n  {backup}\n\n\
+             This migration is reversible — opening this project with v1.x \
+             binary will use the .bak file. The new format unlocks the v2 \
+             engine system + undo/redo.\n\n\
+             Migrate and open?",
+            name = preview.project_name,
+            backup = preview.backup_path.display(),
+        );
+        match rfd::MessageDialog::new()
+            .set_level(rfd::MessageLevel::Info)
+            .set_title("Koharu — Project format upgrade")
+            .set_description(&message)
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .show()
+        {
+            rfd::MessageDialogResult::Yes => true,
+            _ => false,
+        }
+    })
+    .await
+    .unwrap_or(false)
 }
 
 pub async fn project_open_picker(state: AppResources) -> anyhow::Result<Option<ProjectInfo>> {
