@@ -11,332 +11,218 @@ diverge, update `v2-arch.md` first (design is locked there, not here).
 
 ---
 
-## Current phase: Phase 4 — Engine migration + Profile UI
+## Current phase: Phase 6 — Migration script + integration tests
 
-**Status**: 🔄 IN PROGRESS — Phases 4.1 + 4.2 ✅ complete
+**Status**: 🔄 IN PROGRESS — 6.1 / 6.2 / 6.3 / 6.4 ✅ complete; 6.5 / 6.6 remaining
 
-### Phase 4.1 — Scene-from-Document bridge ✅
+### Phase 6.1 — V007 migration SQL + host backup/manifest bump ✅
 
-`koharu_pipeline::engine_bridge::run_engine_on_document` is the
-runtime adapter that lets v1 `Document`/`AppResources` call sites
-invoke v2 engines.
+`koharu-project/migrations/V007__v2_blob_index.sql` adds the
+`blob_index` STRICT table (`blob_id BLOB PRIMARY KEY`, `size_bytes`,
+`created_at` + index) for cross-restart blob dedup. SQL runs through
+the existing `applied_migrations` runner — no hand-written transaction.
 
-- **Build Scene** — `build_scene_from_document` registers the page
-  image in the BlobStore (WebP-lossless, same encoding as the RPC
-  DTO serializer — content-addressed, so re-runs hit the existing
-  key), converts v1 TextBlocks → v2 (NodeId = array index).
-- **Run engine** — load via `find_engine(id)`, build EngineCtx
-  with a fresh `ProjectView::empty()` (Phase 4.5 fills), drive
-  `engine.run` to completion while draining the `mpsc` channel.
-- **Apply Ops** — translate each Op back to Document mutation:
-  `AddTextBlock` ✅, `SetSegmentationMask` ✅,
-  `SetInpaintedImage` ✅, `SetRenderedImage` ✅, `SetBrushLayer` ✅,
-  `Batch` (recursive) ✅. `UpdateTextBlock` / `RemoveTextBlock`
-  deferred — need NodeId→array-index map (Phase 4.5 when
-  translate emits per-block updates).
-- **RunPolicy** — `clear_text_blocks_first` flag for stages that
-  REPLACE blocks (detector re-run). Phase 4.6 will replace this
-  with a proper `Op::ReplaceTextBlocks` variant.
+Host-process hooks in `koharu-project/src/migration.rs`:
 
-5 unit tests pass: scene build, content-addressed idempotence,
-AddTextBlock apply, Batch recursion, SetSegmentationMask round-trip
-through BlobStore.
+- `pre_open_v1_to_v2(root)` — atomic `series.db` → `series.db.bak.v1`
+  before opening the DB (skipped if backup exists or schema already v2).
+- `post_open_v1_to_v2(root)` — create `blobs/` dir + bump manifest
+  `schema_version` 1 → 2 via temp + rename.
+- `peek_migration(root)` — dry-run check so the UI can show a confirm
+  dialog before the destructive backup runs.
 
-### Phase 4.2 — Detector call-site swap ✅
+8 unit tests cover noop paths, idempotent backup, manifest atomicity.
 
-`ops::vision::detect` now routes the **default** detector engine
-through `engine_bridge::run_engine_on_document(COMIC_TEXT_DETECTOR_ID)`.
-AnimeYolo path keeps the legacy direct call until Phase 4.3 ports
-it as its own engine. Same `DetectPayload` API — no RPC churn.
+### Phase 6.2 — Migration confirm dialog ✅
 
-Phase 3.3's deferred "test page through new path matches old"
-acceptance is satisfied end-to-end: detect button triggers the
-engine route, image bytes flow into the BlobStore, detector engine
-emits Ops, bridge applies them back, document re-saves with the
-same observable result (text_blocks + segment mask populated).
+`project_open` calls `peek_migration` before opening; if v1 detected,
+an `rfd::MessageDialog` confirm runs on the blocking pool. Accept →
+run pre_open + open + post_open. Reject → return early with a clean
+"migration cancelled" error. No silent destructive backup.
 
-Workspace `cargo build --workspace --lib` clean.
+### Phase 6.3 — Migration integration tests ✅
 
-## Previous phase: Phase 3 — Engine trait + registry + hardware probe
+`koharu-project/tests/v1_to_v2_migration.rs` synthesises a v1
+`.koharuproj` fixture (V001-V006 schema seeded, manifest at
+`schema_version: 1`, no `blobs/`) and exercises the full open path:
 
-**Status**: ✅ COMPLETE
+- Backup file appears at `series.db.bak.v1` post-migration
+- `blobs/` directory created
+- Manifest re-serialised at `schema_version: 2` with all other fields
+  preserved (default_provider_profile, default_prompt_template, tags)
+- Re-opening the migrated project is a noop (idempotent guards)
+- Fresh v2 project creation includes `blobs/` from the start (audit #7 P3)
 
-### Phase 3.1 — `koharu-engines` crate scaffold ✅
+### Phase 6.4 — Engine-pipeline stage golden tests ✅
 
-### Phase 3.1 — `koharu-engines` crate scaffold ✅
+15 new tests in `engine_bridge.rs` freeze the per-stage Op-application
+contract. Real ML/LLM runs aren't reproducible in CI, but the bridge's
+Op translation onto the legacy Document is deterministic — exactly the
+surface that broke under audits #5/#6/#7.
 
-Engine trait + EngineCtx + EngineInfo + inventory registry. No
-concrete engines yet (Phase 3.3 ports the detector).
+Coverage:
 
-- **New crate `koharu-engines`** depending on koharu-core +
-  koharu-ml + koharu-renderer.
-- **`Engine` trait** — `async_trait`-flavoured for dyn-compat
-  (`Box<dyn Engine>` from inventory load fns). Streaming +
-  cancellation via `mpsc::Sender<EngineResult>` +
-  `CancellationToken` per docs/v2-arch.md §4.4.
-- **`EngineCtx<'a>`** — concrete refs to `Scene`, `PageId`,
-  `ProjectView`, `BlobStore`, `Arc<koharu_ml::facade::Model>`,
-  `Arc<koharu_ml::llm::facade::Model>`,
-  `Arc<koharu_renderer::facade::Renderer>`, `PipelineRunOptions`,
-  `CancellationToken`. `setting::<T>(key, default)` resolves
-  typed values via PipelineRunOptions + falls back on miss/
-  mismatch (caller passes the engine's schema default).
-- **`EngineInfo`** static descriptor — id/display_name/
-  description/consumes/produces/settings_schema/hardware/cost/
-  load (fn ptr returning `BoxFuture<'static, Result<Box<dyn
-  Engine>>>`). `inventory::collect!(EngineInfo)` for compile-
-  time registry. `to_view()` strips the fn ptr for serializing
-  to the Engine Profile UI.
-- **Helpers**: `all_engines()`, `find_engine(id)`.
-- **Tests**: 3 unit (no_engines_registered_yet_in_phase_3_1 +
-  setting helper smoke + EngineInfoView camelCase serde).
+- Per-stage golden: detector / OCR / translate / inpaint / render / brush
+- Full-chain golden: detect→OCR→translate stability across the
+  `NodeId +1 / -1` shift convention
+- Defensive Op handling: NodeId::NONE warn-and-skip,
+  out-of-range warn-and-skip, missing-blob → Err,
+  None-blob clears the Document slot
+- Dual-apply contract: `apply_op` vs `session.apply` produce
+  matching NodeId sets after rebuild
+- Audit #7/P1 regression: re-detect after `clear_text_blocks_first`
+  doesn't collide with audit #6/P1's duplicate-id guard
 
-### Phase 3.2 — Hardware probe ✅
+Also fixes pre-existing `ProcessRequest` round-trip rot in
+`koharu-api/commands.rs` (7 fields drifted since the test last
+compiled).
 
-`koharu_engines::probe()` returns a `DetectedHardware` snapshot.
-Replaces `DetectedHardware::stub()` for app launches; stub stays
-for tests that want a deterministic "nothing detected" baseline.
+koharu-pipeline lib: **50 → 66 tests**, all green.
 
-- **CUDA probe** (feature `cuda`): `cudarc::driver::CudaContext::
-  new(0)` to confirm device + queries `CU_DEVICE_ATTRIBUTE_*` for
-  compute cap (major + minor encoded as `7.5`-style float, matching
-  the `CUDA_COMPUTE_CAP` env-var in `build.yml`), `total_mem` for
-  VRAM (rounded to MB), `get_name` for GPU display name. Dynamic-
-  loading patch from `mayocream/candle` means we gracefully fail
-  on missing CUDA libs (returns `None`, no panic).
-- **Metal probe** (feature `metal`, target `macos`): basic
-  `MTLCreateSystemDefaultDevice` check + `device.name()`. Full
-  enumeration deferred to a follow-up.
-- **Vulkan**: not yet implemented; `vulkan_available` stays
-  `false`. Future commit can add `ash` under a `vulkan` feature.
-- **Failure handling**: every probe arm returns `Option`; worst
-  case the result equals stub. UI degrades gracefully.
+### Phase 6.5 — CI re-enable ⏳ next
 
-Tests: 5 unit pass (default-feature build). With `--features cuda`,
-4 pass (the `not(any(...))` cfg-gated test correctly drops out).
+GitHub Actions disabled at the repo level (billing concern — macOS
+minutes are 10× per [[feedback-github-actions]]). Options:
 
-### Phase 3.3 — Port detector as first engine ✅
+- Re-enable Linux + CPU only on `arch/v2-foundation` push triggers
+  (cheap, catches clippy + compile + unit-test regressions)
+- Defer until RC merge, rely on the per-GPU local build flow
+  (`scripts/build-all-gpus.sh`) plus manual test runs
 
-`koharu_pipeline::engines::comic_text_detector` — wraps the default
-detector path through the v2 [`Engine`](koharu_engines::Engine)
-trait. ML inference identical to legacy direct-call; only the wire
-shape changes (Vec<Op> through channel instead of `&mut Document`).
+Before re-enabling either way: fix the Rust 1.94 clippy warnings in
+koharu-project / koharu-renderer / koharu-core/hardware.rs
+(collapsible_if patterns predating Phase 3) and the unused-import
+warning in koharu-pipeline introduced/fixed mid-audit-#7.
 
-- **Lives in `koharu-pipeline`**, not `koharu-engines`: keeps the
-  engines crate thin (types + trait scaffolding only) while engines
-  pull heavyweight backend deps from their natural home (pipeline
-  already has ml + types + renderer).
-- **Engine flow**: reads `scene.pages[page].source_image` BlobId →
-  fetches bytes from BlobStore → decodes → wraps in throwaway
-  Document → calls `ml.detect_with` → converts v1 TextBlocks to
-  v2 (`Op::AddTextBlock`) + encodes mask PNG → BlobStore →
-  `Op::SetSegmentationMask`. Sends one `EngineResult` via channel.
-- **Inventory**: `submit!` registers `EngineInfo` at link time. Mod
-  re-exports `ENGINE_ID` so the submission stays reachable through
-  dead-code elimination on Windows MSVC (lib-only crates can dead-
-  strip orphan modules).
-- **Tests**: 2 unit pass (engine registers in inventory, load fn
-  returns a Box<dyn Engine>). Full ML inference test gated behind
-  needing real ONNX weights — Phase 4 wires the call site so the
-  detector actually executes against a real page.
+### Phase 6.6 — RC merge prep + `v2.0.0-rc1` tag ⏳
 
-### Phase 3.3 deliberate scope reduction
-
-- **Call-site swap not in Phase 3.3** — `ops::vision::detect` still
-  invokes the legacy `ml.detect_with` directly. The Scene-from-
-  Document bridge required for the swap is only worth building once
-  multiple engines need it (Phase 4 migration).
-- **No ReplaceTextBlocks Op** — engine emits `AddTextBlock` only.
-  Phase 4 driver decides merge-vs-replace policy when porting OCR /
-  inpaint / translate. Adding a `ClearTextBlocks` or
-  `ReplaceTextBlocks` variant is a Phase 4 call.
-
-## Phase 3 acceptance summary
-
-- ✅ `Engine` trait + `EngineCtx` + `EngineInfo` + inventory
-  registry compile and test.
-- ✅ Hardware probe replaces stub; cuda feature path verified.
-- ✅ Detector ported as first engine, registers in inventory,
-  produces `Vec<Op>` containing both `AddTextBlock` (one per
-  detected block) and `SetSegmentationMask` (with a BlobStore-
-  registered mask) shapes.
-- ⏸️ "Test page through new path matches old" — engine logic is
-  in place but exercising it end-to-end needs Phase 4's call-site
-  swap. Deferred consciously, not a blocker for Phase 3 sign-off.
-
-### Deliberate Phase 3 omissions
-
-- **DAG resolver** (consumes/produces ordering) — punted to
-  Phase 4 where multi-engine plumbing earns its keep. With one
-  engine in Phase 3, the driver hand-picks via `find_engine` +
-  hardcoded call site.
-- **Native AFIT (async fn in trait)** — kept `async_trait` for
-  dyn-compat with `Box<dyn Engine>` from the inventory load fns.
-  Migration to native + RPITIT possible once dyn-compat AFIT
-  stabilises.
-
-## Previous phase: Phase 1.2 — Phase 3 prep stubs
-
-**Status**: ✅ COMPLETE (2026-05-19)
-
-Pre-Phase-3 audit flagged that the v2-arch.md §4.4 spec references
-`ProjectView` and `PipelineRunOptions` on `EngineCtx`, but Phase 1.1
-shipped neither type. Defining `EngineCtx` in Phase 3 would have
-hit a compile wall on the first day. Phase 1.2 lands both as stubs:
-
-- **`koharu-core/src/project_view.rs`**: read-only handle exposing
-  characters / glossary / series_meta as owned-`Vec` rows. Empty
-  constructor for tests + the Phase 3 detector engine (which
-  doesn't read project state). Phase 5 will refactor backing to
-  borrow from `ProjectSession`'s SQLite-backed caches once that
-  crate exists. TM lookup deferred (needs koharu-project TmStore).
-- **`koharu-core/src/run_options.rs`**: per-run typed settings bag.
-  `HashMap<String, StoredValue>` keyed by `SettingDescriptor.id`.
-  Resolves typed values via `SettingValue::from_stored` so engines
-  read with `opts.get::<T>(key)`. The `EngineCtx::setting::<T>`
-  helper in Phase 3 will wrap this.
-- **Tests**: 43 unit + 2 proptest green (up from 29+2 in Phase 1.1).
-  Includes JSON round-trip + lookup helpers + type-mismatch
-  fallback paths.
-
-Both modules are additive — no consumers wired, no Phase 2 code
-touched. Phase 3 picks up `EngineCtx` definition with all
-referenced types in scope.
-
-## Previous phase: Phase 1.1 — re-review amendments
-
-**Status**: ✅ COMPLETE (2026-05-19, branch tip after this commit)
-
-Applied the 10 issues caught in the post-#33 design re-review (see
-`docs/v2-arch.md` §12 on main):
-
-- **Subtractive** (commit `715c4982`):
-  - Dropped `OpInverse` trait (issue A — broken for Op::Batch)
-  - Removed `Op::NoteTmHit` (issue B — annotation, not state)
-  - Updated module docs to reflect inline-inverse pattern
-- **Additive** (this commit):
-  - New `op_project.rs`: `ProjectOp` enum + Character/Glossary/
-    SeriesMeta payloads + patches with three-state semantics
-  - New `artifact.rs`: `ArtifactKind` enum (replaces rigid
-    PipelineStage — issue I)
-  - New `settings.rs`: `SettingDescriptor` (Serialize-only because
-    schema travels backend → frontend only) + `SettingValue` trait
-    + `StoredValue` for round-tripping saved preferences
-  - `EngineResult { scene_ops, project_ops }` struct added to op.rs
-  - `lib.rs` re-exports all the new types
-- **Tests**: 29 unit + 2 proptest green (up from 18+2 in Phase 1)
-
-## Previous phase: Phase 1 — `koharu-core` scaffold
-
-**Status**: ✅ COMPLETE (2026-05-19, commit `fe484b7a`)
-
-### Phase 1 sub-tasks
-
-- [x] Create `koharu-core` crate with `Cargo.toml`
-- [x] `lib.rs` module map + public re-exports
-- [x] `id.rs` — `PageId`, `NodeId`, `TmEntryId` newtypes
-- [x] `blob.rs` — `BlobId`, `BlobStore` in-memory implementation
-- [x] `scene.rs` — `Scene`, `Page`, `TextBlock`, `Region`, `TextStyle`
-- [x] `op.rs` — `Op` enum, `TextBlockPatch`, `OpInverse` trait declaration
-- [x] `hardware.rs` — `HardwareReq`, `BackendSupport`, `EngineCost`,
-      `DetectedHardware` (stub), `CompatibilityCheck`
-- [x] `tests/proptest_op_roundtrip.rs` — property tests for Op serde
-- [x] Wire `koharu-core` into root `Cargo.toml` workspace members
-- [x] `cargo test -p koharu-core` green — **18 unit + 2 proptest passing**
-  - Proptest caught a real `Option<Option<String>>` double-option
-    serde round-trip bug on first run; fixed with custom
-    `double_option` deserializer + documented in `op.rs`. Exactly
-    why the harness is worth day-1.
-- [x] `koharu-core/README.md` explaining intent + module map
-- [ ] CI matrix re-enabled on branch (GitHub Actions workflow file)
-
-### Phase 1 acceptance criteria
-
-- `cargo test -p koharu-core` green including proptest invariants
-- README at `koharu-core/README.md` (TODO) explaining intent + types
-- No consumers wired yet — old `koharu-types` still in use everywhere
-- Branch CI green on first push
-
-### Phase 1 deliberate omissions
-
-- `OpInverse` trait has no impls (lands in Phase 5 alongside
-  `ProjectSession::apply`)
-- `BlobStore` on-disk backing has hook but no implementation (Phase 2)
-- `DetectedHardware::stub()` returns "unknown" for everything;
-  actual `cudarc` / `metal-rs` / `ash` probes land in Phase 3
-- No `koharu-engines` crate yet (Phase 3)
-- No `koharu-app` crate yet (Phase 5)
+- Squash-merge vs preserve-history decision based on diff size at
+  merge time
+- Per-GPU bundle build (Turing / Ampere / Ada / Blackwell) via
+  `scripts/build-all-gpus.sh`
+- GitHub release with prebuilt installers
+- Update CHANGELOG + release notes; freeze the doc on main
 
 ---
 
-## Phase pipeline (high-level)
+## Phase status (branch tip `6b8fbce8`)
 
-| Phase | Status | Estimated weeks | Notes |
+| Phase | Status | Tip commit | Highlights |
 |---|---|---|---|
-| 1 — `koharu-core` scaffold | ✅ complete | 2 → 1 actual | Op/Scene/BlobStore/HardwareReq + 18+2 tests |
-| 1.1 — re-review amendments | ✅ complete | 0.5 actual | Drop OpInverse + NoteTmHit; add ProjectOp/ArtifactKind/SettingDescriptor; 29+2 tests |
-| 2 — `BlobStore` wired into pipeline | ✅ complete | ~1 actual | HTTP `/blob/:hex` + DocumentDto + frontend; survived 2 external audits |
-| 1.2 — Phase 3 prep stubs | ✅ complete | 0.1 actual | Add ProjectView + PipelineRunOptions stubs; 43+2 tests |
-| 3.1 — `koharu-engines` crate scaffold | ✅ complete | 0.2 actual | Engine trait + EngineCtx + EngineInfo + inventory; 3 tests |
-| 3.2 — Hardware probe | ✅ complete | 0.1 actual | CUDA via cudarc (compute cap + VRAM + name); Metal basic; 5 tests |
-| 3.3 — Port detector as first engine | ✅ complete | 0.2 actual | Engine impl + inventory; call-site swap deferred to Phase 4; 2 tests |
-| 4 — Engine migration + Engine Profile UI ⭐ | ⏳ next | 8-10 | Largest phase. 6 stages × port + UI work |
-| 5 — `ProjectSession` + undo/redo | ⏳ pending | 2-3 | Per-chapter session ring buffer |
-| 6 — Migration script + integration tests green | ⏳ pending | 1-2 | v1 → v2 atomic migration |
-| Merge back → `v2.0.0-rc1` | ⏳ pending | — | RC build + community bake-in |
+| 1 — koharu-core scaffold | ✅ | `fe484b7a` | 18+2 tests; proptest caught double-option serde bug day 1 |
+| 1.1 — re-review amendments | ✅ | `fd79047b` | Drop OpInverse + Op::NoteTmHit; add ProjectOp + ArtifactKind + SettingDescriptor |
+| 2 — BlobStore (HTTP /blob/:hex) | ✅ | `eeba36e9` | Survived 2 external audits; credit @HetCreep #33 |
+| 1.2 — Phase 3 prep stubs | ✅ | `a05f5e35` | ProjectView + PipelineRunOptions stubs |
+| 3.1–3.3 — koharu-engines + hardware probe + first engine | ✅ | `fe604c98` | Engine trait + EngineCtx + inventory; cudarc probe; comic_text_detector ported |
+| 4.1 — Scene/Document bridge | ✅ | `97fed1c3` | `run_engine_on_document` + 5 unit tests |
+| 4.2 — Detector call-site swap | ✅ | `97fed1c3` | `ops::vision::detect` routes through engine path |
+| 4.3 — OCR + segmentation engines | ✅ | `425e6e98` | MIT-48px + manga-ocr + comic_text_bubble |
+| 4.4 — Inpaint engine | ✅ | `a49d33b4` | LaMa ported |
+| 4.5 — Translate engines | ✅ | `4642ef6a` | 5 LLM providers (local + 4 cloud) as engines; real ProjectView |
+| 4.6 — DAG resolver + legacy delete | ✅ | `4c2b38a9` | `resolve_plan` with `prefer` map disambiguation |
+| 4.7 — Engine Profile sidebar UI | ✅ | `9884726f` | Read-only minimal scaffolding |
+| F4.A — AnimeYolo as 2nd detector | ✅ | `e00f7ab6` | settings_schema for size variant + confidence |
+| F4.B — Settings form auto-generator | ✅ | `106e1eb3` | Preview-only render of `SettingDescriptor` |
+| F4.C — Engine profile save | ✅ | `289b88a8` | Storage + RPC + frontend wire |
+| F4.D — Render engine + per-block translate | ✅ | `5b84b0e1` | Bridge profile passthrough; legacy `ops/vision.rs` deleted |
+| Audit #5 — 4 findings on Phase 4 | ✅ | `b7622537` | NodeId(0)/PageId(0) NONE collision + docstring nits |
+| 5.1 — koharu-app crate scaffold | ✅ | `7f7b1133` | ProjectSession + History + SessionEvent types |
+| 5.2 — Inverse Op computation | ✅ | `be2a91d2` | Inline inverse (not OpInverse trait — dropped post-#33) |
+| 5.3 — engine_bridge dual-apply | ✅ | `9f5d4de1` | Document + session.scene kept in sync per run |
+| 5.4 — Frontend undo/redo | ✅ | `393a484c` | RPC + hook + toolbar; Thai-keyboard-safe `event.code === 'KeyZ'` |
+| 5.5 — Chapter session lifecycle | ✅ | `ce0baf0f` | Open/close + autosave coordinator |
+| Audit #6 — 3 findings on Phase 5 | ✅ | `16df2756` | Duplicate-id guard + profile race + trailing blank |
+| 6.1 — V007 migration SQL + hooks | ✅ | `864325ed` | Backup + blobs/ + manifest bump |
+| 6.2 — Migration confirm dialog | ✅ | `69ee5707` | rfd::MessageDialog on blocking pool |
+| 6.3 — Migration integration tests | ✅ | `1eba2f42` | Synthesised v1 fixture; 8 unit tests pass |
+| Audit #7 — 4 findings on Phase 5/6 | ✅ | `4c97c5bc` | SessionSlot wrapper + re-detect reset + persist lock + blobs/ on create |
+| 6.4 — Engine-pipeline golden tests | ✅ | `6b8fbce8` | 15 stage-golden + dual-apply + audit-#7 regression tests |
+| 6.5 — CI re-enable | ⏳ next | — | clippy cleanup + Actions decision |
+| 6.6 — RC merge + per-GPU build + tag `v2.0.0-rc1` | ⏳ | — | Squash policy + release artefacts |
 
-**Total estimated**: 17-21 weeks (~4-5 months)
+## Test posture
+
+- **koharu-core**: 43 unit + 2 proptest
+- **koharu-engines**: 5 unit
+- **koharu-pipeline**: 66 unit (incl. 25 engine_bridge, 5 session_slot, 8 DAG integration, 9 engine adapters)
+- **koharu-app**: 23 unit (session + history + event bus)
+- **koharu-project**: 51 unit (incl. 8 migration tests + 6 backup/recent/series)
+- **koharu-api**: 5 unit (incl. ProcessRequest round-trip — un-rotted in 6.4)
+
+Workspace `cargo build --workspace --lib` and `cargo test --workspace
+--lib` clean as of tip.
+
+## External audits survived
+
+| # | Phase covered | Findings | Fix commit |
+|---|---|---|---|
+| #3 | Phase 2 | no-store on /blob errors + zero-copy Bytes | `47a503c2` |
+| #4 | Phase 2 | F2-F5 — ProjectOp split + Region u64 + Cache-Control + CompatibilityCheck | `c70dd387` |
+| Post-Phase-2 | Phase 2 | origin/CORS + Uint8Array→string + get_document_dto in RpcMethodMap | `a6d9edf7` |
+| Branch-sync | Phase 2 | F1 migration doc + F4-followup prose | (rebase) |
+| #5 | Phase 4 | NodeId(0)/PageId(0) NONE collision + 3 docstring nits | `b7622537` |
+| #6 | Phase 5 | P1 duplicate-id guard + P2 profile persist race + P3 trailing blank | `16df2756` |
+| #7 | Phase 5/6 | P1 session doc-switch drift + P1 re-detect dup + P2 persist lock + P3 blobs/ on create | `4c97c5bc` |
+
+## Locked decisions (won't revisit without explicit approval)
+
+- Linear history (no CRDT)
+- Per-chapter session undo, in-memory ring buffer (~100 ops)
+- Machine-wide engine profile (not per-project)
+- Hardware auto-probe + recommend + warn-on-overspec; never lock
+- Atomic v1→v2 migration with `.bak.v1`
+- `koharu-project` stays orthogonal to v2 (not absorbed)
+- `async_trait` over native AFIT (dyn-compat for `Box<dyn Engine>`)
+- No `op_log` SQLite table — op log is in-memory only
+- No `app_meta` SQLite table — schema_version lives in the manifest
 
 ---
 
 ## Sync log (main → branch rebases)
 
-Weekly rebase of branch onto main. Cherry-picks documented per row.
-
 | Date | Branch HEAD before | main HEAD synced to | Cherry-picks | Notes |
 |---|---|---|---|---|
-| 2026-05-19 | (initial branch creation) | `18423265` | — | Branch forked from arch/v2-base (= docs(arch): land v2 architecture design doc) |
-| 2026-05-19 | `fe484b7a` | `64974db6` | — | Rebased to pull v1.2.1 release + design doc amendments (HTTP blob transport from #33, Op+Engine re-review). Conflict-free rebase. Phase 1.1 applies the amendments to koharu-core code in commits `715c4982` (subtractive) and the additive follow-up. |
+| 2026-05-19 | (initial branch creation) | `18423265` | — | Branch forked from arch/v2-base |
+| 2026-05-19 | `fe484b7a` | `64974db6` | — | Rebased to pull v1.2.1 release + design doc amendments (HTTP blob from #33, Op+Engine re-review). Conflict-free. |
 
-Add new rows weekly. Each row records:
-- Which commit on main the branch was rebased onto
-- Specific SHAs cherry-picked (if any extras needed beyond plain rebase)
-- Conflicts encountered + resolution notes
+No rebases performed during Phase 4 / 5 / 6 work — branch has stayed
+on its own track. Next rebase will happen as part of Phase 6.6 RC
+merge prep, picking up v1.2.2 + main's bug fixes from `efc6cc40`
+(`fix(#40 #41)` startup failure surfacing).
 
 ---
 
-## Decisions log (changes to `v2-arch.md`)
+## Decisions log (changes to `v2-arch.md` on main)
 
-Every time `v2-arch.md` (on main) changes during the branch life,
-log the bump here so future readers know the design has shifted.
-
-| Date | `v2-arch.md` commit on main | Change | Impact on branch |
+| Date | Commit on main | Change | Impact on branch |
 |---|---|---|---|
 | 2026-05-19 | `18423265` (initial land) | Initial design doc | — branch starts here |
 
 ---
 
-## Blockers / open questions surfaced during implementation
+## Blockers / open questions
 
-(none yet — Phase 1 just started)
+**Not yet surfaced**:
 
-When a blocker surfaces:
-1. Add a row here with date + brief description
-2. If the blocker affects design decisions, propose an amendment to
-   `v2-arch.md` (PR against main) — don't change the doc on the
-   branch in isolation
-3. If the blocker is purely tactical (lib version, bug workaround),
-   document it in the commit body that resolves it
+1. v1→v2 migration has only been tested against synthesised fixtures.
+   First real-world `.koharuproj` migration won't happen until
+   v2.0.0-rc1 is in user hands. Pre-RC owed: dogfood a personal
+   project through the migration path.
+2. End-to-end engine pipeline (detect → OCR → inpaint → translate →
+   render) hasn't been smoke-tested against a real chapter since
+   Phase 5.3's dual-apply landed. Unit tests cover the contract;
+   nothing covers the user-facing flow.
+3. Clippy is dirty across the workspace (Rust 1.94 collapsible_if
+   patterns + one unused-import). Phase 6.5 must clean these before
+   CI re-enable to avoid a wave of red on first run.
 
 ---
 
 ## CI status
 
-- [ ] GitHub Actions workflow re-enabled on `arch/v2-foundation`
-- [ ] Matrix: Windows × CUDA (Turing/Ampere/Ada/Blackwell), macOS × CPU+Metal, Linux × CPU
-- [ ] Per-PR run on push to branch
-- [ ] Merge-back gate: every job green required before merge to main
-
-CI re-enabling is queued for the end of Phase 1 (once `koharu-core`
-compiles and tests pass locally) — no point burning Actions minutes
-on a workspace that doesn't compile yet.
+- [ ] GitHub Actions re-enabled on `arch/v2-foundation`
+- [ ] clippy clean across workspace
+- [ ] Matrix: Linux + CPU (cheap) on push; per-GPU Windows builds
+      reserved for tags
+- [ ] Merge-back gate: workspace lib tests + clippy required before
+      `v2.0.0-rc1` tag
