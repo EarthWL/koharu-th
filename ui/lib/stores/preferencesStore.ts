@@ -168,6 +168,10 @@ type PreferencesState = {
 
   llmFailoverPriority: number[]
   setLlmFailoverPriority: (priority: number[]) => void
+
+  installedAddons: string[]
+  setInstalledAddons: (addons: string[]) => void
+
   resetPreferences: () => void
 }
 
@@ -193,6 +197,7 @@ const initialPreferences = {
   thaiPostProcess: true,
   llmFailoverEnabled: false,
   llmFailoverPriority: [] as number[],
+  installedAddons: [] as string[],
 }
 
 /**
@@ -289,6 +294,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       setThaiPostProcess: (enabled) => set({ thaiPostProcess: enabled }),
       setLlmFailoverEnabled: (enabled) => set({ llmFailoverEnabled: enabled }),
       setLlmFailoverPriority: (priority) => set({ llmFailoverPriority: priority }),
+      setInstalledAddons: (addons) => set({ installedAddons: addons }),
       resetPreferences: () => set({ ...initialPreferences }),
     }),
     {

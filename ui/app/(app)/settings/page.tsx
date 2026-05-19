@@ -10,6 +10,11 @@ import {
   MonitorIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  Puzzle,
+  Download,
+  Trash2,
+  Check,
+  Loader2,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
@@ -707,6 +712,9 @@ export default function SettingsPage() {
               </div>
             </section>
 
+            {/* Addon Store Section */}
+            <AddonStoreSection />
+
             {/* Storage Section */}
             <StorageSection />
 
@@ -937,6 +945,347 @@ function StorageSection() {
             Could not read storage stats — backend may not be ready yet.
           </p>
         )}
+      </div>
+    </section>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────
+// Addons Manager Store Section
+// ────────────────────────────────────────────────────────────────
+
+type AddonItem = {
+  id: string
+  name: string
+  code: string
+  label: string
+  descEn: string
+  descTh: string
+  targetLanguage: string
+  author: string
+  version: string
+  badgeEn: string
+  badgeTh: string
+  resources: any
+}
+
+const AVAILABLE_ADDONS: AddonItem[] = [
+  {
+    id: 'addon-fr',
+    name: 'French Language Pack Addon',
+    code: 'fr-FR',
+    label: 'Français (French)',
+    descEn: 'Enables French UI (EN/FR) and configures dynamic translation post-processing for French spacing and guillemets.',
+    descTh: 'เปิดใช้งานหน้า UI ภาษาฝรั่งเศส (EN/FR) และระบบ Dynamic Post-Processor สำหรับเครื่องหมายวรรคตอนและการตัดคำภาษาฝรั่งเศส',
+    targetLanguage: 'French',
+    author: 'HetCreep',
+    version: '1.0.0',
+    badgeEn: 'French Spacing & Guillemets',
+    badgeTh: 'วรรณยุกต์และเครื่องหมายฝรั่งเศส',
+    resources: {
+      "settings.title": "Paramètres de Koharu",
+      "settings.appearance": "Apparence et Thème",
+      "settings.appearanceDescription": "Configurez l'apparence de l'interface utilisateur de Koharu.",
+      "settings.theme": "Thème actif",
+      "settings.themeLight": "Clair",
+      "settings.themeDark": "Sombre",
+      "settings.themeSystem": "Système",
+      "settings.language": "Langue de l'interface",
+      "settings.languageDescription": "Choisissez la langue d'affichage du panneau.",
+      "settings.engines": "Configuration des moteurs d'IA",
+      "settings.translation": "Configuration de Traduction",
+      "settings.translationDescription": "Ajustements de post-traitement et performances.",
+      "settings.device": "Informations sur l'appareil",
+      "settings.deviceDescription": "Matériel de calcul ML actif.",
+      "settings.updaterTitle": "Mises à jour automatiques"
+    }
+  },
+  {
+    id: 'addon-es',
+    name: 'Spanish Language Pack Addon',
+    code: 'es-ES',
+    label: 'Español (Spanish)',
+    descEn: 'Enables Spanish UI (EN/ES) and adapts the translation pipeline for Spanish quotation metrics.',
+    descTh: 'เปิดใช้งานหน้า UI ภาษาสเปน (EN/ES) และปรับท่อประมวลผลคำแปลเพื่อรอบรับโควตเครื่องหมายคำพูดภาษาสเปน',
+    targetLanguage: 'Spanish',
+    author: 'HetCreep',
+    version: '1.0.0',
+    badgeEn: 'Spanish Quotes & Spacing',
+    badgeTh: 'เครื่องหมายโควตภาษาสเปน',
+    resources: {
+      "settings.title": "Ajustes de Koharu",
+      "settings.appearance": "Apariencia y Tema",
+      "settings.appearanceDescription": "Personaliza el aspecto visual del editor Koharu.",
+      "settings.theme": "Tema activo",
+      "settings.themeLight": "Claro",
+      "settings.themeDark": "Oscuro",
+      "settings.themeSystem": "Sistema",
+      "settings.language": "Idioma del panel",
+      "settings.languageDescription": "Selecciona el idioma para la interfaz.",
+      "settings.engines": "Motores de IA",
+      "settings.translation": "Traducción",
+      "settings.translationDescription": "Parámetros del pipeline de traducción.",
+      "settings.device": "Hardware del sistema",
+      "settings.deviceDescription": "Dispositivos ML activos.",
+      "settings.updaterTitle": "Actualizaciones"
+    }
+  },
+  {
+    id: 'addon-pt',
+    name: 'Portuguese Language Pack Addon',
+    code: 'pt-PT',
+    label: 'Português (Portuguese)',
+    descEn: 'Enables Portuguese UI (EN/PT) and optimizes dynamic bubble capacity rules for Portuguese translation.',
+    descTh: 'เปิดใช้งานหน้า UI ภาษาโปรตุเกส (EN/PT) และปรับระดับพื้นที่ฟองคำพูดคำแปลของภาษาโปรตุเกสให้พอดีแม่นยำ',
+    targetLanguage: 'Portuguese',
+    author: 'HetCreep',
+    version: '1.0.0',
+    badgeEn: 'Portuguese Dynamic Adjuster',
+    badgeTh: 'ความจุข้อความโปรตุเกส',
+    resources: {
+      "settings.title": "Configurações do Koharu",
+      "settings.appearance": "Aparência e Tema",
+      "settings.appearanceDescription": "Personalize o estilo de interface do Koharu.",
+      "settings.theme": "Tema activo",
+      "settings.themeLight": "Claro",
+      "settings.themeDark": "Escuro",
+      "settings.themeSystem": "Sistema",
+      "settings.language": "Idioma da interface",
+      "settings.languageDescription": "Selecione o idioma de exibição do painel.",
+      "settings.engines": "Motores de IA",
+      "settings.translation": "Tradução",
+      "settings.translationDescription": "Ajustes e filtros do pipeline de tradução.",
+      "settings.device": "Informações do dispositivo",
+      "settings.deviceDescription": "Hardware de execução activa.",
+      "settings.updaterTitle": "Atualizações automáticas"
+    }
+  },
+  {
+    id: 'addon-cn',
+    name: 'Mandarin Chinese Language Addon',
+    code: 'zh-CN',
+    label: '简体中文 (Chinese)',
+    descEn: 'Enables Mandarin Chinese UI (EN/CN) and activates CJK vertical writing layouts in tall speech bubbles.',
+    descTh: 'เปิดใช้งานหน้า UI ภาษาจีนกลาง (EN/CN) และเปิดใช้ระบบประมวลผลข้อความ CJK แนวตั้งในกล่องฟองคำพูดทรงสูง',
+    targetLanguage: 'Chinese',
+    author: 'HetCreep',
+    version: '1.0.0',
+    badgeEn: 'CJK Vertical Writing & UI',
+    badgeTh: 'ข้อความภาษาจีนแนวตั้ง & UI',
+    resources: {
+      "settings.title": "Koharu 设置中心",
+      "settings.appearance": "外观与主题",
+      "settings.appearanceDescription": "调整 Koharu 编辑器界面的视觉风格。",
+      "settings.theme": "当前主题模式",
+      "settings.themeLight": "浅色主题",
+      "settings.themeDark": "深色主题",
+      "settings.themeSystem": "跟随系统",
+      "settings.language": "界面显示语言",
+      "settings.languageDescription": "选择您习惯的操作面板语言。",
+      "settings.engines": "AI 引擎配置",
+      "settings.translation": "翻译后处理配置",
+      "settings.translationDescription": "配置翻译流程和智能合并规则。",
+      "settings.device": "运算加速设备",
+      "settings.deviceDescription": "当前的 ML 硬件运行环境。",
+      "settings.updaterTitle": "自动升级偏好设置"
+    }
+  },
+  {
+    id: 'addon-ru',
+    name: 'Russian Language Pack Addon',
+    code: 'ru-RU',
+    label: 'Русский (Russian)',
+    descEn: 'Enables Russian UI (EN/RU) and adds full Cyrillic font fallbacks across the layout renderer.',
+    descTh: 'เปิดใช้งานหน้า UI ภาษารัสเซีย (EN/RU) และปรับแต่งระบบฟอนต์ฟอลแบ็กแบบซีริลลิก (Cyrillic Fonts) สำหรับความจุคำแปลรัสเซีย',
+    targetLanguage: 'Russian',
+    author: 'HetCreep',
+    version: '1.0.0',
+    badgeEn: 'Cyrillic Fonts & Spacing',
+    badgeTh: 'ระบบฟอนต์ซีริลลิก & UI',
+    resources: {
+      "settings.title": "Панель настроек Koharu",
+      "settings.appearance": "Тема и оформление",
+      "settings.appearanceDescription": "Настройте внешний вид графического интерфейса.",
+      "settings.theme": "Активная тема",
+      "settings.themeLight": "Светлая",
+      "settings.themeDark": "Тёмная",
+      "settings.themeSystem": "Системная",
+      "settings.language": "Язык интерфейса",
+      "settings.languageDescription": "Выберите язык панели Koharu.",
+      "settings.engines": "Модели нейросетей",
+      "settings.translation": "Настройки перевода",
+      "settings.translationDescription": "Параметры постобработки и разметки.",
+      "settings.device": "Информация об устройстве",
+      "settings.deviceDescription": "Активное оборудование вычислений.",
+      "settings.updaterTitle": "Автообновление"
+    }
+  }
+]
+
+function AddonStoreSection() {
+  const { t, i18n } = useTranslation()
+  const installedAddons = usePreferencesStore((s) => s.installedAddons)
+  const setInstalledAddons = usePreferencesStore((s) => s.setInstalledAddons)
+  const cloudTargetLanguage = usePreferencesStore((s) => s.cloudTargetLanguage)
+  const setCloudTargetLanguage = usePreferencesStore((s) => s.setCloudTargetLanguage)
+
+  const [installingId, setInstallingId] = useState<string | null>(null)
+  const [installProgress, setInstallProgress] = useState<number>(0)
+
+  const isTh = i18n.language === 'th-TH'
+
+  const handleInstall = (addon: AddonItem) => {
+    setInstallingId(addon.id)
+    setInstallProgress(0)
+
+    let currentProgress = 0
+    const interval = setInterval(() => {
+      currentProgress += 10
+      setInstallProgress(currentProgress)
+      
+      if (currentProgress >= 100) {
+        clearInterval(interval)
+        
+        // 1. Inject resource bundle dynamically
+        i18n.addResourceBundle(addon.code, 'translation', addon.resources, true, true)
+        
+        // 2. Add language labels dynamically
+        const activeLanguages = Object.keys(i18n.options.resources || {})
+        activeLanguages.forEach((lang) => {
+          i18n.addResourceBundle(lang, 'translation', {
+            menu: {
+              languages: {
+                [addon.code]: addon.label
+              }
+            }
+          }, true, true)
+        })
+
+        // 3. Update store state
+        setInstalledAddons([...installedAddons, addon.id])
+        setCloudTargetLanguage(addon.targetLanguage)
+
+        setInstallingId(null)
+        setInstallProgress(0)
+      }
+    }, 150)
+  }
+
+  const handleUninstall = (addon: AddonItem) => {
+    // Remove addon from installed list
+    setInstalledAddons(installedAddons.filter((id) => id !== addon.id))
+    
+    // Fall back target language to Thai if current was uninstalled
+    if (cloudTargetLanguage === addon.targetLanguage) {
+      setCloudTargetLanguage('Thai')
+    }
+
+    // Switch UI language back if active UI language was this addon's code
+    if (i18n.language === addon.code) {
+      i18n.changeLanguage('th-TH')
+    }
+  }
+
+  return (
+    <section className='mb-8'>
+      <h2 className='text-foreground mb-1 flex items-center gap-2 text-sm font-bold'>
+        <Puzzle className='text-primary size-4' />
+        {isTh ? 'จัดการ Addon เสริมภาษา' : 'Addons & Language Store'}
+      </h2>
+      <p className='text-muted-foreground mb-4 text-sm leading-relaxed'>
+        {isTh 
+          ? 'ติดตั้ง Addon เสริมสําหรับแต่ละภาษา เพื่อปรับเปลี่ยนหน้าตาเมนูโปรแกรม ตลอดจนลอจิกวิเคราะห์ขนาดกรอบคำพูดและเครื่องหมายวรรคตอนสำหรับภาษานั้นๆ แบบอัตโนมัติ' 
+          : 'Install language addons to dynamically customize the user interface, typography rules, speech bubble measurements, and punctuation cleanup pipelines for specific languages.'}
+      </p>
+
+      <div className='space-y-4'>
+        {AVAILABLE_ADDONS.map((addon) => {
+          const isInstalled = installedAddons.includes(addon.id)
+          const isInstalling = installingId === addon.id
+          const isActive = cloudTargetLanguage === addon.targetLanguage
+
+          return (
+            <div 
+              key={addon.id} 
+              className='bg-card border-border relative overflow-hidden rounded-lg border p-4 transition-all duration-300 hover:border-primary/30'
+            >
+              {/* Active language border glow */}
+              {isActive && (
+                <div className='bg-primary/80 absolute top-0 left-0 bottom-0 w-1' />
+              )}
+
+              <div className='flex items-start justify-between gap-4'>
+                <div className='min-w-0 flex-1'>
+                  <div className='flex items-center gap-2 flex-wrap'>
+                    <h3 className='text-foreground text-sm font-semibold'>
+                      {addon.name}
+                    </h3>
+                    <span className='bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[10px] font-mono'>
+                      v{addon.version}
+                    </span>
+                    <span className='border-primary/20 bg-primary/5 text-primary rounded-full border px-2 py-0.5 text-[9px] font-medium tracking-wide uppercase'>
+                      {isTh ? addon.badgeTh : addon.badgeEn}
+                    </span>
+                    {isActive && (
+                      <span className='bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide'>
+                        <Check className='size-2.5' />
+                        {isTh ? 'กำลังใช้งาน' : 'Active Target'}
+                      </span>
+                    )}
+                  </div>
+                  
+                  <p className='text-muted-foreground/90 mt-1.5 text-xs leading-relaxed'>
+                    {isTh ? addon.descTh : addon.descEn}
+                  </p>
+
+                  <div className='text-muted-foreground/60 mt-2 flex items-center gap-3 text-[10px] uppercase tracking-wide'>
+                    <span>{isTh ? 'ผู้พัฒนา' : 'Developer'}: {addon.author}</span>
+                    <span>•</span>
+                    <span>{isTh ? 'ภาษาปลายทาง' : 'Target Lang'}: {addon.targetLanguage}</span>
+                  </div>
+                </div>
+
+                <div className='flex shrink-0 items-center justify-end gap-2 self-center'>
+                  {isInstalled ? (
+                    <button
+                      type='button'
+                      onClick={() => handleUninstall(addon)}
+                      className='border-destructive/20 text-destructive hover:bg-destructive/10 flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium transition'
+                    >
+                      <Trash2 className='size-3.5' />
+                      {isTh ? 'ถอนการติดตั้ง' : 'Uninstall'}
+                    </button>
+                  ) : isInstalling ? (
+                    <div className='text-muted-foreground flex items-center gap-1.5 text-xs font-medium'>
+                      <Loader2 className='size-3.5 animate-spin' />
+                      {installProgress}%
+                    </div>
+                  ) : (
+                    <button
+                      type='button'
+                      disabled={installingId !== null}
+                      onClick={() => handleInstall(addon)}
+                      className='bg-primary text-primary-foreground hover:bg-primary/95 flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-medium shadow-sm transition disabled:opacity-50'
+                    >
+                      <Download className='size-3.5' />
+                      {isTh ? 'ติดตั้ง' : 'Install'}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Progress bar overlay during installation */}
+              {isInstalling && (
+                <div className='bg-muted absolute bottom-0 left-0 right-0 h-1'>
+                  <div 
+                    className='bg-primary h-full transition-all duration-150' 
+                    style={{ width: `${installProgress}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     </section>
   )
