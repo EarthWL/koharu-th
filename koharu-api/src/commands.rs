@@ -1326,6 +1326,13 @@ mod tests {
                 width_px: Some(2.0),
             }),
             font_family: Some("Noto Sans".to_string()),
+            ocr_engine: None,
+            skip_ocr: None,
+            skip_detect: None,
+            skip_inpaint: None,
+            detector_engine: None,
+            anime_yolo_variant: None,
+            anime_yolo_confidence: None,
         });
         round_trip(&InpaintRegion {
             x: 10,

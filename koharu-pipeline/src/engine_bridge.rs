@@ -703,7 +703,7 @@ fn project_glossary_category_to_core(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use image::{DynamicImage, ImageBuffer, ImageFormat};
+    use image::{DynamicImage, GenericImageView, ImageBuffer, ImageFormat};
     use koharu_types::SerializableDynamicImage;
     use std::io::Cursor;
 
@@ -988,5 +988,388 @@ mod tests {
 
         assert_eq!(doc.text_blocks[0].text.as_deref(), Some("a-before"));
         assert_eq!(doc.text_blocks[1].text.as_deref(), Some("b-after"));
+    }
+
+    // ─── Phase 6.4 stage-golden tests ───────────────────────────
+    // Each stage in the pipeline emits a characteristic shape of
+    // Op. Real ML / LLM runs aren't reproducible in CI, but the
+    // bridge's translation of those Ops onto the legacy Document
+    // IS deterministic — and that translation is exactly what
+    // broke under audits #5 / #6 / #7. These tests freeze the
+    // per-stage contract so a future bridge refactor breaking the
+    // mapping fails loudly.
+
+    fn doc_with_n_blocks(n: usize) -> Document {
+        let mut doc = one_pixel_doc();
+        for i in 0..n {
+            doc.text_blocks.push(koharu_types::TextBlock {
+                x: i as f32, y: i as f32, width: 10.0, height: 10.0,
+                confidence: 1.0,
+                line_polygons: None, source_direction: None,
+                source_language: None, rotation_deg: None,
+                detected_font_size_px: None, detector: None,
+                text: None, translation: None, style: None,
+                font_prediction: None, rendered: None,
+                lock_layout_box: false,
+                layout_seed_x: None, layout_seed_y: None,
+                layout_seed_width: None, layout_seed_height: None,
+            });
+        }
+        doc
+    }
+
+    fn make_scene_block(id: u64, x: u32) -> SceneTextBlock {
+        SceneTextBlock {
+            id: NodeId(id),
+            region: Region { x, y: 0, width: 5, height: 5 },
+            source_text: None,
+            translation: None,
+            style: None,
+            source_lang: None,
+            font_prediction: None,
+        }
+    }
+
+    fn png_blob(blobs: &BlobStore, w: u32, h: u32, gray: u8) -> BlobId {
+        let img = DynamicImage::ImageLuma8(ImageBuffer::from_pixel(w, h, image::Luma([gray])));
+        let mut buf = Vec::new();
+        img.write_to(&mut Cursor::new(&mut buf), ImageFormat::Png).unwrap();
+        blobs.put(buf)
+    }
+
+    #[test]
+    fn detector_stage_golden() {
+        // Detector emits N AddTextBlock ops against an empty page.
+        let blobs = BlobStore::in_memory();
+        let mut doc = one_pixel_doc();
+        apply_op(
+            &mut doc,
+            Op::Batch(vec![
+                Op::AddTextBlock { page: PageId(1), block: make_scene_block(1, 10) },
+                Op::AddTextBlock { page: PageId(1), block: make_scene_block(2, 20) },
+                Op::AddTextBlock { page: PageId(1), block: make_scene_block(3, 30) },
+            ]),
+            &blobs,
+        ).unwrap();
+        assert_eq!(doc.text_blocks.len(), 3);
+        assert_eq!(doc.text_blocks[0].x, 10.0);
+        assert_eq!(doc.text_blocks[1].x, 20.0);
+        assert_eq!(doc.text_blocks[2].x, 30.0);
+    }
+
+    #[test]
+    fn ocr_stage_golden() {
+        // OCR runs against detector output: UpdateTextBlock setting
+        // source_text on each block via the shifted NodeId.
+        let blobs = BlobStore::in_memory();
+        let mut doc = doc_with_n_blocks(3);
+        for i in 0..3u64 {
+            apply_op(
+                &mut doc,
+                Op::UpdateTextBlock {
+                    page: PageId(1),
+                    id: NodeId(i + 1),
+                    patch: koharu_core::TextBlockPatch {
+                        source_text: Some(Some(format!("ja text {}", i))),
+                        ..Default::default()
+                    },
+                },
+                &blobs,
+            ).unwrap();
+        }
+        assert_eq!(doc.text_blocks[0].text.as_deref(), Some("ja text 0"));
+        assert_eq!(doc.text_blocks[1].text.as_deref(), Some("ja text 1"));
+        assert_eq!(doc.text_blocks[2].text.as_deref(), Some("ja text 2"));
+    }
+
+    #[test]
+    fn translate_stage_golden() {
+        // Translate emits per-block UpdateTextBlock setting
+        // translation; source_text preserved.
+        let blobs = BlobStore::in_memory();
+        let mut doc = doc_with_n_blocks(2);
+        doc.text_blocks[0].text = Some("ja A".into());
+        doc.text_blocks[1].text = Some("ja B".into());
+        for (id, t) in [(1u64, "th A"), (2, "th B")] {
+            apply_op(
+                &mut doc,
+                Op::UpdateTextBlock {
+                    page: PageId(1),
+                    id: NodeId(id),
+                    patch: koharu_core::TextBlockPatch {
+                        translation: Some(Some(t.into())),
+                        ..Default::default()
+                    },
+                },
+                &blobs,
+            ).unwrap();
+        }
+        assert_eq!(doc.text_blocks[0].translation.as_deref(), Some("th A"));
+        assert_eq!(doc.text_blocks[1].translation.as_deref(), Some("th B"));
+        assert_eq!(doc.text_blocks[0].text.as_deref(), Some("ja A"));
+    }
+
+    #[test]
+    fn inpaint_stage_golden() {
+        let blobs = BlobStore::in_memory();
+        let mut doc = one_pixel_doc();
+        let blob = png_blob(&blobs, 3, 3, 64);
+        apply_op(
+            &mut doc,
+            Op::SetInpaintedImage { page: PageId(1), image: Some(blob) },
+            &blobs,
+        ).unwrap();
+        let inp: DynamicImage = doc.inpainted.expect("inpainted set").into();
+        assert_eq!(inp.dimensions(), (3, 3));
+    }
+
+    #[test]
+    fn render_stage_golden() {
+        let blobs = BlobStore::in_memory();
+        let mut doc = one_pixel_doc();
+        let blob = png_blob(&blobs, 4, 5, 200);
+        apply_op(
+            &mut doc,
+            Op::SetRenderedImage { page: PageId(1), image: Some(blob) },
+            &blobs,
+        ).unwrap();
+        let r: DynamicImage = doc.rendered.expect("rendered set").into();
+        assert_eq!(r.dimensions(), (4, 5));
+    }
+
+    #[test]
+    fn brush_layer_stage_golden() {
+        let blobs = BlobStore::in_memory();
+        let mut doc = one_pixel_doc();
+        let blob = png_blob(&blobs, 6, 6, 128);
+        apply_op(
+            &mut doc,
+            Op::SetBrushLayer { page: PageId(1), brush: Some(blob) },
+            &blobs,
+        ).unwrap();
+        assert!(doc.brush_layer.is_some());
+    }
+
+    #[test]
+    fn set_image_with_none_blob_clears_field() {
+        // Engines emit Set*Image with None to clear a prior
+        // artifact (user wiped inpainted manually, etc.).
+        let blobs = BlobStore::in_memory();
+        let mut doc = one_pixel_doc();
+        let blob = png_blob(&blobs, 2, 2, 200);
+        apply_op(
+            &mut doc,
+            Op::SetInpaintedImage { page: PageId(1), image: Some(blob) },
+            &blobs,
+        ).unwrap();
+        assert!(doc.inpainted.is_some());
+        apply_op(
+            &mut doc,
+            Op::SetInpaintedImage { page: PageId(1), image: None },
+            &blobs,
+        ).unwrap();
+        assert!(doc.inpainted.is_none(), "None blob clears the field");
+    }
+
+    #[test]
+    fn apply_op_update_with_none_id_is_noop() {
+        // NodeId(0) is the NONE sentinel — bridge must warn-and-skip
+        // rather than write to text_blocks[index_arith_underflow].
+        let blobs = BlobStore::in_memory();
+        let mut doc = doc_with_n_blocks(2);
+        doc.text_blocks[0].text = Some("keep".into());
+        doc.text_blocks[1].text = Some("keep".into());
+        apply_op(
+            &mut doc,
+            Op::UpdateTextBlock {
+                page: PageId(1),
+                id: NodeId(0),
+                patch: koharu_core::TextBlockPatch {
+                    source_text: Some(Some("clobber".into())),
+                    ..Default::default()
+                },
+            },
+            &blobs,
+        ).unwrap();
+        assert_eq!(doc.text_blocks[0].text.as_deref(), Some("keep"));
+        assert_eq!(doc.text_blocks[1].text.as_deref(), Some("keep"));
+    }
+
+    #[test]
+    fn apply_op_update_with_out_of_range_id_is_noop() {
+        let blobs = BlobStore::in_memory();
+        let mut doc = doc_with_n_blocks(2);
+        doc.text_blocks[0].text = Some("keep".into());
+        apply_op(
+            &mut doc,
+            Op::UpdateTextBlock {
+                page: PageId(1),
+                id: NodeId(99),
+                patch: koharu_core::TextBlockPatch {
+                    source_text: Some(Some("clobber".into())),
+                    ..Default::default()
+                },
+            },
+            &blobs,
+        ).unwrap();
+        assert_eq!(doc.text_blocks.len(), 2);
+        assert_eq!(doc.text_blocks[0].text.as_deref(), Some("keep"));
+    }
+
+    #[test]
+    fn apply_op_remove_with_shifted_id() {
+        let blobs = BlobStore::in_memory();
+        let mut doc = doc_with_n_blocks(3);
+        doc.text_blocks[0].text = Some("first".into());
+        doc.text_blocks[1].text = Some("second".into());
+        doc.text_blocks[2].text = Some("third".into());
+        apply_op(
+            &mut doc,
+            Op::RemoveTextBlock { page: PageId(1), id: NodeId(2) },
+            &blobs,
+        ).unwrap();
+        assert_eq!(doc.text_blocks.len(), 2);
+        assert_eq!(doc.text_blocks[0].text.as_deref(), Some("first"));
+        assert_eq!(doc.text_blocks[1].text.as_deref(), Some("third"));
+    }
+
+    #[test]
+    fn apply_op_remove_with_none_id_is_noop() {
+        let blobs = BlobStore::in_memory();
+        let mut doc = doc_with_n_blocks(2);
+        apply_op(
+            &mut doc,
+            Op::RemoveTextBlock { page: PageId(1), id: NodeId(0) },
+            &blobs,
+        ).unwrap();
+        assert_eq!(doc.text_blocks.len(), 2);
+    }
+
+    #[test]
+    fn apply_op_remove_with_out_of_range_id_is_noop() {
+        let blobs = BlobStore::in_memory();
+        let mut doc = doc_with_n_blocks(2);
+        apply_op(
+            &mut doc,
+            Op::RemoveTextBlock { page: PageId(1), id: NodeId(99) },
+            &blobs,
+        ).unwrap();
+        assert_eq!(doc.text_blocks.len(), 2);
+    }
+
+    #[test]
+    fn apply_op_set_segmentation_with_missing_blob_errors() {
+        // Looking up a BlobId in the wrong BlobStore must error.
+        // Better than silently writing zeros into doc.segment.
+        let blobs = BlobStore::in_memory();
+        let other = BlobStore::in_memory();
+        let mut doc = one_pixel_doc();
+        let phantom = blobs.put(b"x".to_vec());
+        let err = apply_op(
+            &mut doc,
+            Op::SetSegmentationMask { page: PageId(1), mask: Some(phantom) },
+            &other,
+        );
+        assert!(err.is_err(), "missing blob must propagate as Err");
+    }
+
+    #[test]
+    fn detect_then_ocr_then_translate_chain_golden() {
+        // Full data-flow chain. Verifies NodeId mapping is stable
+        // across all three stages — a regression in the +1 / -1
+        // shift would break exactly one stage and the chain test
+        // catches the resulting mis-aligned write.
+        let blobs = BlobStore::in_memory();
+        let mut doc = one_pixel_doc();
+        apply_op(
+            &mut doc,
+            Op::Batch(vec![
+                Op::AddTextBlock { page: PageId(1), block: make_scene_block(1, 10) },
+                Op::AddTextBlock { page: PageId(1), block: make_scene_block(2, 20) },
+            ]),
+            &blobs,
+        ).unwrap();
+        for (id, src) in [(1u64, "ja A"), (2, "ja B")] {
+            apply_op(
+                &mut doc,
+                Op::UpdateTextBlock {
+                    page: PageId(1),
+                    id: NodeId(id),
+                    patch: koharu_core::TextBlockPatch {
+                        source_text: Some(Some(src.into())),
+                        ..Default::default()
+                    },
+                },
+                &blobs,
+            ).unwrap();
+        }
+        for (id, tr) in [(1u64, "th A"), (2, "th B")] {
+            apply_op(
+                &mut doc,
+                Op::UpdateTextBlock {
+                    page: PageId(1),
+                    id: NodeId(id),
+                    patch: koharu_core::TextBlockPatch {
+                        translation: Some(Some(tr.into())),
+                        ..Default::default()
+                    },
+                },
+                &blobs,
+            ).unwrap();
+        }
+        assert_eq!(doc.text_blocks.len(), 2);
+        assert_eq!(doc.text_blocks[0].text.as_deref(), Some("ja A"));
+        assert_eq!(doc.text_blocks[0].translation.as_deref(), Some("th A"));
+        assert_eq!(doc.text_blocks[1].text.as_deref(), Some("ja B"));
+        assert_eq!(doc.text_blocks[1].translation.as_deref(), Some("th B"));
+    }
+
+    #[test]
+    fn apply_op_and_session_apply_agree_on_add() {
+        // Dual-apply contract: same Op against (a) Document via
+        // apply_op + (b) ProjectSession via session.apply must
+        // yield Scenes with identical NodeId sets. Catches drift
+        // between the two paths the bridge runs in parallel.
+        use koharu_app::{ProjectSession, SessionConfig};
+        let blobs = BlobStore::in_memory();
+        let mut doc = one_pixel_doc();
+        let (scene, page_id) = build_scene_from_document(&doc, &blobs).unwrap();
+        let mut session = ProjectSession::new(scene, SessionConfig::default());
+
+        let op = Op::AddTextBlock { page: page_id, block: make_scene_block(1, 42) };
+        apply_op(&mut doc, op.clone(), &blobs).unwrap();
+        session.apply(op).unwrap();
+
+        let (rebuilt, _) = build_scene_from_document(&doc, &blobs).unwrap();
+        let r_ids: Vec<_> = rebuilt.pages.get(&page_id).unwrap().text_blocks.keys().copied().collect();
+        let s_ids: Vec<_> = session.scene().pages.get(&page_id).unwrap().text_blocks.keys().copied().collect();
+        assert_eq!(r_ids, s_ids, "dual-apply NodeId set must match");
+    }
+
+    #[test]
+    fn redetect_after_clear_does_not_collide_with_prior_node_ids() {
+        // Audit #7/P1 regression: clear_text_blocks_first wipes
+        // doc.text_blocks; the bridge then resets the session to
+        // the fresh scene so detector's AddTextBlock(NodeId(1)..)
+        // doesn't trip the duplicate-id guard from audit #6/P1.
+        use koharu_app::{ProjectSession, SessionConfig};
+        let blobs = BlobStore::in_memory();
+        let mut doc = doc_with_n_blocks(3);
+        let (scene_v1, page_id) = build_scene_from_document(&doc, &blobs).unwrap();
+        let mut session = ProjectSession::new(scene_v1, SessionConfig::default());
+        assert_eq!(session.scene().pages.get(&page_id).unwrap().text_blocks.len(), 3);
+
+        // clear_text_blocks_first policy: wipe v1 vector + reset
+        // session from the post-clear scene.
+        doc.text_blocks.clear();
+        let (scene_v2, _) = build_scene_from_document(&doc, &blobs).unwrap();
+        session = ProjectSession::new(scene_v2, SessionConfig::default());
+
+        // Re-detect emits NodeId(1) — pre-fix this collided.
+        session.apply(Op::AddTextBlock {
+            page: page_id,
+            block: make_scene_block(1, 10),
+        }).expect("re-detect after clear must not collide with old ids");
+        assert_eq!(session.scene().pages.get(&page_id).unwrap().text_blocks.len(), 1);
     }
 }
