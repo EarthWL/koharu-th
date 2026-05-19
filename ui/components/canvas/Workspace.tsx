@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type React from 'react'
 import * as ScrollAreaPrimitive from '@radix-ui/react-scroll-area'
 import { useGesture } from '@use-gesture/react'
@@ -160,17 +160,58 @@ export function Workspace() {
   const isBrushMode =
     mode === 'brush' || mode === 'repairBrush' || mode === 'eraser'
 
+  // Photoshop-style Space-to-pan (#23). When the user holds Space
+  // we let drag pan regardless of active tool — same convention every
+  // graphics editor follows. Tracked via a window keydown/keyup so
+  // the state is correct even if focus is elsewhere (sidebar etc.).
+  const [spacePressed, setSpacePressed] = useState(false)
+  useEffect(() => {
+    const isTypingInForm = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (!target) return false
+      const tag = target.tagName
+      return (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        target.isContentEditable === true
+      )
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return
+      if (isTypingInForm(e)) return
+      if (e.repeat) return
+      e.preventDefault() // stop page scroll while pan is armed
+      setSpacePressed(true)
+    }
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') setSpacePressed(false)
+    }
+    // Some platforms drop keyup when the window blurs (e.g. user
+    // alt-tabs away mid-pan). Reset on blur to avoid sticky-space.
+    const onBlur = () => setSpacePressed(false)
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
+    }
+  }, [])
+
   useGesture(
     {
       onDrag: ({ first, movement: [mx, my], memo, cancel, ctrlKey }) => {
         if (!currentDocument) return memo
-        // While brush/mask tools own the pointer, never repurpose ctrl+drag
-        // for panning — would otherwise scrub the canvas mid-stroke.
-        if (isBrushMode) {
+        // Space+drag overrides brush — same affordance Photoshop / Figma
+        // / Procreate use so a quick reposition doesn't need a tool
+        // switch. Without Space, brush mode keeps the pointer.
+        const panRequested = spacePressed || ctrlKey
+        if (isBrushMode && !spacePressed) {
           if (first && cancel) cancel()
           return memo
         }
-        if (!ctrlKey) {
+        if (!panRequested) {
           if (first && cancel) cancel()
           return memo
         }
@@ -190,8 +231,10 @@ export function Workspace() {
         viewport.scrollTop = memo.scrollTop - my
         return memo
       },
-      onWheel: ({ ctrlKey, delta: [, dy], event }) => {
-        if (!currentDocument || !ctrlKey) return
+      onWheel: ({ ctrlKey, altKey, delta: [, dy], event }) => {
+        if (!currentDocument) return
+        const wantsZoom = ctrlKey || altKey
+        if (!wantsZoom) return
 
         if (event.cancelable) {
           event.preventDefault()
@@ -199,8 +242,40 @@ export function Workspace() {
 
         const direction = Math.sign(dy)
         if (!direction) return
+
         const currentScale = useEditorUiStore.getState().scale
-        applyScale(currentScale - direction)
+        const nextScale = currentScale - direction
+        const viewport = viewportRef.current
+
+        // Alt+wheel = Photoshop-style zoom-to-cursor: keep the canvas
+        // point under the cursor stationary across the scale change.
+        // Ctrl+wheel keeps the existing center-based zoom for muscle
+        // memory.
+        if (viewport && altKey && !ctrlKey) {
+          const wheelEvent = event as WheelEvent
+          const rect = viewport.getBoundingClientRect()
+          const cx = wheelEvent.clientX - rect.left
+          const cy = wheelEvent.clientY - rect.top
+          const r1 = currentScale / 100
+          const srcX = (viewport.scrollLeft + cx) / r1
+          const srcY = (viewport.scrollTop + cy) / r1
+
+          applyScale(nextScale)
+
+          // applyScale resizes the canvas div via React state — wait
+          // one frame for the new layout before adjusting scroll, so
+          // the new scrollLeft/Top isn't clamped by stale content
+          // dimensions.
+          requestAnimationFrame(() => {
+            const v = viewportRef.current
+            if (!v) return
+            const r2 = useEditorUiStore.getState().scale / 100
+            v.scrollLeft = srcX * r2 - cx
+            v.scrollTop = srcY * r2 - cy
+          })
+        } else {
+          applyScale(nextScale)
+        }
       },
       onPinch: ({ canceled, movement: [movementScale], memo }) => {
         if (!currentDocument || canceled) return memo
@@ -248,11 +323,16 @@ export function Workspace() {
     handleContextMenu(event)
   }
 
-  const canvasCursor = isBrushMode
-    ? BRUSH_CURSOR
-    : mode === 'block'
-      ? 'cell'
-      : 'default'
+  // Space-pan affordance takes priority — even brush mode shows the
+  // grab cursor while Space is held so the user knows the gesture is
+  // armed before they click.
+  const canvasCursor = spacePressed
+    ? 'grab'
+    : isBrushMode
+      ? BRUSH_CURSOR
+      : mode === 'block'
+        ? 'cell'
+        : 'default'
 
   const canvasDimensions = currentDocument
     ? {
