@@ -58,6 +58,10 @@ pub enum Method {
     // + hardware probe snapshot for the Engine Profile sidebar UI.
     EnginesList,
     HardwareDetected,
+    // F4.C: machine-wide engine profile persistence (active engine
+    // per artifact slot + per-engine setting overrides).
+    EngineProfileGet,
+    EngineProfileSet,
     // Phase 2: series metadata + chapter index
     SeriesMetaGet,
     SeriesMetaUpdate,
@@ -166,6 +170,8 @@ impl Method {
         Method::AppStorageClear,
         Method::EnginesList,
         Method::HardwareDetected,
+        Method::EngineProfileGet,
+        Method::EngineProfileSet,
         Method::SeriesMetaGet,
         Method::SeriesMetaUpdate,
         Method::ChaptersList,
@@ -266,6 +272,8 @@ impl Method {
             Method::AppStorageClear => "app_storage_clear",
             Method::EnginesList => "engines_list",
             Method::HardwareDetected => "hardware_detected",
+            Method::EngineProfileGet => "engine_profile_get",
+            Method::EngineProfileSet => "engine_profile_set",
             Method::SeriesMetaGet => "series_meta_get",
             Method::SeriesMetaUpdate => "series_meta_update",
             Method::ChaptersList => "chapters_list",
@@ -377,6 +385,8 @@ impl FromStr for Method {
             "app_storage_clear" => Method::AppStorageClear,
             "engines_list" => Method::EnginesList,
             "hardware_detected" => Method::HardwareDetected,
+            "engine_profile_get" => Method::EngineProfileGet,
+            "engine_profile_set" => Method::EngineProfileSet,
             "series_meta_get" => Method::SeriesMetaGet,
             "series_meta_update" => Method::SeriesMetaUpdate,
             "chapters_list" => Method::ChaptersList,

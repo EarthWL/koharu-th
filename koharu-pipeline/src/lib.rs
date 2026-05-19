@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod dag_integration;
 pub mod engine_bridge;
+pub mod engine_profile;
 pub mod engines;
 pub mod operations;
 pub mod ops;
@@ -61,5 +62,11 @@ pub struct AppResources {
     /// in Storage panel with an extra-confirm warning since removing
     /// it loses user assets.
     pub font_root: std::path::PathBuf,
+    /// Machine-wide engine profile (active engine per artifact slot
+    /// + per-engine setting overrides). Persists to
+    /// `<app-data>/Koharu/engine_profile.json`. F4.C ships storage +
+    /// RPC + UI; F4.D wires the bridge to consume it (currently
+    /// engine ids are still hardcoded at call-sites).
+    pub engine_profile: engine_profile::EngineProfileStore,
     pub version: &'static str,
 }

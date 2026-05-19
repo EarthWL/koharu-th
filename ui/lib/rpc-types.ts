@@ -127,6 +127,17 @@ export type DetectedHardware = {
   vulkanAvailable: boolean
 }
 
+// F4.C: machine-wide engine profile (active engine per artifact +
+// per-engine setting overrides). `StoredValue` is the wire shape
+// for saved values — `untagged` enum on the Rust side means
+// numbers/booleans/strings ride as their natural JSON form.
+export type StoredValue = number | boolean | string
+
+export type EngineProfile = {
+  active: Partial<Record<ArtifactKind, string>>
+  settings: Record<string, Record<string, StoredValue>>
+}
+
 export type LlmModelInfo = {
   id: string
   languages: string[]
@@ -204,6 +215,8 @@ export type RpcMethodMap = {
   // ── Phase 4.7: engine system surfaces ────────────────────────
   engines_list: [void, EngineInfoView[]]
   hardware_detected: [void, DetectedHardware]
+  engine_profile_get: [void, EngineProfile]
+  engine_profile_set: [{ profile: EngineProfile }, EngineProfile]
 }
 
 export type QueueStatus =

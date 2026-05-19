@@ -40,6 +40,9 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 walkdir = "2"
 
+[dev-dependencies]
+tempfile = { workspace = true }
+
 # Phase 4 / audit #5 F4: propagate GPU backend features from the
 # `koharu` binary all the way down to `koharu-engines` so the
 # probe (cudarc / metal-rs) compiles into the released binary

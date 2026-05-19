@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronDownIcon, ChevronRightIcon, InfoIcon } from 'lucide-react'
 import { Slider } from '@/components/ui/slider'
@@ -14,17 +14,16 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
-import type { SettingDescriptor } from '@/lib/api'
+import type { SettingDescriptor, StoredValue } from '@/lib/api'
+import { useEngineProfile } from '@/lib/hooks/useEngineProfile'
 
-/// Phase 4.7b — auto-generated settings form for one engine.
+/// Phase 4.7b + F4.C — auto-generated settings form for one engine.
 ///
-/// Reads the engine's `settingsSchema` and renders the matching
-/// control per `kind`: Slider / NumberInput / Toggle / Select.
-/// State is held locally in this commit — F4.C will lift it to
-/// the engine-profile prefs store + persist via RPC.
-///
-/// Falls back to a "no tunable settings" stub when the schema is
-/// empty so the user gets a clear signal vs. a missing UI.
+/// Reads the engine's `settingsSchema`, renders the matching control
+/// per `kind` (Slider / NumberInput / Toggle / Select). Each value
+/// is sourced from the engine profile (with the schema default as
+/// fallback); edits persist via `useEngineProfile` (debounced ~300ms
+/// to coalesce slider drags into one RPC call).
 
 type LocalValue = number | boolean | string
 
@@ -37,23 +36,10 @@ export function EngineSettingsForm({
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
-
-  // Seed each control's value from its schema default. Values live
-  // in component state for F4.B; F4.C will replace with profile-
-  // backed state read from RPC.
-  const initial = useMemo(() => {
-    const out: Record<string, LocalValue> = {}
-    for (const s of schema) {
-      out[s.id] = s.default
-    }
-    return out
-  }, [schema])
-  const [values, setValues] = useState<Record<string, LocalValue>>(initial)
-  const set = (id: string, v: LocalValue) =>
-    setValues((prev) => ({ ...prev, [id]: v }))
+  const { getSetting, setSetting, saving } = useEngineProfile()
 
   if (schema.length === 0) {
-    return null // No "(no settings)" hint — keep cards tight when the engine is knob-free.
+    return null // Keep cards tight when the engine has no knobs.
   }
 
   return (
@@ -69,25 +55,30 @@ export function EngineSettingsForm({
           <ChevronRightIcon className='size-3' />
         )}
         {t('engines.settings', 'Settings')} ({schema.length})
+        {saving && (
+          <span className='text-muted-foreground ml-1 text-[10px] normal-case'>
+            …saving
+          </span>
+        )}
       </button>
 
       {open && (
         <div className='mt-1.5 space-y-2 rounded bg-muted/20 p-2'>
-          {schema.map((s) => (
-            <SettingControl
-              key={s.id}
-              setting={s}
-              value={values[s.id]}
-              onChange={(v) => set(s.id, v)}
-            />
-          ))}
-          <p className='text-muted-foreground text-[10px] italic'>
-            {t(
-              'engines.settingsPreview',
-              'Preview only — saves land in F4.C.',
-            )}{' '}
-            <span className='font-mono'>id={engineId}</span>
-          </p>
+          {schema.map((s) => {
+            const stored = getSetting(engineId, s.id)
+            const value: LocalValue =
+              stored !== undefined ? (stored as LocalValue) : (s.default as LocalValue)
+            return (
+              <SettingControl
+                key={s.id}
+                setting={s}
+                value={value}
+                onChange={(v) =>
+                  setSetting(engineId, s.id, v as StoredValue)
+                }
+              />
+            )
+          })}
         </div>
       )}
     </div>

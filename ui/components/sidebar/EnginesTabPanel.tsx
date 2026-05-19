@@ -21,6 +21,7 @@ import {
 } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { EngineSettingsForm } from '@/components/sidebar/EngineSettingsForm'
+import { useEngineProfile } from '@/lib/hooks/useEngineProfile'
 
 /// Phase 4.7 sidebar tab — read-only list of registered engines +
 /// detected hardware summary. Phase 4.7b/c will add settings forms
@@ -188,6 +189,17 @@ function EngineGroup({
   engines: EngineInfoView[]
   hardware: DetectedHardware | null
 }) {
+  const { activeEngine, setActiveEngine } = useEngineProfile()
+  const active = activeEngine(artifact)
+
+  // Single-engine groups don't need radios — no choice to make.
+  const showActiveRadios = engines.length > 1
+  // Resolve "default" pick when no profile override exists: the
+  // first engine in the list (stable insertion order from
+  // `groupEnginesByProduces`). Matches what the bridge does as a
+  // fallback today.
+  const effectiveActive = active ?? engines[0]?.id
+
   return (
     <div className='space-y-1.5'>
       <div className='text-muted-foreground text-[10px] font-semibold uppercase tracking-wide'>
@@ -195,7 +207,14 @@ function EngineGroup({
       </div>
       <div className='space-y-1'>
         {engines.map((e) => (
-          <EngineCard key={e.id} engine={e} hardware={hardware} />
+          <EngineCard
+            key={e.id}
+            engine={e}
+            hardware={hardware}
+            isActive={e.id === effectiveActive}
+            showActiveSelector={showActiveRadios}
+            onSelectActive={() => setActiveEngine(artifact, e.id)}
+          />
         ))}
       </div>
     </div>
@@ -205,15 +224,43 @@ function EngineGroup({
 function EngineCard({
   engine,
   hardware,
+  isActive,
+  showActiveSelector,
+  onSelectActive,
 }: {
   engine: EngineInfoView
   hardware: DetectedHardware | null
+  isActive: boolean
+  showActiveSelector: boolean
+  onSelectActive: () => void
 }) {
   const fit = checkFit(engine, hardware)
   return (
-    <div className='hover:bg-accent/30 space-y-1 rounded border px-2.5 py-2 text-xs transition-colors'>
+    <div
+      className={cn(
+        'space-y-1 rounded border px-2.5 py-2 text-xs transition-colors',
+        isActive && showActiveSelector
+          ? 'border-primary/60 bg-primary/5'
+          : 'hover:bg-accent/30',
+      )}
+    >
       <div className='flex items-center justify-between gap-2'>
-        <div className='font-medium'>{engine.displayName}</div>
+        <div className='flex items-center gap-1.5 font-medium'>
+          {showActiveSelector && (
+            <button
+              type='button'
+              onClick={onSelectActive}
+              aria-label={isActive ? 'Active engine' : 'Make active'}
+              className={cn(
+                'size-3 rounded-full border transition-colors',
+                isActive
+                  ? 'border-primary bg-primary'
+                  : 'border-muted-foreground/40 hover:border-foreground',
+              )}
+            />
+          )}
+          {engine.displayName}
+        </div>
         <FitChip fit={fit} />
       </div>
       <div className='text-muted-foreground leading-snug'>

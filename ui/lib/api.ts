@@ -7,7 +7,12 @@ import {
   type ProcessProgress,
   type DownloadProgress,
 } from '@/lib/backend'
-import type { DetectedHardware, DeviceInfo, EngineInfoView } from '@/lib/rpc-types'
+import type {
+  DetectedHardware,
+  DeviceInfo,
+  EngineInfoView,
+  EngineProfile,
+} from '@/lib/rpc-types'
 import {
   Document,
   InpaintRegion,
@@ -796,6 +801,20 @@ export const api = {
   async hardwareDetected(): Promise<DetectedHardware> {
     return invoke('hardware_detected')
   },
+
+  /** Load the machine-wide engine profile (active engine per
+   *  artifact slot + per-engine setting overrides). Missing file
+   *  returns an empty profile. */
+  async engineProfileGet(): Promise<EngineProfile> {
+    return invoke('engine_profile_get')
+  },
+
+  /** Replace + persist the engine profile. Returns the new
+   *  snapshot so the caller can confirm the round-trip + update
+   *  query cache. */
+  async engineProfileSet(profile: EngineProfile): Promise<EngineProfile> {
+    return invoke('engine_profile_set', { profile })
+  },
 }
 
 export type { QueueStatus, QueueEntryDto } from '@/lib/rpc-types'
@@ -805,9 +824,11 @@ export type {
   DetectedHardware,
   EngineCost,
   EngineInfoView,
+  EngineProfile,
   GpuVendor,
   HardwareReq,
   SettingDescriptor,
+  StoredValue,
 } from '@/lib/rpc-types'
 
 export type ChatMessageDto = {
