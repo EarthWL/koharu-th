@@ -10,7 +10,10 @@ import {
   TypeIcon,
   LoaderCircleIcon,
   LanguagesIcon,
+  Undo2Icon,
+  Redo2Icon,
 } from 'lucide-react'
+import { useSessionHistory } from '@/lib/hooks/useSessionHistory'
 import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
 import {
@@ -51,9 +54,59 @@ const LOCAL_VALUE = '__local__'
 export function CanvasToolbar() {
   return (
     <div className='border-border/60 bg-card text-foreground flex items-center gap-2 border-b px-3 py-2 text-xs'>
+      <HistoryButtons />
+      <Separator orientation='vertical' className='mx-1 h-4' />
       <WorkflowButtons />
       <div className='flex-1' />
       <LlmStatusPopover />
+    </div>
+  )
+}
+
+/// Phase 5.4 — undo / redo for the active page. Uses the v2
+/// ProjectSession history (engine_bridge dual-applies every
+/// engine-emitted Op via session.apply). Keyboard shortcuts are
+/// registered globally by `useSessionHistory`; the buttons here
+/// are the visual affordance + the dev-mode op-count badge.
+function HistoryButtons() {
+  const { t } = useTranslation()
+  const { state, canUndo, canRedo, undo, redo, pending } = useSessionHistory()
+  const showDevBadge = process.env.NODE_ENV === 'development' && state.capacity > 0
+
+  return (
+    <div className='flex items-center gap-0.5'>
+      <Button
+        variant='ghost'
+        size='xs'
+        onClick={undo}
+        disabled={!canUndo}
+        title={t('history.undo', 'Undo (Ctrl/Cmd+Z)')}
+        data-testid='toolbar-undo'
+      >
+        {pending ? (
+          <LoaderCircleIcon className='size-4 animate-spin' />
+        ) : (
+          <Undo2Icon className='size-4' />
+        )}
+      </Button>
+      <Button
+        variant='ghost'
+        size='xs'
+        onClick={redo}
+        disabled={!canRedo}
+        title={t('history.redo', 'Redo (Ctrl/Cmd+Shift+Z)')}
+        data-testid='toolbar-redo'
+      >
+        <Redo2Icon className='size-4' />
+      </Button>
+      {showDevBadge && (
+        <span
+          className='text-muted-foreground ml-1 font-mono text-[10px]'
+          title='ProjectSession history depth (dev only)'
+        >
+          {state.undoLen}/{state.capacity}
+        </span>
+      )}
     </div>
   )
 }

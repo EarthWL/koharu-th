@@ -217,6 +217,20 @@ export type RpcMethodMap = {
   hardware_detected: [void, DetectedHardware]
   engine_profile_get: [void, EngineProfile]
   engine_profile_set: [{ profile: EngineProfile }, EngineProfile]
+  // ── Phase 5.4: undo/redo backed by ProjectSession ────────────
+  session_undo: [{ index: number }, HistoryState]
+  session_redo: [{ index: number }, HistoryState]
+  session_history_state: [void, HistoryState]
+}
+
+/// Snapshot of `ProjectSession::History` pointers for the toolbar.
+/// `undoLen > 0` ↔ undo button enabled; `redoLen > 0` ↔ redo
+/// enabled. `capacity` is the ring buffer cap (100 default) — used
+/// by the dev-mode op count badge to show `<undoLen>/<capacity>`.
+export type HistoryState = {
+  undoLen: number
+  redoLen: number
+  capacity: number
 }
 
 export type QueueStatus =

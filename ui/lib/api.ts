@@ -12,6 +12,7 @@ import type {
   DeviceInfo,
   EngineInfoView,
   EngineProfile,
+  HistoryState,
 } from '@/lib/rpc-types'
 import {
   Document,
@@ -815,6 +816,24 @@ export const api = {
   async engineProfileSet(profile: EngineProfile): Promise<EngineProfile> {
     return invoke('engine_profile_set', { profile })
   },
+
+  /** Pop the most recent applied op from the ProjectSession's
+   *  history, apply its inverse to Scene + mirror onto the
+   *  legacy Document. Returns the new HistoryState so the
+   *  toolbar can update undo/redo enabled flags. */
+  async sessionUndo(index: number): Promise<HistoryState> {
+    return invoke('session_undo', { index })
+  },
+
+  async sessionRedo(index: number): Promise<HistoryState> {
+    return invoke('session_redo', { index })
+  },
+
+  /** Read-only snapshot of the session's history pointers. Used
+   *  by the toolbar on mount + after every engine run. */
+  async sessionHistoryState(): Promise<HistoryState> {
+    return invoke('session_history_state')
+  },
 }
 
 export type { QueueStatus, QueueEntryDto } from '@/lib/rpc-types'
@@ -827,6 +846,7 @@ export type {
   EngineProfile,
   GpuVendor,
   HardwareReq,
+  HistoryState,
   SettingDescriptor,
   StoredValue,
 } from '@/lib/rpc-types'

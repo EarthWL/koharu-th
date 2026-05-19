@@ -379,7 +379,11 @@ async fn apply_engine_result_dual(
 
 /// Translate a single `Op` into the corresponding `Document`
 /// mutation. Variants not yet handled log a warning + are skipped.
-fn apply_op(doc: &mut Document, op: Op, blobs: &BlobStore) -> Result<()> {
+///
+/// `pub` since Phase 5.4 — `ops::session` calls this to mirror
+/// the undo/redo result onto the legacy Document so RPC reads
+/// stay consistent with `ProjectSession::scene`.
+pub fn apply_op(doc: &mut Document, op: Op, blobs: &BlobStore) -> Result<()> {
     match op {
         Op::AddTextBlock { block, .. } => {
             doc.text_blocks.push(scene_block_to_v1(block));

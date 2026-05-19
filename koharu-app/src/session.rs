@@ -159,8 +159,11 @@ impl ProjectSession {
         Ok(())
     }
 
-    /// Undo the most recent applied Op.
-    pub fn undo(&mut self) -> Result<(), SessionError> {
+    /// Undo the most recent applied Op. Returns the **inverse Op**
+    /// that was applied to Scene — callers that maintain a mirror
+    /// state (the legacy Document via engine_bridge in Phase 5.3)
+    /// apply it themselves to stay in sync.
+    pub fn undo(&mut self) -> Result<Op, SessionError> {
         let entry = self
             .history
             .pop_undo()
@@ -172,14 +175,16 @@ impl ProjectSession {
             self.history.push_replay(entry);
             return Err(e);
         }
-        let (page, op_count) = summarise(&entry.inverse);
+        let applied = entry.inverse.clone();
+        let (page, op_count) = summarise(&applied);
         self.history.push_redo(entry);
         self.bus.emit(SessionEvent::OpsUndone { page, op_count });
-        Ok(())
+        Ok(applied)
     }
 
-    /// Redo the most recently undone Op.
-    pub fn redo(&mut self) -> Result<(), SessionError> {
+    /// Redo the most recently undone Op. Returns the **forward Op**
+    /// that was re-applied to Scene — symmetric with `undo`.
+    pub fn redo(&mut self) -> Result<Op, SessionError> {
         let entry = self
             .history
             .pop_redo()
@@ -190,10 +195,11 @@ impl ProjectSession {
             self.history.push_redo(entry);
             return Err(e);
         }
-        let (page, op_count) = summarise(&entry.op);
+        let applied = entry.op.clone();
+        let (page, op_count) = summarise(&applied);
         self.history.push_replay(entry);
         self.bus.emit(SessionEvent::OpsRedone { page, op_count });
-        Ok(())
+        Ok(applied)
     }
 
     /// Wipe history — used on chapter close (per-chapter session
