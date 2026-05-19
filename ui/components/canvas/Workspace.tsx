@@ -247,8 +247,14 @@ export function Workspace() {
         const direction = Math.sign(dy)
         if (!direction) return
 
+        // Zoom step proportional to wheel delta so mouse wheels (~100 units
+        // per notch) give ~10% per click while trackpad fine-scroll events
+        // (2–5 units each) remain smooth. Cap at 20% per event to prevent
+        // runaway zooming on high-velocity trackpad flings.
+        const ZOOM_SENSITIVITY = 0.1
+        const step = Math.max(1, Math.min(Math.abs(dy) * ZOOM_SENSITIVITY, 20))
         const currentScale = useEditorUiStore.getState().scale
-        const nextScale = currentScale - direction
+        const nextScale = currentScale - direction * step
         const viewport = viewportRef.current
 
         // Alt+wheel = Photoshop-style zoom-to-cursor: keep the canvas
