@@ -1,12 +1,14 @@
 use std::str::FromStr;
 
 use koharu_api::commands::{IndexPayload, LlmGeneratePayload, LlmListPayload, LlmLoadPayload};
+use koharu_core::{PipelineRunOptions, StoredValue};
 use koharu_ml::llm::ModelId;
 use koharu_ml::llm::facade as llm;
 use strum::IntoEnumIterator;
+use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
-use crate::{AppResources, state_tx};
+use crate::{AppResources, engine_bridge, engines, state_tx};
 
 pub async fn llm_list(
     state: AppResources,
@@ -51,22 +53,49 @@ pub async fn llm_ready(state: AppResources) -> anyhow::Result<bool> {
 
 #[instrument(level = "info", skip_all)]
 pub async fn llm_generate(state: AppResources, payload: LlmGeneratePayload) -> anyhow::Result<()> {
-    let mut updated = state_tx::read_doc(&state.state, payload.index).await?;
-    let target_language = payload.language.as_deref();
-
-    match payload.text_block_index {
-        Some(block_index) => {
-            let text_block = updated
-                .text_blocks
-                .get_mut(block_index)
-                .ok_or_else(|| anyhow::anyhow!("Text block not found"))?;
-            state.llm.translate(text_block, target_language).await?;
-        }
-        None => {
-            state.llm.translate(&mut updated, target_language).await?;
-        }
+    // Phase 4.5: whole-page translate goes through the engine
+    // system. Single-block translate (`text_block_index` set)
+    // stays on the legacy direct call for now — the engine works
+    // page-at-a-time (consumes the whole text_blocks vec to format
+    // a single tagged prompt), so single-block re-translate is a
+    // narrower path that doesn't fit the engine surface yet.
+    // Phase 4.6 will land a per-block translate engine variant.
+    if payload.text_block_index.is_some() {
+        return legacy_single_block_translate(state, payload).await;
     }
 
+    let mut options = PipelineRunOptions::new();
+    if let Some(lang) = payload.language.as_deref() {
+        options = options.with("target_language", StoredValue::String(lang.to_string()));
+    }
+    engine_bridge::run_engine_on_document(
+        &state,
+        payload.index,
+        engines::LOCAL_LLM_TRANSLATE_ID,
+        options,
+        engine_bridge::RunPolicy::default(),
+        CancellationToken::new(),
+    )
+    .await
+}
+
+/// Single-block translate kept on the legacy direct call until
+/// Phase 4.6 lands a per-block engine variant. Re-translate flow
+/// from the canvas right-click menu hits this.
+async fn legacy_single_block_translate(
+    state: AppResources,
+    payload: LlmGeneratePayload,
+) -> anyhow::Result<()> {
+    let mut updated = state_tx::read_doc(&state.state, payload.index).await?;
+    let target_language = payload.language.as_deref();
+    let block_index = payload
+        .text_block_index
+        .expect("caller guard: text_block_index must be Some");
+    let text_block = updated
+        .text_blocks
+        .get_mut(block_index)
+        .ok_or_else(|| anyhow::anyhow!("Text block not found"))?;
+    state.llm.translate(text_block, target_language).await?;
     state_tx::update_doc(&state.state, payload.index, updated).await
 }
 

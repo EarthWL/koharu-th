@@ -48,8 +48,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
 use koharu_core::{
-    BlobId, BlobStore, NodeId, Op, PageId, PipelineRunOptions, ProjectView, Region,
-    Scene, scene::Page, scene::TextBlock as SceneTextBlock,
+    BlobId, BlobStore, CharacterId, CharacterRow, GlossaryCategory, GlossaryEntryId, GlossaryRow,
+    NodeId, Op, PageId, PipelineRunOptions, ProjectView, Region, Scene, SeriesMetaRow,
+    scene::Page, scene::TextBlock as SceneTextBlock,
 };
 use koharu_engines::{Engine, EngineCtx, info as engine_info};
 use koharu_types::{Document, SerializableDynamicImage};
@@ -112,10 +113,13 @@ pub async fn run_engine_on_document(
     // operates on.
     let (scene, page_id) = build_scene_from_document(&doc, &state.blobs)?;
 
-    // Phase 4.1: no project data threaded through yet — engines
-    // that need glossary/characters (translate) will get a
-    // populated view starting in Phase 4.5.
-    let project = ProjectView::empty();
+    // Phase 4.5: build a real ProjectView from the open
+    // koharu-project (if any). Translate engines read glossary +
+    // characters from this. Detector/OCR/inpaint don't read
+    // project state — the build is cheap when no project is
+    // open (returns empty immediately), and a few ms of SQLite
+    // when one is.
+    let project = build_project_view(state).await?;
 
     // Channel for engine → driver Op streaming. Size 16 is a soft
     // ceiling; engines that out-pace the apply path block on send
@@ -457,6 +461,85 @@ fn scene_block_to_v1(block: SceneTextBlock) -> koharu_types::TextBlock {
 /// `Op::ReplaceTextBlocks` variant.
 pub fn clear_doc_text_blocks(doc: &mut Document) {
     doc.text_blocks.clear();
+}
+
+/// Read characters, glossary, and series meta from the currently-
+/// open `koharu-project` into a v2 `ProjectView`. Returns an empty
+/// view when no project is open — fine for engines that don't
+/// consume project state (detector, OCR, inpaint, render). The
+/// translate engine REQUIRES a non-empty view to source glossary
+/// + character context for the LLM prompt.
+async fn build_project_view(state: &AppResources) -> Result<ProjectView> {
+    // Cheap fast-path: no project open → no reads, no spawn.
+    let project_opt = state.project.read().await.clone();
+    let Some(project) = project_opt else {
+        return Ok(ProjectView::empty());
+    };
+
+    // SQLite reads run on the blocking pool so the tokio runtime
+    // isn't stalled by disk I/O. The N (small — tens to low
+    // hundreds of rows for a typical series) means the reads
+    // finish in single-digit ms.
+    tokio::task::spawn_blocking(move || -> Result<ProjectView> {
+        let conn = project.pool().get()?;
+
+        let characters = koharu_project::character::list(&conn)?
+            .into_iter()
+            .map(|c| CharacterRow {
+                id: CharacterId(c.id),
+                original_name: c.original_name,
+                translated_name: c.translated_name,
+                is_main: c.is_main,
+            })
+            .collect();
+
+        let glossary = koharu_project::glossary::list(&conn)?
+            .into_iter()
+            .map(|g| GlossaryRow {
+                id: GlossaryEntryId(g.id),
+                source_text: g.source_text,
+                target_text: g.target_text,
+                category: project_glossary_category_to_core(g.category),
+            })
+            .collect();
+
+        // series::get errors if the seed row is missing — treat
+        // missing series meta as "no view-level info" rather than
+        // hard-failing the engine run. Project schema seeds the row
+        // on create so this should never fire in practice.
+        let series_meta = koharu_project::series::get(&conn).ok().map(|s| SeriesMetaRow {
+            title: s.title,
+            source_language: s.source_language,
+            target_language: s.target_language,
+        });
+
+        Ok(ProjectView {
+            characters,
+            glossary,
+            series_meta,
+        })
+    })
+    .await
+    .context("blocking task panicked while reading ProjectView")?
+}
+
+/// Translate koharu-project's GlossaryCategory enum into the
+/// koharu-core one. Variants are 1:1 — adding a category requires
+/// updating both crates (see the docstring on
+/// `koharu_core::GlossaryCategory`).
+fn project_glossary_category_to_core(
+    c: koharu_project::GlossaryCategory,
+) -> GlossaryCategory {
+    use koharu_project::GlossaryCategory as ProjC;
+    match c {
+        ProjC::Term => GlossaryCategory::Term,
+        ProjC::Place => GlossaryCategory::Place,
+        ProjC::Skill => GlossaryCategory::Skill,
+        ProjC::Honorific => GlossaryCategory::Honorific,
+        ProjC::Item => GlossaryCategory::Item,
+        ProjC::Org => GlossaryCategory::Org,
+        ProjC::Sfx => GlossaryCategory::Sfx,
+    }
 }
 
 #[cfg(test)]
