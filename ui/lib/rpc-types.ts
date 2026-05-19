@@ -173,6 +173,8 @@ export type RpcMethodMap = {
   chat_messages_list: [any, any]
   chat_message_add: [any, any]
   chat_messages_clear: [void, any]
+  chat_message_delete: [{ id: number }, { removed: number }]
+  chat_messages_delete_from: [{ fromId: number }, { removed: number }]
   web_fetch_url: [any, any]
 
   // ── Translation queue ────────────────────────────────────────

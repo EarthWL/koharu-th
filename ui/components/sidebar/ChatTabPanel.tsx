@@ -14,6 +14,7 @@ import {
   SendIcon,
   Trash2Icon,
   TriangleAlertIcon,
+  Undo2Icon,
   UserIcon,
   WrenchIcon,
   XIcon,
