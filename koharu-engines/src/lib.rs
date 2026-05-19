@@ -17,6 +17,10 @@
 //!   Features `cuda` + `metal` gate the real probes; default build
 //!   returns the stub. Replaces `DetectedHardware::stub()` for app
 //!   launches.
+//! - [`dag`]    — `resolve_plan` topologically orders engines from
+//!   each registered `EngineInfo`'s consumes/produces declaration.
+//!   Driver in `koharu-pipeline` consumes the returned plan +
+//!   executes each engine via the bridge (Phase 4.7).
 //!
 //! ## Scope of Phase 3.1
 //!
@@ -50,10 +54,12 @@
 //!   thin on the data side and lets the koharu-core proptests cover
 //!   the wire shape.
 
+pub mod dag;
 pub mod engine;
 pub mod info;
 pub mod probe;
 
+pub use dag::{PlanRequest, ResolveError, resolve_plan};
 pub use engine::{Engine, EngineCtx};
 pub use info::EngineInfo;
 pub use probe::probe;

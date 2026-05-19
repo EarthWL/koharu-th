@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod dag_integration;
 pub mod engine_bridge;
 pub mod engines;
 pub mod operations;
