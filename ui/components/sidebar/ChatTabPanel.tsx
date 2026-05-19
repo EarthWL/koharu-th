@@ -523,7 +523,18 @@ export function ChatTabPanel() {
           onChange={(e) => {
             const v = e.target.value
             setInput(v)
-            setShowSlash(v.startsWith('/') && !v.includes('\n'))
+            // Show the picker only while the user is typing the
+            // command name itself — i.e. starts with `/` and has
+            // no whitespace yet. As soon as a space appears the
+            // user has committed the command and any following
+            // text is argument input, so the picker hides. Pre-
+            // fix the picker reappeared every keystroke after the
+            // space because the predicate only checked
+            // `startsWith('/')` — even "/translate-page extra"
+            // would re-open it.
+            const stillTypingCommand =
+              v.startsWith('/') && !v.includes('\n') && !v.includes(' ')
+            setShowSlash(stillTypingCommand)
           }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
