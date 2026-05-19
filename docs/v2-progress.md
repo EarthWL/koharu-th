@@ -11,7 +11,63 @@ diverge, update `v2-arch.md` first (design is locked there, not here).
 
 ---
 
-## Current phase: Phase 1.2 — Phase 3 prep stubs
+## Current phase: Phase 3 — Engine trait + registry + hardware probe
+
+**Status**: 🔄 IN PROGRESS — Phase 3.1 ✅ complete
+
+### Phase 3.1 — `koharu-engines` crate scaffold ✅
+
+Engine trait + EngineCtx + EngineInfo + inventory registry. No
+concrete engines yet (Phase 3.3 ports the detector).
+
+- **New crate `koharu-engines`** depending on koharu-core +
+  koharu-ml + koharu-renderer.
+- **`Engine` trait** — `async_trait`-flavoured for dyn-compat
+  (`Box<dyn Engine>` from inventory load fns). Streaming +
+  cancellation via `mpsc::Sender<EngineResult>` +
+  `CancellationToken` per docs/v2-arch.md §4.4.
+- **`EngineCtx<'a>`** — concrete refs to `Scene`, `PageId`,
+  `ProjectView`, `BlobStore`, `Arc<koharu_ml::facade::Model>`,
+  `Arc<koharu_ml::llm::facade::Model>`,
+  `Arc<koharu_renderer::facade::Renderer>`, `PipelineRunOptions`,
+  `CancellationToken`. `setting::<T>(key, default)` resolves
+  typed values via PipelineRunOptions + falls back on miss/
+  mismatch (caller passes the engine's schema default).
+- **`EngineInfo`** static descriptor — id/display_name/
+  description/consumes/produces/settings_schema/hardware/cost/
+  load (fn ptr returning `BoxFuture<'static, Result<Box<dyn
+  Engine>>>`). `inventory::collect!(EngineInfo)` for compile-
+  time registry. `to_view()` strips the fn ptr for serializing
+  to the Engine Profile UI.
+- **Helpers**: `all_engines()`, `find_engine(id)`.
+- **Tests**: 3 unit (no_engines_registered_yet_in_phase_3_1 +
+  setting helper smoke + EngineInfoView camelCase serde).
+
+### Phase 3.2 — Hardware probe ⏳ NEXT
+
+DetectedHardware::probe() replacing stub(). cudarc::driver for
+CUDA, objc2-metal stub for macOS Metal, ash for Vulkan if it
+lands. Falls back to stub on probe failure (no panics).
+
+### Phase 3.3 — Port detector as first engine ⏳
+
+Wrap comic-text-detector as Engine impl. Driver bridge to apply
+Op back to Document for hybrid coexistence with direct-call OCR/
+inpaint/translate/render. Integration test: detector through
+engine path matches old direct-call output on a golden page.
+
+### Deliberate Phase 3 omissions
+
+- **DAG resolver** (consumes/produces ordering) — punted to
+  Phase 4 where multi-engine plumbing earns its keep. With one
+  engine in Phase 3, the driver hand-picks via `find_engine` +
+  hardcoded call site.
+- **Native AFIT (async fn in trait)** — kept `async_trait` for
+  dyn-compat with `Box<dyn Engine>` from the inventory load fns.
+  Migration to native + RPITIT possible once dyn-compat AFIT
+  stabilises.
+
+## Previous phase: Phase 1.2 — Phase 3 prep stubs
 
 **Status**: ✅ COMPLETE (2026-05-19)
 
@@ -113,7 +169,9 @@ Applied the 10 issues caught in the post-#33 design re-review (see
 | 1.1 — re-review amendments | ✅ complete | 0.5 actual | Drop OpInverse + NoteTmHit; add ProjectOp/ArtifactKind/SettingDescriptor; 29+2 tests |
 | 2 — `BlobStore` wired into pipeline | ✅ complete | ~1 actual | HTTP `/blob/:hex` + DocumentDto + frontend; survived 2 external audits |
 | 1.2 — Phase 3 prep stubs | ✅ complete | 0.1 actual | Add ProjectView + PipelineRunOptions stubs; 43+2 tests |
-| 3 — Engine trait + registry + hardware probe | ⏳ next | 1 | Detector ported as first engine |
+| 3.1 — `koharu-engines` crate scaffold | ✅ complete | 0.2 actual | Engine trait + EngineCtx + EngineInfo + inventory; 3 tests |
+| 3.2 — Hardware probe | ⏳ next | 0.3 | CUDA via cudarc::driver; Metal stub; Vulkan via ash |
+| 3.3 — Port detector as first engine | ⏳ pending | 0.5 | Engine impl + hybrid bridge + golden-page test |
 | 4 — Engine migration + Engine Profile UI ⭐ | ⏳ pending | 8-10 | Largest phase. 6 stages × port + UI work |
 | 5 — `ProjectSession` + undo/redo | ⏳ pending | 2-3 | Per-chapter session ring buffer |
 | 6 — Migration script + integration tests green | ⏳ pending | 1-2 | v1 → v2 atomic migration |

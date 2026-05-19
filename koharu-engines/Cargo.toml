@@ -1,0 +1,25 @@
+[package]
+name = "koharu-engines"
+version.workspace = true
+edition.workspace = true
+description = "Engine trait + EngineCtx + compile-time registry for koharu-th v2"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+koharu-core = { workspace = true }
+koharu-ml = { workspace = true }
+koharu-renderer = { workspace = true }
+
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+inventory = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
