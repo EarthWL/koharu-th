@@ -752,13 +752,16 @@ export const useDocumentMutations = () => {
                 : b.translation,
             }))
             await api.updateTextBlocks(resolvedIndex, updated)
-            await invalidateCurrentDocument(queryClient, resolvedIndex)
           }
         }
+        await invalidateCurrentDocument(queryClient, resolvedIndex)
+        await invalidateThumbnailAtIndex(queryClient, resolvedIndex)
+        useEditorUiStore.getState().setShowRenderedImage(true)
       } catch (error) {
         console.error('Failed to retranslate:', error)
-        finishOperation()
         await clearProgress()
+      } finally {
+        finishOperation()
       }
     },
     [queryClient, clearProgress],
