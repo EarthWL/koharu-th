@@ -1,3 +1,4 @@
+pub mod engines;
 pub mod operations;
 pub mod ops;
 pub mod pipeline;

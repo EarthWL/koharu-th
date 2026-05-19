@@ -3977,10 +3977,13 @@ name = "koharu-pipeline"
 version = "1.2.1"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "futures",
  "image",
  "imageproc",
  "koharu-api",
  "koharu-core",
+ "koharu-engines",
  "koharu-ml",
  "koharu-project",
  "koharu-renderer",
@@ -3996,6 +3999,7 @@ dependencies = [
  "serde_json",
  "strum",
  "tokio",
+ "tokio-util",
  "tracing",
  "walkdir",
 ]
