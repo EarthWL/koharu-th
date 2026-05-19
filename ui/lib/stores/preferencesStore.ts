@@ -150,6 +150,9 @@ type PreferencesState = {
   thaiPostProcessEnabled: boolean
   setThaiPostProcessEnabled: (enabled: boolean) => void
 
+  autoUpdateMode: AutoUpdateMode
+  setAutoUpdateMode: (mode: AutoUpdateMode) => void
+
   /** ขนาด crop สูงสุดที่ส่ง LaMa neural network (px).
    *  256 = เร็ว, 512 = สมดุล (default), 768 = คุณภาพสูง */
   inpaintMaxSide: InpaintQuality

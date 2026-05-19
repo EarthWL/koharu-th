@@ -226,22 +226,6 @@ export function ProfilesTabPanel() {
                 p.modelName === activeModel
               const priorityIndex = sortedList.findIndex((x) => x.id === p.id)
               return (
-<<<<<<< HEAD
-                <div
-                  key={p.id}
-                  className={
-                    'group min-w-0 rounded-md border p-1.5 ' +
-                    (isActive
-                      ? 'border-rose-400/60 bg-rose-400/5'
-                      : 'border-border bg-card')
-                  }
-                >
-                  <div className='flex items-start gap-1.5'>
-                    <button
-                      onClick={() => void toggleDefault(p)}
-                      className='shrink-0 hover:text-amber-500'
-                      title={
-=======
               <div
                 key={p.id}
                 className={

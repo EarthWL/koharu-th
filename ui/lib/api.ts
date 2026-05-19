@@ -8,7 +8,7 @@ import {
   type ProcessProgress,
   type DownloadProgress,
 } from '@/lib/backend'
-import type { DeviceInfo } from '@/lib/rpc-types'
+import type { DeviceInfo, QueueEntryDto } from '@/lib/rpc-types'
 import {
   Document,
   InpaintRegion,
@@ -290,9 +290,6 @@ export const api = {
     /** Confidence threshold override for Anime Text YOLO. Backend
      *  clamps to [0.05, 0.95]; defaults to 0.25 (upstream). */
     animeYoloConfidence?: number
-    /** Skip the inpaint step. Used by 'Re-translate' to reuse the
-     *  existing inpainted layer without rerunning LaMa. */
-    skipInpaint?: boolean
     /** Inpaint maximum side length (px) for crop passed to LaMa.
      *  Defaults to backend default if omitted. */
     inpaintMaxSide?: number

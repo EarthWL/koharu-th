@@ -244,7 +244,7 @@ function HomeStep({
   onRemoveRecent,
   onStandalone,
 }: {
-  t: (key: string, fallback?: any, opts?: any) => string
+  t: any
   recent: RecentProjectDto[] | null
   loading: boolean
   onCreate: () => void
@@ -361,7 +361,7 @@ function NameStep({
   onBack,
   onSubmit,
 }: {
-  t: (key: string, fallback?: any, opts?: any) => string
+  t: any
   name: string
   loading: boolean
   onChange: (name: string) => void
@@ -416,7 +416,7 @@ function SetupStep({
   onSaved,
   onSkip,
 }: {
-  t: (key: string, fallback?: any, opts?: any) => string
+  t: any
   info: ProjectInfo
   onSaved: () => void
   onSkip: () => void
@@ -585,7 +585,7 @@ function ChaptersStep({
   t,
   onDone,
 }: {
-  t: (key: string, fallback?: any, opts?: any) => string
+  t: any
   onDone: () => void
 }) {
   const [chapters, setChapters] = useState<WizardChapter[]>([])

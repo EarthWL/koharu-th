@@ -540,8 +540,8 @@ Only return the translation, no extra text:\n\n${text}`
       sourceText: text,
       targetText: result,
       targetLang: language,
-      provider: cloudProvider,
-      model: cloudModelName,
+      provider: successfulAttempt.provider,
+      model: successfulAttempt.modelName,
     })
   }
 

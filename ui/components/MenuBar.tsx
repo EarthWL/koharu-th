@@ -46,7 +46,6 @@ export function MenuBar() {
     processImage,
     retranslateImage,
     inpaintAndRenderImage,
-    retranslateImage,
     streamTranslateImage,
     processAllImages,
     exportDocument,
