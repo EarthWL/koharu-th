@@ -1474,3 +1474,19 @@ pub struct QueueClearResult {
     pub removed: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudLlmCallPayload {
+    pub profile_id: i64,
+    pub prompt: String,
+    pub model_name: String,
+    pub api_url: Option<String>,
+    pub json_mode: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudLlmCallResult {
+    pub text: String,
+}
+

@@ -214,6 +214,7 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         }
         Method::ChatMessagesClear => call0(operations::chat_messages_clear, state).await,
         Method::WebFetchUrl => call(operations::web_fetch_url, state, params).await,
+        Method::CloudLlmCall => call(operations::cloud_llm_call, state, params).await,
         Method::QueueList => call0(operations::queue_list, state).await,
         Method::QueueEnqueue => call(operations::queue_enqueue, state, params).await,
         Method::QueueCancel => call(operations::queue_cancel, state, params).await,

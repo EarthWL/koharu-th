@@ -20,7 +20,7 @@ use koharu_api::commands::{
     PromptTemplateUpdatePayload, ProviderProfileAddPayload, ProviderProfileDto,
     ProviderProfileIdPayload, ProviderProfileSecret, ProviderProfileUpdatePayload,
     SeriesMetaDto, SeriesMetaUpdatePayload, TmEntryDto, TmFuzzyHit, TmInsertPayload,
-    TmLookupFuzzyPayload, TmLookupPayload,
+    TmLookupFuzzyPayload, TmLookupPayload, CloudLlmCallPayload, CloudLlmCallResult,
 };
 use koharu_project::{
     backup as backup_ops,
@@ -1562,6 +1562,152 @@ pub async fn provider_profile_remove(
     })
     .await??;
     Ok(removed)
+}
+
+struct SecureApiKey(String);
+
+impl Drop for SecureApiKey {
+    fn drop(&mut self) {
+        unsafe {
+            let bytes = self.0.as_bytes_mut();
+            for byte in bytes.iter_mut() {
+                std::ptr::write_volatile(byte, 0);
+            }
+        }
+    }
+}
+
+pub async fn cloud_llm_call(
+    state: AppResources,
+    payload: CloudLlmCallPayload,
+) -> anyhow::Result<CloudLlmCallResult> {
+    let project = require_project(&state).await?;
+    let api_key_plaintext = tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
+        let conn = project.pool().get()?;
+        let profile = profile_ops::get(&conn, payload.profile_id)?
+            .ok_or_else(|| anyhow::anyhow!("profile {} not found", payload.profile_id))?;
+        let r = profile.api_key_ref.as_deref()
+            .ok_or_else(|| anyhow::anyhow!("API key reference missing for profile"))?;
+        let raw_key = secret_ops::get(r)?.ok_or_else(|| anyhow::anyhow!("Keyring entry empty"))?;
+        Ok(raw_key)
+    })
+    .await??;
+
+    let secure_key = SecureApiKey(api_key_plaintext);
+    
+    let provider = tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
+        let conn = project.pool().get()?;
+        let profile = profile_ops::get(&conn, payload.profile_id)?
+            .ok_or_else(|| anyhow::anyhow!("profile {} not found", payload.profile_id))?;
+        Ok(profile.provider)
+    })
+    .await??;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(45))
+        .build()?;
+
+    let text = match provider.as_str() {
+        "gemini" => {
+            let url = format!(
+                "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+                payload.model_name, secure_key.0
+            );
+            let mut req = client.post(&url);
+            if payload.json_mode {
+                req = req.json(&serde_json::json!({
+                    "contents": [{ "parts": [{ "text": payload.prompt }] }],
+                    "generationConfig": {
+                        "responseMimeType": "application/json"
+                    }
+                }));
+            } else {
+                req = req.json(&serde_json::json!({
+                    "contents": [{ "parts": [{ "text": payload.prompt }] }]
+                }));
+            }
+            let res = req.send().await?;
+            if !res.status().is_success() {
+                let err_text = res.text().await?;
+                anyhow::bail!("Gemini API error: {}", err_text);
+            }
+            let res_body: serde_json::Value = res.json().await?;
+            res_body["candidates"][0]["content"]["parts"][0]["text"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("Failed to parse text from Gemini response"))?
+                .to_string()
+        }
+        "openai" | "openrouter" => {
+            let base_url = payload.api_url.as_deref().unwrap_or_else(|| {
+                if provider == "openrouter" {
+                    "https://openrouter.ai/api/v1"
+                } else {
+                    "https://api.openai.com/v1"
+                }
+            });
+            let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+            let mut req = client.post(&url)
+                .header("Authorization", format!("Bearer {}", secure_key.0));
+            
+            if provider == "openrouter" {
+                req = req.header("HTTP-Referer", "https://github.com/EarthWL/koharu-th")
+                    .header("X-Title", "Koharu Manga Studio");
+            }
+
+            let mut body = serde_json::json!({
+                "model": payload.model_name,
+                "messages": [
+                    { "role": "user", "content": payload.prompt }
+                ]
+            });
+
+            if payload.json_mode {
+                body["response_format"] = serde_json::json!({ "type": "json_object" });
+            }
+
+            let res = req.json(&body).send().await?;
+            if !res.status().is_success() {
+                let err_text = res.text().await?;
+                anyhow::bail!("{} API error: {}", provider, err_text);
+            }
+            let res_body: serde_json::Value = res.json().await?;
+            res_body["choices"][0]["message"]["content"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("Failed to parse content from OpenAI response"))?
+                .to_string()
+        }
+        "anthropic" => {
+            let base_url = payload.api_url.as_deref().unwrap_or("https://api.anthropic.com");
+            let url = format!("{}/v1/messages", base_url.trim_end_matches('/'));
+            
+            let req = client.post(&url)
+                .header("x-api-key", secure_key.0.as_str())
+                .header("anthropic-version", "2023-06-01")
+                .header("content-type", "application/json");
+
+            let body = serde_json::json!({
+                "model": payload.model_name,
+                "max_tokens": 4096,
+                "messages": [
+                    { "role": "user", "content": payload.prompt }
+                ]
+            });
+
+            let res = req.json(&body).send().await?;
+            if !res.status().is_success() {
+                let err_text = res.text().await?;
+                anyhow::bail!("Anthropic API error: {}", err_text);
+            }
+            let res_body: serde_json::Value = res.json().await?;
+            res_body["content"][0]["text"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("Failed to parse text from Anthropic response"))?
+                .to_string()
+        }
+        _ => anyhow::bail!("Unsupported cloud provider: {}", provider),
+    };
+
+    Ok(CloudLlmCallResult { text })
 }
 
 pub async fn llm_call_log(

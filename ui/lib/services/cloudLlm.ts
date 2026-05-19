@@ -667,13 +667,11 @@ export async function extractEntitiesFromText(
 }
 
 export async function generateCloudBatchTranslation(blocks: {index: number, text: string}[], language: string): Promise<{index: number, translation: string}[]> {
-  const { cloudProvider, cloudApiKey, cloudApiUrl, cloudModelName } = usePreferencesStore.getState()
+  const { cloudProvider, cloudApiUrl, cloudModelName, activeProfileId } = usePreferencesStore.getState()
   
-  if (!cloudApiKey) {
+  if (!activeProfileId) {
     throw new Error(
-      cloudProvider === 'none'
-        ? 'No LLM profile applied. Open the Profiles sidebar tab and click Apply on a saved profile (or pick one from the LLM badge in the toolbar).'
-        : `No API key for the active "${cloudProvider}" profile. Open Profiles tab → edit the active profile and re-enter your API key, then Apply.`,
+      'No LLM profile applied. Open the Profiles sidebar tab and click Apply on a saved profile (or pick one from the LLM badge in the toolbar).'
     )
   }
 
@@ -690,19 +688,15 @@ ${blocksJson}`
 
   let resultJson = ''
   const t0 = performance.now()
-  let raw: CloudResult
   try {
-    if (cloudProvider === 'openai') {
-      raw = await fetchOpenAI(prompt, cloudApiKey, cloudApiUrl, cloudModelName, true)
-    } else if (cloudProvider === 'openrouter') {
-      raw = await fetchOpenRouter(prompt, cloudApiKey, cloudModelName, true)
-    } else if (cloudProvider === 'gemini') {
-      raw = await fetchGemini(prompt, cloudApiKey, cloudModelName, true)
-    } else if (cloudProvider === 'anthropic') {
-      raw = await fetchAnthropic(prompt, cloudApiKey, cloudModelName, true)
-    } else {
-      throw new Error(`Unsupported cloud provider: ${cloudProvider}`)
-    }
+    const res = await api.cloudLlmCall({
+      profileId: activeProfileId,
+      prompt,
+      modelName: cloudModelName,
+      apiUrl: cloudApiUrl || null,
+      jsonMode: true,
+    })
+    resultJson = res.text
   } catch (err: any) {
     logCallSafe({
       useCase: 'translate',
@@ -716,10 +710,10 @@ ${blocksJson}`
   logCallSafe({
     useCase: 'translate',
     success: true,
-    usage: raw.usage,
+    usage: null,
     durationMs: Math.round(performance.now() - t0),
   })
-  resultJson = raw.text
+  resultJson = resultJson
 
   // Try to find a JSON array within the response if it's wrapped in other text
   let jsonString = resultJson.trim()
@@ -752,11 +746,6 @@ ${blocksJson}`
 }
 
 
-/**
- * Send a single one-shot prompt to whatever cloud provider is named.
- * Shared by the chapter-summariser and entity-extractor flows; does
- * NOT touch the project's TM (those callers want a fresh response).
- */
 export async function callCloudOnce(args: {
   prompt: string
   provider: string
@@ -769,6 +758,37 @@ export async function callCloudOnce(args: {
 }): Promise<string> {
   const { prompt, provider, apiKey, apiUrl, model, jsonMode = false, useCase = 'translate' } = args
   const t0 = performance.now()
+  const { activeProfileId } = usePreferencesStore.getState()
+
+  // หากมี activeProfileId ให้รันบนหลังบ้าน Rust ทันทีเพื่อความปลอดภัยระดับสูงสุด
+  if (activeProfileId) {
+    try {
+      const res = await api.cloudLlmCall({
+        profileId: activeProfileId,
+        prompt,
+        modelName: model,
+        apiUrl: apiUrl || null,
+        jsonMode,
+      })
+      logCallSafe({
+        useCase,
+        success: true,
+        usage: null,
+        durationMs: Math.round(performance.now() - t0),
+      })
+      return res.text
+    } catch (err: any) {
+      logCallSafe({
+        useCase,
+        success: false,
+        usage: null,
+        durationMs: Math.round(performance.now() - t0),
+        errorMessage: err?.message ?? String(err),
+      })
+      throw err
+    }
+  }
+
   let result: CloudResult
   try {
     result = await withRetry(() => {

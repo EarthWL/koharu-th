@@ -764,6 +764,16 @@ export const api = {
     return invoke('web_fetch_url', { url }) as Promise<WebFetchResult>
   },
 
+  async cloudLlmCall(params: {
+    profileId: number
+    prompt: string
+    modelName: string
+    apiUrl?: string | null
+    jsonMode: boolean
+  }): Promise<{ text: string }> {
+    return invoke('cloud_llm_call', params) as Promise<{ text: string }>
+  },
+
   // ── Translation queue ────────────────────────────────────────
 
   async queueList(): Promise<QueueEntryDto[]> {
