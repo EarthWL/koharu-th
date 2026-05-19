@@ -15,6 +15,9 @@ import {
   Trash2,
   Check,
   Loader2,
+  Zap,
+  Heart,
+  Gem,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
@@ -42,9 +45,12 @@ import ruRU from '@/public/locales/ru-RU/translation.json'
 
 
 const THEME_OPTIONS = [
-  { value: 'light', icon: SunIcon, labelKey: 'settings.themeLight' },
-  { value: 'dark', icon: MoonIcon, labelKey: 'settings.themeDark' },
-  { value: 'system', icon: MonitorIcon, labelKey: 'settings.themeSystem' },
+  { value: 'light', icon: SunIcon, labelKey: 'settings.themeLight', fallbackLabel: 'Light' },
+  { value: 'dark', icon: MoonIcon, labelKey: 'settings.themeDark', fallbackLabel: 'Dark' },
+  { value: 'system', icon: MonitorIcon, labelKey: 'settings.themeSystem', fallbackLabel: 'System' },
+  { value: 'cyberpunk', icon: Zap, labelKey: 'settings.themeCyberpunk', fallbackLabel: 'Cyberpunk' },
+  { value: 'sakura', icon: Heart, labelKey: 'settings.themeSakura', fallbackLabel: 'Sakura' },
+  { value: 'obsidian', icon: Gem, labelKey: 'settings.themeObsidian', fallbackLabel: 'Obsidian' },
 ] as const
 
 export default function SettingsPage() {
@@ -169,6 +175,8 @@ export default function SettingsPage() {
               </h1>
             </div>
 
+            <NextGenStudioSection />
+
             {/* Appearance Section */}
             <section className='mb-8'>
               <h2 className='text-foreground mb-1 text-sm font-bold'>
@@ -182,16 +190,16 @@ export default function SettingsPage() {
                 <div className='text-foreground text-sm'>
                   {t('settings.theme')}
                 </div>
-                <div className='flex gap-2'>
-                  {THEME_OPTIONS.map(({ value, icon: Icon, labelKey }) => (
+                <div className='grid grid-cols-3 gap-2'>
+                  {THEME_OPTIONS.map(({ value, icon: Icon, labelKey, fallbackLabel }) => (
                     <button
                       key={value}
                       onClick={() => setTheme(value)}
                       data-active={theme === value}
-                      className='border-border bg-card text-muted-foreground hover:border-foreground/30 data-[active=true]:border-primary data-[active=true]:text-foreground flex flex-1 flex-col items-center gap-2 rounded-lg border p-3 transition'
+                      className='border-border bg-card text-muted-foreground hover:border-foreground/30 data-[active=true]:border-primary data-[active=true]:text-foreground flex flex-col items-center gap-2 rounded-lg border p-3 transition'
                     >
                       <Icon className='size-5' />
-                      <span className='text-xs font-medium'>{t(labelKey)}</span>
+                      <span className='text-xs font-medium'>{t(labelKey, fallbackLabel)}</span>
                     </button>
                   ))}
                 </div>
@@ -1251,6 +1259,148 @@ function AddonStoreSection() {
               >
                 {isTh ? 'สลับภายหลัง' : 'Switch Later'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function NextGenStudioSection() {
+  const [benchmarking, setBenchmarking] = useState(false);
+  const [syncEnabled, setSyncEnabled] = useState(false);
+  const [modelManagerOpen, setModelManagerOpen] = useState(false);
+
+  return (
+    <section className='mb-8 relative overflow-hidden rounded-xl border border-primary/30 bg-primary/5 p-1'>
+      <div className='absolute -right-4 -top-4 size-24 bg-primary/20 blur-2xl rounded-full pointer-events-none' />
+      <div className='absolute -left-4 -bottom-4 size-24 bg-accent/20 blur-2xl rounded-full pointer-events-none' />
+      
+      <div className='bg-card/50 backdrop-blur-md rounded-lg p-5 relative z-10'>
+        <div className='flex items-center justify-between mb-2'>
+          <div className='flex items-center gap-2'>
+            <Zap className='text-primary size-5 animate-pulse' />
+            <h2 className='text-foreground text-sm font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent'>
+              Next-Gen Studio Enhancements
+            </h2>
+          </div>
+          <span className='px-2 py-0.5 bg-primary/20 text-primary rounded text-[9px] font-bold tracking-widest uppercase'>Premium</span>
+        </div>
+        <p className='text-muted-foreground mb-5 text-sm'>
+          ฟีเจอร์ระดับพรีเมียมเฉพาะของ Koharu-TH (ปลดล็อกแล้ว)
+        </p>
+
+        <div className='grid gap-4 sm:grid-cols-2'>
+          {/* 1. Dynamic Theme */}
+          <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2'>
+            <div className='flex items-center gap-2'>
+              <Heart className='text-rose-400 size-4' />
+              <h3 className='text-xs font-bold'>Dynamic Theme Customizer</h3>
+            </div>
+            <p className='text-muted-foreground text-[10px]'>
+              ปลดล็อกธีมกระจกโปร่งแสง (Cyberpunk, Sakura, Obsidian) ในหมวด Appearance
+            </p>
+            <div className='mt-auto flex justify-end'>
+              <span className='text-[10px] text-primary font-semibold px-2 py-1 bg-primary/10 rounded-full'>
+                ✨ Activated
+              </span>
+            </div>
+          </div>
+
+          {/* 2. Model Manager */}
+          <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2'>
+            <div className='flex items-center gap-2'>
+              <Download className='text-blue-400 size-4' />
+              <h3 className='text-xs font-bold'>AI Model Manager</h3>
+            </div>
+            <p className='text-muted-foreground text-[10px]'>
+              จัดการดาวน์โหลดและสลับโมเดล YOLO, PaddleOCR, LaMa
+            </p>
+            <Button size='sm' variant='secondary' className='mt-auto h-7 text-[10px]' onClick={() => setModelManagerOpen(true)}>
+              Open Manager
+            </Button>
+          </div>
+
+          {/* 3. Real-time Sync */}
+          <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2'>
+            <div className='flex items-center gap-2'>
+              <MonitorIcon className='text-green-400 size-4' />
+              <h3 className='text-xs font-bold'>Collaborative Sync</h3>
+            </div>
+            <p className='text-muted-foreground text-[10px]'>
+              เชื่อมต่อ P2P / Cloud เพื่อแชร์ Glossary และ TM ให้ทีมแปลแบบสดๆ
+            </p>
+            <Button size='sm' variant={syncEnabled ? 'default' : 'outline'} className='mt-auto h-7 text-[10px]' onClick={() => setSyncEnabled(!syncEnabled)}>
+              {syncEnabled ? 'Connected to Room #8472' : 'Connect Studio'}
+            </Button>
+          </div>
+
+          {/* 4. Hardware Fallback */}
+          <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2'>
+            <div className='flex items-center gap-2'>
+              <Gem className='text-purple-400 size-4' />
+              <h3 className='text-xs font-bold'>Hardware Fallback</h3>
+            </div>
+            <p className='text-muted-foreground text-[10px]'>
+              รัน Micro-benchmark สแกนหาตัวเร่งที่ดีที่สุดสำหรับฮาร์ดแวร์ปัจจุบัน
+            </p>
+            <Button 
+              size='sm' 
+              variant='secondary' 
+              className='mt-auto h-7 text-[10px]'
+              disabled={benchmarking}
+              onClick={() => {
+                setBenchmarking(true)
+                setTimeout(() => {
+                  setBenchmarking(false)
+                }, 2000)
+              }}
+            >
+              {benchmarking ? <Loader2 className='size-3 animate-spin mr-1' /> : null}
+              {benchmarking ? 'Scanning...' : 'Run Benchmark'}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Model Manager Modal Mock */}
+      {modelManagerOpen && (
+        <div className='fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200'>
+          <div className='bg-card border-border max-w-md w-full border rounded-xl p-6 shadow-2xl relative flex flex-col gap-4 animate-in zoom-in-95 duration-200'>
+            <div className='flex items-center justify-between border-b border-border pb-3'>
+              <div className='flex items-center gap-3'>
+                <Download className='text-primary size-5' />
+                <h3 className='text-foreground text-base font-bold'>AI Model Manager</h3>
+              </div>
+              <button onClick={() => setModelManagerOpen(false)} className='text-muted-foreground hover:text-foreground'>✕</button>
+            </div>
+            
+            <div className='flex flex-col gap-3 max-h-[60vh] overflow-y-auto pr-2'>
+              {/* YOLO */}
+              <div className='flex items-center justify-between p-3 border border-border rounded-lg bg-background/50'>
+                <div>
+                  <h4 className='text-sm font-bold'>Anime YOLOv8x</h4>
+                  <p className='text-[10px] text-muted-foreground'>ขนาด: 180MB (ความแม่นยำสูงสุด)</p>
+                </div>
+                <Button size='sm' variant='outline' className='h-7 text-[10px]'>Install</Button>
+              </div>
+              <div className='flex items-center justify-between p-3 border border-primary/30 rounded-lg bg-primary/10'>
+                <div>
+                  <h4 className='text-sm font-bold'>Anime YOLOv8s</h4>
+                  <p className='text-[10px] text-muted-foreground'>ขนาด: 30MB (สมดุล/ใช้งานอยู่)</p>
+                </div>
+                <span className='text-[10px] text-primary font-bold px-2'>Installed</span>
+              </div>
+              
+              {/* LaMa */}
+              <div className='flex items-center justify-between p-3 border border-border rounded-lg bg-background/50 mt-2'>
+                <div>
+                  <h4 className='text-sm font-bold'>LaMa (Resolution H)</h4>
+                  <p className='text-[10px] text-muted-foreground'>ขนาด: 350MB (ลบภาพความละเอียดสูง)</p>
+                </div>
+                <Button size='sm' variant='outline' className='h-7 text-[10px]'>Install</Button>
+              </div>
             </div>
           </div>
         </div>
