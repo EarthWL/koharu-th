@@ -448,18 +448,18 @@ export function Workspace() {
                             style={{ zIndex: 30 }}
                           />
                         )}
-                        {showTextBlocksOverlay && (
-                          <TextBlockAnnotations
-                            selectedIndex={selectedBlockIndex}
-                            onSelect={setSelectedBlockIndex}
-                            style={{ zIndex: 30 }}
-                          />
-                        )}
                         {currentDocument.rendered && showRenderedImage && (
                           <Image
                             data-testid='workspace-rendered-image'
                             src={getHttpUrl(`/api/image/${currentDocumentIndex}/rendered?v=${documentsVersion}`)}
                             transition={false}
+                            style={{ zIndex: 35 }}
+                          />
+                        )}
+                        {showTextBlocksOverlay && (
+                          <TextBlockAnnotations
+                            selectedIndex={selectedBlockIndex}
+                            onSelect={setSelectedBlockIndex}
                             style={{ zIndex: 40 }}
                           />
                         )}
