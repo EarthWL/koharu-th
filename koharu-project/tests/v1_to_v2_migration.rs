@@ -224,14 +224,14 @@ fn fresh_v2_project_creation_does_not_trigger_migration_artifacts() {
         !root.join("series.db.bak.v1").exists(),
         "fresh v2 project should never produce a v1 backup file",
     );
-    // `blobs/` is created by post_open_v1_to_v2 only — fresh v2
-    // projects skip that hook because schema_version is already
-    // 2 at create time. Asserting absence documents that
-    // separation; if a future commit moves blobs/ creation into
-    // Project::create, this assertion flips to a positive check.
+    // Audit #7/P3 fix: Project::create now seeds `blobs/`
+    // directly so fresh-create + migrated projects match on
+    // disk. Before the fix, only the v1→v2 migration path
+    // created the directory and fresh v2 projects had a
+    // contract gap.
     assert!(
-        !root.join("blobs").is_dir(),
-        "fresh v2 project skips the migration hooks; blobs/ stays uncreated until on-disk BlobStore phase",
+        root.join("blobs").is_dir(),
+        "Project::create must seed blobs/ for v2 contract parity with migrated projects",
     );
     let manifest = Manifest::read(&root.join(MANIFEST_FILENAME)).unwrap();
     assert_eq!(manifest.schema_version, 2);

@@ -46,6 +46,15 @@ impl Project {
             let d = root.join(sub);
             std::fs::create_dir_all(&d).map_err(|e| Error::io(d, e))?;
         }
+        // Audit #7/P3: fresh v2 projects must include the
+        // `blobs/` directory (post-v2 schema contract). The v1→v2
+        // migration path creates this in `post_open_v1_to_v2`;
+        // creating here keeps fresh-create + migrated projects
+        // identical on disk so future on-disk BlobStore backing
+        // can write through the same path regardless of project
+        // origin.
+        let blobs_dir = root.join("blobs");
+        std::fs::create_dir_all(&blobs_dir).map_err(|e| Error::io(&blobs_dir, e))?;
 
         let pool = db::open(root.join(&manifest.paths.db))?;
         seed_series_meta(&pool, &manifest)?;

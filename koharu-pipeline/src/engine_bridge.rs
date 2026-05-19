@@ -57,7 +57,6 @@ use koharu_types::{Document, SerializableDynamicImage};
 
 use crate::AppResources;
 use crate::engine_profile::EngineProfileStore;
-use koharu_app::{ProjectSession, SessionConfig};
 
 /// Policy bag for [`run_engine_on_document`]. Phase 4.1 ships one
 /// knob (`clear_text_blocks_first`); future fields land additively.
@@ -166,6 +165,24 @@ pub async fn run_engine_on_document(
         doc.text_blocks.clear();
     }
 
+    // Audit #7/P1: prepare the session BEFORE the apply loop so
+    // it's guaranteed to be (a) initialised and (b) tagged with
+    // the current doc_index. Two reset conditions:
+    //   - session is missing or built for a DIFFERENT doc → init
+    //     from the freshly-built scene, history starts empty
+    //   - `clear_text_blocks_first` policy → destructive boundary
+    //     (re-detect), prior history no longer maps to the new
+    //     block set; reset so apply doesn't trip the
+    //     NodeAlreadyExists guard on duplicate AddTextBlock ids
+    {
+        let mut session_guard = state.session.write().await;
+        let needs_reset = policy.clear_text_blocks_first
+            || session_guard.active_doc_index() != Some(doc_index);
+        if needs_reset {
+            session_guard.reset_with(scene.clone(), doc_index);
+        }
+    }
+
     let mut apply_count: usize = 0;
     tokio::pin!(run_future);
     loop {
@@ -176,7 +193,7 @@ pub async fn run_engine_on_document(
                 // the channel before exiting (engine may have sent
                 // its final EngineResult just before returning).
                 while let Ok(batch) = ops_rx.try_recv() {
-                    apply_engine_result_dual(state, &mut doc, &scene, batch).await?;
+                    apply_engine_result_dual(state, &mut doc, doc_index, batch).await?;
                     apply_count += 1;
                 }
                 result.with_context(|| format!("engine '{}' run failed", engine_id))?;
@@ -185,7 +202,7 @@ pub async fn run_engine_on_document(
             maybe_batch = ops_rx.recv() => {
                 match maybe_batch {
                     Some(batch) => {
-                        apply_engine_result_dual(state, &mut doc, &scene, batch).await?;
+                        apply_engine_result_dual(state, &mut doc, doc_index, batch).await?;
                         apply_count += 1;
                     }
                     None => {
@@ -331,7 +348,7 @@ fn register_image(blobs: &BlobStore, img: &SerializableDynamicImage) -> Result<B
 async fn apply_engine_result_dual(
     state: &AppResources,
     doc: &mut Document,
-    initial_scene: &Scene,
+    doc_index: usize,
     batch: koharu_core::EngineResult,
 ) -> Result<()> {
     // Apply to Document FIRST so RPC reads stay correct even if
@@ -346,27 +363,28 @@ async fn apply_engine_result_dual(
         );
     }
 
-    // Then apply to the session for history tracking. Lazy-init
-    // on first call from the Scene the engine just worked
-    // against. Holding the lock across the loop is fine —
-    // session.apply is fast (in-memory mutation + history push +
-    // bus broadcast); we're not blocking on I/O.
+    // Then apply to the session for history tracking. The
+    // caller already reset the session for this doc_index in
+    // `run_engine_on_document` before the loop, so
+    // `session_for_mut` should be Some — but we tolerate None
+    // (session was wiped mid-run by chapter_open or similar) by
+    // skipping the apply with a warning. The Document path has
+    // already succeeded, so RPC reads stay correct; only history
+    // is degraded.
     let mut session_guard = state.session.write().await;
-    if session_guard.is_none() {
-        *session_guard = Some(ProjectSession::new(
-            initial_scene.clone(),
-            SessionConfig::default(),
-        ));
-    }
-    let session = session_guard
-        .as_mut()
-        .expect("just initialised above if it was None");
+    let Some(session) = session_guard.session_for_mut(doc_index) else {
+        tracing::warn!(
+            doc_index,
+            "session slot empty or doc_index mismatched mid-run — \
+             skipping session.apply; history unavailable for this run"
+        );
+        return Ok(());
+    };
     for op in batch.scene_ops {
         if let Err(e) = session.apply(op) {
             // Don't propagate — Document path already succeeded.
-            // Phase 5.4 RPCs that read history will see the
-            // truncated history; that's better than crashing the
-            // engine call.
+            // RPCs that read history will see the truncated
+            // history; better than crashing the engine call.
             tracing::warn!(
                 error = ?e,
                 "session.apply failed — history out of sync with doc; \

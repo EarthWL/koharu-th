@@ -349,7 +349,7 @@ pub async fn project_close(state: AppResources) -> anyhow::Result<()> {
     *state.project.write().await = None;
     // Phase 5.5: closing the project also wipes the v2 session
     // (history doesn't survive project close; per-chapter scope).
-    *state.session.write().await = None;
+    state.session.write().await.clear();
     Ok(())
 }
 
@@ -689,7 +689,7 @@ pub async fn chapter_open(
     // history doesn't carry across chapters (locked decision: per-
     // chapter session). The engine_bridge re-inits on the next
     // engine run against the new chapter's Scene.
-    *state.session.write().await = None;
+    state.session.write().await.clear();
     Ok(count)
 }
 

@@ -125,11 +125,18 @@ impl EngineProfileStore {
             .unwrap_or_default()
     }
 
-    /// Audit #6/P2: granular "set the active engine for one
-    /// artifact slot" mutation. Atomic under the inner RwLock —
-    /// concurrent frontend mutations can no longer trample each
-    /// other by sending stale full-profile snapshots. Returns
-    /// the new full snapshot for the caller's cache update.
+    /// Granular "set the active engine for one artifact slot"
+    /// mutation.
+    ///
+    /// Audit #7/P2 fix: holds the write lock THROUGH persist()
+    /// instead of dropping after the in-memory mutation. Without
+    /// this, two concurrent set_* calls could see a memory-
+    /// correct interleave (T1 mutates {X}, T2 sees {X} then
+    /// mutates to {X,Y}) but the persist order could be inverted
+    /// (T1's snapshot {X} writes to disk AFTER T2's {X,Y}),
+    /// silently dropping Y. Holding the lock during the temp-
+    /// file + rename (~ms) costs a few ms of write contention
+    /// in exchange for serialised disk writes.
     pub fn set_active(
         &self,
         artifact: ArtifactKind,
@@ -137,14 +144,16 @@ impl EngineProfileStore {
     ) -> Result<EngineProfile> {
         let mut guard = self.inner.write().unwrap();
         guard.active.insert(artifact, engine_id);
-        let updated = guard.clone();
-        drop(guard);
-        self.persist(&updated)?;
-        Ok(updated)
+        let snapshot = guard.clone();
+        // Persist while still holding the write lock — see method
+        // doc for the race rationale.
+        self.persist(&snapshot)?;
+        Ok(snapshot)
     }
 
-    /// Granular "set one setting for one engine" mutation.
-    /// Same atomicity contract as `set_active`.
+    /// Granular "set one setting for one engine" mutation. Same
+    /// atomicity contract as `set_active` — persist runs under
+    /// the write lock to prevent disk-write reordering.
     pub fn set_setting(
         &self,
         engine_id: String,
@@ -154,10 +163,9 @@ impl EngineProfileStore {
         let mut guard = self.inner.write().unwrap();
         let engine_settings = guard.settings.entry(engine_id).or_default();
         engine_settings.insert(setting_id, value);
-        let updated = guard.clone();
-        drop(guard);
-        self.persist(&updated)?;
-        Ok(updated)
+        let snapshot = guard.clone();
+        self.persist(&snapshot)?;
+        Ok(snapshot)
     }
 
     /// Internal atomic-write helper extracted from `replace`. Same

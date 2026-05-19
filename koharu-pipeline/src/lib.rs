@@ -6,6 +6,7 @@ pub mod engines;
 pub mod operations;
 pub mod ops;
 pub mod pipeline;
+pub mod session_slot;
 pub mod state_tx;
 
 use std::sync::Arc;
@@ -68,12 +69,11 @@ pub struct AppResources {
     /// RPC + UI; F4.D wires the bridge to consume it (currently
     /// engine ids are still hardcoded at call-sites).
     pub engine_profile: engine_profile::EngineProfileStore,
-    /// Phase 5: ProjectSession tracking the per-chapter undo/redo
-    /// history + Scene canonical state + event bus. `None` until
-    /// the first engine apply lazy-inits it (Phase 5.3); Phase
-    /// 5.5 will manage explicit chapter-open/close lifecycle.
-    /// Wrapped in `Arc<RwLock<...>>` because engine_bridge calls
-    /// (which take `&AppResources`) need interior mutability.
-    pub session: Arc<RwLock<Option<koharu_app::ProjectSession>>>,
+    /// Phase 5: ProjectSession + the doc_index it was built
+    /// against, gated by `SessionSlot` so the engine_bridge can't
+    /// silently reuse a stale session.scene across doc switches
+    /// (audit #7/P1). Lazy-init on first engine apply per Phase
+    /// 5.3; chapter_open / project_close clear it.
+    pub session: Arc<RwLock<session_slot::SessionSlot>>,
     pub version: &'static str,
 }
