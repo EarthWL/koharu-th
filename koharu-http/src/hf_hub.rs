@@ -26,10 +26,17 @@ static HF_CACHE: Lazy<Cache> = Lazy::new(|| Cache::new(get_cache_dir().to_path_b
 
 fn get_cache_dir() -> &'static PathBuf {
     CACHE_DIR.get_or_init(|| {
+        // `hf` instead of `models` since v1.2.2 — see `koharu/src/
+        // app.rs::MODEL_ROOT` for the motivation (Windows MAX_PATH,
+        // issue #34). The production `set_cache_dir` call in
+        // `koharu::app::initialize` always hits BEFORE this lazy
+        // fallback fires, so end users never see this default;
+        // it only matters for tests + headless invocations that
+        // skip the normal startup path.
         dirs::cache_dir()
             .unwrap_or_default()
             .join("Koharu")
-            .join("models")
+            .join("hf")
     })
 }
 

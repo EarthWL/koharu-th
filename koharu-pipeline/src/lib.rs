@@ -36,8 +36,10 @@ pub struct AppResources {
     /// size + offers to clear it. Set at app startup so the storage
     /// op doesn't have to re-derive the path.
     pub lib_root: std::path::PathBuf,
-    /// `<app-data>/Koharu/models` — HuggingFace model cache (Anime
-    /// YOLO, Manga OCR, etc.). Owned by koharu_ml's set_cache_dir.
+    /// `<app-data>/Koharu/hf` — HuggingFace model cache (Anime YOLO,
+    /// Manga OCR, etc.). Owned by koharu_ml's set_cache_dir. Renamed
+    /// from `models/` in v1.2.2 to claw back chars vs Windows MAX_PATH
+    /// (issue #34); migration is automatic on first v1.2.2 launch.
     pub model_root: std::path::PathBuf,
     /// `<app-data>/Koharu/fonts` — user-dropped custom fonts. Reported
     /// in Storage panel with an extra-confirm warning since removing
