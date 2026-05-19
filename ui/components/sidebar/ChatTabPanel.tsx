@@ -9,6 +9,7 @@ import {
   ChevronDownIcon,
   ImagePlusIcon,
   Loader2Icon,
+  Redo2Icon,
   ScanLineIcon,
   SendIcon,
   Trash2Icon,
@@ -335,6 +336,7 @@ export function ChatTabPanel() {
     }
     setSending(true)
     setError(null)
+    setRedoStack([])
 
     // Slash expansion: user sees the display, LLM gets the expanded prompt
     const slash = expandSlash(input)
@@ -466,6 +468,74 @@ export function ChatTabPanel() {
   }
 
   const [clearing, setClearing] = useState(false)
+  const [revoking, setRevoking] = useState(false)
+  const [redoStack, setRedoStack] = useState<ChatMessageDto[][]>([])
+
+  const revokeFromMessage = async (m: ChatMessageDto) => {
+    if (!projectInfo || !history.data || history.data.length === 0 || revoking || sending) return
+    const targetIdx = history.data.findIndex((item) => item.id === m.id)
+    if (targetIdx === -1) return
+    const retainedMessages = history.data.slice(0, targetIdx)
+    const deletedMessages = history.data.slice(targetIdx)
+    const targetUserMessage = history.data[targetIdx]
+    setRevoking(true)
+    setError(null)
+    try {
+      await api.chatMessagesClear()
+      for (const msg of retainedMessages) {
+        await api.chatMessageAdd({
+          role: msg.role as any,
+          content: msg.content,
+          toolCalls: msg.toolCalls,
+          toolCallId: msg.toolCallId,
+          model: msg.model,
+          attachments: msg.attachments,
+        })
+      }
+      setRedoStack((prev) => [...prev, deletedMessages])
+      setInput(targetUserMessage.content)
+      await history.refetch()
+    } catch (err: any) {
+      setError(err?.message ?? String(err))
+    } finally {
+      setRevoking(false)
+    }
+  }
+
+  const revokeLastTurn = async () => {
+    if (!projectInfo || !history.data || history.data.length === 0 || revoking || sending) return
+    const lastUserIdx = [...history.data].reverse().findIndex((m) => m.role === 'user')
+    if (lastUserIdx === -1) return
+    const actualUserIdx = history.data.length - 1 - lastUserIdx
+    await revokeFromMessage(history.data[actualUserIdx])
+  }
+
+  const redoLastTurn = async () => {
+    if (!projectInfo || redoStack.length === 0 || revoking || sending) return
+    const nextChunk = redoStack[redoStack.length - 1]
+    setRevoking(true)
+    setError(null)
+    try {
+      for (const msg of nextChunk) {
+        await api.chatMessageAdd({
+          role: msg.role as any,
+          content: msg.content,
+          toolCalls: msg.toolCalls,
+          toolCallId: msg.toolCallId,
+          model: msg.model,
+          attachments: msg.attachments,
+        })
+      }
+      setRedoStack((prev) => prev.slice(0, -1))
+      setInput('')
+      await history.refetch()
+    } catch (err: any) {
+      setError(`ไม่สามารถกู้คืนข้อความได้: ${err?.message ?? String(err)}`)
+    } finally {
+      setRevoking(false)
+    }
+  }
+
   const clearAll = async () => {
     if (clearing) return
     if (!confirm('ต้องการล้างประวัติแชททั้งหมดของโปรเจกต์นี้หรือไม่? (ข้อมูลทั้งหมดจะถูกลบถาวร)')) return
@@ -475,6 +545,7 @@ export function ChatTabPanel() {
       setSnoozeType(null)
       setSnoozeTargetCount(0)
       setError(null)
+      setRedoStack([])
       await history.refetch()
     } catch (err: any) {
       setError(err?.message ?? String(err))
@@ -517,7 +588,37 @@ export function ChatTabPanel() {
           <Button
             variant='ghost'
             size='sm'
-            className='h-6 px-2 text-[10px] disabled:opacity-40'
+            className='h-6 px-2 text-[10px] disabled:opacity-40 flex items-center gap-1'
+            title='ดึงคืนข้อความล่าสุดและคำตอบของ AI กลับมาแก้ไขใหม่'
+            disabled={!history.data?.length || sending || clearing || revoking}
+            onClick={() => void revokeLastTurn()}
+          >
+            {revoking ? (
+              <Loader2Icon className='size-3 animate-spin' />
+            ) : (
+              <Undo2Icon className='size-3' />
+            )}
+            ดึงคืน
+          </Button>
+          <Button
+            variant='ghost'
+            size='sm'
+            className='h-6 px-2 text-[10px] disabled:opacity-40 flex items-center gap-1'
+            title='ทำซ้ำข้อความที่ดึงคืนล่าสุด'
+            disabled={!redoStack.length || sending || clearing || revoking}
+            onClick={() => void redoLastTurn()}
+          >
+            {revoking ? (
+              <Loader2Icon className='size-3 animate-spin' />
+            ) : (
+              <Redo2Icon className='size-3' />
+            )}
+            ทำซ้ำ
+          </Button>
+          <Button
+            variant='ghost'
+            size='sm'
+            className='h-6 px-2 text-[10px] disabled:opacity-40 flex items-center gap-1'
             title='ล้างประวัติแชททั้งหมดสำหรับโปรเจกต์นี้'
             disabled={!history.data?.length || sending || clearing}
             onClick={() => void clearAll()}

@@ -54,6 +54,10 @@ export type TextStyle = {
   minFontSize?: number
   /** Top / Middle / Bottom inside the bubble. Defaults to top. */
   verticalAlign?: VerticalAlign
+  /** Vertical shift of the baseline in pixels. */
+  baselineShiftPx?: number
+  /** Horizontal scale of the glyphs (e.g. 1.0 is default, 0.9 compresses, 1.1 expands). */
+  horizontalScale?: number
 }
 
 export type TextBlock = {

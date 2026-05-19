@@ -33,6 +33,7 @@ pub struct RenderOptions {
     pub font_size: f32,
     pub effect: TextShaderEffect,
     pub stroke: Option<RenderStrokeOptions>,
+    pub horizontal_scale: f32,
 }
 
 impl Default for RenderOptions {
@@ -45,6 +46,7 @@ impl Default for RenderOptions {
             font_size: 16.0,
             effect: TextShaderEffect::default(),
             stroke: None,
+            horizontal_scale: 1.0,
         }
     }
 }
@@ -256,7 +258,7 @@ fn draw_outline_glyph(
     opts: &RenderOptions,
     pass: RenderPass,
 ) {
-    let transform = glyph_transform(glyph.bounds, baseline_x, baseline_y, opts.effect.faux_italic);
+    let transform = glyph_transform(glyph.bounds, baseline_x, baseline_y, opts.effect.faux_italic, opts.horizontal_scale);
 
     match pass {
         RenderPass::Stroke => {
@@ -319,6 +321,7 @@ fn draw_bitmap_glyph(
         x,
         y,
         opts.effect.faux_italic,
+        opts.horizontal_scale,
     );
     let paint = pixmap_paint(opts.effect.faux_italic, opts.anti_alias);
 
@@ -365,35 +368,51 @@ fn glyph_transform(
     baseline_x: f32,
     baseline_y: f32,
     italic: bool,
+    horizontal_scale: f32,
 ) -> Transform {
-    if !italic {
-        return Transform::from_translate(baseline_x, baseline_y);
+    let mut t = if !italic {
+        Transform::from_translate(baseline_x, baseline_y)
+    } else {
+        let glyph_w = bounds.width().max(1.0);
+        let glyph_h = bounds.height().max(1.0);
+        let slant = (glyph_w.min(glyph_h) * 0.22).max(1.0);
+        let kx = -slant / glyph_h;
+        Transform::from_row(
+            1.0,
+            0.0,
+            kx,
+            1.0,
+            baseline_x - kx * bounds.bottom(),
+            baseline_y,
+        )
+    };
+    if horizontal_scale != 1.0 {
+        t = t.pre_scale(horizontal_scale, 1.0);
     }
-
-    let glyph_w = bounds.width().max(1.0);
-    let glyph_h = bounds.height().max(1.0);
-    let slant = (glyph_w.min(glyph_h) * 0.22).max(1.0);
-    let kx = -slant / glyph_h;
-    Transform::from_row(
-        1.0,
-        0.0,
-        kx,
-        1.0,
-        baseline_x - kx * bounds.bottom(),
-        baseline_y,
-    )
+    t
 }
 
-fn bitmap_transform(width: f32, height: f32, x: f32, y: f32, italic: bool) -> Transform {
-    if !italic {
-        return Transform::from_translate(x, y);
+fn bitmap_transform(
+    width: f32,
+    height: f32,
+    x: f32,
+    y: f32,
+    italic: bool,
+    horizontal_scale: f32,
+) -> Transform {
+    let mut t = if !italic {
+        Transform::from_translate(x, y)
+    } else {
+        let glyph_w = width.max(1.0);
+        let glyph_h = height.max(1.0);
+        let slant = (glyph_w.min(glyph_h) * 0.22).max(1.0);
+        let kx = -slant / glyph_h;
+        Transform::from_row(1.0, 0.0, kx, 1.0, x - kx * glyph_h, y)
+    };
+    if horizontal_scale != 1.0 {
+        t = t.pre_scale(horizontal_scale, 1.0);
     }
-
-    let glyph_w = width.max(1.0);
-    let glyph_h = height.max(1.0);
-    let slant = (glyph_w.min(glyph_h) * 0.22).max(1.0);
-    let kx = -slant / glyph_h;
-    Transform::from_row(1.0, 0.0, kx, 1.0, x - kx * glyph_h, y)
+    t
 }
 
 fn pixmap_paint(italic: bool, anti_alias: bool) -> PixmapPaint {

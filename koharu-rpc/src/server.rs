@@ -4,7 +4,7 @@ use anyhow::Result;
 use axum::{
     Router,
     body::Body,
-    http::{HeaderValue, StatusCode, Uri, header},
+    http::{HeaderMap, HeaderValue, StatusCode, Uri, header},
     response::{IntoResponse, Response},
     routing::get,
 };
@@ -60,6 +60,7 @@ fn build_router(shared: SharedResources, resolver: SharedAssetResolver) -> Route
 async fn serve_thumbnail_route(
     State(state): State<WsState>,
     Path(index): Path<usize>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
     let resources = match crate::shared::get_resources(&state.resources) {
         Ok(res) => res,
@@ -73,6 +74,24 @@ async fn serve_thumbnail_route(
     };
 
     let thumbnail = doc.image.resize(180, 240, image::imageops::FilterType::Triangle);
+    let etag = get_image_etag("thumb", &doc.id, &thumbnail);
+
+    if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH) {
+        if if_none_match == etag.as_str() {
+            let mut response = Response::new(Body::empty());
+            *response.status_mut() = StatusCode::NOT_MODIFIED;
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("private, max-age=86400"),
+            );
+            response.headers_mut().insert(
+                header::ETAG,
+                HeaderValue::from_str(&etag).unwrap(),
+            );
+            return response.into_response();
+        }
+    }
+
     let mut buf = std::io::Cursor::new(Vec::new());
     if let Err(_) = thumbnail.write_to(&mut buf, image::ImageFormat::WebP) {
         return (StatusCode::INTERNAL_SERVER_ERROR, "Encoding failed").into_response();
@@ -85,7 +104,11 @@ async fn serve_thumbnail_route(
     );
     response.headers_mut().insert(
         header::CACHE_CONTROL,
-        HeaderValue::from_static("public, max-age=3600"),
+        HeaderValue::from_static("private, max-age=86400"),
+    );
+    response.headers_mut().insert(
+        header::ETAG,
+        HeaderValue::from_str(&etag).unwrap(),
     );
     response.into_response()
 }
@@ -93,6 +116,7 @@ async fn serve_thumbnail_route(
 async fn serve_image_route(
     State(state): State<WsState>,
     Path((index, layer)): Path<(usize, String)>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
     let resources = match crate::shared::get_resources(&state.resources) {
         Ok(res) => res,
@@ -122,6 +146,24 @@ async fn serve_image_route(
         _ => return (StatusCode::BAD_REQUEST, "Invalid layer").into_response(),
     };
 
+    let etag = get_image_etag(&layer, &doc.id, &img.0);
+
+    if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH) {
+        if if_none_match == etag.as_str() {
+            let mut response = Response::new(Body::empty());
+            *response.status_mut() = StatusCode::NOT_MODIFIED;
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("private, max-age=86400"),
+            );
+            response.headers_mut().insert(
+                header::ETAG,
+                HeaderValue::from_str(&etag).unwrap(),
+            );
+            return response.into_response();
+        }
+    }
+
     let mut buf = std::io::Cursor::new(Vec::new());
     if let Err(_) = img.0.write_to(&mut buf, image::ImageFormat::WebP) {
         return (StatusCode::INTERNAL_SERVER_ERROR, "Encoding failed").into_response();
@@ -134,7 +176,11 @@ async fn serve_image_route(
     );
     response.headers_mut().insert(
         header::CACHE_CONTROL,
-        HeaderValue::from_static("public, max-age=3600"),
+        HeaderValue::from_static("private, max-age=86400"),
+    );
+    response.headers_mut().insert(
+        header::ETAG,
+        HeaderValue::from_str(&etag).unwrap(),
     );
     response.into_response()
 }
@@ -170,4 +216,29 @@ pub async fn serve_with_listener(
     tracing::info!("HTTP server listening on http://{}", listener.local_addr()?);
     axum::serve(listener, router.into_make_service()).await?;
     Ok(())
+}
+
+fn get_image_etag(prefix: &str, doc_id: &str, img: &image::DynamicImage) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    prefix.hash(&mut hasher);
+    doc_id.hash(&mut hasher);
+    img.width().hash(&mut hasher);
+    img.height().hash(&mut hasher);
+    img.color().hash(&mut hasher);
+    
+    let bytes = img.as_bytes();
+    if !bytes.is_empty() {
+        bytes.len().hash(&mut hasher);
+        let head_len = 100.min(bytes.len());
+        bytes[..head_len].hash(&mut hasher);
+        let tail_start = bytes.len().saturating_sub(100);
+        bytes[tail_start..].hash(&mut hasher);
+        let mid = bytes.len() / 2;
+        let mid_start = mid.saturating_sub(50);
+        let mid_end = (mid + 50).min(bytes.len());
+        bytes[mid_start..mid_end].hash(&mut hasher);
+    }
+    format!("W/\"{:x}\"", hasher.finish())
 }

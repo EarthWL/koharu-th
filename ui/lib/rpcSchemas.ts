@@ -102,6 +102,8 @@ export const textStyleSchema = z.object({
   letterSpacingPx: fromRustOption(z.number()),
   minFontSize: fromRustOption(z.number()),
   verticalAlign: fromRustOption(verticalAlignSchema),
+  baselineShiftPx: fromRustOption(z.number()),
+  horizontalScale: fromRustOption(z.number()),
 })
 
 const namedFontPredictionSchema = z.object({

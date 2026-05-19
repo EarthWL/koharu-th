@@ -246,6 +246,12 @@ pub struct TextStyle {
     /// behaviour (None) is Top to keep current visual output unchanged.
     #[serde(default)]
     pub vertical_align: Option<VerticalAlign>,
+    /// Shift baseline vertically (positive values shift text up for horizontal writing mode).
+    #[serde(default)]
+    pub baseline_shift_px: Option<f32>,
+    /// Scale glyphs horizontally (e.g. 1.0 is default, 0.9 compresses, 1.1 expands).
+    #[serde(default)]
+    pub horizontal_scale: Option<f32>,
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]

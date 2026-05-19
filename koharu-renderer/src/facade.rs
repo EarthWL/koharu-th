@@ -241,7 +241,6 @@ impl Renderer {
             translation: Some(translation.clone()),
             ..Default::default()
         };
-
         let mut style = text_block.style.clone().unwrap_or_else(|| TextStyle {
             font_families: font_families_for_text(&normalized_translation),
             font_size: None,
@@ -253,6 +252,8 @@ impl Renderer {
             letter_spacing_px: None,
             min_font_size: None,
             vertical_align: None,
+            baseline_shift_px: None,
+            horizontal_scale: None,
         });
 
         apply_global_font_family(&mut style.font_families, font_family);
@@ -337,6 +338,7 @@ impl Renderer {
                 .with_writing_mode(writing_mode)
                 .with_line_height(line_height)
                 .with_letter_spacing(letter_spacing)
+                .with_horizontal_scale(style.horizontal_scale.unwrap_or(1.0))
                 .with_min_font_size(min_size);
             if let Some(size) = manual_size {
                 tl = tl.with_font_size(size);
@@ -378,6 +380,15 @@ impl Renderer {
         if let Some(va) = style.vertical_align {
             apply_vertical_align(&mut layout, layout_box.height, va);
         }
+        if let Some(shift) = style.baseline_shift_px {
+            for line in &mut layout.lines {
+                if writing_mode.is_vertical() {
+                    line.baseline.0 += shift;
+                } else {
+                    line.baseline.1 -= shift;
+                }
+            }
+        }
         align_layout_horizontally(&mut layout, writing_mode, layout_box.width, text_align);
 
         let resolved_stroke = resolve_stroke_style(
@@ -394,6 +405,7 @@ impl Renderer {
                 color,
                 effect: block_effect,
                 stroke: resolved_stroke,
+                horizontal_scale: style.horizontal_scale.unwrap_or(1.0),
                 ..Default::default()
             },
         )?;

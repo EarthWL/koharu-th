@@ -219,6 +219,14 @@ export function RenderControlsPanel() {
     selectedBlock?.style?.verticalAlign ??
     firstBlock?.style?.verticalAlign ??
     'top'
+  const currentBaselineShift =
+    selectedBlock?.style?.baselineShiftPx ??
+    firstBlock?.style?.baselineShiftPx ??
+    0
+  const currentHorizontalScale =
+    selectedBlock?.style?.horizontalScale ??
+    firstBlock?.style?.horizontalScale ??
+    1.0
   const fontLabel = t('render.fontLabel')
   const effectLabel = t('render.effectLabel')
   const strokeLabel = t('render.effectBorder')
@@ -266,6 +274,14 @@ export function RenderControlsPanel() {
       'minFontSize' in updates ? updates.minFontSize : style?.minFontSize,
     verticalAlign:
       'verticalAlign' in updates ? updates.verticalAlign : style?.verticalAlign,
+    baselineShiftPx:
+      'baselineShiftPx' in updates
+        ? updates.baselineShiftPx
+        : style?.baselineShiftPx,
+    horizontalScale:
+      'horizontalScale' in updates
+        ? updates.horizontalScale
+        : style?.horizontalScale,
   })
 
   const applyStyleToSelected = (updates: Partial<TextStyle>) => {
@@ -705,6 +721,64 @@ export function RenderControlsPanel() {
             </TooltipTrigger>
             <TooltipContent side='bottom' sideOffset={4}>
               {t('render.letterSpacingTooltip', { defaultValue: 'ระยะห่างตัวอักษร (Tracking VA) - พิกเซล' })}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+
+      <div className='grid w-full min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-1.5'>
+        <span className='text-muted-foreground text-[10px] font-medium tracking-wide uppercase'>
+          {t('render.baselineShiftLabel', { defaultValue: 'Shift/Scale' })}
+        </span>
+        <div className='flex items-center gap-1.5'>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className='flex items-center gap-1'>
+                <span className='text-muted-foreground/70 bg-muted/40 border-border/60 flex size-7 items-center justify-center rounded-md border text-[9px] font-bold shrink-0'>
+                  ΔY
+                </span>
+                <NumericStepper
+                  value={currentBaselineShift}
+                  min={-100}
+                  max={100}
+                  step={1}
+                  ariaLabel={t('render.ariaBaselineShift', { defaultValue: 'Baseline Shift' })}
+                  disabled={!hasBlocks}
+                  onChange={(v) =>
+                    applyStyleToSelected({ baselineShiftPx: v }) ||
+                    applyStyleToAll({ baselineShiftPx: v })
+                  }
+                />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side='bottom' sideOffset={4}>
+              {t('render.baselineShiftTooltip', { defaultValue: 'เลื่อนตำแหน่งแนวตั้ง (Baseline Shift) - พิกเซล' })}
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className='flex items-center gap-1'>
+                <span className='text-muted-foreground/70 bg-muted/40 border-border/60 flex size-7 items-center justify-center rounded-md border text-[9px] font-bold shrink-0'>
+                  ↔
+                </span>
+                <NumericStepper
+                  value={currentHorizontalScale}
+                  min={0.2}
+                  max={3.0}
+                  step={0.05}
+                  decimals={2}
+                  ariaLabel={t('render.ariaHorizontalScale', { defaultValue: 'Horizontal Scale' })}
+                  disabled={!hasBlocks}
+                  onChange={(v) =>
+                    applyStyleToSelected({ horizontalScale: v }) ||
+                    applyStyleToAll({ horizontalScale: v })
+                  }
+                />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side='bottom' sideOffset={4}>
+              {t('render.horizontalScaleTooltip', { defaultValue: 'ยืด/หดตัวอักษรแนวนอน (Horizontal Scale) - ตัวคูณ' })}
             </TooltipContent>
           </Tooltip>
         </div>

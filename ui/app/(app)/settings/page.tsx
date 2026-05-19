@@ -1070,42 +1070,59 @@ function AddonStoreSection() {
 
   const isTh = i18n.language === 'th-TH'
 
-  const handleInstall = (addon: AddonItem) => {
+  const handleInstall = async (addon: AddonItem) => {
     setInstallingId(addon.id)
-    setInstallProgress(0)
+    setInstallProgress(10)
 
-    let currentProgress = 0
-    const interval = setInterval(() => {
-      currentProgress += 10
-      setInstallProgress(currentProgress)
+    try {
+      setInstallProgress(30)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 3000)
       
-      if (currentProgress >= 100) {
-        clearInterval(interval)
-        
-        // 1. Inject resource bundle dynamically
-        i18n.addResourceBundle(addon.code, 'translation', addon.resources, true, true)
-        
-        // 2. Add language labels dynamically
-        const activeLanguages = Object.keys(i18n.options.resources || {})
-        activeLanguages.forEach((lang) => {
-          i18n.addResourceBundle(lang, 'translation', {
-            menu: {
-              languages: {
-                [addon.code]: addon.label
-              }
-            }
-          }, true, true)
-        })
-
-        // 3. Update store state
-        setInstalledAddons([...installedAddons, addon.id])
-        setCloudTargetLanguage(addon.targetLanguage)
-
-        setInstallingId(null)
-        setInstallProgress(0)
-        setRelaunchAddon(addon) // Trigger the relaunch modal!
+      let resources = addon.resources
+      try {
+        const res = await fetch(
+          `https://cdn.jsdelivr.net/gh/EarthWL/koharu-th-addons@main/langs/${addon.code}.json`,
+          { signal: controller.signal }
+        )
+        clearTimeout(timeoutId)
+        if (res.ok) {
+          resources = await res.json()
+          console.log(`Addon '${addon.id}' downloaded successfully from CDN.`)
+        }
+      } catch (err) {
+        console.warn(`CDN fetch failed, falling back to bundled resources:`, err)
       }
-    }, 150)
+
+      setInstallProgress(60)
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      
+      setInstallProgress(90)
+      // 1. Inject resource bundle dynamically
+      i18n.addResourceBundle(addon.code, 'translation', resources, true, true)
+      
+      // 2. Add language labels dynamically
+      const activeLanguages = Object.keys(i18n.options.resources || {})
+      activeLanguages.forEach((lang) => {
+        i18n.addResourceBundle(lang, 'translation', {
+          menu: {
+            languages: {
+              [addon.code]: addon.label
+            }
+          }
+        }, true, true)
+      })
+
+      // 3. Update store state
+      setInstalledAddons([...installedAddons, addon.id])
+      setCloudTargetLanguage(addon.targetLanguage)
+      setRelaunchAddon(addon) // Trigger the relaunch modal!
+    } catch (e) {
+      console.error('Installation failed:', e)
+    } finally {
+      setInstallingId(null)
+      setInstallProgress(0)
+    }
   }
 
   const handleUninstall = (addon: AddonItem) => {
