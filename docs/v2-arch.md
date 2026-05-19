@@ -72,6 +72,7 @@ These are settled. Changing any requires updating this doc.
 | Worktree layout | `koharu-0.37.0/` (main) + `koharu-th-v2/` (branch) at sibling paths | Each has its own `target/`, `node_modules/`, `.next/`. Disk cost ~30-50GB extra for `target/`. Worth it. |
 | CI on branch | **Re-enable matrix CI on the branch only** | Refactor needs safety net. Main stays Actions-off (macOS 10× cost). Branch CI gates merge-back. |
 | Testing | **`proptest` + integration-tests crate from day 1** | Op-based state enables property testing (apply ∘ undo ∘ apply = apply). New crate `tests/integration` modelled after upstream's. |
+| Blob transport (frontend ↔ backend) | **HTTP GET `/blob/:hex` with `Cache-Control: immutable`**, NOT WS-RPC | Browser-native GPU-accelerated decode, automatic HTTP cache (content-addressed = immutable), parallel fetch. Adds one route to the existing Axum server; no msgpack serialization of bitmap bytes. See [#33](https://github.com/EarthWL/koharu-th/issues/33). |
 
 ---
 
@@ -400,14 +401,33 @@ no dead code; the foundation laid waits for the next phase.
   serialization boundary
 - Backend: read raw bytes, write to `BlobStore`, hand `BlobId` to
   frontend
-- Frontend: `BlobId` → fetch bytes via new RPC method
-  (cache locally)
+- Frontend: `BlobId` → fetch bytes via **HTTP GET `/blob/:hex`** on
+  the existing Axum server (`koharu-rpc/src/server.rs`), NOT via a
+  new WS-RPC method. The HTTP path lets the browser do three things
+  that an RPC-over-WS path can't:
+  - `<img src="/blob/{hex}">` and `createImageBitmap(url)` use the
+    browser's native + GPU-accelerated image decoder, off-thread,
+    in parallel. No JS heap allocation for decoded bitmaps.
+  - HTTP cache works automatically. Since blobs are content-
+    addressed (hash = id), the response can set
+    `Cache-Control: public, max-age=31536000, immutable` and the
+    browser will never re-fetch — paging back and forth between
+    chapters is zero-cost.
+  - HTTP/1.1 multi-connection (or HTTP/2 multiplexing in dev) lets
+    multiple page thumbnails fetch in parallel without queueing
+    behind the single WS pipe carrying RPC / tool calls.
+  Credit: this approach was proposed by @HetCreep in
+  [#33](https://github.com/EarthWL/koharu-th/issues/33) and is
+  materially better than the WS-RPC `blob_get` design this doc
+  originally specified.
 - All other binary fields (`segment`, `inpainted`, `rendered`,
-  `brush`) get the same treatment
+  `brush`) get the same treatment via the same route.
 - Old mutation path stays intact — `Scene` not yet introduced;
-  engines still mutate `Document` directly
+  engines still mutate `Document` directly.
 - **Acceptance**: page open + render works; binary bytes are
-  fetched via blob, not embedded; existing test suite green.
+  fetched via `/blob/:hex`, not embedded in the WS RPC payload;
+  Network panel shows 200-from-cache on second visit to a page;
+  existing test suite green.
 
 ### Phase 3 — `Engine` trait + registry + hardware probe (1 week)
 
