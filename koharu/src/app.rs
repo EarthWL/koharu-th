@@ -3,7 +3,6 @@ use std::{path::PathBuf, sync::Arc};
 use anyhow::{Context, Result};
 use clap::Parser;
 use once_cell::sync::Lazy;
-use rfd::MessageDialog;
 use tauri::Manager;
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -93,46 +92,56 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
     // hook model cache dir
     koharu_ml::set_cache_dir(MODEL_ROOT.to_path_buf())?;
 
-    if headless {
-        std::panic::set_hook(Box::new(|info| {
-            // Audit #9 follow-up: log the panic before printing so
-            // it lands in any tracing subscribers (file appender,
-            // log aggregator, etc.) even when stderr is detached.
-            tracing::error!(panic = %info, "panic in headless mode");
-            eprintln!("panic: {info}");
-            if let Some(loc) = info.location() {
-                eprintln!("  at {}:{}:{}", loc.file(), loc.line(), loc.column());
-            }
-            let bt = std::backtrace::Backtrace::force_capture();
-            eprintln!("backtrace:\n{bt}");
-        }));
-    } else {
-        std::panic::set_hook(Box::new(|info| {
-            let msg = info.to_string();
-            // Audit #9 follow-up: emit panic to tracing FIRST so
-            // log files capture it before the dialog blocks the
-            // thread. Previously the dialog took the message and
-            // process::exit jumped out before any log flush, so
-            // panics that escaped catch_unwind left zero trace.
-            tracing::error!(panic = %msg, "panic surfaced to dialog");
-            if let Some(loc) = info.location() {
-                tracing::error!(
-                    file = loc.file(),
-                    line = loc.line(),
-                    col = loc.column(),
-                    "panic location"
-                );
-            }
-            let bt = std::backtrace::Backtrace::force_capture();
-            tracing::error!(backtrace = %bt, "panic backtrace");
-            MessageDialog::new()
-                .set_level(rfd::MessageLevel::Error)
-                .set_title("Panic")
-                .set_description(&msg)
-                .show();
-            std::process::exit(1);
-        }));
-    }
+    // Audit #9 follow-up #2: the panic hook ONLY logs. Critical
+    // not to call MessageDialog + process::exit here — those run
+    // synchronously at the panic point, BEFORE Rust starts
+    // unwinding. Which means `std::panic::catch_unwind` further up
+    // the stack never gets a chance to convert the panic into an
+    // Err. The audit-#9/B3 thread guard in koharu_ml::lama::
+    // catch_cudnn_panic + the bridge-level guard in
+    // engine_bridge::run_engine_on_document are NO-OPS as long as
+    // this hook exits the process first.
+    //
+    // Symptom we hit: cudarc 0.19.3 has `unwrap()` in
+    // `<Cudnn as Drop>::drop` — when the cuDNN handle gets
+    // destroyed after a successful inference call,
+    // CUDNN_STATUS_INTERNAL_ERROR in cleanup triggers a panic in
+    // a destructor. The destructor runs INSIDE our catch_unwind
+    // region (handle goes out of scope inside the call), so
+    // catch_unwind COULD catch it — but only if this hook doesn't
+    // pre-empt with exit(1).
+    //
+    // New behaviour: log the panic + backtrace via tracing (so we
+    // still see it in logs), then RETURN from the hook. Rust's
+    // default unwinding continues, catch_unwind catches inside
+    // engine.run / inference_model_rgb, panic becomes Err,
+    // process survives, user gets a toast through the existing
+    // engine-failure path.
+    //
+    // Uncaught panics (escape every catch_unwind boundary) follow
+    // Rust's default thread-abort behaviour. The Tauri main
+    // thread aborting would crash the app anyway; surfacing a
+    // friendly dialog for THAT case is future work.
+    std::panic::set_hook(Box::new(|info| {
+        let msg = info.to_string();
+        tracing::error!(panic = %msg, "panic captured by hook (log-only, will continue unwinding)");
+        if let Some(loc) = info.location() {
+            tracing::error!(
+                file = loc.file(),
+                line = loc.line(),
+                col = loc.column(),
+                "panic location"
+            );
+        }
+        let bt = std::backtrace::Backtrace::force_capture();
+        tracing::error!(backtrace = %bt, "panic backtrace");
+        // In headless mode tracing alone might not surface to the
+        // terminal if subscribers are filtered; mirror to stderr.
+        if std::env::var_os("KOHARU_HEADLESS").is_some() {
+            eprintln!("panic: {msg}");
+        }
+    }));
+    let _ = headless; // signal-only — the hook is the same in both modes
 
     Ok(())
 }
