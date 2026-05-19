@@ -70,9 +70,19 @@ pub async fn ocr(state: AppResources, payload: OcrPayload) -> anyhow::Result<()>
 
 #[instrument(level = "info", skip_all)]
 pub async fn inpaint(state: AppResources, payload: IndexPayload) -> anyhow::Result<()> {
-    let mut snapshot = state_tx::read_doc(&state.state, payload.index).await?;
-    state.ml.inpaint(&mut snapshot).await?;
-    state_tx::update_doc(&state.state, payload.index, snapshot).await
+    // Phase 4.4: LaMa inpaint goes through the engine system.
+    // Same single-engine choice as before (no alternative inpaint
+    // engine yet). AOT / Flux.2 Klein alternatives land in a
+    // follow-up under the same `produces: [InpaintedImage]` slot.
+    engine_bridge::run_engine_on_document(
+        &state,
+        payload.index,
+        engines::LAMA_INPAINT_ID,
+        PipelineRunOptions::new(),
+        engine_bridge::RunPolicy::default(),
+        CancellationToken::new(),
+    )
+    .await
 }
 
 #[instrument(level = "info", skip_all)]
