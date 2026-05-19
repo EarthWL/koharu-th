@@ -1,11 +1,37 @@
-# Koharu-TH
+# Koharu-TH — v2 architecture refactor branch
 
-[![Version](https://img.shields.io/badge/version-1.2.1-blue.svg)](https://github.com/EarthWL/koharu-th/releases)
+[![Branch](https://img.shields.io/badge/branch-arch%2Fv2--foundation-orange.svg)](https://github.com/EarthWL/koharu-th/tree/arch/v2-foundation)
+[![Target](https://img.shields.io/badge/target-v2.0.0--rc1-red.svg)](docs/v2-progress.md)
+[![Latest stable](https://img.shields.io/badge/latest%20stable-1.2.2-blue.svg)](https://github.com/EarthWL/koharu-th/releases)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE-GPL)
 [![Sub-crates: Apache 2.0](https://img.shields.io/badge/sub--crates-Apache--2.0-blue.svg)](LICENSE-APACHE)
 [![Forked from](https://img.shields.io/badge/forked%20from-mayocream%2Fkoharu%200.37.0-purple.svg)](https://github.com/mayocream/koharu)
-[![Upstream now](https://img.shields.io/badge/upstream%20now-0.59.x-lightgrey.svg)](https://github.com/mayocream/koharu/releases)
 [![Rust](https://img.shields.io/badge/rust-1.92%2B-orange.svg)](https://www.rust-lang.org/)
+
+> [!WARNING]
+> **You're on the `arch/v2-foundation` branch.** This is an active
+> refactor toward v2.0.0-rc1, not a user-ready build. The application
+> behaves like 1.2.x at the surface but the underlying engine pipeline,
+> project storage, and undo/redo machinery have been rewritten. If you
+> want a stable release, install from
+> [main / v1.2.2](https://github.com/EarthWL/koharu-th/releases/latest).
+>
+> **Refactor status** (tip `e9f688c4`):
+> - ✅ **Phases 1-5** — koharu-core, koharu-engines, koharu-app
+>   crates; HTTP `/blob/:hex` transport; 9 ported engines on the
+>   `Engine` trait + DAG resolver + Profile UI; per-chapter
+>   `ProjectSession` with undo/redo + autosave
+> - ✅ **Phase 6.1–6.4** — V007 migration + confirm dialog +
+>   integration tests + engine-pipeline stage golden tests
+> - ✅ **7 external audits cleared** (#5 / #6 / #7 on Phase 4-6;
+>   #3 / #4 + 2 earlier on Phase 2)
+> - ⏳ **Phase 6.5** — CI re-enable (clippy cleanup + Actions
+>   policy decision)
+> - ⏳ **Phase 6.6** — RC merge prep, per-GPU build, tag
+>   `v2.0.0-rc1`
+>
+> Full plan: [docs/v2-arch.md](docs/v2-arch.md) (on `main`) ·
+> Progress tracker: [docs/v2-progress.md](docs/v2-progress.md)
 
 > [ภาษาไทย](./README.th.md)
 >
