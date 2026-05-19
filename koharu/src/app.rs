@@ -354,7 +354,13 @@ async fn build_resources_inner(cpu: bool, file: Option<PathBuf>) -> Result<AppRe
     let state = Arc::new(RwLock::new(State::default()));
 
     let project = if let Some(path) = file {
-        let root = if path.is_file() && path.file_name().and_then(|n| n.to_str()) == Some("series.koharuproj") {
+        let root = if path.is_file()
+            && path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.eq_ignore_ascii_case("koharuproj"))
+                == Some(true)
+        {
             path.parent().unwrap_or(&path).to_path_buf()
         } else {
             path
