@@ -15,11 +15,21 @@ const shouldRenderSprite = (updates: Partial<TextBlock>) =>
   Object.prototype.hasOwnProperty.call(updates, 'width') ||
   Object.prototype.hasOwnProperty.call(updates, 'height') ||
   Object.prototype.hasOwnProperty.call(updates, 'translation') ||
-  Object.prototype.hasOwnProperty.call(updates, 'style')
+  Object.prototype.hasOwnProperty.call(updates, 'style') ||
+  // Self-test fix #3: rotation slider on TextBlocksPanel updates
+  // `block.rotationDeg`. Pre-fix the annotation CSS rotated but
+  // the rendered text sprite stayed unrotated — user saw the
+  // outline tilt while the text glyphs sat flat. The renderer
+  // honours `rotation_deg`; we just need to re-bake the sprite
+  // when rotation changes.
+  Object.prototype.hasOwnProperty.call(updates, 'rotationDeg')
 
 const shouldRenderSpriteImmediately = (updates: Partial<TextBlock>) =>
   Object.prototype.hasOwnProperty.call(updates, 'width') ||
   Object.prototype.hasOwnProperty.call(updates, 'height')
+// Rotation goes through `shouldRenderSprite` but NOT this immediate
+// predicate — slider onChange fires per-degree-drag, the debounced
+// `scheduleRender` coalesces drags into one re-bake on release.
 
 const hasGeometryChange = (updates: Partial<TextBlock>) =>
   Object.prototype.hasOwnProperty.call(updates, 'x') ||
