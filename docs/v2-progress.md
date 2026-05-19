@@ -11,7 +11,35 @@ diverge, update `v2-arch.md` first (design is locked there, not here).
 
 ---
 
-## Current phase: Phase 1.1 — re-review amendments
+## Current phase: Phase 1.2 — Phase 3 prep stubs
+
+**Status**: ✅ COMPLETE (2026-05-19)
+
+Pre-Phase-3 audit flagged that the v2-arch.md §4.4 spec references
+`ProjectView` and `PipelineRunOptions` on `EngineCtx`, but Phase 1.1
+shipped neither type. Defining `EngineCtx` in Phase 3 would have
+hit a compile wall on the first day. Phase 1.2 lands both as stubs:
+
+- **`koharu-core/src/project_view.rs`**: read-only handle exposing
+  characters / glossary / series_meta as owned-`Vec` rows. Empty
+  constructor for tests + the Phase 3 detector engine (which
+  doesn't read project state). Phase 5 will refactor backing to
+  borrow from `ProjectSession`'s SQLite-backed caches once that
+  crate exists. TM lookup deferred (needs koharu-project TmStore).
+- **`koharu-core/src/run_options.rs`**: per-run typed settings bag.
+  `HashMap<String, StoredValue>` keyed by `SettingDescriptor.id`.
+  Resolves typed values via `SettingValue::from_stored` so engines
+  read with `opts.get::<T>(key)`. The `EngineCtx::setting::<T>`
+  helper in Phase 3 will wrap this.
+- **Tests**: 43 unit + 2 proptest green (up from 29+2 in Phase 1.1).
+  Includes JSON round-trip + lookup helpers + type-mismatch
+  fallback paths.
+
+Both modules are additive — no consumers wired, no Phase 2 code
+touched. Phase 3 picks up `EngineCtx` definition with all
+referenced types in scope.
+
+## Previous phase: Phase 1.1 — re-review amendments
 
 **Status**: ✅ COMPLETE (2026-05-19, branch tip after this commit)
 
@@ -83,8 +111,9 @@ Applied the 10 issues caught in the post-#33 design re-review (see
 |---|---|---|---|
 | 1 — `koharu-core` scaffold | ✅ complete | 2 → 1 actual | Op/Scene/BlobStore/HardwareReq + 18+2 tests |
 | 1.1 — re-review amendments | ✅ complete | 0.5 actual | Drop OpInverse + NoteTmHit; add ProjectOp/ArtifactKind/SettingDescriptor; 29+2 tests |
-| 2 — `BlobStore` wired into pipeline | ⏳ next | 3 | HTTP `/blob/:hex` route + frontend fetch (from #33). `Document.image: Uint8Array` → `BlobId` at serialization boundary |
-| 3 — Engine trait + registry + hardware probe | ⏳ pending | 1 | Detector ported as first engine |
+| 2 — `BlobStore` wired into pipeline | ✅ complete | ~1 actual | HTTP `/blob/:hex` + DocumentDto + frontend; survived 2 external audits |
+| 1.2 — Phase 3 prep stubs | ✅ complete | 0.1 actual | Add ProjectView + PipelineRunOptions stubs; 43+2 tests |
+| 3 — Engine trait + registry + hardware probe | ⏳ next | 1 | Detector ported as first engine |
 | 4 — Engine migration + Engine Profile UI ⭐ | ⏳ pending | 8-10 | Largest phase. 6 stages × port + UI work |
 | 5 — `ProjectSession` + undo/redo | ⏳ pending | 2-3 | Per-chapter session ring buffer |
 | 6 — Migration script + integration tests green | ⏳ pending | 1-2 | v1 → v2 atomic migration |

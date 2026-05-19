@@ -7,14 +7,16 @@
 //!
 //! ## Module map
 //!
-//! - [`id`]         — newtype wrappers (`PageId`, `NodeId`, `TmEntryId`)
-//! - [`blob`]       — content-addressed `BlobStore` (blake3-hashed)
-//! - [`scene`]      — page model: `Scene` → `Page` → `TextBlock`
-//! - [`op`]         — `Op` enum (Scene mutations) + `EngineResult`
-//! - [`op_project`] — `ProjectOp` enum (project entity mutations)
-//! - [`artifact`]   — `ArtifactKind` (engine consumes/produces declaration)
-//! - [`settings`]   — `SettingDescriptor` (engine config schema)
-//! - [`hardware`]   — `HardwareReq`, `DetectedHardware`, `EngineCost`
+//! - [`id`]            — newtype wrappers (`PageId`, `NodeId`, `TmEntryId`)
+//! - [`blob`]          — content-addressed `BlobStore` (blake3-hashed)
+//! - [`scene`]         — page model: `Scene` → `Page` → `TextBlock`
+//! - [`op`]            — `Op` enum (Scene mutations) + `EngineResult`
+//! - [`op_project`]    — `ProjectOp` enum (project entity mutations)
+//! - [`artifact`]      — `ArtifactKind` (engine consumes/produces declaration)
+//! - [`settings`]      — `SettingDescriptor` (engine config schema)
+//! - [`hardware`]      — `HardwareReq`, `DetectedHardware`, `EngineCost`
+//! - [`project_view`]  — `ProjectView` (read-only project handle for engines)
+//! - [`run_options`]   — `PipelineRunOptions` (per-run typed settings bag)
 //!
 //! All public types are `Serialize + Deserialize` so the same shapes
 //! traverse the RPC layer (frontend ↔ backend), the on-disk
@@ -27,6 +29,8 @@ pub mod hardware;
 pub mod id;
 pub mod op;
 pub mod op_project;
+pub mod project_view;
+pub mod run_options;
 pub mod scene;
 pub mod settings;
 
@@ -41,5 +45,7 @@ pub use op_project::{
     CharacterAdd, CharacterAlias, CharacterId, CharacterPatch, GlossaryAdd, GlossaryCategory,
     GlossaryConfidence, GlossaryEntryId, GlossaryPatch, ProjectOp, SeriesMetaPatch,
 };
+pub use project_view::{CharacterRow, GlossaryRow, ProjectView, SeriesMetaRow};
+pub use run_options::PipelineRunOptions;
 pub use scene::{FontPrediction, Page, Region, Scene, TextBlock, TextStyle};
 pub use settings::{SettingDescriptor, SettingValue, StoredValue};
