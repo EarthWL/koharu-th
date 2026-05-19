@@ -471,22 +471,6 @@ function LlmStatusPopover() {
                   </SelectContent>
                 </Select>
 
-                <Button
-                  type='button'
-                  variant='secondary'
-                  size='sm'
-                  onClick={async () => {
-                    const detected = await autoDetectSourceLanguage()
-                    if (detected) {
-                      setCloudTargetLanguage(detected)
-                    } else {
-                      alert('Could not detect language.')
-                    }
-                  }}
-                  className='mt-1 h-6 w-full text-[10px]'
-                >
-                  Auto-detect Source
-                </Button>
               </div>
               <div className='bg-muted text-muted-foreground rounded border p-3 text-center text-xs'>
                 <p className='text-foreground mb-1 font-semibold'>
