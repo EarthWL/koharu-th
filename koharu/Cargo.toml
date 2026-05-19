@@ -24,6 +24,7 @@ include = [
 [dependencies]
 koharu-ml = { workspace = true }
 koharu-pipeline = { workspace = true }
+koharu-project = { workspace = true }
 koharu-renderer = { workspace = true }
 koharu-rpc = { workspace = true }
 koharu-runtime = { workspace = true }

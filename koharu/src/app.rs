@@ -100,6 +100,8 @@ struct Cli {
         default_value_t = false
     )]
     debug: bool,
+    #[arg(help = "Path to the .koharuproj file or project directory to open")]
+    file: Option<PathBuf>,
 }
 
 fn initialize(headless: bool, _debug: bool) -> Result<()> {
@@ -264,7 +266,7 @@ fn get_ml_device_selection() -> String {
     "AUTO".to_string()
 }
 
-async fn build_resources(cpu_cli: bool) -> Result<AppResources> {
+async fn build_resources(cpu_cli: bool, file: Option<PathBuf>) -> Result<AppResources> {
     let selection = if cpu_cli {
         "CPU".to_string()
     } else {
@@ -278,7 +280,7 @@ async fn build_resources(cpu_cli: bool) -> Result<AppResources> {
 
     // Try the requested selection first.
     if !is_cpu {
-        match build_resources_inner(false).await {
+        match build_resources_inner(false, file.clone()).await {
             Ok(res) => return Ok(res),
             Err(err) => {
                 tracing::warn!(
@@ -289,10 +291,10 @@ async fn build_resources(cpu_cli: bool) -> Result<AppResources> {
             }
         }
     }
-    build_resources_inner(true).await
+    build_resources_inner(true, file).await
 }
 
-async fn build_resources_inner(cpu: bool) -> Result<AppResources> {
+async fn build_resources_inner(cpu: bool, file: Option<PathBuf>) -> Result<AppResources> {
     if !cpu && cuda_is_available() {
         ensure_dylibs(LIB_ROOT.to_path_buf())
             .await
@@ -335,6 +337,37 @@ async fn build_resources_inner(cpu: bool) -> Result<AppResources> {
     );
     let state = Arc::new(RwLock::new(State::default()));
 
+    let project = if let Some(path) = file {
+        let root = if path.is_file() && path.file_name().and_then(|n| n.to_str()) == Some("series.koharuproj") {
+            path.parent().unwrap_or(&path).to_path_buf()
+        } else {
+            path
+        };
+        match koharu_project::Project::open(&root) {
+            Ok(p) => {
+                tracing::info!("Auto-loaded project from command-line: {:?}", root);
+                // Also add to recent projects list!
+                let entry = koharu_project::recent::RecentProject {
+                    path: p.root().to_path_buf(),
+                    name: p.manifest().name.clone(),
+                    last_opened_at: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0),
+                };
+                let recent_path = APP_ROOT.join("recent-projects.json");
+                let _ = koharu_project::recent::push(&recent_path, entry);
+                Some(p)
+            }
+            Err(err) => {
+                tracing::error!("Failed to auto-load project from command-line {:?}: {err:#}", root);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     Ok(AppResources {
         state,
         ml,
@@ -343,7 +376,7 @@ async fn build_resources_inner(cpu: bool) -> Result<AppResources> {
         device: device(cpu)?,
         pipeline: Arc::new(RwLock::new(None)),
         queue_worker: Arc::new(RwLock::new(None)),
-        project: Arc::new(RwLock::new(None)),
+        project: Arc::new(RwLock::new(project)),
         recent_projects_path: APP_ROOT.join("recent-projects.json"),
         lib_root: LIB_ROOT.to_path_buf(),
         model_root: MODEL_ROOT.to_path_buf(),
@@ -359,6 +392,7 @@ pub async fn run() -> Result<()> {
         port,
         headless,
         debug,
+        file,
     } = Cli::parse();
 
     initialize(headless, debug)?;
@@ -403,8 +437,10 @@ fn set_ml_device_config(selection: String) -> std::result::Result<(), String> {
         ])
         .setup({
             let shared = shared.clone();
+            let file = file.clone();
             move |app| {
                 let handle = app.handle().clone();
+                let file = file.clone();
                 tauri::async_runtime::spawn(async move {
                     handle
                         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -418,7 +454,7 @@ fn set_ml_device_config(selection: String) -> std::result::Result<(), String> {
                     // surfaced. Surface the error via a message dialog +
                     // exit cleanly instead.
                     let init_result = shared
-                        .get_or_try_init(|| async { build_resources(cpu).await })
+                        .get_or_try_init(|| async { build_resources(cpu, file).await })
                         .await;
                     if let Err(err) = init_result {
                         let msg = format!(
@@ -479,7 +515,7 @@ fn set_ml_device_config(selection: String) -> std::result::Result<(), String> {
 
     if headless {
         shared
-            .get_or_try_init(|| async { build_resources(cpu).await })
+            .get_or_try_init(|| async { build_resources(cpu, file).await })
             .await?;
         tokio::signal::ctrl_c().await?;
     } else {

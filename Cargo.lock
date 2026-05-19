@@ -3839,6 +3839,7 @@ dependencies = [
  "git-version",
  "koharu-ml",
  "koharu-pipeline",
+ "koharu-project",
  "koharu-renderer",
  "koharu-rpc",
  "koharu-runtime",

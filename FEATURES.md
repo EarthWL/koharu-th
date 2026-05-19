@@ -87,6 +87,6 @@ release history see [CHANGELOG.md](CHANGELOG.md).
 - **Security Hardening** — V8 memory zeroization for sensitive API keys after use, anti-debugging hooks, and TLS 1.2 minimum protocol requirements.
 - **3-mode Auto-updater** — automated, notify-only, or manual update options from GitHub Releases.
 - **OS keyring** for API key storage (not raw in DB).
-- **Windows Registry Association** — registers `.koharuproj` extension to auto-launch the application in project mode.
+- **Windows Registry Association** — registers `.koharuproj` extension to auto-launch the application and automatically load/open the double-clicked project directory directly at startup.
 - **Windows Path & Cache Hardening** — Uses Windows UNC prefix (`\\?\`) recursively resolved at startup to automatically bypass the 260-character `MAX_PATH` limit, resolving model download `os error 3` (Path Not Found) panics.
 - **GPL-3.0** app + **Apache-2.0** sub-crates (preserved from upstream).
