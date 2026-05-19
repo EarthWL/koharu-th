@@ -222,6 +222,10 @@ async fn build_resources_inner(cpu: bool) -> Result<AppResources> {
         model_root: MODEL_ROOT.to_path_buf(),
         font_root: FONT_ROOT.to_path_buf(),
         engine_profile,
+        // Phase 5.3: ProjectSession is lazy-initialized on the
+        // first engine_bridge run. Phase 5.5 will explicitly
+        // construct + tear-down it on chapter-open/close.
+        session: Arc::new(RwLock::new(None)),
         version: crate::version::current(),
     })
 }

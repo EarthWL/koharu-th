@@ -68,5 +68,12 @@ pub struct AppResources {
     /// RPC + UI; F4.D wires the bridge to consume it (currently
     /// engine ids are still hardcoded at call-sites).
     pub engine_profile: engine_profile::EngineProfileStore,
+    /// Phase 5: ProjectSession tracking the per-chapter undo/redo
+    /// history + Scene canonical state + event bus. `None` until
+    /// the first engine apply lazy-inits it (Phase 5.3); Phase
+    /// 5.5 will manage explicit chapter-open/close lifecycle.
+    /// Wrapped in `Arc<RwLock<...>>` because engine_bridge calls
+    /// (which take `&AppResources`) need interior mutability.
+    pub session: Arc<RwLock<Option<koharu_app::ProjectSession>>>,
     pub version: &'static str,
 }

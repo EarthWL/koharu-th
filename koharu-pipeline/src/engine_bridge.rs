@@ -57,6 +57,7 @@ use koharu_types::{Document, SerializableDynamicImage};
 
 use crate::AppResources;
 use crate::engine_profile::EngineProfileStore;
+use koharu_app::{ProjectSession, SessionConfig};
 
 /// Policy bag for [`run_engine_on_document`]. Phase 4.1 ships one
 /// knob (`clear_text_blocks_first`); future fields land additively.
@@ -175,7 +176,7 @@ pub async fn run_engine_on_document(
                 // the channel before exiting (engine may have sent
                 // its final EngineResult just before returning).
                 while let Ok(batch) = ops_rx.try_recv() {
-                    apply_engine_result(&mut doc, batch, &state.blobs)?;
+                    apply_engine_result_dual(state, &mut doc, &scene, batch).await?;
                     apply_count += 1;
                 }
                 result.with_context(|| format!("engine '{}' run failed", engine_id))?;
@@ -184,7 +185,7 @@ pub async fn run_engine_on_document(
             maybe_batch = ops_rx.recv() => {
                 match maybe_batch {
                     Some(batch) => {
-                        apply_engine_result(&mut doc, batch, &state.blobs)?;
+                        apply_engine_result_dual(state, &mut doc, &scene, batch).await?;
                         apply_count += 1;
                     }
                     None => {
@@ -308,26 +309,70 @@ fn register_image(blobs: &BlobStore, img: &SerializableDynamicImage) -> Result<B
     Ok(blobs.put(buf))
 }
 
-/// Apply one `EngineResult` batch to the Document. Scene ops mutate
-/// the doc; project ops are ignored here (Phase 4.5 will route them
-/// through `koharu-project`'s SQLite layer).
-fn apply_engine_result(
+/// Phase 5.3 — dual-apply path. Applies the batch to both the
+/// legacy `Document` (for state_tx RPC reads) AND the
+/// `ProjectSession` (for history + events). The session is
+/// lazy-initialized from `initial_scene` on first use — that's
+/// the Scene this engine run was driven against, so the
+/// session's initial state matches what the engine saw.
+///
+/// The session.apply path can fail (e.g. `NodeNotFound` when the
+/// engine emits an `UpdateTextBlock` against a block the session
+/// doesn't have because session.scene drifted from doc via a
+/// non-engine RPC path). We LOG the failure but don't propagate —
+/// the Document apply already succeeded, RPC reads stay correct,
+/// only history is out of sync. Phase 5.4 RPCs that hit a drift
+/// would surface a clean "history unavailable for this state"
+/// rather than crash.
+///
+/// Phase 6+ will delete the Document path entirely once Scene
+/// becomes the canonical RPC return shape too. For now the
+/// duplication is the cost of incremental migration.
+async fn apply_engine_result_dual(
+    state: &AppResources,
     doc: &mut Document,
+    initial_scene: &Scene,
     batch: koharu_core::EngineResult,
-    blobs: &BlobStore,
 ) -> Result<()> {
-    for op in batch.scene_ops {
-        apply_op(doc, op, blobs)?;
+    // Apply to Document FIRST so RPC reads stay correct even if
+    // the session path errors below.
+    for op in &batch.scene_ops {
+        apply_op(doc, op.clone(), &state.blobs)?;
     }
     if !batch.project_ops.is_empty() {
-        // Phase 4.1 skips project ops. The detector engine (the
-        // only one Phase 4.2 swaps) doesn't emit any, so the warn
-        // is a placeholder for when translate-extract-entities
-        // lands.
         warn!(
             count = batch.project_ops.len(),
-            "ProjectOps received but bridge is not yet wired to koharu-project (Phase 4.5)"
+            "ProjectOps received but bridge is not yet wired to koharu-project"
         );
+    }
+
+    // Then apply to the session for history tracking. Lazy-init
+    // on first call from the Scene the engine just worked
+    // against. Holding the lock across the loop is fine —
+    // session.apply is fast (in-memory mutation + history push +
+    // bus broadcast); we're not blocking on I/O.
+    let mut session_guard = state.session.write().await;
+    if session_guard.is_none() {
+        *session_guard = Some(ProjectSession::new(
+            initial_scene.clone(),
+            SessionConfig::default(),
+        ));
+    }
+    let session = session_guard
+        .as_mut()
+        .expect("just initialised above if it was None");
+    for op in batch.scene_ops {
+        if let Err(e) = session.apply(op) {
+            // Don't propagate — Document path already succeeded.
+            // Phase 5.4 RPCs that read history will see the
+            // truncated history; that's better than crashing the
+            // engine call.
+            tracing::warn!(
+                error = ?e,
+                "session.apply failed — history out of sync with doc; \
+                 undo for this op chain will be unavailable"
+            );
+        }
     }
     Ok(())
 }

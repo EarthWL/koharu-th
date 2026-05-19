@@ -3998,6 +3998,7 @@ dependencies = [
  "imageproc",
  "indexmap 2.13.0",
  "koharu-api",
+ "koharu-app",
  "koharu-core",
  "koharu-engines",
  "koharu-ml",
