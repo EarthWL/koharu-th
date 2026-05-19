@@ -30,11 +30,8 @@ fn get_cache_dir() -> &'static PathBuf {
         // that resolve `CACHE_DIR` on first access. The production
         // invariant is `koharu::app::initialize` calls
         // `set_cache_dir(MODEL_ROOT)` BEFORE any code path can
-        // touch them. If that ordering is ever violated (a future
-        // refactor accidentally accesses HF_API in a static
-        // initializer, an unrelated startup hook, etc.), the
-        // fallback path below silently fires and downloads land
-        // in the WRONG directory — divergent from production.
+        // touch them. If that ordering is ever violated, the
+        // fallback fires and downloads land in the WRONG directory.
         //
         // Surface the case so it's loud + observable. Tests +
         // headless tools that intentionally rely on the fallback
@@ -43,12 +40,17 @@ fn get_cache_dir() -> &'static PathBuf {
         tracing::warn!(
             "hf_hub::CACHE_DIR fallback fired — set_cache_dir was \
              never called. If this is a production binary, the HF \
-             cache will land in dirs::cache_dir()/Koharu/hf rather \
+             cache will land in dirs::data_local_dir()/KoharuTH/hf rather \
              than the MODEL_ROOT path (issue #41)."
         );
-        let path = dirs::cache_dir()
+        // Uses `data_local_dir` + `KoharuTH` to match the production
+        // `MODEL_ROOT` path exactly, so that if this fallback fires
+        // first (race with `set_cache_dir`), `set_cache_dir` can
+        // detect the collision as a same-path duplicate and succeed
+        // rather than crashing with "already set" (issue #41, #44).
+        let path = dirs::data_local_dir()
             .unwrap_or_default()
-            .join("Koharu")
+            .join("KoharuTH")
             .join("hf");
 
         #[cfg(target_os = "windows")]
@@ -92,9 +94,22 @@ pub fn set_cache_dir(path: PathBuf) -> anyhow::Result<()> {
     std::fs::create_dir_all(&path)
         .with_context(|| format!("failed to create cache directory: {}", path.display()))?;
 
-    CACHE_DIR
-        .set(path)
-        .map_err(|_| anyhow::anyhow!("cache dir has already been set"))
+    // Tolerate duplicate calls with the same path — can happen if the
+    // HF_API / HF_CACHE lazy statics fire their fallback initializer
+    // before `initialize()` reaches `set_cache_dir` (issue #41).
+    if let Err(_rejected) = CACHE_DIR.set(path.clone()) {
+        let existing = CACHE_DIR.get().expect("set failed so cell must be initialized");
+        if existing == &path {
+            tracing::debug!("set_cache_dir: already set to same path; ignoring duplicate call");
+            return Ok(());
+        }
+        anyhow::bail!(
+            "cache dir already set to '{}'; cannot change to '{}'",
+            existing.display(),
+            path.display()
+        );
+    }
+    Ok(())
 }
 
 pub fn api() -> &'static Api {
