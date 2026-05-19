@@ -62,6 +62,22 @@ pub enum SessionError {
     #[error("page {0:?} not found in scene")]
     PageNotFound(koharu_core::PageId),
 
+    /// `Op::AddPage` was applied with an id that already exists in
+    /// the Scene. We refuse to overwrite — the `AddPage` inverse
+    /// is `RemovePage`, which would delete the overwritten page
+    /// on undo and lose the original. Engines should use
+    /// `UpdatePageImage` or unique ids; the bridge's
+    /// `index_to_node_id` shift makes collisions impossible in
+    /// practice (audit #6 P1).
+    #[error("page {0:?} already exists; AddPage refuses to overwrite")]
+    PageAlreadyExists(koharu_core::PageId),
+
+    /// Same shape for nodes: `Op::AddTextBlock` against an
+    /// existing block id refuses to overwrite. Use
+    /// `UpdateTextBlock` for in-place edits.
+    #[error("node {0:?} already exists on page {1:?}; AddTextBlock refuses to overwrite")]
+    NodeAlreadyExists(koharu_core::NodeId, koharu_core::PageId),
+
     /// Nothing to undo — the undo stack is empty.
     #[error("nothing to undo")]
     NothingToUndo,
@@ -262,6 +278,13 @@ fn apply_to_scene(scene: &mut Scene, op: &Op) -> Result<(), SessionError> {
             width,
             height,
         } => {
+            // Audit #6 P1: reject duplicate ids. The default
+            // `IndexMap::insert` silently overwrites, but our
+            // inverse (`RemovePage`) would then delete the
+            // overwritten page on undo — losing the original.
+            if scene.pages.contains_key(id) {
+                return Err(SessionError::PageAlreadyExists(*id));
+            }
             scene.pages.insert(
                 *id,
                 Page {
@@ -295,6 +318,12 @@ fn apply_to_scene(scene: &mut Scene, op: &Op) -> Result<(), SessionError> {
                 .pages
                 .get_mut(page)
                 .ok_or(SessionError::PageNotFound(*page))?;
+            // Audit #6 P1: same duplicate guard as AddPage —
+            // refuse to overwrite; `RemoveTextBlock` inverse
+            // would otherwise lose the original block.
+            if p.text_blocks.contains_key(&block.id) {
+                return Err(SessionError::NodeAlreadyExists(block.id, *page));
+            }
             p.text_blocks.insert(block.id, block.clone());
         }
         Op::UpdateTextBlock { page, id, patch } => {
@@ -818,6 +847,56 @@ mod tests {
     fn undo_with_empty_history_errors() {
         let mut session = ProjectSession::new(Scene::default(), SessionConfig::default());
         assert!(matches!(session.undo(), Err(SessionError::NothingToUndo)));
+    }
+
+    /// Audit #6/P1 regression: AddTextBlock with a NodeId already
+    /// in the page MUST fail loudly, not silently overwrite. If
+    /// the old `insert()` semantics returned, this test would
+    /// see the second block in place, the inverse RemoveTextBlock
+    /// would wipe it, and undo would lose the original.
+    #[test]
+    fn add_text_block_rejects_duplicate_id() {
+        let mut session = ProjectSession::new(one_page_scene(), SessionConfig::default());
+        session
+            .apply(Op::AddTextBlock {
+                page: PageId(1),
+                block: sample_block(1, "first"),
+            })
+            .unwrap();
+
+        let result = session.apply(Op::AddTextBlock {
+            page: PageId(1),
+            block: sample_block(1, "second"),
+        });
+        assert!(matches!(result, Err(SessionError::NodeAlreadyExists(NodeId(1), _))));
+        // First block unchanged.
+        assert_eq!(
+            session.scene().pages.get(&PageId(1)).unwrap()
+                .text_blocks.get(&NodeId(1)).unwrap()
+                .source_text.as_deref(),
+            Some("first"),
+        );
+        // History: only the first apply pushed. Failed apply
+        // didn't add a second entry.
+        assert_eq!(session.history_state().undo_len, 1);
+    }
+
+    #[test]
+    fn add_page_rejects_duplicate_id() {
+        let mut session = ProjectSession::new(one_page_scene(), SessionConfig::default());
+        // one_page_scene() already has PageId(1). Re-adding it
+        // must error.
+        let result = session.apply(Op::AddPage {
+            id: PageId(1),
+            image: BlobId([9u8; 32]),
+            width: 200,
+            height: 200,
+        });
+        assert!(matches!(result, Err(SessionError::PageAlreadyExists(PageId(1)))));
+        // Original page unchanged.
+        let page = session.scene().pages.get(&PageId(1)).unwrap();
+        assert_eq!(page.width, 100);
+        assert_eq!(page.height, 100);
     }
 
     #[test]

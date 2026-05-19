@@ -51,12 +51,54 @@ pub struct EngineProfileSetPayload {
 }
 
 /// Replace the saved engine profile + persist atomically.
-/// Returns the new snapshot so the caller can confirm the round-
-/// trip — useful when the UI wants to invalidate a query cache.
+/// Kept for edge cases (import/export, full-profile reset). The
+/// frontend's per-control mutations use the granular
+/// `engine_profile_set_active` / `engine_profile_set_setting`
+/// paths instead — concurrent edits no longer trample each
+/// other by sending stale full-profile snapshots (audit #6 P2).
 pub async fn engine_profile_set(
     state: AppResources,
     payload: EngineProfileSetPayload,
 ) -> Result<EngineProfile> {
     state.engine_profile.replace(payload.profile)?;
     Ok(state.engine_profile.snapshot())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EngineProfileSetActivePayload {
+    pub artifact: koharu_core::ArtifactKind,
+    pub engine_id: String,
+}
+
+/// Granular mutation: set the active engine for one artifact
+/// slot. Atomic under the store's internal RwLock; returns the
+/// new full snapshot so the caller can update its query cache
+/// without a separate `engine_profile_get` roundtrip.
+pub async fn engine_profile_set_active(
+    state: AppResources,
+    payload: EngineProfileSetActivePayload,
+) -> Result<EngineProfile> {
+    state
+        .engine_profile
+        .set_active(payload.artifact, payload.engine_id)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EngineProfileSetSettingPayload {
+    pub engine_id: String,
+    pub setting_id: String,
+    pub value: koharu_core::StoredValue,
+}
+
+/// Granular mutation: set one setting value for one engine.
+/// Same atomicity contract as `engine_profile_set_active`.
+pub async fn engine_profile_set_setting(
+    state: AppResources,
+    payload: EngineProfileSetSettingPayload,
+) -> Result<EngineProfile> {
+    state
+        .engine_profile
+        .set_setting(payload.engine_id, payload.setting_id, payload.value)
 }

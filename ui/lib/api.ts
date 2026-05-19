@@ -810,11 +810,34 @@ export const api = {
     return invoke('engine_profile_get')
   },
 
-  /** Replace + persist the engine profile. Returns the new
-   *  snapshot so the caller can confirm the round-trip + update
-   *  query cache. */
+  /** Replace + persist the engine profile. Used for import/
+   *  export + full-profile reset; the per-control mutations use
+   *  the granular `engineProfileSetActive` / `…SetSetting`
+   *  endpoints to avoid stale-snapshot trampling (audit #6 P2). */
   async engineProfileSet(profile: EngineProfile): Promise<EngineProfile> {
     return invoke('engine_profile_set', { profile })
+  },
+
+  /** Granular: set the active engine for one artifact slot.
+   *  Atomic under the backend's profile RwLock. */
+  async engineProfileSetActive(
+    artifact: import('@/lib/rpc-types').ArtifactKind,
+    engineId: string,
+  ): Promise<EngineProfile> {
+    return invoke('engine_profile_set_active', { artifact, engineId })
+  },
+
+  /** Granular: set one setting value for one engine. */
+  async engineProfileSetSetting(
+    engineId: string,
+    settingId: string,
+    value: import('@/lib/rpc-types').StoredValue,
+  ): Promise<EngineProfile> {
+    return invoke('engine_profile_set_setting', {
+      engineId,
+      settingId,
+      value,
+    })
   },
 
   /** Pop the most recent applied op from the ProjectSession's

@@ -14,7 +14,10 @@ mod vision;
 pub use chat::*;
 pub use core::*;
 pub use edit::*;
-pub use engines::{engine_profile_get, engine_profile_set, engines_list, hardware_detected};
+pub use engines::{
+    engine_profile_get, engine_profile_set, engine_profile_set_active,
+    engine_profile_set_setting, engines_list, hardware_detected,
+};
 pub use llm::*;
 pub use process::*;
 pub use project::*;

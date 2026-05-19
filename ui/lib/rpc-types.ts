@@ -217,6 +217,17 @@ export type RpcMethodMap = {
   hardware_detected: [void, DetectedHardware]
   engine_profile_get: [void, EngineProfile]
   engine_profile_set: [{ profile: EngineProfile }, EngineProfile]
+  // Audit #6/P2: granular profile mutations. Backend serialises
+  // each call under the store's RwLock so concurrent edits don't
+  // trample each other via stale full-profile snapshots.
+  engine_profile_set_active: [
+    { artifact: ArtifactKind; engineId: string },
+    EngineProfile,
+  ]
+  engine_profile_set_setting: [
+    { engineId: string; settingId: string; value: StoredValue },
+    EngineProfile,
+  ]
   // ── Phase 5.4: undo/redo backed by ProjectSession ────────────
   session_undo: [{ index: number }, HistoryState]
   session_redo: [{ index: number }, HistoryState]

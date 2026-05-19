@@ -62,6 +62,11 @@ pub enum Method {
     // per artifact slot + per-engine setting overrides).
     EngineProfileGet,
     EngineProfileSet,
+    // Audit #6/P2: granular profile mutations — atomic per-key
+    // updates that don't suffer the "stale full-profile snapshot
+    // trampling" race the bulk `EngineProfileSet` exposed.
+    EngineProfileSetActive,
+    EngineProfileSetSetting,
     // Phase 5.4: undo/redo surface backed by ProjectSession history.
     SessionUndo,
     SessionRedo,
@@ -176,6 +181,8 @@ impl Method {
         Method::HardwareDetected,
         Method::EngineProfileGet,
         Method::EngineProfileSet,
+        Method::EngineProfileSetActive,
+        Method::EngineProfileSetSetting,
         Method::SessionUndo,
         Method::SessionRedo,
         Method::SessionHistoryState,
@@ -281,6 +288,8 @@ impl Method {
             Method::HardwareDetected => "hardware_detected",
             Method::EngineProfileGet => "engine_profile_get",
             Method::EngineProfileSet => "engine_profile_set",
+            Method::EngineProfileSetActive => "engine_profile_set_active",
+            Method::EngineProfileSetSetting => "engine_profile_set_setting",
             Method::SessionUndo => "session_undo",
             Method::SessionRedo => "session_redo",
             Method::SessionHistoryState => "session_history_state",
@@ -397,6 +406,8 @@ impl FromStr for Method {
             "hardware_detected" => Method::HardwareDetected,
             "engine_profile_get" => Method::EngineProfileGet,
             "engine_profile_set" => Method::EngineProfileSet,
+            "engine_profile_set_active" => Method::EngineProfileSetActive,
+            "engine_profile_set_setting" => Method::EngineProfileSetSetting,
             "session_undo" => Method::SessionUndo,
             "session_redo" => Method::SessionRedo,
             "session_history_state" => Method::SessionHistoryState,

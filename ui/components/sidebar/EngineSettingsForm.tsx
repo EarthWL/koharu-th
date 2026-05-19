@@ -204,4 +204,3 @@ function numericPrecision(step: number): number {
   if (step >= 0.01) return 2
   return 3
 }
-

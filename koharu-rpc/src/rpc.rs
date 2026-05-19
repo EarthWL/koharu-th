@@ -140,6 +140,12 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::HardwareDetected => call0(operations::hardware_detected, state).await,
         Method::EngineProfileGet => call0(operations::engine_profile_get, state).await,
         Method::EngineProfileSet => call(operations::engine_profile_set, state, params).await,
+        Method::EngineProfileSetActive => {
+            call(operations::engine_profile_set_active, state, params).await
+        }
+        Method::EngineProfileSetSetting => {
+            call(operations::engine_profile_set_setting, state, params).await
+        }
         Method::SessionUndo => call(operations::session_undo, state, params).await,
         Method::SessionRedo => call(operations::session_redo, state, params).await,
         Method::SessionHistoryState => call0(operations::session_history_state, state).await,

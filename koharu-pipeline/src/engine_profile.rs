@@ -95,23 +95,13 @@ impl EngineProfileStore {
         self.inner.read().unwrap().clone()
     }
 
-    /// Replace the entire profile + persist to disk. Used by the
-    /// frontend's `engine_profile_set` RPC.
+    /// Replace the entire profile + persist to disk. Kept for
+    /// edge cases (import/export, full-profile reset) but the
+    /// frontend's per-control mutations should use the granular
+    /// `set_active` / `set_setting` paths instead so concurrent
+    /// edits don't trample (audit #6 P2).
     pub fn replace(&self, profile: EngineProfile) -> Result<()> {
-        let bytes = serde_json::to_vec_pretty(&profile)
-            .context("serializing engine profile")?;
-        // Write to a temp file first then rename — atomic on the
-        // same volume, so a crash mid-write doesn't corrupt the
-        // saved profile.
-        let tmp = self.path.with_extension("json.tmp");
-        if let Some(parent) = tmp.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("ensuring {}", parent.display()))?;
-        }
-        std::fs::write(&tmp, &bytes)
-            .with_context(|| format!("writing {}", tmp.display()))?;
-        std::fs::rename(&tmp, &self.path)
-            .with_context(|| format!("renaming {} → {}", tmp.display(), self.path.display()))?;
+        self.persist(&profile)?;
         *self.inner.write().unwrap() = profile;
         Ok(())
     }
@@ -133,6 +123,59 @@ impl EngineProfileStore {
             .get(engine_id)
             .cloned()
             .unwrap_or_default()
+    }
+
+    /// Audit #6/P2: granular "set the active engine for one
+    /// artifact slot" mutation. Atomic under the inner RwLock —
+    /// concurrent frontend mutations can no longer trample each
+    /// other by sending stale full-profile snapshots. Returns
+    /// the new full snapshot for the caller's cache update.
+    pub fn set_active(
+        &self,
+        artifact: ArtifactKind,
+        engine_id: String,
+    ) -> Result<EngineProfile> {
+        let mut guard = self.inner.write().unwrap();
+        guard.active.insert(artifact, engine_id);
+        let updated = guard.clone();
+        drop(guard);
+        self.persist(&updated)?;
+        Ok(updated)
+    }
+
+    /// Granular "set one setting for one engine" mutation.
+    /// Same atomicity contract as `set_active`.
+    pub fn set_setting(
+        &self,
+        engine_id: String,
+        setting_id: String,
+        value: StoredValue,
+    ) -> Result<EngineProfile> {
+        let mut guard = self.inner.write().unwrap();
+        let engine_settings = guard.settings.entry(engine_id).or_default();
+        engine_settings.insert(setting_id, value);
+        let updated = guard.clone();
+        drop(guard);
+        self.persist(&updated)?;
+        Ok(updated)
+    }
+
+    /// Internal atomic-write helper extracted from `replace`. Same
+    /// temp-file + rename pattern; doesn't touch the in-memory
+    /// state (caller has already updated it under the lock).
+    fn persist(&self, profile: &EngineProfile) -> Result<()> {
+        let bytes = serde_json::to_vec_pretty(profile)
+            .context("serializing engine profile")?;
+        let tmp = self.path.with_extension("json.tmp");
+        if let Some(parent) = tmp.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("ensuring {}", parent.display()))?;
+        }
+        std::fs::write(&tmp, &bytes)
+            .with_context(|| format!("writing {}", tmp.display()))?;
+        std::fs::rename(&tmp, &self.path)
+            .with_context(|| format!("renaming {} → {}", tmp.display(), self.path.display()))?;
+        Ok(())
     }
 
     pub fn path(&self) -> &Path {
@@ -193,6 +236,58 @@ mod tests {
         assert_eq!(
             yolo.get("confidence_threshold"),
             Some(&StoredValue::Number(0.30))
+        );
+    }
+
+    /// Audit #6/P2 regression: two concurrent set_* calls land on
+    /// different keys (active vs setting) and BOTH survive — the
+    /// store's internal RwLock serialises the writes, no stale
+    /// snapshot trampling.
+    #[test]
+    fn granular_mutations_do_not_trample_each_other() {
+        let (_dir, store) = tmp_store();
+        let snap_a = store
+            .set_active(ArtifactKind::OcrText, "manga_ocr".into())
+            .unwrap();
+        assert_eq!(
+            snap_a.active.get(&ArtifactKind::OcrText),
+            Some(&"manga_ocr".to_string()),
+        );
+
+        let snap_b = store
+            .set_setting(
+                "anime_yolo_detector".into(),
+                "variant".into(),
+                StoredValue::String("s".into()),
+            )
+            .unwrap();
+        assert_eq!(
+            snap_b.active.get(&ArtifactKind::OcrText),
+            Some(&"manga_ocr".to_string()),
+            "active engine from set_a survives set_b",
+        );
+        assert_eq!(
+            snap_b
+                .settings
+                .get("anime_yolo_detector")
+                .and_then(|s| s.get("variant")),
+            Some(&StoredValue::String("s".into())),
+            "new setting from set_b is present",
+        );
+
+        // Reload from disk — both writes persisted atomically.
+        let reloaded = EngineProfileStore::load(store.path()).unwrap();
+        let final_snap = reloaded.snapshot();
+        assert_eq!(
+            final_snap.active.get(&ArtifactKind::OcrText),
+            Some(&"manga_ocr".to_string()),
+        );
+        assert_eq!(
+            final_snap
+                .settings
+                .get("anime_yolo_detector")
+                .and_then(|s| s.get("variant")),
+            Some(&StoredValue::String("s".into())),
         );
     }
 
