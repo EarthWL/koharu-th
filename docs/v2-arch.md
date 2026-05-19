@@ -765,13 +765,22 @@ In parallel:
 
 ### Phase 6 — Migration script + integration tests green (1-2 weeks)
 
-- Migration script: v1 `.koharuproj` → v2 schema
-  - Read v1 series.db
-  - Backup → series.db.bak
-  - In a single SQLite transaction: alter tables, populate new
-    `op_log` table (empty — no historical ops), bump
-    `schema_version` to 2
-  - Rollback on any error; surface clear error message
+- Migration script: v1 `.koharuproj` → v2 schema. The fork already
+  has a migration runner (`koharu-project/src/db.rs` +
+  `migrations/V001..V006__*.sql`) — v2 adds a new SQL file
+  (e.g. `V007__v2_blob_index.sql`) handled by that runner, NOT a
+  hand-written transaction. Same flow used for all prior schema
+  bumps.
+  - Backup `series.db` → `series.db.bak.v1` before running.
+  - Manifest file: bump `schema_version` in the
+    `series.koharuproj` JSON. **There is no `app_meta` SQLite
+    table** — the schema-version pointer lives in the manifest, and
+    the SQL `applied_migrations` table tracks which V-files have
+    run.
+  - No `op_log` table — op log is in-memory only per locked
+    decisions §2. (Earlier drafts of this doc mentioned populating
+    one; that was a writing slip, removed in audit #2.)
+  - Rollback on any error; surface clear error message.
 - Integration test suite green across:
   - Open v1 project → migrate → re-render same page → byte-identical
     to v1 render
@@ -798,41 +807,57 @@ In parallel:
 
 ### What changes in the on-disk format
 
-- **`series.db`**: new tables added (`op_log`, `blob_index`), no
-  existing tables modified destructively. `schema_version` bumps
-  1 → 2.
-- **Project root**: new `blobs/` subdirectory for blob storage
-  backing.
+- **`series.koharuproj`** (manifest JSON): `schema_version` bumps
+  from 1 → 2. This is where the schema-version pointer actually
+  lives — there is no `app_meta` table in `series.db`.
+- **`series.db`**: one new table added (`blob_index`). The op log
+  is **in-memory only** per locked decisions §2; no `op_log` table
+  is created. No existing tables modified destructively.
+- **Project root**: new `blobs/` subdirectory for the on-disk blob
+  backing (lands later than Phase 6 — the v2.0 release ships
+  in-memory `BlobStore` only and the directory stays empty until
+  the on-disk backing phase).
 - **Existing chapter source/render folders**: unchanged.
 
 ### What the migration script does
 
+A new SQL file `V007__v2_blob_index.sql` (file number bumps to
+whatever's next; check `koharu-project/migrations/` for current
+high-water mark) is dropped into the migrations directory. The
+existing migration runner picks it up on next project open and
+applies it under a single transaction:
+
 ```sql
-BEGIN TRANSACTION;
-
--- 1. New tables
+-- V007__v2_blob_index.sql
 CREATE TABLE blob_index (
-    blob_id BLOB PRIMARY KEY,    -- blake3 hash
-    size_bytes INTEGER NOT NULL,
-    created_at TEXT NOT NULL
+    blob_id     BLOB PRIMARY KEY,        -- blake3 hash (32 bytes)
+    size_bytes  INTEGER NOT NULL,
+    created_at  INTEGER NOT NULL         -- unix timestamp
 );
-
--- 2. (No op_log table — undo is in-memory only per locked decision.
---    If we ever change to persistent undo, this is where it lands.)
-
--- 3. Bump version
-UPDATE app_meta SET schema_version = 2 WHERE id = 1;
-
-COMMIT;
+CREATE INDEX idx_blob_index_created ON blob_index(created_at);
 ```
 
-Per-project file changes:
-1. Copy `series.db` → `series.db.bak.v1` (kept indefinitely; user
-   can delete from Settings → Storage)
-2. Create `blobs/` directory under project root
-3. Migrate any inline image bytes from existing tables (none in
-   current schema — images live in chapter `source/` folder, not
-   SQLite; this is the easy case)
+The runner records this in `applied_migrations` (existing table
+created in `koharu-project/src/db.rs`). No `app_meta` table exists
+or needs to exist.
+
+The host process performs three things alongside the SQL migration,
+inside the same transaction (or rolled back together on any error):
+
+1. Copy `series.db` → `series.db.bak.v1` before opening the
+   transaction. Kept indefinitely; user can delete from
+   Settings → Storage. If migration fails, the host restores from
+   the backup automatically.
+2. Update `series.koharuproj` JSON: bump `schema_version` from 1
+   to 2. Atomic write (write to `.tmp` → fsync → rename).
+3. Create empty `blobs/` directory in the project root. Marked
+   read-only initially; the on-disk backing phase will turn this
+   active later.
+
+Migrate any inline image bytes from existing tables: **none in the
+current schema** — images live in chapter `source/` folder, not
+SQLite (`migrations/V002__chapter_folders.sql` made this so). No
+data migration needed; just the blob-index table for future use.
 
 ### What the user sees
 
@@ -989,6 +1014,35 @@ Decisions deferred until a phase forces them.
 Tracks amendments to the locked spec after the doc first landed.
 Each entry: date, trigger (issue / re-review), summary of what
 changed, link to the affected section(s).
+
+### 2026-05-19 — External audit #2 follow-through (5 findings)
+
+**Trigger**: external audit flagged 5 issues against the Phase 1.1
++ Phase 2 shape landed earlier today.
+
+**Changed**:
+- **F1 (this section)**: §5 Phase 6 + §6 Migration story rewritten.
+  Original draft said the migration script would populate an
+  `op_log` table and `UPDATE app_meta SET schema_version = 2` — both
+  wrong. The fork's `schema_version` lives in the
+  `series.koharuproj` manifest JSON (see `koharu-project/src/
+  manifest.rs`), not in an `app_meta` SQLite table (which doesn't
+  exist). Op log is in-memory only per locked decisions §2 — no
+  `op_log` table should ever be created. Migration now correctly
+  flows through the existing migration runner
+  (`koharu-project/src/db.rs` + numbered V-files) and bumps the
+  manifest version atomically alongside the SQL apply.
+- **F2 → F5** (code on `arch/v2-foundation` branch, commit
+  `d4da17de`): ProjectOp patches now split by column nullability
+  (single Option for required, double Option for nullable);
+  Region::contains widened to u64 internally to avoid u32 overflow;
+  HTTP /blob Cache-Control switched from `public` to `private` (the
+  bytes are user-private work product); CompatibilityCheck gained
+  a new `CpuFallbackOnly` variant so the Engine Profile UI can warn
+  about the 50-100× slowdown when a GPU engine falls back to CPU
+  instead of showing a green chip.
+
+**Sections amended**: §5 Phase 6, §6.
 
 ### 2026-05-19 — Phase 2 blob transport: WS-RPC → HTTP
 
