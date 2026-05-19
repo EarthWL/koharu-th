@@ -197,35 +197,77 @@ impl Lama {
             return Ok(result);
         }
 
-        // หลาย bubble: run inference พร้อมกันด้วย scoped threads
-        // &self ถูกยืมแบบ immutable — LaMa weights เป็น Arc-backed tensor (read-only)
-        // จึงปลอดภัยที่จะ access จากหลาย thread พร้อมกัน
+        // KI-1 fix #2 (Windows / CUDA): cudarc 0.19.3 stores the
+        // Cudnn handle in thread-local storage. Spawning a fresh
+        // worker per crop creates+destroys that TLS handle inside
+        // the scope; cudnnDestroyHandle on the worker exit calls
+        // `unwrap()` on the result, which fires
+        // `CUDNN_STATUS_INTERNAL_ERROR` and panics inside the
+        // destructor → Rust runtime aborts (`fatal runtime error:
+        // thread local panicked on drop`) BEFORE any catch_unwind
+        // can intercept. Process death, lost in-flight render.
         //
-        // Each worker wraps its cudarc call in catch_unwind so a
-        // cuDNN panic in ONE thread becomes an Err for THAT crop
-        // (callers see partial inpaint failure as a clear error
-        // instead of process abort).
-        let outputs: Vec<(Xyxy, Result<RgbImage>)> = std::thread::scope(|scope| {
-            let handles: Vec<_> = crops
+        // Workaround: when running on CUDA, loop crops sequentially
+        // on the caller's thread. The cuDNN TLS handle stays
+        // pinned to that thread (created once by the candle Device
+        // cache, destroyed only at app shutdown) → no per-inpaint
+        // destructor fire. Tradeoff: lose the multi-crop
+        // parallelism (~Nx speedup for pages with many bubbles)
+        // but inpaint is rarely the user-perceived bottleneck and
+        // process stability matters more. KI-1's "real fix" (fork
+        // cudarc Drop) restores parallel later.
+        //
+        // CPU + Metal paths keep the scoped-thread fan-out — they
+        // don't touch cuDNN TLS so the original parallelism is
+        // safe there.
+        let outputs: Vec<(Xyxy, Result<RgbImage>)> = if self.device.is_cuda() {
+            crops
                 .iter()
                 .map(|crop| {
-                    scope.spawn(|| {
-                        let out = if let Some(filled) = try_fill_balloon(&crop.image, &crop.mask) {
-                            Ok(filled)
-                        } else {
-                            catch_cudnn_panic(|| {
-                                self.inference_model_rgb(&crop.image, &crop.mask)
-                            })
-                        };
-                        (crop.xyxy_e, out)
-                    })
+                    let out = if let Some(filled) =
+                        try_fill_balloon(&crop.image, &crop.mask)
+                    {
+                        Ok(filled)
+                    } else {
+                        catch_cudnn_panic(|| {
+                            self.inference_model_rgb(&crop.image, &crop.mask)
+                        })
+                    };
+                    (crop.xyxy_e, out)
                 })
-                .collect();
-            handles
-                .into_iter()
-                .map(|h| h.join().unwrap_or_else(|_| (([0, 0, 0, 0]), Err(anyhow::anyhow!("inpaint thread panicked")))))
                 .collect()
-        });
+        } else {
+            std::thread::scope(|scope| {
+                let handles: Vec<_> = crops
+                    .iter()
+                    .map(|crop| {
+                        scope.spawn(|| {
+                            let out = if let Some(filled) =
+                                try_fill_balloon(&crop.image, &crop.mask)
+                            {
+                                Ok(filled)
+                            } else {
+                                catch_cudnn_panic(|| {
+                                    self.inference_model_rgb(&crop.image, &crop.mask)
+                                })
+                            };
+                            (crop.xyxy_e, out)
+                        })
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|h| {
+                        h.join().unwrap_or_else(|_| {
+                            (
+                                ([0, 0, 0, 0]),
+                                Err(anyhow::anyhow!("inpaint thread panicked")),
+                            )
+                        })
+                    })
+                    .collect()
+            })
+        };
 
         // paste results กลับแบบ sequential (ป้องกัน data race บน inpainted buffer)
         let mut inpainted = image.clone();

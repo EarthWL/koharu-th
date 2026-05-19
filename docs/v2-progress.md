@@ -233,7 +233,14 @@ audit #9 had cuDNN crash (KI-1) and bridge dual-apply correctness
 as P0; making manual edits undoable is high-value polish but
 scope-isolated.
 
-### KI-1: cuDNN TLS panic on Drop kills process (cudarc 0.19.3)
+### KI-1: cuDNN TLS panic on Drop — main case mitigated, residual risk
+
+**Status: partially fixed.** The LaMa multi-crop path no longer
+spawns scoped threads on CUDA → no per-inpaint TLS handle
+create/destroy → no destructor panic from that path. Other ML
+threads that touch cuDNN (font detection, future engines) still
+carry the latent risk; the real fix is forking cudarc to make
+Drop not unwrap.
 
 **Symptom**: After a successful LaMa inpaint or text_renderer run, the
 process can die ~15s later with `STATUS_STACK_BUFFER_OVERRUN`
