@@ -1,6 +1,6 @@
 use koharu_api::commands::{DetectPayload, IndexPayload, OcrPayload, RenderPayload};
 use koharu_core::PipelineRunOptions;
-use koharu_types::DetectorEngine;
+use koharu_types::{DetectorEngine, OcrEngine};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
@@ -49,12 +49,23 @@ pub async fn detect(state: AppResources, payload: DetectPayload) -> anyhow::Resu
 
 #[instrument(level = "info", skip_all)]
 pub async fn ocr(state: AppResources, payload: OcrPayload) -> anyhow::Result<()> {
-    let mut snapshot = state_tx::read_doc(&state.state, payload.index).await?;
-    state
-        .ml
-        .ocr_with(&mut snapshot, payload.ocr_engine.unwrap_or_default())
-        .await?;
-    state_tx::update_doc(&state.state, payload.index, snapshot).await
+    // Phase 4.3: both OCR variants go through the engine system.
+    // Per-block UpdateTextBlock ops keep the bbox positions stable
+    // (no clear_text_blocks_first — OCR augments existing blocks,
+    // doesn't add new ones).
+    let engine_id = match payload.ocr_engine.unwrap_or_default() {
+        OcrEngine::Mit48px => engines::MIT48PX_OCR_ID,
+        OcrEngine::Manga => engines::MANGA_OCR_ID,
+    };
+    engine_bridge::run_engine_on_document(
+        &state,
+        payload.index,
+        engine_id,
+        PipelineRunOptions::new(),
+        engine_bridge::RunPolicy::default(),
+        CancellationToken::new(),
+    )
+    .await
 }
 
 #[instrument(level = "info", skip_all)]

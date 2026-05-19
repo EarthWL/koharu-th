@@ -315,21 +315,43 @@ fn apply_engine_result(
 fn apply_op(doc: &mut Document, op: Op, blobs: &BlobStore) -> Result<()> {
     match op {
         Op::AddTextBlock { block, .. } => {
-            // Phase 4.1 detector replaces all prior detections on a
-            // re-run. We can't tell here whether this AddTextBlock
-            // is the first of a batch or a mid-batch addition; the
-            // bridge instead clears the v1 vec on the FIRST
-            // AddTextBlock of a run. Simplest implementation:
-            // detect the "first add of a fresh run" by tracking a
-            // local flag in the apply loop. Phase 4.6's batched
-            // applier will formalise this via a proper
-            // "Ops::ClearTextBlocks" variant.
-            //
-            // Pragmatic stopgap: clear on the very first AddTextBlock
-            // we see for a given doc state when the v1 vec is non-
-            // empty. Detector use case (only consumer in Phase 4.2)
-            // emits all AddTextBlock at once; the policy holds.
             doc.text_blocks.push(scene_block_to_v1(block));
+        }
+        Op::UpdateTextBlock { id, patch, .. } => {
+            // Phase 4.3: bridge maps NodeId → v1 array index 1:1.
+            // build_scene_from_document assigns `NodeId(idx)` where
+            // idx is the v1 array position, and nothing reorders
+            // text_blocks between build_scene and apply_op (engines
+            // are read-only on Scene; mutations come back through
+            // here). So a NodeId(7) targets text_blocks[7].
+            //
+            // If the index is out of bounds, the engine emitted an
+            // Op for a block that doesn't exist — log + skip rather
+            // than crash. Future engines that genuinely Add+Update
+            // in the same batch will need an in-batch insert index
+            // tracker (TBD when first such engine lands).
+            let idx = id.0 as usize;
+            let Some(target) = doc.text_blocks.get_mut(idx) else {
+                warn!(
+                    node_id = id.0,
+                    blocks_len = doc.text_blocks.len(),
+                    "UpdateTextBlock: node id out of range, skipping"
+                );
+                return Ok(());
+            };
+            apply_text_block_patch(target, patch);
+        }
+        Op::RemoveTextBlock { id, .. } => {
+            let idx = id.0 as usize;
+            if idx < doc.text_blocks.len() {
+                doc.text_blocks.remove(idx);
+            } else {
+                warn!(
+                    node_id = id.0,
+                    blocks_len = doc.text_blocks.len(),
+                    "RemoveTextBlock: node id out of range, skipping"
+                );
+            }
         }
         Op::SetSegmentationMask { mask, .. } => {
             doc.segment = blob_to_serializable_image(blobs, mask)?;
@@ -349,10 +371,35 @@ fn apply_op(doc: &mut Document, op: Op, blobs: &BlobStore) -> Result<()> {
             }
         }
         op => {
-            warn!(?op, "Op variant not yet handled by engine_bridge (Phase 4.1)");
+            warn!(?op, "Op variant not yet handled by engine_bridge");
         }
     }
     Ok(())
+}
+
+/// Apply a v2 `TextBlockPatch` to a v1 `TextBlock`. Mirrors the
+/// double-option semantics: `None` = leave alone, `Some(None)` =
+/// explicitly clear, `Some(Some(v))` = set.
+fn apply_text_block_patch(target: &mut koharu_types::TextBlock, patch: koharu_core::TextBlockPatch) {
+    if let Some(region) = patch.region {
+        target.x = region.x as f32;
+        target.y = region.y as f32;
+        target.width = region.width as f32;
+        target.height = region.height as f32;
+    }
+    if let Some(text) = patch.source_text {
+        target.text = text;
+    }
+    if let Some(translation) = patch.translation {
+        target.translation = translation;
+    }
+    if let Some(lang) = patch.source_lang {
+        target.source_language = lang;
+    }
+    // patch.style intentionally not applied here — v1 TextStyle has
+    // a different shape than v2's, and no engine currently emits
+    // style updates. Phase 4.4's render engine will, with a proper
+    // v1↔v2 style mapping helper.
 }
 
 /// Helper: optional BlobId → Option<SerializableDynamicImage>. Fetches
