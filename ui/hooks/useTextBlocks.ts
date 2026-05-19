@@ -24,12 +24,20 @@ const shouldRenderSprite = (updates: Partial<TextBlock>) =>
   // when rotation changes.
   Object.prototype.hasOwnProperty.call(updates, 'rotationDeg')
 
-const shouldRenderSpriteImmediately = (updates: Partial<TextBlock>) =>
-  Object.prototype.hasOwnProperty.call(updates, 'width') ||
-  Object.prototype.hasOwnProperty.call(updates, 'height')
-// Rotation goes through `shouldRenderSprite` but NOT this immediate
-// predicate — slider onChange fires per-degree-drag, the debounced
-// `scheduleRender` coalesces drags into one re-bake on release.
+// Self-test follow-up: width/height USED to be in the immediate
+// branch so resize drags would render every mousemove. In practice
+// that fires ~30 HTTP roundtrips/sec each ~40-60ms — they queue,
+// the cache propagation lags the drag, and the final sprite that
+// lands often reflects an interior drag value instead of the
+// release value (the "size doesn't follow even after Render"
+// symptom). Move resize to the debounced path: one re-bake fires
+// ~250ms after the user stops dragging. Rotation already lives
+// here for the same reason.
+//
+// Nothing is left in the immediate branch right now — kept as a
+// function (returning false) so a future immediate-trigger field
+// can re-enable it without restructuring the call site.
+const shouldRenderSpriteImmediately = (_updates: Partial<TextBlock>) => false
 
 const hasGeometryChange = (updates: Partial<TextBlock>) =>
   Object.prototype.hasOwnProperty.call(updates, 'x') ||
