@@ -76,6 +76,11 @@ use koharu_types::{Document, SerializableDynamicImage, TextBlock as V1TextBlock}
 pub const ENGINE_ID: &str = "local_llm_translate";
 
 const SETTING_TARGET_LANGUAGE: &str = "target_language";
+/// Internal per-call key (not exposed in `settings_schema`): when
+/// present + non-negative, only that one block gets translated.
+/// Driven by the canvas right-click "re-translate this bubble"
+/// flow. Missing or `-1` = translate the whole page (default).
+const SETTING_TARGET_BLOCK_INDEX: &str = "target_block_index";
 
 const SETTINGS: &[SettingDescriptor] = &[];
 
@@ -115,6 +120,14 @@ impl Engine for LocalLlmTranslateEngine {
             Some(target_language.as_str())
         };
 
+        // Per-call: translate ONE block instead of the whole page.
+        let target_block_raw: f64 = ctx.setting(SETTING_TARGET_BLOCK_INDEX, -1.0);
+        let target_block_index: Option<usize> = if target_block_raw >= 0.0 {
+            Some(target_block_raw as usize)
+        } else {
+            None
+        };
+
         // Build a tmp Document with current page text_blocks (v2 → v1
         // including any source_text the OCR engine produced). The
         // legacy `Model::translate` formats all blocks as a single
@@ -123,10 +136,28 @@ impl Engine for LocalLlmTranslateEngine {
         let mut tmp_doc = build_tmp_document(page);
         let block_ids: Vec<NodeId> = page.text_blocks.keys().copied().collect();
 
-        ctx.llm
-            .translate(&mut tmp_doc, target_language_opt)
-            .await
-            .context("local LLM translate failed")?;
+        if let Some(idx) = target_block_index {
+            // Single-block path: pluck the v1 block + call the
+            // facade's per-block translate. This was the legacy
+            // `legacy_single_block_translate` shape from F4.5;
+            // F4.D folds it inside the engine so all translate
+            // call-sites are uniform.
+            let Some(block) = tmp_doc.text_blocks.get_mut(idx) else {
+                return Err(anyhow!(
+                    "target_block_index {idx} out of range (page has {} blocks)",
+                    tmp_doc.text_blocks.len(),
+                ));
+            };
+            ctx.llm
+                .translate(block, target_language_opt)
+                .await
+                .context("local LLM translate (single block) failed")?;
+        } else {
+            ctx.llm
+                .translate(&mut tmp_doc, target_language_opt)
+                .await
+                .context("local LLM translate failed")?;
+        }
 
         if ctx.cancel.is_cancelled() {
             return Ok(());

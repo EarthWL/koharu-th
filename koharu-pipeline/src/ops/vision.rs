@@ -4,7 +4,7 @@ use koharu_types::{DetectorEngine, OcrEngine};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
-use crate::{AppResources, engine_bridge, engines, state_tx};
+use crate::{AppResources, engine_bridge, engines};
 
 #[instrument(level = "info", skip_all)]
 pub async fn detect(state: AppResources, payload: DetectPayload) -> anyhow::Result<()> {
@@ -128,17 +128,43 @@ pub async fn inpaint(state: AppResources, payload: IndexPayload) -> anyhow::Resu
 
 #[instrument(level = "info", skip_all)]
 pub async fn render(state: AppResources, payload: RenderPayload) -> anyhow::Result<()> {
-    let mut updated = state_tx::read_doc(&state.state, payload.index).await?;
-
-    state.renderer.render(
-        &mut updated,
-        payload.text_block_index,
-        payload.shader_effect.unwrap_or_default(),
-        payload.shader_stroke,
-        payload.font_family.as_deref(),
-    )?;
-
-    state_tx::update_doc(&state.state, payload.index, updated).await
+    // F4.D: render goes through the engine system. Per-call args
+    // (target block index, shader stroke as JSON, full effect)
+    // ride PipelineRunOptions — text_renderer engine reads them
+    // alongside its user-tunable bold/italic toggles. Profile
+    // overrides flow through `run_engine_for_artifact`'s built-in
+    // merge.
+    let mut options = PipelineRunOptions::new();
+    if let Some(idx) = payload.text_block_index {
+        options = options.with("target_block_index", StoredValue::Number(idx as f64));
+    }
+    if let Some(effect) = payload.shader_effect {
+        // The schema-level Toggles cover the common case (set via
+        // Engine Profile UI). When the payload explicitly carries
+        // them — Render dialog passing them per call — they override
+        // both the profile + the schema default via merge_profile_
+        // settings' "caller wins" rule.
+        options = options.with("effect_bold", StoredValue::Bool(effect.bold));
+        options = options.with("effect_italic", StoredValue::Bool(effect.italic));
+    }
+    if let Some(stroke) = payload.shader_stroke {
+        let json = serde_json::to_string(&stroke)
+            .map_err(|e| anyhow::anyhow!("encoding stroke as JSON: {e}"))?;
+        options = options.with("stroke_json", StoredValue::String(json));
+    }
+    if let Some(family) = payload.font_family {
+        options = options.with("font_family", StoredValue::String(family));
+    }
+    engine_bridge::run_engine_for_artifact(
+        &state,
+        payload.index,
+        ArtifactKind::RenderedImage,
+        engines::TEXT_RENDERER_ID,
+        options,
+        engine_bridge::RunPolicy::default(),
+        CancellationToken::new(),
+    )
+    .await
 }
 
 pub async fn list_font_families(state: AppResources) -> anyhow::Result<Vec<String>> {

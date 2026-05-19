@@ -10,6 +10,8 @@ use tracing::instrument;
 
 use crate::{AppResources, engine_bridge, engines, state_tx};
 
+// `state_tx` still used by `get_document_for_llm` below.
+
 pub async fn llm_list(
     state: AppResources,
     payload: LlmListPayload,
@@ -53,25 +55,21 @@ pub async fn llm_ready(state: AppResources) -> anyhow::Result<bool> {
 
 #[instrument(level = "info", skip_all)]
 pub async fn llm_generate(state: AppResources, payload: LlmGeneratePayload) -> anyhow::Result<()> {
-    // Phase 4.5: whole-page translate goes through the engine
-    // system. Single-block translate (`text_block_index` set)
-    // stays on the legacy direct call for now — the engine works
-    // page-at-a-time (consumes the whole text_blocks vec to format
-    // a single tagged prompt), so single-block re-translate is a
-    // narrower path that doesn't fit the engine surface yet.
-    // Phase 4.6 will land a per-block translate engine variant.
-    if payload.text_block_index.is_some() {
-        return legacy_single_block_translate(state, payload).await;
-    }
-
+    // F4.D: both whole-page AND single-block translate go through
+    // the engine system. The `target_block_index` setting on
+    // `local_llm_translate` controls the mode — missing/-1 ⇒
+    // whole page, non-negative ⇒ that specific block. Phase 4.5's
+    // `legacy_single_block_translate` is gone.
     let mut options = PipelineRunOptions::new();
     if let Some(lang) = payload.language.as_deref() {
         options = options.with("target_language", StoredValue::String(lang.to_string()));
     }
-    // F4.D: profile picks the Translation-slot engine. Only one
-    // translate engine exists today (local_llm_translate) — cloud
-    // providers, once moved server-side, will appear here as
-    // additional candidates that the profile can switch between.
+    if let Some(block_index) = payload.text_block_index {
+        options = options.with(
+            "target_block_index",
+            StoredValue::Number(block_index as f64),
+        );
+    }
     engine_bridge::run_engine_for_artifact(
         &state,
         payload.index,
@@ -82,26 +80,6 @@ pub async fn llm_generate(state: AppResources, payload: LlmGeneratePayload) -> a
         CancellationToken::new(),
     )
     .await
-}
-
-/// Single-block translate kept on the legacy direct call until
-/// Phase 4.6 lands a per-block engine variant. Re-translate flow
-/// from the canvas right-click menu hits this.
-async fn legacy_single_block_translate(
-    state: AppResources,
-    payload: LlmGeneratePayload,
-) -> anyhow::Result<()> {
-    let mut updated = state_tx::read_doc(&state.state, payload.index).await?;
-    let target_language = payload.language.as_deref();
-    let block_index = payload
-        .text_block_index
-        .expect("caller guard: text_block_index must be Some");
-    let text_block = updated
-        .text_blocks
-        .get_mut(block_index)
-        .ok_or_else(|| anyhow::anyhow!("Text block not found"))?;
-    state.llm.translate(text_block, target_language).await?;
-    state_tx::update_doc(&state.state, payload.index, updated).await
 }
 
 pub async fn get_document_for_llm(

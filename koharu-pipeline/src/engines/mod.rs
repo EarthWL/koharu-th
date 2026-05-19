@@ -26,6 +26,7 @@ pub mod lama_inpaint;
 pub mod local_llm_translate;
 pub mod manga_ocr;
 pub mod mit48px_ocr;
+pub mod text_renderer;
 
 // Keep submissions retained — see module docstring. Adding a real
 // `pub use` of one symbol per engine makes the module reachable from
@@ -37,3 +38,4 @@ pub use lama_inpaint::ENGINE_ID as LAMA_INPAINT_ID;
 pub use local_llm_translate::ENGINE_ID as LOCAL_LLM_TRANSLATE_ID;
 pub use manga_ocr::ENGINE_ID as MANGA_OCR_ID;
 pub use mit48px_ocr::ENGINE_ID as MIT48PX_OCR_ID;
+pub use text_renderer::ENGINE_ID as TEXT_RENDERER_ID;
