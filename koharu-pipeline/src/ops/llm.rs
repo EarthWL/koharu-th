@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use koharu_api::commands::{IndexPayload, LlmGeneratePayload, LlmListPayload, LlmLoadPayload};
-use koharu_core::{PipelineRunOptions, StoredValue};
+use koharu_core::{ArtifactKind, PipelineRunOptions, StoredValue};
 use koharu_ml::llm::ModelId;
 use koharu_ml::llm::facade as llm;
 use strum::IntoEnumIterator;
@@ -68,9 +68,14 @@ pub async fn llm_generate(state: AppResources, payload: LlmGeneratePayload) -> a
     if let Some(lang) = payload.language.as_deref() {
         options = options.with("target_language", StoredValue::String(lang.to_string()));
     }
-    engine_bridge::run_engine_on_document(
+    // F4.D: profile picks the Translation-slot engine. Only one
+    // translate engine exists today (local_llm_translate) — cloud
+    // providers, once moved server-side, will appear here as
+    // additional candidates that the profile can switch between.
+    engine_bridge::run_engine_for_artifact(
         &state,
         payload.index,
+        ArtifactKind::Translation,
         engines::LOCAL_LLM_TRANSLATE_ID,
         options,
         engine_bridge::RunPolicy::default(),

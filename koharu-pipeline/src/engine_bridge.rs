@@ -48,14 +48,15 @@ use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
 use koharu_core::{
-    BlobId, BlobStore, CharacterId, CharacterRow, GlossaryCategory, GlossaryEntryId, GlossaryRow,
-    NodeId, Op, PageId, PipelineRunOptions, ProjectView, Region, Scene, SeriesMetaRow,
+    ArtifactKind, BlobId, BlobStore, CharacterId, CharacterRow, GlossaryCategory, GlossaryEntryId,
+    GlossaryRow, NodeId, Op, PageId, PipelineRunOptions, ProjectView, Region, Scene, SeriesMetaRow,
     scene::Page, scene::TextBlock as SceneTextBlock,
 };
 use koharu_engines::{Engine, EngineCtx, info as engine_info};
 use koharu_types::{Document, SerializableDynamicImage};
 
 use crate::AppResources;
+use crate::engine_profile::EngineProfileStore;
 
 /// Policy bag for [`run_engine_on_document`]. Phase 4.1 ships one
 /// knob (`clear_text_blocks_first`); future fields land additively.
@@ -98,6 +99,15 @@ pub async fn run_engine_on_document(
     let info = engine_info::find_engine(engine_id)
         .ok_or_else(|| anyhow!("no engine registered with id '{}'", engine_id))?;
 
+    // F4.D: merge the saved engine-profile settings under the
+    // caller's per-call options. Caller's options win on key
+    // conflict — `DetectPayload.anime_yolo_variant` overrides the
+    // saved profile's `variant` for one-shot runs, while a setting
+    // not present in the payload falls back to the profile, which
+    // itself falls back to the engine's schema default at
+    // `ctx.setting::<T>(_, default)` call time.
+    let merged_options = merge_profile_settings(&state.engine_profile, engine_id, options);
+
     // Load (async) — model weights + GPU init happen here on first
     // call. Driver should cache `Box<dyn Engine>` per engine id in
     // a real implementation; Phase 4.1 loads fresh each call to
@@ -135,7 +145,7 @@ pub async fn run_engine_on_document(
         ml: &state.ml,
         llm: &state.llm,
         renderer: &state.renderer,
-        options: &options,
+        options: &merged_options,
         cancel: &cancel,
     };
 
@@ -474,6 +484,57 @@ pub fn clear_doc_text_blocks(doc: &mut Document) {
     doc.text_blocks.clear();
 }
 
+/// Run the engine the user picked for a given artifact slot — falls
+/// back to `default_engine_id` when no profile override exists.
+/// Wrapper over [`run_engine_on_document`] that handles the
+/// per-machine engine-profile lookup.
+///
+/// Use this from call-sites that have a stable "artifact this stage
+/// produces" mapping (`vision::detect` → DetectionBoxes,
+/// `vision::ocr` → OcrText, etc.). Per-call payload knobs still
+/// ride in `options`; the bridge's `merge_profile_settings` layers
+/// them on top of the saved settings before the engine sees them.
+pub async fn run_engine_for_artifact(
+    state: &AppResources,
+    doc_index: usize,
+    artifact: ArtifactKind,
+    default_engine_id: &'static str,
+    options: PipelineRunOptions,
+    policy: RunPolicy,
+    cancel: CancellationToken,
+) -> Result<()> {
+    let engine_id = state
+        .engine_profile
+        .active_engine(artifact)
+        .unwrap_or_else(|| default_engine_id.to_string());
+    run_engine_on_document(state, doc_index, &engine_id, options, policy, cancel).await
+}
+
+/// Layer the per-call options over the saved engine-profile
+/// settings. Caller wins — a payload-provided `variant` overrides
+/// a saved `variant`. Saved settings missing from the payload fall
+/// through; the engine's schema default kicks in only at
+/// `ctx.setting::<T>(_, default)` call time for keys neither side
+/// sets.
+fn merge_profile_settings(
+    profile: &EngineProfileStore,
+    engine_id: &str,
+    caller: PipelineRunOptions,
+) -> PipelineRunOptions {
+    let saved = profile.settings_for(engine_id);
+    if saved.is_empty() {
+        return caller;
+    }
+    let mut merged = PipelineRunOptions::new();
+    for (k, v) in saved {
+        merged.settings.insert(k, v);
+    }
+    for (k, v) in caller.settings {
+        merged.settings.insert(k, v);
+    }
+    merged
+}
+
 /// Convert a v1 `text_blocks[idx]` array index to its v2 `NodeId`.
 /// Shifts by `+1` so we don't collide with `NodeId::NONE` (= 0),
 /// which koharu-core reserves as the "no node" sentinel.
@@ -742,6 +803,77 @@ mod tests {
         assert_eq!(node_id_to_index(NodeId(2)), Some(1));
         // NONE rejected.
         assert_eq!(node_id_to_index(NodeId(0)), None);
+    }
+
+    use koharu_core::StoredValue;
+
+    /// F4.D regression — caller's per-call options take precedence
+    /// over saved profile values for the same key, while non-
+    /// overlapping saved keys flow through. Missing keys on both
+    /// sides stay missing (engine reads schema default at runtime).
+    #[test]
+    fn merge_profile_settings_layers_caller_over_saved() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("engine_profile.json");
+        let mut saved_profile = crate::engine_profile::EngineProfile::default();
+        let mut saved_settings = std::collections::HashMap::new();
+        saved_settings.insert("variant".to_string(), StoredValue::String("s".into()));
+        saved_settings.insert(
+            "confidence_threshold".to_string(),
+            StoredValue::Number(0.30),
+        );
+        saved_profile
+            .settings
+            .insert("anime_yolo_detector".to_string(), saved_settings);
+        let store = crate::engine_profile::EngineProfileStore::with_initial(
+            saved_profile,
+            path,
+        );
+
+        // Caller passes variant=x → wins. confidence not passed →
+        // saved 0.30 flows through. New key from caller (foo=42) →
+        // present in merged.
+        let caller = PipelineRunOptions::new()
+            .with("variant", StoredValue::String("x".into()))
+            .with("foo", StoredValue::Number(42.0));
+
+        let merged = merge_profile_settings(&store, "anime_yolo_detector", caller);
+        assert_eq!(
+            merged.get_raw("variant"),
+            Some(&StoredValue::String("x".into())),
+            "caller wins on key conflict",
+        );
+        assert_eq!(
+            merged.get_raw("confidence_threshold"),
+            Some(&StoredValue::Number(0.30)),
+            "saved-only key flows through",
+        );
+        assert_eq!(
+            merged.get_raw("foo"),
+            Some(&StoredValue::Number(42.0)),
+            "caller-only key flows through",
+        );
+    }
+
+    /// Empty saved profile → caller options pass through verbatim
+    /// (no allocations spent walking an empty HashMap).
+    #[test]
+    fn merge_profile_settings_no_saved_keeps_caller_only() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("engine_profile.json");
+        let store = crate::engine_profile::EngineProfileStore::with_initial(
+            crate::engine_profile::EngineProfile::default(),
+            path,
+        );
+
+        let caller = PipelineRunOptions::new()
+            .with("variant", StoredValue::String("n".into()));
+        let merged = merge_profile_settings(&store, "anime_yolo_detector", caller);
+        assert_eq!(merged.settings.len(), 1);
+        assert_eq!(
+            merged.get_raw("variant"),
+            Some(&StoredValue::String("n".into()))
+        );
     }
 
     /// Updating block via its shifted NodeId hits the correct v1
