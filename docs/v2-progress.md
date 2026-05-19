@@ -163,6 +163,45 @@ Workspace `cargo build --workspace --lib` and `cargo test --workspace
 | #5 | Phase 4 | NodeId(0)/PageId(0) NONE collision + 3 docstring nits | `b7622537` |
 | #6 | Phase 5 | P1 duplicate-id guard + P2 profile persist race + P3 trailing blank | `16df2756` |
 | #7 | Phase 5/6 | P1 session doc-switch drift + P1 re-detect dup + P2 persist lock + P3 blobs/ on create | `4c97c5bc` |
+| #8 | Phase 5/6 | P1 clear-before-build session reset + P2 picker migration gate + P3 per-doc history state | `f79e649f` |
+| #9 | Phase 4-6 (self-test) | B3 cuDNN panic guard + B1 surface drift toast + B1 root invalidate session + B2 text_renderer hard error | `eefa3a85` |
+
+## Known issues (workaround documented; no in-tree fix yet)
+
+### KI-1: cuDNN TLS panic on Drop kills process (cudarc 0.19.3)
+
+**Symptom**: After a successful LaMa inpaint or text_renderer run, the
+process can die ~15s later with `STATUS_STACK_BUFFER_OVERRUN`
+(Windows fast-fail). Log shows
+`panicked at cudarc-0.19.3/src/cudnn/safe/core.rs:43:55: called
+Result::unwrap() on an Err value: CudnnError(CUDNN_STATUS_INTERNAL_ERROR)`
+followed by `fatal runtime error: thread local panicked on drop,
+aborting`.
+
+**Root cause**: cudarc's `<Cudnn as Drop>::drop` calls
+`cudnnDestroyHandle` and unwraps the Result. When the cuDNN handle
+is stored in thread-local storage (which candle/cudarc do for
+device context caching), Drop runs at thread teardown — and Rust's
+runtime calls `abort()` on a panic-during-TLS-drop. This sits
+ABOVE every `std::panic::catch_unwind` boundary; the audit #9/B3
+bridge guard + the LaMa thread-level guard (commit `c69cd38c`)
+catch panics during inference but NOT during TLS cleanup.
+
+**Workaround**: restart the app when this happens. The persistent
+project format means no work is lost beyond any in-flight render.
+
+**Real fixes (not yet attempted)**:
+
+- Fork cudarc 0.19.3, patch the unwrap in Drop → `if let Err(e)`.
+  Vendor via `[patch.crates-io]`. ~5-line patch.
+- Upgrade to a newer cudarc release if upstream fixed it.
+- Run inpaint/render in a subprocess so the abort doesn't kill
+  the main Tauri process.
+
+Reproduction is environment-dependent (RTX 50xx Blackwell +
+CUDA 13.1 + cuDNN 9.19) so a deterministic test isn't in the
+suite. The panic_hook log shipped in `bf0ed50d` ensures any
+future occurrence leaves a trace.
 
 ## Locked decisions (won't revisit without explicit approval)
 

@@ -51,10 +51,17 @@ pub async fn session_undo(
     let inverse_op = {
         let mut guard = state.session.write().await;
         let session = guard.session_for_mut(payload.index).ok_or_else(|| {
+            // Audit #9/B1 root: structural manual edits (add/remove
+            // text block, bulk replace) invalidate the session. If
+            // the user's frontend cache is stale, they may still
+            // see the Undo button enabled when the session is
+            // actually gone — surface a message that explains the
+            // root cause + how to recover, instead of the
+            // misleading "open the document" phrasing.
             anyhow!(
-                "no session for document {} — open the document + run an engine first \
-                 (session may have been built for a different document)",
-                payload.index,
+                "Undo history cleared by a manual edit (add/remove/replace text \
+                 block, or a different document was loaded). Run detect / OCR / \
+                 translate / render again to start fresh history."
             )
         })?;
         session.undo()?
@@ -109,8 +116,9 @@ pub async fn session_redo(
         let mut guard = state.session.write().await;
         let session = guard.session_for_mut(payload.index).ok_or_else(|| {
             anyhow!(
-                "no session for document {} — open the document + run an engine first",
-                payload.index,
+                "Redo history cleared by a manual edit (add/remove/replace text \
+                 block, or a different document was loaded). Run detect / OCR / \
+                 translate / render again to start fresh history."
             )
         })?;
         session.redo()?

@@ -142,6 +142,16 @@ export const useTextBlockMutations = () => {
         textBlocks,
       })
       await enqueueTextBlockSync(resolvedIndex, textBlocks)
+      // Audit #9/B1 follow-up: Backend `update_text_blocks` calls
+      // `SessionSlot::invalidate_if_doc` to drop the undo/redo
+      // session for this doc (NodeId↔array mapping is broken by
+      // bulk replace). Invalidate the frontend's history cache so
+      // the toolbar refetches `session_history_state` and sees the
+      // empty session → audit #8/P3 doc-index gate kicks in →
+      // Undo button disables itself. Pre-this-fix the cached
+      // undoLen stayed > 0 and the user could click Undo + hit a
+      // confusing "no session" error toast.
+      await invalidateSessionHistory(queryClient)
     },
     [queryClient],
   )
