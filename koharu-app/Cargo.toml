@@ -1,0 +1,20 @@
+[package]
+name = "koharu-app"
+version.workspace = true
+edition.workspace = true
+description = "ProjectSession + history ring buffer + event bus for koharu-th v2 — Phase 5 substrate"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+koharu-core = { workspace = true }
+
+anyhow = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

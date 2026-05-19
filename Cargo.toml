@@ -2,6 +2,7 @@
 members = [
     "koharu",
     "koharu-api",
+    "koharu-app",
     "koharu-core",
     "koharu-engines",
     "koharu-http",
@@ -38,6 +39,7 @@ publish = false
 
 [workspace.dependencies]
 koharu-api = { path = "koharu-api", default-features = false }
+koharu-app = { path = "koharu-app", default-features = false }
 koharu-core = { path = "koharu-core", default-features = false }
 koharu-engines = { path = "koharu-engines", default-features = false }
 koharu-http = { path = "koharu-http", default-features = false }

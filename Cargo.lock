@@ -3882,6 +3882,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "koharu-app"
+version = "1.2.1"
+dependencies = [
+ "anyhow",
+ "koharu-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "koharu-core"
 version = "1.2.1"
 dependencies = [
