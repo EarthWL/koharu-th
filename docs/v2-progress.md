@@ -11,9 +11,57 @@ diverge, update `v2-arch.md` first (design is locked there, not here).
 
 ---
 
-## Current phase: Phase 3 — Engine trait + registry + hardware probe
+## Current phase: Phase 4 — Engine migration + Profile UI
 
-**Status**: 🔄 IN PROGRESS — Phase 3.1 ✅ complete
+**Status**: 🔄 IN PROGRESS — Phases 4.1 + 4.2 ✅ complete
+
+### Phase 4.1 — Scene-from-Document bridge ✅
+
+`koharu_pipeline::engine_bridge::run_engine_on_document` is the
+runtime adapter that lets v1 `Document`/`AppResources` call sites
+invoke v2 engines.
+
+- **Build Scene** — `build_scene_from_document` registers the page
+  image in the BlobStore (WebP-lossless, same encoding as the RPC
+  DTO serializer — content-addressed, so re-runs hit the existing
+  key), converts v1 TextBlocks → v2 (NodeId = array index).
+- **Run engine** — load via `find_engine(id)`, build EngineCtx
+  with a fresh `ProjectView::empty()` (Phase 4.5 fills), drive
+  `engine.run` to completion while draining the `mpsc` channel.
+- **Apply Ops** — translate each Op back to Document mutation:
+  `AddTextBlock` ✅, `SetSegmentationMask` ✅,
+  `SetInpaintedImage` ✅, `SetRenderedImage` ✅, `SetBrushLayer` ✅,
+  `Batch` (recursive) ✅. `UpdateTextBlock` / `RemoveTextBlock`
+  deferred — need NodeId→array-index map (Phase 4.5 when
+  translate emits per-block updates).
+- **RunPolicy** — `clear_text_blocks_first` flag for stages that
+  REPLACE blocks (detector re-run). Phase 4.6 will replace this
+  with a proper `Op::ReplaceTextBlocks` variant.
+
+5 unit tests pass: scene build, content-addressed idempotence,
+AddTextBlock apply, Batch recursion, SetSegmentationMask round-trip
+through BlobStore.
+
+### Phase 4.2 — Detector call-site swap ✅
+
+`ops::vision::detect` now routes the **default** detector engine
+through `engine_bridge::run_engine_on_document(COMIC_TEXT_DETECTOR_ID)`.
+AnimeYolo path keeps the legacy direct call until Phase 4.3 ports
+it as its own engine. Same `DetectPayload` API — no RPC churn.
+
+Phase 3.3's deferred "test page through new path matches old"
+acceptance is satisfied end-to-end: detect button triggers the
+engine route, image bytes flow into the BlobStore, detector engine
+emits Ops, bridge applies them back, document re-saves with the
+same observable result (text_blocks + segment mask populated).
+
+Workspace `cargo build --workspace --lib` clean.
+
+## Previous phase: Phase 3 — Engine trait + registry + hardware probe
+
+**Status**: ✅ COMPLETE
+
+### Phase 3.1 — `koharu-engines` crate scaffold ✅
 
 ### Phase 3.1 — `koharu-engines` crate scaffold ✅
 

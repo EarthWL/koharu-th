@@ -1,3 +1,4 @@
+pub mod engine_bridge;
 pub mod engines;
 pub mod operations;
 pub mod ops;

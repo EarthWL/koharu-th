@@ -3981,6 +3981,7 @@ dependencies = [
  "futures",
  "image",
  "imageproc",
+ "indexmap 2.13.0",
  "koharu-api",
  "koharu-core",
  "koharu-engines",
