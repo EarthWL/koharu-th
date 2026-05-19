@@ -5,6 +5,7 @@ pub mod state_tx;
 
 use std::sync::Arc;
 
+use koharu_core::BlobStore;
 use koharu_ml::Device;
 use koharu_project::Project;
 use koharu_renderer::facade::Renderer;
@@ -14,6 +15,19 @@ use tokio::sync::RwLock;
 #[derive(Clone)]
 pub struct AppResources {
     pub state: AppState,
+    /// Phase 2: content-addressed binary store. Every binary served
+    /// to the frontend (page image, segment mask, inpainted, rendered,
+    /// brush layer, future blobs) lands here keyed by its blake3
+    /// hash. The HTTP `/blob/:hex` route in `koharu-rpc` reads from
+    /// this store so the browser can fetch binaries with native
+    /// caching + GPU-accelerated decode (see docs/v2-arch.md §5
+    /// Phase 2 on main, credit #33).
+    ///
+    /// In-memory backing for now. On-disk backing in `<app-data>/
+    /// Koharu/blobs/` lands later (probably Phase 4 alongside the
+    /// engine system, when blobs need to survive process restart so
+    /// re-renders can dedup against prior outputs).
+    pub blobs: BlobStore,
     pub ml: Arc<koharu_ml::facade::Model>,
     pub llm: Arc<koharu_ml::llm::facade::Model>,
     pub renderer: Arc<Renderer>,

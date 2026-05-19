@@ -184,6 +184,12 @@ async fn build_resources_inner(cpu: bool) -> Result<AppResources> {
 
     Ok(AppResources {
         state,
+        // Phase 2: in-memory BlobStore. Lives for the app's lifetime;
+        // every binary served to the frontend (page image, masks,
+        // renders) lands here keyed by blake3 hash. Disk backing
+        // queued for a later phase — current sessions don't need
+        // cross-restart blob persistence.
+        blobs: koharu_core::BlobStore::in_memory(),
         ml,
         llm,
         renderer,

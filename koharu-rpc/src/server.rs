@@ -4,10 +4,12 @@ use anyhow::Result;
 use axum::{
     Router,
     body::Body,
+    extract::{Path, State},
     http::{HeaderValue, StatusCode, Uri, header},
     response::{IntoResponse, Response},
     routing::get,
 };
+use koharu_core::BlobId;
 use rmcp::transport::streamable_http_server::{
     StreamableHttpService, session::local::LocalSessionManager, tower::StreamableHttpServerConfig,
 };
@@ -43,14 +45,151 @@ fn build_router(shared: SharedResources, resolver: SharedAssetResolver) -> Route
         },
     );
 
+    // Phase 2 blob transport. The /blob/:hex route is split out as
+    // its own little router with the AppResources as state so the
+    // handler can pull from the BlobStore directly. Merging into
+    // the main Router preserves the existing /ws + /mcp + fallback
+    // wiring untouched.
+    let blob_router = Router::new()
+        .route("/blob/{hex}", get(serve_blob))
+        .with_state(shared.clone());
+
     Router::new()
         .route("/ws", get(rpc::ws_handler))
         .with_state(ws_state)
         .nest_service("/mcp", mcp_service)
+        .merge(blob_router)
         .fallback(move |uri: Uri| {
             let resolver = resolver.clone();
             async move { serve_asset(&resolver, uri) }
         })
+}
+
+/// Serve a content-addressed blob.
+///
+/// URL: `GET /blob/<64-hex-chars>` where the hex is the blake3 hash
+/// of the bytes. Returns:
+/// - 200 with the bytes + `Cache-Control: public, max-age=31536000,
+///   immutable` if found. Content is immutable by construction (the
+///   URL IS the content hash), so the browser can cache forever.
+/// - 400 if the hex is malformed (wrong length or non-hex chars).
+/// - 404 if the blob isn't in the store. Browsers WILL retry on
+///   404 (HTTP cache treats it as a miss), which is what we want —
+///   a future call to `BlobStore::put` with the same bytes will
+///   make it available without any client-side coordination.
+///
+/// Credit: this transport choice was proposed by @HetCreep in
+/// koharu-th#33; see docs/v2-arch.md §2 (Locked Decisions, blob
+/// transport row) + §5 Phase 2 + §12 design changelog on main.
+async fn serve_blob(
+    State(shared): State<SharedResources>,
+    Path(hex): Path<String>,
+) -> Response {
+    let Some(id) = parse_blob_hex(&hex) else {
+        return (StatusCode::BAD_REQUEST, "malformed blob hash").into_response();
+    };
+    // SharedResources wraps AppResources in OnceCell — resources
+    // init asynchronously after the splash window comes up. If a
+    // blob request arrives before resources are ready (rare; would
+    // need the frontend to be ahead of the splash close) return 503
+    // so the browser can retry.
+    let Some(res) = shared.get() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "app resources not yet initialized",
+        )
+            .into_response();
+    };
+    let Some(bytes) = res.blobs.get(id) else {
+        // 404 is the right signal — the browser's HTTP cache treats
+        // it as a miss, so a later `put` of the same bytes by some
+        // backend code becomes immediately available without us
+        // having to push an invalidation.
+        return (StatusCode::NOT_FOUND, "blob not found").into_response();
+    };
+
+    let mut response = Response::new(Body::from(bytes.to_vec()));
+    let headers = response.headers_mut();
+    // Bytes are stable for the URL forever (it's the content hash).
+    // 1 year max-age + immutable is the standard cdn-safe pattern.
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=31536000, immutable"),
+    );
+    // We don't sniff content type — the consumer (most often <img>)
+    // does content sniffing for image types. application/octet-stream
+    // is the safe default; a future commit can hint the right MIME
+    // when the blob is stored with type metadata.
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
+    response
+}
+
+/// Parse a 64-character lowercase-hex string into a `BlobId`.
+/// Rejects wrong length, non-hex characters, and uppercase
+/// (canonical form is lowercase). Hex parsing is hot for blob
+/// fetches so we hand-roll the loop instead of pulling in a crate.
+fn parse_blob_hex(hex: &str) -> Option<BlobId> {
+    if hex.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    let bytes = hex.as_bytes();
+    for i in 0..32 {
+        let high = decode_hex_nibble(bytes[i * 2])?;
+        let low = decode_hex_nibble(bytes[i * 2 + 1])?;
+        out[i] = (high << 4) | low;
+    }
+    Some(BlobId(out))
+}
+
+#[inline]
+fn decode_hex_nibble(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_blob_hex_round_trip() {
+        let bytes = [
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
+            0x0e, 0x0f, 0x10, 0xff, 0xab, 0xcd, 0xef, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42,
+            0x42, 0x42, 0x42, 0x42,
+        ];
+        let id = BlobId(bytes);
+        let hex = id.to_hex();
+        let id2 = parse_blob_hex(&hex).expect("round-trip");
+        assert_eq!(id, id2);
+    }
+
+    #[test]
+    fn parse_blob_hex_rejects_wrong_length() {
+        assert!(parse_blob_hex("").is_none());
+        assert!(parse_blob_hex("abcd").is_none());
+        assert!(parse_blob_hex(&"a".repeat(63)).is_none());
+        assert!(parse_blob_hex(&"a".repeat(65)).is_none());
+    }
+
+    #[test]
+    fn parse_blob_hex_rejects_non_hex_and_uppercase() {
+        // 64 chars but contains 'Z' — not a hex digit.
+        let bad: String = "Z".repeat(64);
+        assert!(parse_blob_hex(&bad).is_none());
+        // Uppercase rejected (canonical form is lowercase). Catching
+        // this prevents silent cache misses if a caller emits the
+        // hash with the wrong case.
+        let upper: String = "A".repeat(64);
+        assert!(parse_blob_hex(&upper).is_none());
+    }
 }
 
 fn serve_asset(resolver: &SharedAssetResolver, uri: Uri) -> Response {
