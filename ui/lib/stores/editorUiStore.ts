@@ -79,7 +79,7 @@ export const useEditorUiStore = create<EditorUiState>((set, get) => ({
       selectedBlockIndex: undefined,
     })),
   setScale: (scale) => {
-    const clamped = Math.max(10, Math.min(100, Math.round(scale)))
+    const clamped = Math.max(10, Math.min(300, Math.round(scale)))
     set({ scale: clamped })
   },
   setShowSegmentationMask: (show) => set({ showSegmentationMask: show }),

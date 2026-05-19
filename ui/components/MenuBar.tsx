@@ -6,7 +6,12 @@ import { useRouter } from 'next/navigation'
 import { MinusIcon, SquareIcon, XIcon, CopyIcon } from 'lucide-react'
 import { isTauri, isMacOS, windowControls } from '@/lib/backend'
 import { useTranslation } from 'react-i18next'
-import { fitCanvasToViewport, resetCanvasScale } from '@/components/Canvas'
+import {
+  fitCanvasToViewport,
+  resetCanvasScale,
+  fitCanvasWidthToViewport,
+  fitCanvasHeightToViewport,
+} from '@/components/Canvas'
 import Image from 'next/image'
 import {
   Menubar,
@@ -155,6 +160,16 @@ export function MenuBar() {
         {
           label: t('menu.fitWindow'),
           onSelect: fitCanvasToViewport,
+          disabled: !hasDocument,
+        },
+        {
+          label: t('menu.fitWidth', 'Fit Width'),
+          onSelect: fitCanvasWidthToViewport,
+          disabled: !hasDocument,
+        },
+        {
+          label: t('menu.fitHeight', 'Fit Height'),
+          onSelect: fitCanvasHeightToViewport,
           disabled: !hasDocument,
         },
         {
