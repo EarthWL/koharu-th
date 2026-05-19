@@ -20,6 +20,7 @@ import {
   type EngineInfoView,
 } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { EngineSettingsForm } from '@/components/sidebar/EngineSettingsForm'
 
 /// Phase 4.7 sidebar tab — read-only list of registered engines +
 /// detected hardware summary. Phase 4.7b/c will add settings forms
@@ -229,6 +230,10 @@ function EngineCard({
           <span>~{engine.hardware.weightsSizeMb}MB weights</span>
         )}
       </div>
+      <EngineSettingsForm
+        engineId={engine.id}
+        schema={engine.settingsSchema}
+      />
     </div>
   )
 }

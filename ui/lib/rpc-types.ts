@@ -57,6 +57,7 @@ export type SettingDescriptor =
       max: number
       step: number
       default: number
+      helpI18nKey: string | null
     }
   | {
       kind: 'number_input'
@@ -66,12 +67,14 @@ export type SettingDescriptor =
       max: number
       step: number
       default: number
+      helpI18nKey: string | null
     }
   | {
       kind: 'toggle'
       id: string
       labelI18nKey: string
       default: boolean
+      helpI18nKey: string | null
     }
   | {
       kind: 'select'
@@ -79,6 +82,7 @@ export type SettingDescriptor =
       labelI18nKey: string
       options: [string, string][] // (value, label-i18n-key)
       default: string
+      helpI18nKey: string | null
     }
 
 export type BackendSupport = {
