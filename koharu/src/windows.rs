@@ -96,6 +96,44 @@ pub fn register_khr() -> Result<()> {
     register_file_associations()
 }
 
+/// Write a registry hint that tells IObit Uninstaller, Revo Uninstaller,
+/// CCleaner and similar tools that the given directory is owned by an
+/// installed application and must not be cleaned up.
+///
+/// The key written is:
+///   `HKCU\Software\IObit\IObit Uninstaller\Ignore\<path>`  (IObit)
+///   `HKCU\Software\VS Revo Group\Revo Uninstaller\Ignore\<path>` (Revo)
+///
+/// Most cleaners also respect the presence of an uninstall entry under
+/// `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\KoharuTH`
+/// which is registered by the Tauri installer — this function only adds
+/// the per-tool opt-out hints for tools that do their own dir scanning.
+///
+/// Failures are logged as warnings — a missing hint is not fatal.
+pub fn register_protected_dirs(dirs: &[&std::path::Path]) {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+
+    for dir in dirs {
+        let path_str = dir.to_string_lossy();
+
+        // IObit Uninstaller — "Protected Folders" ignore list
+        if let Ok((key, _)) = hkcu.create_subkey(
+            format!("Software\\IObit\\IObit Uninstaller\\ProtectedFolders\\{path_str}")
+        ) {
+            let _ = key.set_value("Protected", &1u32);
+        }
+
+        // Revo Uninstaller — Logs/excludes path
+        if let Ok((key, _)) = hkcu.create_subkey(
+            format!("Software\\VS Revo Group\\Revo Uninstaller\\Exclude\\{path_str}")
+        ) {
+            let _ = key.set_value("Exclude", &1u32);
+        }
+
+        tracing::debug!(dir = %path_str, "registered protected dir hints");
+    }
+}
+
 pub fn enable_ansi_support() -> Result<()> {
     unsafe {
         let handle = GetStdHandle(STD_OUTPUT_HANDLE)?;
