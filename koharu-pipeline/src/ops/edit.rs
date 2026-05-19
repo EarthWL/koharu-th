@@ -131,6 +131,33 @@ fn rehydrate_runtime_text_block_state(current: &mut TextBlock, previous: Option<
     } else {
         current.set_layout_seed(current.x, current.y, current.width, current.height);
     }
+
+    // Self-test fix #2 (bulk path): frontend's JSON payload omits
+    // `rendered` because TextBlock's `rendered?: Uint8Array` field
+    // doesn't survive JSON serialization. Without restore here, a
+    // simple drag-move would null every block's sprite — the
+    // TextBlockSpriteLayer reads `block.rendered` and falls back to
+    // nothing when missing → translations disappear from canvas
+    // until a full Render rebake. Restore from the matched previous
+    // block whenever sprite-relevant fields haven't changed.
+    //
+    // Sprite-relevant = size (w/h), rotation, translation, style.
+    // Pure position (x/y) preserves; the sprite renders the same
+    // text glyph image regardless of canvas placement.
+    let translation_changed = current.translation != prev.translation;
+    // TextStyle doesn't derive PartialEq (its nested types don't
+    // either) so compare via serde fingerprint — cheap relative to
+    // the sprite re-bake we'd otherwise schedule. `ok()` on either
+    // side: if serialization fails (shouldn't, but defensive),
+    // treat as changed so we err on the safe side.
+    let style_changed = serde_json::to_string(&current.style).ok()
+        != serde_json::to_string(&prev.style).ok();
+    let rotation_changed = current.rotation_deg != prev.rotation_deg;
+    let sprite_invalidated =
+        size_changed(current, prev) || translation_changed || style_changed || rotation_changed;
+    if !sprite_invalidated && current.rendered.is_none() {
+        current.rendered = prev.rendered.clone();
+    }
 }
 
 fn block_bounds(block: &TextBlock) -> Option<(f32, f32, f32, f32)> {
