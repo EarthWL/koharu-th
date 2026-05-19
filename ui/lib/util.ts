@@ -1,3 +1,5 @@
+import { blobUrl } from '@/lib/backend'
+
 /** Extract a standalone ArrayBuffer from a Uint8Array view (msgpack may return views into a shared decode buffer). */
 export function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(
@@ -20,7 +22,7 @@ export function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 export async function fetchBlobAsImageBitmap(
   hex: string,
 ): Promise<ImageBitmap> {
-  const response = await fetch(`/blob/${hex}`)
+  const response = await fetch(blobUrl(hex))
   if (!response.ok) {
     throw new Error(
       `blob fetch ${hex.slice(0, 12)}… failed: HTTP ${response.status}`,
@@ -47,7 +49,7 @@ export async function fetchBlobAsImageBitmap(
  * `koharu-rpc/src/server.rs`) so error responses never get pinned.
  */
 export async function fetchBlobBytes(hex: string): Promise<Uint8Array> {
-  const response = await fetch(`/blob/${hex}`)
+  const response = await fetch(blobUrl(hex))
   if (!response.ok) {
     throw new Error(
       `blob fetch ${hex.slice(0, 12)}… failed: HTTP ${response.status}`,

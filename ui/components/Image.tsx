@@ -2,6 +2,7 @@
 
 import type { CSSProperties } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { blobUrl } from '@/lib/backend'
 
 // ────────────────────────────────────────────────────────────────────
 // Image — v2 blob transport version (Phase 2 per #33)
@@ -40,9 +41,9 @@ type ImageProps = {
 
 const FADE_DURATION_MS = 180
 
-function blobUrl(hex: string | undefined): string | null {
+function toBlobSrc(hex: string | undefined): string | null {
   if (!hex) return null
-  return `/blob/${hex}`
+  return blobUrl(hex)
 }
 
 export function Image({
@@ -62,7 +63,7 @@ export function Image({
   // ── Non-transition path (used by the canvas base image to avoid
   //    extra paints; same shape as before, just URL instead of
   //    ObjectURL). ─────────────────────────────────────────────
-  const src = blobUrl(blob)
+  const src = toBlobSrc(blob)
   if (!transition) {
     if (!visible || !src) return null
     return (

@@ -39,6 +39,13 @@ export type RpcMethodMap = {
   open_external: [{ url: string }, void]
   get_documents: [void, number]
   get_document: [{ index: number }, Document]
+  // v2 blob-transport variant of get_document — backend registers
+  // binary fields with the BlobStore and returns hex BlobIds in
+  // place of inline bytes. Frontend always uses this; the plain
+  // get_document route stays for the MCP image-extraction tools
+  // that need pixel-level access. See koharu_api::views::
+  // DocumentDto + docs/v2-arch.md §5 Phase 2.
+  get_document_dto: [{ index: number }, Document]
   get_thumbnail: [{ index: number }, ThumbnailResult]
   add_documents: [void, number]
   open_documents: [void, number]

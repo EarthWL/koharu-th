@@ -182,10 +182,16 @@ export const useMaskMutations = () => {
       const currentDocument = queryClient.getQueryData<any>(queryKey)
       if (!currentDocument) return
 
-      queryClient.setQueryData(queryKey, {
-        ...currentDocument,
-        segment: mask,
-      })
+      // v2 blob transport: Document.segment is a hex BlobId (string),
+      // not raw bytes. The stroke is already painted locally on the
+      // brush canvas inside useMaskDrawing — we don't need to mirror
+      // the bytes into React-Query state. Once the backend round-trip
+      // finishes, inpaintPartial → invalidateCurrentDocument refetches
+      // and the new hex BlobId arrives; useMaskDrawing's segment-dep
+      // effect then re-fetches the bitmap and repaints the canvas with
+      // the server-side truth. (Writing `segment: mask` here would have
+      // shoved a Uint8Array into a string-typed field, then served as
+      // `/blob/1,2,3,...` on the next render — broken URL.)
 
       if (sync) {
         const patchRegion =

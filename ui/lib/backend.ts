@@ -6,6 +6,73 @@ import { toArrayBuffer } from './util'
 import { reportRpcError } from './errors'
 import type { RpcMethodMap, RpcNotificationMap, FileResult } from './rpc-types'
 
+// --- Backend host resolver ---
+//
+// Both the WebSocket-RPC channel and the HTTP `/blob/:hex` route are
+// served by the same Axum router. The exact host depends on where
+// we're running:
+//   - `next dev`:  Next is on :3000, Axum is on 127.0.0.1:9999
+//                  (cross-origin → CORS on /blob).
+//   - Tauri prod:  Both Next assets + /blob are served by Axum on
+//                  127.0.0.1:{__KOHARU_WS_PORT__} (same-origin).
+//   - Browser:     Single origin via location.host (same-origin).
+//
+// Centralising the resolver here so `blobUrl()` and the WS URL stay
+// in lockstep — without this, a relative `/blob/{hex}` URL from an
+// `<img>` or `fetch()` would hit the Next dev origin (which doesn't
+// know about /blob) and 404.
+
+type BackendHostInfo = { protocol: 'http:' | 'https:'; host: string }
+
+function getBackendHostInfo(): BackendHostInfo {
+  const isDev = process.env.NODE_ENV === 'development'
+  const pageProtocol =
+    typeof location !== 'undefined' && location.protocol === 'https:'
+      ? ('https:' as const)
+      : ('http:' as const)
+
+  if (isDev) {
+    return { protocol: pageProtocol, host: '127.0.0.1:9999' }
+  }
+  if (
+    typeof window !== 'undefined' &&
+    (window as any).__KOHARU_WS_PORT__
+  ) {
+    const port = (window as any).__KOHARU_WS_PORT__ as number
+    return { protocol: 'http:', host: `127.0.0.1:${port}` }
+  }
+  const host = typeof location !== 'undefined' ? location.host : '127.0.0.1'
+  return { protocol: pageProtocol, host }
+}
+
+function getHttpBase(): string {
+  const { protocol, host } = getBackendHostInfo()
+  return `${protocol}//${host}`
+}
+
+function getWsBase(): string {
+  const { protocol, host } = getBackendHostInfo()
+  const wsProto = protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${wsProto}//${host}`
+}
+
+/**
+ * Build the URL for a content-addressed blob served by the backend's
+ * `/blob/:hex` route. Always absolute (origin-qualified) so that a
+ * dev-mode Next page at :3000 still hits the Axum server at :9999
+ * instead of asking Next for a route it doesn't have. In Tauri prod
+ * the same call collapses to same-origin since Axum serves both
+ * frontend assets and `/blob`.
+ *
+ * Pass through `<img src={blobUrl(hex)}>` for native + GPU-decoded
+ * image loading (no CORS needed for `<img>`), or `fetch(blobUrl(hex))`
+ * for raw bytes (CORS needed cross-origin — handled by Axum sending
+ * `Access-Control-Allow-Origin: *` on this route).
+ */
+export function blobUrl(hex: string): string {
+  return `${getHttpBase()}/blob/${hex}`
+}
+
 // --- Singleton client ---
 
 let client: WsRpcClient | null = null
@@ -13,31 +80,7 @@ let client: WsRpcClient | null = null
 function getClient(): WsRpcClient {
   if (client) return client
 
-  let url: string
-  const isDev = process.env.NODE_ENV === 'development'
-
-  if (isDev) {
-    const proto =
-      typeof location !== 'undefined' && location.protocol === 'https:'
-        ? 'wss:'
-        : 'ws:'
-    url = `${proto}//127.0.0.1:9999/ws`
-  } else if (
-    typeof window !== 'undefined' &&
-    (window as any).__KOHARU_WS_PORT__
-  ) {
-    const port = (window as any).__KOHARU_WS_PORT__ as number
-    url = `ws://127.0.0.1:${port}/ws`
-  } else {
-    // Browser / headless mode: derive from current location
-    const proto =
-      typeof location !== 'undefined' && location.protocol === 'https:'
-        ? 'wss:'
-        : 'ws:'
-    const host = typeof location !== 'undefined' ? location.host : '127.0.0.1'
-    url = `${proto}//${host}/ws`
-  }
-
+  const url = `${getWsBase()}/ws`
   client = new WsRpcClient(url)
   client.connect()
   return client

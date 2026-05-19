@@ -143,19 +143,45 @@ async fn serve_blob(
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/octet-stream"),
     );
+    insert_blob_cors(headers);
     response
+}
+
+/// CORS allow for `/blob/:hex` so frontend `fetch(blobUrl)` works
+/// cross-origin in `next dev` (Next on :3000, Axum on :9999). In
+/// Tauri prod the frontend is served by the same Axum router so the
+/// header is harmless. Blobs are content-addressed + don't carry
+/// credentials, so `*` is correct (not `Access-Control-Allow-
+/// Credentials: true` which would forbid the wildcard).
+///
+/// `<img src>` doesn't need this header at all — the browser fetches
+/// the image natively without exposing bytes to JS — so existing
+/// `<img>` consumers worked even before this fix. The header
+/// matters for `fetch()` paths: `fetchBlobBytes` (AI Chat attach,
+/// raw bytes for backend re-encode) and `fetchBlobAsImageBitmap`
+/// (mask + brush layer canvas overlays).
+fn insert_blob_cors(headers: &mut axum::http::HeaderMap) {
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("*"),
+    );
 }
 
 /// Error response builder that sets `Cache-Control: no-store` so
 /// the browser's HTTP cache doesn't pin transient error states
 /// (especially 404s that flip to 200 once a `BlobStore::put` lands
-/// after a racing fetch).
+/// after a racing fetch). Also includes the CORS allow header so
+/// the frontend can observe the actual status code via `fetch()`
+/// (without it, cross-origin errors surface as opaque network
+/// failures and we lose the 404-vs-503 distinction in logs).
 fn no_store_error(status: StatusCode, body: &'static str) -> Response {
     let mut response = (status, body).into_response();
-    response.headers_mut().insert(
+    let headers = response.headers_mut();
+    headers.insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static("no-store"),
     );
+    insert_blob_cors(headers);
     response
 }
 
