@@ -29,5 +29,5 @@ pub use hardware::{
     BackendSupport, CompatibilityCheck, DetectedHardware, EngineCost, GpuVendor, HardwareReq,
 };
 pub use id::{NodeId, PageId, TmEntryId};
-pub use op::{Op, OpInverse, TextBlockPatch};
+pub use op::{Op, TextBlockPatch};
 pub use scene::{FontPrediction, Page, Region, Scene, TextBlock, TextStyle};

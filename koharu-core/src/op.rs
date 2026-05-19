@@ -1,31 +1,44 @@
-//! `Op` — the unit of state change.
+//! `Op` — the unit of Scene state change.
 //!
-//! Every mutation of a `Scene` goes through an `Op`. Engines return
-//! `Vec<Op>`; manual UI actions (user types in a translation field)
-//! also produce `Op`s. The driver wraps them in `Op::Batch` and hands
-//! to `ProjectSession::apply` (in `koharu-app`, Phase 5).
+//! Every mutation of a `Scene` goes through an `Op`. Engines emit
+//! `Vec<Op>` via the channel passed in `EngineCtx` (Phase 3); manual
+//! UI actions (user types in a translation field) also produce `Op`s.
+//! The driver wraps each batch as `Op::Batch` and hands to
+//! `ProjectSession::apply` (in `koharu-app`, Phase 5).
 //!
 //! ## Inversion
 //!
-//! Every op must be reversible to support undo. There are two
-//! patterns depending on the op:
+//! Every Op must be reversible to support undo, but inverses are
+//! computed **inline at apply time** by `ProjectSession::apply()` —
+//! NOT through a trait. The original design had an `OpInverse` trait
+//! with signature `fn inverse(&self, before: &Scene) -> Op`, but that
+//! breaks for `Op::Batch`: the middle Op of `Batch([A, B, C])`'s
+//! inverse depends on the Scene state AFTER A applied, not the
+//! original pre-batch snapshot. See [`docs/v2-arch.md`] §12
+//! "Design changelog — issue A" on `main`.
 //!
-//! - **Self-inverting**: e.g. `AddPage` ↔ `RemovePage`. The inverse
-//!   is derivable from the op itself.
-//! - **State-dependent inverse**: e.g. `UpdateTextBlock { patch }`'s
-//!   inverse is `UpdateTextBlock { patch: prev_value }`. Computing
-//!   the inverse requires reading the pre-state. This is what the
-//!   `OpInverse::inverse(&Scene)` signature is for — driver captures
-//!   pre-state before applying.
+//! Apply-time computation walks the Scene as it mutates each Op,
+//! captures the per-Op inverse against the just-mutated state, and
+//! stores `(forward_op, captured_inverse)` pairs in
+//! `ProjectSession::history`. Single computation, correct for Batch,
+//! no trait gymnastics.
 //!
-//! The driver stores `(op, inverse)` pairs in the history ring
-//! buffer so undo is one pop-and-apply.
+//! ## Project-side mutations
+//!
+//! `Op` covers Scene-layer state only — pages, text blocks, pipeline
+//! artifacts. Mutations to project entities (characters, glossary,
+//! prompt templates, series meta) go through [`ProjectOp`] in a
+//! sibling module. Engines return `EngineResult { scene_ops,
+//! project_ops }`; the driver applies both inside one SQLite
+//! transaction so undo of e.g. "extract entities" reverses both the
+//! Scene side (added text-block translations) and the Project side
+//! (added character / glossary rows) atomically.
 
 use serde::{Deserialize, Serialize};
 
 use crate::blob::BlobId;
-use crate::id::{NodeId, PageId, TmEntryId};
-use crate::scene::{Region, Scene, TextBlock, TextStyle};
+use crate::id::{NodeId, PageId};
+use crate::scene::{Region, TextBlock, TextStyle};
 
 /// Sum type covering every legal mutation of a `Scene`.
 ///
@@ -85,17 +98,12 @@ pub enum Op {
         page: PageId,
         brush: Option<BlobId>,
     },
-
-    // ── Translation-memory provenance hint ────────────────────
-    /// Not strictly state — records that a TM hit was used so undo
-    /// can surface "this came from TM not LLM" in the UI when the
-    /// user reverts. Doesn't mutate the Scene; the inverse is a
-    /// no-op `NoteTmHit` with no entry.
-    NoteTmHit {
-        page: PageId,
-        node: NodeId,
-        tm_entry: Option<TmEntryId>,
-    },
+    // NOTE: `NoteTmHit` previously lived here. Removed in Phase 1.1
+    // after the post-#33 re-review (see docs/v2-arch.md §12 — issue
+    // B). Pure annotation doesn't fit the "Op = state mutation"
+    // model — moved to the event bus as `SessionEvent::TmHit { … }`
+    // so cost-dashboard / UI subscribers can react without
+    // polluting the undo log.
 }
 
 /// Partial update for a `TextBlock`. Outer `None` = leave field
@@ -159,21 +167,17 @@ impl TextBlockPatch {
     }
 }
 
-/// Compute the inverse of an op against a known pre-state.
-///
-/// The driver is responsible for snapshotting the relevant
-/// pre-state and calling `inverse` BEFORE applying the op. Storing
-/// `(op, inverse)` pairs makes undo O(1) at the cost of one extra
-/// state read per op apply.
-pub trait OpInverse {
-    fn inverse(&self, before: &Scene) -> Op;
-}
-
-// `OpInverse` impl is intentionally **not** provided in Phase 1 —
-// implementing it requires the apply-op-to-scene logic to exist
-// first, which Phase 2 adds. Lands in Phase 5 alongside
-// `ProjectSession::apply`. The trait is declared here so
-// downstream code can already type-bound against it.
+// NOTE: An `OpInverse` trait previously lived here with signature
+// `fn inverse(&self, before: &Scene) -> Op`. Removed in Phase 1.1
+// after the post-#33 re-review (see docs/v2-arch.md §12 — issue A).
+//
+// The trait was broken for `Op::Batch`: a Batch's middle Op needs
+// the Scene state AFTER prior Ops applied, not the original `before`
+// snapshot the signature provides. The fix is to compute inverses
+// **inline at apply time** in `ProjectSession::apply` (Phase 5) —
+// walk the Scene as you apply each Op, capture per-Op inverse
+// against the just-mutated state, store `(forward, inverse)` pairs
+// in history. No trait needed.
 
 #[cfg(test)]
 mod tests {
