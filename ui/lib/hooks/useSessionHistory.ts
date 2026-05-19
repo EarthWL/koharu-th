@@ -6,7 +6,19 @@ import { api, type HistoryState } from '@/lib/api'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { queryKeys } from '@/lib/query/keys'
 
-const HISTORY_KEY = ['session', 'historyState'] as const
+export const HISTORY_KEY = ['session', 'historyState'] as const
+
+/// Helper for engine mutation onSuccess paths — call after any
+/// engine_bridge run (detect/ocr/inpaint/translate/render) so the
+/// toolbar's undo/redo button enabled-state updates without
+/// waiting for the next poll. Phase 5.5 wires this from
+/// `useDocumentMutations` + `useLlmMutations` alongside the
+/// existing `invalidateCurrentDocument` calls.
+export async function invalidateSessionHistory(
+  queryClient: import('@tanstack/react-query').QueryClient,
+): Promise<void> {
+  await queryClient.invalidateQueries({ queryKey: HISTORY_KEY })
+}
 
 const EMPTY_STATE: HistoryState = {
   undoLen: 0,

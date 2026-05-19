@@ -293,6 +293,9 @@ fn is_leap(y: i64) -> bool {
 
 pub async fn project_close(state: AppResources) -> anyhow::Result<()> {
     *state.project.write().await = None;
+    // Phase 5.5: closing the project also wipes the v2 session
+    // (history doesn't survive project close; per-chapter scope).
+    *state.session.write().await = None;
     Ok(())
 }
 
@@ -627,6 +630,12 @@ pub async fn chapter_open(
     let count = docs.len();
     let mut guard = state.state.write().await;
     guard.documents = docs;
+    drop(guard);
+    // Phase 5.5: chapter switch drops the v2 ProjectSession so
+    // history doesn't carry across chapters (locked decision: per-
+    // chapter session). The engine_bridge re-inits on the next
+    // engine run against the new chapter's Scene.
+    *state.session.write().await = None;
     Ok(count)
 }
 

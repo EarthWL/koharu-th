@@ -23,6 +23,7 @@ import {
   flushTextBlockSync,
 } from '@/lib/services/syncQueues'
 import { fetchBlobBytes } from '@/lib/util'
+import { invalidateSessionHistory } from '@/lib/hooks/useSessionHistory'
 import { applyThaiPostProcessToBlocks } from '@/lib/util/thaiPostProcess'
 import i18n from '@/lib/i18n'
 
@@ -38,6 +39,13 @@ const invalidateCurrentDocument = async (
   await queryClient.invalidateQueries({
     queryKey: queryKeys.documents.current(index),
   })
+  // Phase 5.5: every doc invalidate also bumps the session
+  // history query so the toolbar's undo/redo enabled-state
+  // refetches without waiting for the staleTime tick. For
+  // mutation paths that DON'T touch session.scene (text-block
+  // edits via direct RPC), this is a benign no-op refetch that
+  // returns the same HistoryState.
+  await invalidateSessionHistory(queryClient)
 }
 
 const invalidateThumbnailAtIndex = async (
