@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 /// All fields use `Option` for "unknown / not relevant" — an engine
 /// that runs equally well on CPU and GPU sets `min_vram_mb: None`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct HardwareReq {
     /// Minimum VRAM in MB to load the model at native precision.
     /// `None` = CPU-only engine, or memory pressure not modeled.
@@ -38,6 +39,7 @@ pub struct HardwareReq {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BackendSupport {
     pub cuda: bool,
     pub metal: bool,
@@ -70,6 +72,7 @@ impl BackendSupport {
 
 /// Cost characteristics for the cost-dashboard + engine picker UI.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EngineCost {
     /// Approximate USD per call. `Some` for cloud engines (Vision
     /// OCR via Gemini, GPT-4o, etc.). `None` for local engines.
