@@ -447,30 +447,30 @@ export function Workspace() {
                           />
                         )}
                         {/*
-                          Self-test follow-up: TextBlockAnnotations is the
-                          interaction layer — block outlines, selection
-                          handles, drag/resize affordances. It MUST stay
-                          visible even when the rendered composite is
-                          shown, otherwise the user has nothing to grab.
-                          Always mount, place at z=50 (above the composite
-                          at z=40 — handles appear ON TOP of the baked
-                          page render). The showTextBlocksOverlay flag
-                          remains a manual visibility override for the
-                          SpriteLayer only (currently unused on the
-                          composite-is-truth flow but kept for the future
-                          per-block sprite display).
+                          TextBlockAnnotations is the interaction layer —
+                          outlines, selection handles, drag/resize. Gated
+                          on showTextBlocksOverlay so the LayersPanel
+                          "Text Blocks" toggle can hide it (default ON,
+                          see editorUiStore). z=41 sits just above the
+                          composite (z=40) so handles overlay the baked
+                          page render, but below portal-rendered Radix
+                          dialogs/popovers (z=50+) so they don't punch
+                          through modals.
+
+                          History: 44b2a0e9 briefly removed this gate to
+                          fix outlines vanishing during edit — but that
+                          was actually the composite (z=40) covering the
+                          old z=30 annotations. The real fix was z=41 +
+                          keeping the composite visible (3126b74e); the
+                          gate is restored here so the hide toggle works.
                         */}
-                        <TextBlockAnnotations
-                          selectedIndex={selectedBlockIndex}
-                          onSelect={setSelectedBlockIndex}
-                          // z=41 sits just above the composite (z=40)
-                          // so handles overlay correctly, but stays
-                          // BELOW any portal-rendered Radix dialog /
-                          // popover / sidebar modal (typically z=50+).
-                          // User reported annotations punching through
-                          // an Edit Profile modal at z=50.
-                          style={{ zIndex: 41 }}
-                        />
+                        {showTextBlocksOverlay && (
+                          <TextBlockAnnotations
+                            selectedIndex={selectedBlockIndex}
+                            onSelect={setSelectedBlockIndex}
+                            style={{ zIndex: 41 }}
+                          />
+                        )}
                       </div>
                       {draftBlock && (
                         <div

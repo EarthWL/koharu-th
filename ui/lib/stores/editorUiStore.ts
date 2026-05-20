@@ -43,7 +43,13 @@ const initialState = {
   showInpaintedImage: false,
   showBrushLayer: false,
   showRenderedImage: false,
-  showTextBlocksOverlay: false,
+  // Self-test fix: default the text-block overlay ON. It's the
+  // interaction layer (outlines + handles) — translators expect to
+  // see + grab blocks by default. The LayersPanel "Text Blocks"
+  // toggle flips this; the canvas annotation layer is gated on it
+  // again (was briefly always-mounted in 44b2a0e9, which broke the
+  // hide toggle).
+  showTextBlocksOverlay: true,
   mode: 'select' as ToolMode,
   selectedBlockIndex: undefined,
   autoFitEnabled: true,

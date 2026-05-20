@@ -204,6 +204,16 @@ export const useChatActivityStore = create<ChatActivityState>((set, get) => ({
 
     abortController = new AbortController()
 
+    // Self-test follow-up #1: track whether the turn mutated any
+    // text block. If so, fire ONE full-page render on `done` so the
+    // canvas composite (doc.rendered) reflects the new translations.
+    // Without this, /translate-page updates land in the data + the
+    // Text Blocks panel refreshes (via the tool's query invalidate),
+    // but the canvas shows the stale baked page until the user
+    // presses Render manually.
+    let mutatedTextBlocks = false
+    let lastMutatedDocIndex: number | undefined
+
     try {
       await runChatTurn(
         {
@@ -218,6 +228,11 @@ export const useChatActivityStore = create<ChatActivityState>((set, get) => ({
           if (e.kind === 'text-delta') {
             set((s) => ({ streamingText: s.streamingText + e.delta }))
           } else if (e.kind === 'tool-call') {
+            if (e.call.name === 'update_text_block') {
+              mutatedTextBlocks = true
+              const pageIdx = (e.call.args as any)?.index
+              if (typeof pageIdx === 'number') lastMutatedDocIndex = pageIdx
+            }
             set((s) => {
               const sep = s.streamingText ? '\n\n' : ''
               return {
@@ -271,6 +286,27 @@ export const useChatActivityStore = create<ChatActivityState>((set, get) => ({
       abortController = null
       set({ streamingText: '', sending: false })
       await queryClient.invalidateQueries({ queryKey: CHAT_HISTORY_QUERY_KEY })
+
+      // Self-test follow-up #1: if the turn mutated text blocks
+      // (e.g. /translate-page applied translations), re-bake the
+      // page composite so the canvas shows the new text without a
+      // manual Render click. One render for the whole batch — not
+      // one per update_text_block. Best-effort: a render failure
+      // here shouldn't surface as a chat error (the translations
+      // already landed; the user can still press Render).
+      if (mutatedTextBlocks) {
+        const docIndex = lastMutatedDocIndex ?? 0
+        try {
+          await api.render(docIndex, {})
+          await queryClient.invalidateQueries({
+            queryKey: ['documents', 'current', docIndex],
+          })
+        } catch (renderErr) {
+          // Swallow — translations are saved; render is cosmetic
+          // catch-up. Log for diagnosis.
+          console.warn('post-translate auto-render failed', renderErr)
+        }
+      }
     }
   },
 

@@ -127,9 +127,15 @@ export function useTextBlocks() {
     // the composite once the user stops dragging. The composite
     // shows stale translation positions mid-drag but that beats
     // a fully-blank canvas.
-    if (hasGeometryChange(updates)) {
-      // Schedule a full-page composite re-bake so doc.rendered
-      // catches up with the new block state.
+    // Self-test follow-up #3: ANY change that alters the rendered
+    // output — geometry OR content (translation / style / rotation) —
+    // must schedule a full-page composite re-bake. Pre-fix only
+    // geometry changes triggered scheduleFullPageRender; a
+    // translation edit re-baked the per-block sprite (invisible,
+    // since the canvas shows the composite) but never refreshed
+    // doc.rendered, so the edit didn't appear until the user pressed
+    // Render manually.
+    if (hasGeometryChange(updates) || shouldRenderSprite(updates)) {
       scheduleFullPageRender()
     }
 
