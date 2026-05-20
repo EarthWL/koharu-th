@@ -113,6 +113,7 @@ pub enum GpuVendor {
 /// do NOT poll continuously — the UI assumes hardware is stable for
 /// the session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DetectedHardware {
     pub gpu_vendor: Option<GpuVendor>,
     pub gpu_name: Option<String>,
@@ -234,6 +235,23 @@ mod tests {
             metal_available: false,
             vulkan_available: false,
         }
+    }
+
+    #[test]
+    fn detected_hardware_serializes_camelcase() {
+        // The Engines tab reads hw.cudaAvailable / hw.gpuName / hw.vramMb;
+        // snake_case here makes the frontend read them as undefined and
+        // show "Unknown GPU / CPU only" no matter the real values.
+        let json = serde_json::to_string(&rtx_4060()).unwrap();
+        assert!(json.contains("\"cudaAvailable\""), "{json}");
+        assert!(json.contains("\"gpuName\""), "{json}");
+        assert!(json.contains("\"vramMb\""), "{json}");
+        assert!(json.contains("\"computeCap\""), "{json}");
+        assert!(json.contains("\"metalAvailable\""));
+        assert!(json.contains("\"vulkanAvailable\""));
+        assert!(json.contains("\"gpuVendor\""));
+        assert!(!json.contains("cuda_available"));
+        assert!(!json.contains("gpu_name"));
     }
 
     #[test]
