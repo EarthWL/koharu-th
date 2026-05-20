@@ -3,12 +3,12 @@ use image::GenericImageView;
 use imageproc::distance_transform::Norm;
 use koharu_api::commands::{
     AddTextBlockPayload, InpaintPartialPayload, MaskMorphPayload, RemoveTextBlockPayload,
-    UpdateBrushLayerPayload, UpdateInpaintMaskPayload, UpdateTextBlockPayload,
-    UpdateTextBlocksPayload,
+    ReorderTextBlocksPayload, UpdateBrushLayerPayload, UpdateInpaintMaskPayload,
+    UpdateTextBlockPayload, UpdateTextBlocksPayload,
 };
 use koharu_api::parse::parse_hex_color;
 use koharu_api::views::{TextBlockInfo, to_block_info};
-use koharu_types::{SerializableDynamicImage, TextBlock, TextStyle};
+use koharu_types::{ReadingOrder, SerializableDynamicImage, TextBlock, TextStyle};
 use tracing::instrument;
 
 use crate::{AppResources, state_tx};
@@ -749,14 +749,267 @@ pub async fn inpaint_partial(
     state_tx::update_doc(&state.state, payload.index, updated).await
 }
 
+fn recursive_xy_cut(
+    indices: &[usize],
+    blocks: &[TextBlock],
+    reading_order: ReadingOrder,
+) -> Vec<usize> {
+    if indices.len() <= 1 {
+        return indices.to_vec();
+    }
+
+    // 1. Sanitize dimensions and get medians
+    let mut widths = Vec::new();
+    let mut heights = Vec::new();
+    for &idx in indices {
+        if let Some(b) = blocks.get(idx) {
+            let w = if b.width.is_finite() && b.width >= 0.0 { b.width } else { 0.0 };
+            let h = if b.height.is_finite() && b.height >= 0.0 { b.height } else { 0.0 };
+            widths.push(w);
+            heights.push(h);
+        }
+    }
+    widths.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    heights.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let median_w = if widths.is_empty() { 50.0 } else { widths[widths.len() / 2] };
+    let median_h = if heights.is_empty() { 20.0 } else { heights[heights.len() / 2] };
+
+    let min_gap_x = (median_w * 0.15).max(10.0);
+    let min_gap_y = (median_h * 0.10).max(8.0);
+
+    // 2. Find best horizontal (Y) gap
+    let mut y_intervals = Vec::new();
+    for &idx in indices {
+        if let Some(b) = blocks.get(idx) {
+            let y = if b.y.is_finite() { b.y } else { 0.0 };
+            let h = if b.height.is_finite() && b.height >= 0.0 { b.height } else { 0.0 };
+            y_intervals.push((y, y + h));
+        }
+    }
+    y_intervals.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    let mut y_merged = Vec::new();
+    for &(start, end) in &y_intervals {
+        if let Some(last) = y_merged.last_mut() {
+            if start <= last.1 {
+                last.1 = last.1.max(end);
+            } else {
+                y_merged.push((start, end));
+            }
+        } else {
+            y_merged.push((start, end));
+        }
+    }
+    let mut best_y_gap: Option<(f32, f32, f32)> = None; // (start, end, size)
+    for i in 0..y_merged.len().saturating_sub(1) {
+        let size = y_merged[i+1].0 - y_merged[i].1;
+        if size > min_gap_y {
+            if best_y_gap.is_none() || size > best_y_gap.unwrap().2 {
+                best_y_gap = Some((y_merged[i].1, y_merged[i+1].0, size));
+            }
+        }
+    }
+
+    // 3. Find best vertical (X) gap
+    let mut x_intervals = Vec::new();
+    for &idx in indices {
+        if let Some(b) = blocks.get(idx) {
+            let x = if b.x.is_finite() { b.x } else { 0.0 };
+            let w = if b.width.is_finite() && b.width >= 0.0 { b.width } else { 0.0 };
+            x_intervals.push((x, x + w));
+        }
+    }
+    x_intervals.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    let mut x_merged = Vec::new();
+    for &(start, end) in &x_intervals {
+        if let Some(last) = x_merged.last_mut() {
+            if start <= last.1 {
+                last.1 = last.1.max(end);
+            } else {
+                x_merged.push((start, end));
+            }
+        } else {
+            x_merged.push((start, end));
+        }
+    }
+    let mut best_x_gap: Option<(f32, f32, f32)> = None;
+    for i in 0..x_merged.len().saturating_sub(1) {
+        let size = x_merged[i+1].0 - x_merged[i].1;
+        if size > min_gap_x {
+            if best_x_gap.is_none() || size > best_x_gap.unwrap().2 {
+                best_x_gap = Some((x_merged[i].1, x_merged[i+1].0, size));
+            }
+        }
+    }
+
+    // 4. Decide where to cut
+    match (best_x_gap, best_y_gap) {
+        (Some((x_start, x_end, x_size)), Some((y_start, y_end, y_size))) => {
+            if x_size > y_size {
+                // Cut X
+                let cut_coord = (x_start + x_end) / 2.0;
+                let (part1, part2) = partition_by_x(indices, blocks, cut_coord, reading_order);
+                let mut sorted = recursive_xy_cut(&part1, blocks, reading_order);
+                sorted.extend(recursive_xy_cut(&part2, blocks, reading_order));
+                sorted
+            } else {
+                // Cut Y
+                let cut_coord = (y_start + y_end) / 2.0;
+                let (part1, part2) = partition_by_y(indices, blocks, cut_coord);
+                let mut sorted = recursive_xy_cut(&part1, blocks, reading_order);
+                sorted.extend(recursive_xy_cut(&part2, blocks, reading_order));
+                sorted
+            }
+        }
+        (Some((x_start, x_end, _)), None) => {
+            // Cut X
+            let cut_coord = (x_start + x_end) / 2.0;
+            let (part1, part2) = partition_by_x(indices, blocks, cut_coord, reading_order);
+            let mut sorted = recursive_xy_cut(&part1, blocks, reading_order);
+            sorted.extend(recursive_xy_cut(&part2, blocks, reading_order));
+            sorted
+        }
+        (None, Some((y_start, y_end, _))) => {
+            // Cut Y
+            let cut_coord = (y_start + y_end) / 2.0;
+            let (part1, part2) = partition_by_y(indices, blocks, cut_coord);
+            let mut sorted = recursive_xy_cut(&part1, blocks, reading_order);
+            sorted.extend(recursive_xy_cut(&part2, blocks, reading_order));
+            sorted
+        }
+        (None, None) => {
+            // No gaps found, fallback sorting
+            let mut fallback_indices = indices.to_vec();
+            let tolerance_y = (median_h * 0.5).max(5.0);
+            fallback_indices.sort_by(|&idx_a, &idx_b| {
+                let a = &blocks[idx_a];
+                let b = &blocks[idx_b];
+                let ay = if a.y.is_finite() { a.y } else { 0.0 };
+                let by = if b.y.is_finite() { b.y } else { 0.0 };
+                let ax = if a.x.is_finite() { a.x } else { 0.0 };
+                let bx = if b.x.is_finite() { b.x } else { 0.0 };
+                let aw = if a.width.is_finite() && a.width >= 0.0 { a.width } else { 0.0 };
+                let bw = if b.width.is_finite() && b.width >= 0.0 { b.width } else { 0.0 };
+                let center_ax = ax + aw / 2.0;
+                let center_bx = bx + bw / 2.0;
+
+                if (ay - by).abs() < tolerance_y {
+                    match reading_order {
+                        ReadingOrder::Rtl => {
+                            // Right to Left: larger X first
+                            center_bx.partial_cmp(&center_ax).unwrap_or(std::cmp::Ordering::Equal)
+                        }
+                        _ => {
+                            // Left to Right: smaller X first
+                            center_ax.partial_cmp(&center_bx).unwrap_or(std::cmp::Ordering::Equal)
+                        }
+                    }
+                } else {
+                    // Top to bottom: smaller Y first
+                    ay.partial_cmp(&by).unwrap_or(std::cmp::Ordering::Equal)
+                }
+            });
+            fallback_indices
+        }
+    }
+}
+
+fn partition_by_x(
+    indices: &[usize],
+    blocks: &[TextBlock],
+    cut_coord: f32,
+    reading_order: ReadingOrder,
+) -> (Vec<usize>, Vec<usize>) {
+    let mut part1 = Vec::new();
+    let mut part2 = Vec::new();
+    for &idx in indices {
+        if let Some(b) = blocks.get(idx) {
+            let x = if b.x.is_finite() { b.x } else { 0.0 };
+            let w = if b.width.is_finite() && b.width >= 0.0 { b.width } else { 0.0 };
+            let center_x = x + w / 2.0;
+            match reading_order {
+                ReadingOrder::Rtl => {
+                    // Right to Left: Right comes first
+                    if center_x >= cut_coord {
+                        part1.push(idx);
+                    } else {
+                        part2.push(idx);
+                    }
+                }
+                _ => {
+                    // Left to Right: Left comes first
+                    if center_x < cut_coord {
+                        part1.push(idx);
+                    } else {
+                        part2.push(idx);
+                    }
+                }
+            }
+        }
+    }
+    (part1, part2)
+}
+
+fn partition_by_y(
+    indices: &[usize],
+    blocks: &[TextBlock],
+    cut_coord: f32,
+) -> (Vec<usize>, Vec<usize>) {
+    let mut part1 = Vec::new();
+    let mut part2 = Vec::new();
+    for &idx in indices {
+        if let Some(b) = blocks.get(idx) {
+            let y = if b.y.is_finite() { b.y } else { 0.0 };
+            let h = if b.height.is_finite() && b.height >= 0.0 { b.height } else { 0.0 };
+            let center_y = y + h / 2.0;
+            // Top to bottom: Top comes first
+            if center_y < cut_coord {
+                part1.push(idx);
+            } else {
+                part2.push(idx);
+            }
+        }
+    }
+    (part1, part2)
+}
+
+pub async fn reorder_text_blocks(
+    state: AppResources,
+    payload: ReorderTextBlocksPayload,
+) -> anyhow::Result<()> {
+    state_tx::mutate_doc(&state.state, payload.index, |document| {
+        if payload.reading_order == ReadingOrder::Custom {
+            return Ok(());
+        }
+
+        let indices: Vec<usize> = (0..document.text_blocks.len()).collect();
+        let sorted_indices = recursive_xy_cut(&indices, &document.text_blocks, payload.reading_order);
+
+        let mut sorted_blocks = Vec::with_capacity(document.text_blocks.len());
+        for idx in sorted_indices {
+            if let Some(block) = document.text_blocks.get(idx) {
+                sorted_blocks.push(block.clone());
+            }
+        }
+
+        if sorted_blocks.len() == document.text_blocks.len() {
+            document.text_blocks = sorted_blocks;
+        } else {
+            tracing::warn!("Mismatched block count during XY-cut reordering; aborting mutation");
+        }
+
+        Ok(())
+    })
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         find_matching_previous, localize_inpaint_text_blocks, paste_crop,
-        rehydrate_runtime_text_block_state,
+        rehydrate_runtime_text_block_state, recursive_xy_cut,
     };
     use image::{Rgba, RgbaImage};
-    use koharu_types::TextBlock;
+    use koharu_types::{ReadingOrder, TextBlock};
 
     #[test]
     fn resized_block_locks_layout_box() {
@@ -925,4 +1178,42 @@ mod tests {
         let matched = find_matching_previous(&current, 0, &previous, &[false, false]);
         assert_eq!(matched, Some(1));
     }
+
+    #[test]
+    fn xy_cut_sorting_rtl_ltr() {
+        let blocks = vec![
+            TextBlock {
+                x: 100.0,
+                y: 10.0,
+                width: 20.0,
+                height: 20.0,
+                ..Default::default()
+            }, // 0: Right column, top
+            TextBlock {
+                x: 10.0,
+                y: 10.0,
+                width: 20.0,
+                height: 20.0,
+                ..Default::default()
+            }, // 1: Left column, top
+            TextBlock {
+                x: 50.0,
+                y: 80.0,
+                width: 20.0,
+                height: 20.0,
+                ..Default::default()
+            }, // 2: Bottom row
+        ];
+
+        let indices = vec![0, 1, 2];
+
+        // For RTL: Right column top (0) -> Left column top (1) -> Bottom row (2)
+        let rtl_sorted = recursive_xy_cut(&indices, &blocks, ReadingOrder::Rtl);
+        assert_eq!(rtl_sorted, vec![0, 1, 2]);
+
+        // For LTR: Left column top (1) -> Right column top (0) -> Bottom row (2)
+        let ltr_sorted = recursive_xy_cut(&indices, &blocks, ReadingOrder::Ltr);
+        assert_eq!(ltr_sorted, vec![1, 0, 2]);
+    }
 }
+
