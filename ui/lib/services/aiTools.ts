@@ -10,6 +10,8 @@
  */
 
 import { api } from '@/lib/api'
+import { getQueryClient } from '@/lib/query/client'
+import { queryKeys } from '@/lib/query/keys'
 import {
   activeEmbeddingsConfig,
   effectiveModel,
@@ -365,13 +367,22 @@ const TOOLS: ToolDef[] = [
       },
     },
     handler: async (args) => {
-      // Self-test fix: api.updateTextBlock resolves to `void`, which
-      // serialised back as empty in the chat UI's tool-result
-      // accordion. The user expanded the rows after /translate-page
-      // and saw 5 empty boxes — no confirmation that anything
-      // actually happened. Synthesize a status object so the
-      // accordion shows what changed per block.
       await api.updateTextBlock(args)
+      // Self-test follow-up: backend mutation lands but the
+      // frontend React Query cache for the document is stale until
+      // someone invalidates it. Pre-fix the user ran /translate-page,
+      // every tool result showed `ok: true`, the final assistant
+      // turn said "5 blocks updated" — but the canvas + Text Blocks
+      // panel still showed the OLD Japanese text. Invalidate the
+      // per-document query so any mounted reader (canvas, panel,
+      // sprite layer) refetches and sees the new translation.
+      // Also invalidate the thumbnail at the same index — render
+      // hasn't fired yet but the thumbnail will catch up at the
+      // next render.
+      const qc = getQueryClient()
+      await qc.invalidateQueries({
+        queryKey: queryKeys.documents.current(args.index),
+      })
       const trimmed =
         typeof args.translation === 'string'
           ? args.translation.length > 80
