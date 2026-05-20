@@ -33,7 +33,7 @@ pub mod tm_tmx;
 pub mod tm_vector;
 mod types;
 
-pub use db::{Conn, Pool};
+pub use db::{open as open_db, Conn, Pool};
 pub use error::{Error, Result};
 pub use manifest::{Manifest, ManifestPaths, MANIFEST_FILENAME, SUPPORTED_SCHEMA_VERSION};
 pub use project::Project;

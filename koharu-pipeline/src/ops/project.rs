@@ -1475,12 +1475,68 @@ pub async fn tm_import_tmx(
 // provider profiles (Phase 9) + cost log/stats (Phase 10)
 // ---------------------------------------------------------------
 
+/// One-time auto-migration: when the machine-wide profile store is
+/// empty and a project with provider profiles is open, copy them into
+/// the machine store. Runs the first time the user views profiles after
+/// upgrading (guarded by "machine store empty", so it copies once from
+/// the first project opened that has profiles). API keys live in the OS
+/// keyring (already machine-wide) — we copy only the row + the keyring
+/// ref, so keys are preserved.
+async fn maybe_migrate_profiles_from_project(state: &AppResources) -> anyhow::Result<()> {
+    let pool = state.profiles.clone();
+    let machine_empty = tokio::task::spawn_blocking(move || -> anyhow::Result<bool> {
+        let conn = pool.get()?;
+        Ok(profile_ops::list(&conn)?.is_empty())
+    })
+    .await??;
+    if !machine_empty {
+        return Ok(());
+    }
+    let Some(project) = state.project.read().await.clone() else {
+        return Ok(());
+    };
+    let machine = state.profiles.clone();
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        let pconn = project.pool().get()?;
+        let existing = profile_ops::list(&pconn)?;
+        if existing.is_empty() {
+            return Ok(());
+        }
+        let mconn = machine.get()?;
+        for p in existing {
+            // Re-check emptiness inside the lock isn't needed — this fn
+            // is only reached when machine_empty was true, and the UI
+            // serialises profile RPCs.
+            profile_ops::insert(
+                &mconn,
+                ProfileInsert {
+                    name: p.name,
+                    provider: p.provider,
+                    api_url: p.api_url,
+                    model_name: p.model_name,
+                    api_key_ref: p.api_key_ref,
+                    extra_headers: p.extra_headers,
+                    extra_params: p.extra_params,
+                    is_default: p.is_default,
+                    cost_input_per_1m: p.cost_input_per_1m,
+                    cost_output_per_1m: p.cost_output_per_1m,
+                },
+            )?;
+        }
+        tracing::info!("migrated provider profiles from project DB into the machine-wide store");
+        Ok(())
+    })
+    .await??;
+    Ok(())
+}
+
 pub async fn provider_profiles_list(
     state: AppResources,
 ) -> anyhow::Result<Vec<ProviderProfileDto>> {
-    let project = require_project(&state).await?;
+    maybe_migrate_profiles_from_project(&state).await?;
+    let pool = state.profiles.clone();
     let list = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<ProviderProfileDto>> {
-        let conn = project.pool().get()?;
+        let conn = pool.get()?;
         Ok(profile_ops::list(&conn)?.into_iter().map(profile_to_dto).collect())
     })
     .await??;
@@ -1491,9 +1547,9 @@ pub async fn provider_profile_add(
     state: AppResources,
     payload: ProviderProfileAddPayload,
 ) -> anyhow::Result<ProviderProfileDto> {
-    let project = require_project(&state).await?;
+    let pool = state.profiles.clone();
     let dto = tokio::task::spawn_blocking(move || -> anyhow::Result<ProviderProfileDto> {
-        let conn = project.pool().get()?;
+        let conn = pool.get()?;
         // Mint a stable keyring reference and stash the plaintext key
         // there. Only the reference ID lives in the DB.
         let key_ref = if payload
@@ -1537,9 +1593,9 @@ pub async fn provider_profile_update(
     state: AppResources,
     payload: ProviderProfileUpdatePayload,
 ) -> anyhow::Result<Option<ProviderProfileDto>> {
-    let project = require_project(&state).await?;
+    let pool = state.profiles.clone();
     let dto = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<ProviderProfileDto>> {
-        let conn = project.pool().get()?;
+        let conn = pool.get()?;
 
         // Resolve api_key handling first: None = leave alone; Some("")
         // = clear; Some(value) = (re)write keyring entry.
@@ -1595,9 +1651,9 @@ pub async fn provider_profile_secret_get(
     state: AppResources,
     payload: ProviderProfileIdPayload,
 ) -> anyhow::Result<ProviderProfileSecret> {
-    let project = require_project(&state).await?;
+    let pool = state.profiles.clone();
     let secret = tokio::task::spawn_blocking(move || -> anyhow::Result<ProviderProfileSecret> {
-        let conn = project.pool().get()?;
+        let conn = pool.get()?;
         let profile = profile_ops::get(&conn, payload.id)?
             .ok_or_else(|| anyhow::anyhow!("profile {} not found", payload.id))?;
         let api_key = match profile.api_key_ref.as_deref() {
@@ -1614,9 +1670,9 @@ pub async fn provider_profile_remove(
     state: AppResources,
     payload: ProviderProfileIdPayload,
 ) -> anyhow::Result<bool> {
-    let project = require_project(&state).await?;
+    let pool = state.profiles.clone();
     let removed = tokio::task::spawn_blocking(move || -> anyhow::Result<bool> {
-        let conn = project.pool().get()?;
+        let conn = pool.get()?;
         // Clean up the keyring entry too so we don't leak secrets after delete.
         if let Some(p) = profile_ops::get(&conn, payload.id)? {
             if let Some(r) = p.api_key_ref.as_deref() {
@@ -1673,35 +1729,50 @@ pub async fn llm_cost_breakdown(
         LlmCostByUseCase,
     };
     let project = require_project(&state).await?;
+    let profiles_pool = state.profiles.clone();
     let breakdown = tokio::task::spawn_blocking(move || -> anyhow::Result<LlmCostBreakdown> {
         let conn = project.pool().get()?;
+        // Provider profiles now live in the machine-wide store, not the
+        // project DB — so resolve profile_id → name/provider from there
+        // (a cross-DB SQL join is no longer possible / meaningful).
+        let profile_meta: std::collections::HashMap<i64, (String, String)> =
+            profile_ops::list(&profiles_pool.get()?)?
+                .into_iter()
+                .map(profile_to_dto)
+                .map(|d| (d.id, (d.name, d.provider)))
+                .collect();
 
-        // By provider profile — join with provider_profiles for name/provider.
+        // By provider profile — group by id in the per-project call log,
+        // enrich name/provider from the machine-wide profile store.
         let by_profile = {
             let mut stmt = conn.prepare(
                 "SELECT
-                    p.id, p.name, p.provider,
+                    l.profile_id,
                     COUNT(l.id),
                     COALESCE(SUM(l.success), 0),
                     COALESCE(SUM(l.prompt_tokens), 0),
                     COALESCE(SUM(l.completion_tokens), 0),
                     COALESCE(SUM(l.estimated_cost_usd), 0)
                  FROM llm_call_log l
-                 LEFT JOIN provider_profiles p ON p.id = l.profile_id
                  WHERE l.profile_id IS NOT NULL
                  GROUP BY l.profile_id
                  ORDER BY SUM(l.estimated_cost_usd) DESC",
             )?;
             stmt.query_map([], |r| {
+                let id: i64 = r.get(0)?;
+                let (name, provider) = profile_meta
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_else(|| ("(deleted)".into(), String::new()));
                 Ok(LlmCostByProfile {
-                    profile_id: r.get(0)?,
-                    profile_name: r.get::<_, Option<String>>(1)?.unwrap_or_else(|| "(deleted)".into()),
-                    provider: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                    total_calls: r.get(3)?,
-                    successful_calls: r.get(4)?,
-                    total_prompt_tokens: r.get(5)?,
-                    total_completion_tokens: r.get(6)?,
-                    total_cost_usd: r.get(7)?,
+                    profile_id: id,
+                    profile_name: name,
+                    provider,
+                    total_calls: r.get(1)?,
+                    successful_calls: r.get(2)?,
+                    total_prompt_tokens: r.get(3)?,
+                    total_completion_tokens: r.get(4)?,
+                    total_cost_usd: r.get(5)?,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?

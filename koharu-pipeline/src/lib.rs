@@ -70,6 +70,15 @@ pub struct AppResources {
     /// RPC + UI; F4.D wires the bridge to consume it (currently
     /// engine ids are still hardcoded at call-sites).
     pub engine_profile: engine_profile::EngineProfileStore,
+    /// Machine-wide LLM provider profiles (API keys / model / cost
+    /// config). A standalone SQLite at `<app-data>/Koharu/
+    /// provider_profiles.db` so profiles are shared across ALL projects
+    /// — you set up your OpenAI / Gemini / etc. key once, not per
+    /// project. (API keys themselves live in the OS keyring, which was
+    /// already machine-wide; only the profile rows moved here.) The
+    /// project DB's `provider_profiles` table is now legacy / migration
+    /// source only.
+    pub profiles: koharu_project::Pool,
     /// Phase 5: ProjectSession + the doc_index it was built
     /// against, gated by `SessionSlot` so the engine_bridge can't
     /// silently reuse a stale session.scene across doc switches

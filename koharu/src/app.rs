@@ -236,6 +236,18 @@ async fn build_resources_inner(cpu: bool) -> Result<AppResources> {
         )
     });
 
+    // Machine-wide provider-profile store. Standalone SQLite so LLM
+    // provider profiles (keys/model/cost) are shared across every
+    // project instead of living in each project's series.db. Reuses the
+    // koharu-project migrations (only `provider_profiles` is used here).
+    let profiles_db_path = APP_ROOT.join("provider_profiles.db");
+    let profiles = koharu_project::open_db(&profiles_db_path).map_err(|e| {
+        anyhow::anyhow!(
+            "opening machine-wide provider profiles db at {}: {e}",
+            profiles_db_path.display()
+        )
+    })?;
+
     Ok(AppResources {
         state,
         // Phase 2: in-memory BlobStore. Lives for the app's lifetime;
@@ -256,6 +268,7 @@ async fn build_resources_inner(cpu: bool) -> Result<AppResources> {
         model_root: MODEL_ROOT.to_path_buf(),
         font_root: FONT_ROOT.to_path_buf(),
         engine_profile,
+        profiles,
         // Phase 5.3: ProjectSession is lazy-initialised on the
         // first engine_bridge run. Phase 5.5 manages explicit
         // chapter-open/close lifecycle. Wrapped in `SessionSlot`
