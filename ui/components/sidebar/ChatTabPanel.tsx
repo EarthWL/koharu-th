@@ -402,13 +402,21 @@ export function ChatTabPanel() {
           {!history.data?.length ? (
             <EmptyState />
           ) : (
-            history.data.map((m) => (
-              <MessageRow
-                key={m.id}
-                message={m}
-                onDelete={() => void deleteMessage(m.id)}
-              />
-            ))
+            groupChatRows(history.data).map((g) =>
+              g.type === 'message' ? (
+                <MessageRow
+                  key={g.message.id}
+                  message={g.message}
+                  onDelete={() => void deleteMessage(g.message.id)}
+                />
+              ) : (
+                <ToolActivityGroup
+                  key={`tools-${g.items[0].id}`}
+                  items={g.items}
+                  onDelete={(id) => void deleteMessage(id)}
+                />
+              ),
+            )
           )}
           {sending && (
             <StreamingBubble streamingText={streamingText} onStop={stop} />
@@ -662,6 +670,96 @@ const StreamingBubble = memo(function StreamingBubble({
     </div>
   )
 })
+
+/** A message is "tool noise" if it's a tool result, or an assistant
+ *  turn that ONLY dispatched tools (no narration text). These get
+ *  collapsed into one group so a /translate-page run doesn't bury the
+ *  conversation under 28 rows. */
+function isToolNoise(m: ChatMessageDto): boolean {
+  return (
+    m.role === 'tool' ||
+    (m.role === 'assistant' && !!m.toolCalls && !m.content?.trim())
+  )
+}
+
+type ChatRowGroup =
+  | { type: 'message'; message: ChatMessageDto }
+  | { type: 'tools'; items: ChatMessageDto[] }
+
+/** Collapse consecutive tool-noise messages into a single group. */
+function groupChatRows(msgs: ChatMessageDto[]): ChatRowGroup[] {
+  const out: ChatRowGroup[] = []
+  for (const m of msgs) {
+    if (isToolNoise(m)) {
+      const last = out[out.length - 1]
+      if (last && last.type === 'tools') last.items.push(m)
+      else out.push({ type: 'tools', items: [m] })
+    } else {
+      out.push({ type: 'message', message: m })
+    }
+  }
+  return out
+}
+
+/** Collapsed-by-default summary of a run of tool calls + results. */
+function ToolActivityGroup({
+  items,
+  onDelete,
+}: {
+  items: ChatMessageDto[]
+  onDelete: (id: number) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const { callCount, resultCount, summary } = useMemo(() => {
+    const names: Record<string, number> = {}
+    let calls = 0
+    for (const m of items) {
+      if (m.role === 'assistant' && m.toolCalls) {
+        try {
+          const parsed: any[] = JSON.parse(m.toolCalls)
+          calls += parsed.length
+          for (const c of parsed) {
+            const n = c?.name ?? '?'
+            names[n] = (names[n] ?? 0) + 1
+          }
+        } catch {}
+      }
+    }
+    const results = items.filter((m) => m.role === 'tool').length
+    const summary = Object.entries(names)
+      .map(([n, c]) => (c > 1 ? `${n}×${c}` : n))
+      .join(', ')
+    return { callCount: calls, resultCount: results, summary }
+  }, [items])
+
+  return (
+    <div className='border-border/60 bg-muted/20 overflow-hidden rounded-md border text-[10px]'>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className='text-muted-foreground hover:text-foreground flex w-full min-w-0 items-center gap-1 px-2 py-1 font-mono'
+      >
+        <ChevronDownIcon
+          className={'size-2.5 shrink-0 transition ' + (open ? '' : '-rotate-90')}
+        />
+        <WrenchIcon className='size-2.5 shrink-0' />
+        <span className='shrink-0'>
+          tools · {callCount} call{callCount === 1 ? '' : 's'}
+          {resultCount > 0 ? ` · ${resultCount} result${resultCount === 1 ? '' : 's'}` : ''}
+        </span>
+        {!open && summary && (
+          <span className='min-w-0 truncate opacity-70'>· {summary}</span>
+        )}
+      </button>
+      {open && (
+        <div className='space-y-1 p-1.5 pt-0'>
+          {items.map((m) => (
+            <MessageRow key={m.id} message={m} onDelete={() => onDelete(m.id)} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function MessageRow({
   message: m,
