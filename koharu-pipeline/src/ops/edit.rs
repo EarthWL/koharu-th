@@ -268,6 +268,59 @@ fn full_patch_from_block(blk: &TextBlock) -> TextBlockPatch {
     }
 }
 
+/// Record same-position block edits as an undoable session batch.
+///
+/// Shared by the bulk replace, the single update, and fit-to-bubble so
+/// EVERY Document text-block mutation keeps the session scene in lock
+/// step. Drift here is consequential: the next edit's `compute_inverse`
+/// reads the scene, so a stale scene yields an inverse that reverts the
+/// wrong values (the undo-review MAJOR finding — AI-chat single edits
+/// used to bypass this).
+///
+/// Best-effort: when the session isn't in-sync for `index` we skip
+/// recording (the Document edit still applied); on a missing target
+/// node or apply error we invalidate rather than commit a partial batch.
+async fn record_block_edits(state: &AppResources, index: usize, changes: &[(usize, TextBlock)]) {
+    if changes.is_empty() {
+        return;
+    }
+    let mut guard = state.session.write().await;
+    let mut drift = false;
+    if let Some(session) = guard.session_for_mut(index) {
+        if let Some(page) = session.scene().pages.keys().next().copied() {
+            let all_present = session
+                .scene()
+                .pages
+                .get(&page)
+                .map(|p| {
+                    changes
+                        .iter()
+                        .all(|(i, _)| p.text_blocks.contains_key(&index_to_node_id(*i)))
+                })
+                .unwrap_or(false);
+            if all_present {
+                let ops = changes
+                    .iter()
+                    .map(|(i, blk)| Op::UpdateTextBlock {
+                        page,
+                        id: index_to_node_id(*i),
+                        patch: full_patch_from_block(blk),
+                    })
+                    .collect();
+                if session.apply(Op::Batch(ops)).is_err() {
+                    drift = true;
+                }
+            } else {
+                drift = true;
+            }
+        }
+    }
+    // `session` borrow ended (NLL) — safe to invalidate now.
+    if drift {
+        guard.invalidate_if_doc(index);
+    }
+}
+
 pub async fn update_text_blocks(
     state: AppResources,
     payload: UpdateTextBlocksPayload,
@@ -313,55 +366,14 @@ pub async fn update_text_blocks(
         .await?;
 
     match diff {
+        // Same-length edit → record an undoable batch (no-op if the
+        // session isn't in-sync). Empty changes → helper returns early.
         Some(changes) => {
-            if !changes.is_empty() {
-                let mut guard = state.session.write().await;
-                let mut drift = false;
-                if let Some(session) = guard.session_for_mut(index) {
-                    if let Some(page) = session.scene().pages.keys().next().copied() {
-                        // Every target node must exist in the scene; a
-                        // missing one means the scene drifted from the
-                        // Document — invalidate rather than apply a
-                        // partial, inconsistent batch.
-                        let all_present = session
-                            .scene()
-                            .pages
-                            .get(&page)
-                            .map(|p| {
-                                changes
-                                    .iter()
-                                    .all(|(i, _)| p.text_blocks.contains_key(&index_to_node_id(*i)))
-                            })
-                            .unwrap_or(false);
-                        if all_present {
-                            let ops = changes
-                                .iter()
-                                .map(|(i, blk)| Op::UpdateTextBlock {
-                                    page,
-                                    id: index_to_node_id(*i),
-                                    patch: full_patch_from_block(blk),
-                                })
-                                .collect();
-                            if session.apply(Op::Batch(ops)).is_err() {
-                                drift = true;
-                            }
-                        } else {
-                            drift = true;
-                        }
-                    }
-                }
-                // `session` borrow ended (NLL) — safe to invalidate now.
-                if drift {
-                    guard.invalidate_if_doc(index);
-                }
-                // No in-sync session → history simply not recorded; the
-                // edit still applied to the Document above.
-            }
-            // Empty diff → nothing changed in scene terms; leave session.
+            record_block_edits(&state, index, &changes).await;
         }
         // Structural change (count differs) — bulk add/remove. Keep the
-        // pre-stable-id behaviour: drop history so undo can't corrupt the
-        // NodeId↔index mapping.
+        // pre-stable-mapping behaviour: drop history so undo can't
+        // corrupt the NodeId↔index mapping. (Increment 3 lifts this.)
         None => {
             state.session.write().await.invalidate_if_doc(index);
         }
@@ -373,11 +385,13 @@ pub async fn update_text_block(
     state: AppResources,
     payload: UpdateTextBlockPayload,
 ) -> anyhow::Result<TextBlockInfo> {
-    state_tx::mutate_doc(&state.state, payload.index, |document| {
+    let index = payload.index;
+    let block_index = payload.text_block_index;
+    let (info, new_block) = state_tx::mutate_doc(&state.state, index, move |document| {
         let block = document
             .text_blocks
-            .get_mut(payload.text_block_index)
-            .ok_or_else(|| anyhow::anyhow!("Text block {} not found", payload.text_block_index))?;
+            .get_mut(block_index)
+            .ok_or_else(|| anyhow::anyhow!("Text block {} not found", block_index))?;
         // Self-test fix #2: track whether the change invalidates
         // the rendered sprite. Pure-position moves (x/y only) do
         // NOT change the sprite contents — only its placement on
@@ -460,9 +474,13 @@ pub async fn update_text_block(
             block.rendered = None;
         }
         // Pure `moved` (x/y only) preserves rendered.
-        Ok(to_block_info(payload.text_block_index, block))
+        Ok((to_block_info(block_index, block), block.clone()))
     })
-    .await
+    .await?;
+    // Keep the session scene in sync + make this edit undoable (covers
+    // the AI-chat path, which is the only caller of the single endpoint).
+    record_block_edits(&state, index, std::slice::from_ref(&(block_index, new_block))).await;
+    Ok(info)
 }
 
 /// Expand a text block's bbox to match the bubble it sits in. Useful
@@ -479,16 +497,18 @@ pub async fn text_block_fit_to_bubble(
     state: AppResources,
     payload: koharu_api::commands::TextBlockFitToBubblePayload,
 ) -> anyhow::Result<TextBlockInfo> {
-    state_tx::mutate_doc(&state.state, payload.index, |document| {
+    let index = payload.index;
+    let block_index = payload.text_block_index;
+    let (info, new_block) = state_tx::mutate_doc(&state.state, index, move |document| {
         let img_w = document.width as i32;
         let img_h = document.height as i32;
         let luma = document.image.to_luma8();
 
         let block = document
             .text_blocks
-            .get(payload.text_block_index)
+            .get(block_index)
             .ok_or_else(|| {
-                anyhow::anyhow!("Text block {} not found", payload.text_block_index)
+                anyhow::anyhow!("Text block {} not found", block_index)
             })?;
         let bx0 = block.x.max(0.0) as i32;
         let by0 = block.y.max(0.0) as i32;
@@ -591,7 +611,7 @@ pub async fn text_block_fit_to_bubble(
 
         let block = document
             .text_blocks
-            .get_mut(payload.text_block_index)
+            .get_mut(block_index)
             .unwrap();
         block.x = new_x;
         block.y = new_y;
@@ -600,9 +620,11 @@ pub async fn text_block_fit_to_bubble(
         block.lock_layout_box = true;
         block.set_layout_seed(new_x, new_y, new_w, new_h);
 
-        Ok(to_block_info(payload.text_block_index, block))
+        Ok((to_block_info(block_index, block), block.clone()))
     })
-    .await
+    .await?;
+    record_block_edits(&state, index, std::slice::from_ref(&(block_index, new_block))).await;
+    Ok(info)
 }
 
 pub async fn add_text_block(
