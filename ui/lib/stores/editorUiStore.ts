@@ -38,6 +38,7 @@ type EditorUiState = {
   setCopiedStyle: (style?: TextStyle) => void
   setHudMessage: (msg?: string) => void
   showHud: (msg: string) => void
+  hideHud: () => void
   resetUiState: () => void
 }
 
@@ -139,8 +140,15 @@ export const useEditorUiStore = create<EditorUiState>((set, get) => ({
     }
     const timeoutId = setTimeout(() => {
       set({ hudMessage: undefined, hudTimeoutId: undefined } as any)
-    }, 1200)
+    }, 500)
     set({ hudMessage: msg, hudTimeoutId: timeoutId } as any)
+  },
+  hideHud: () => {
+    const state = get() as any
+    if (state.hudTimeoutId) {
+      clearTimeout(state.hudTimeoutId)
+    }
+    set({ hudMessage: undefined, hudTimeoutId: undefined } as any)
   },
   resetUiState: () =>
     set(() => ({

@@ -347,6 +347,7 @@ function BlockCard({
 }: BlockCardProps) {
   const { t } = useTranslation()
   const showHud = useEditorUiStore((state) => state.showHud)
+  const hideHud = useEditorUiStore((state) => state.hideHud)
   const hasOcr = !!block.text?.trim()
   const hasTranslation = !!block.translation?.trim()
   const preview = block.translation?.trim() || block.text?.trim()
@@ -537,6 +538,7 @@ function BlockCard({
                     const handleMouseUp = () => {
                       window.removeEventListener('mousemove', handleMouseMove)
                       window.removeEventListener('mouseup', handleMouseUp)
+                      hideHud()
                     }
                     window.addEventListener('mousemove', handleMouseMove)
                     window.addEventListener('mouseup', handleMouseUp)

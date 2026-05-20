@@ -163,6 +163,7 @@ export function RenderControlsPanel() {
   const setRenderEffect = useEditorUiStore((state) => state.setRenderEffect)
   const setRenderStroke = useEditorUiStore((state) => state.setRenderStroke)
   const showHud = useEditorUiStore((state) => state.showHud)
+  const hideHud = useEditorUiStore((state) => state.hideHud)
   const { updateTextBlocks } = useTextBlockMutations()
   const { retranslateImage } = useDocumentMutations()
   const { data: availableFonts = [] } = useFontsQuery()
@@ -717,6 +718,7 @@ export function RenderControlsPanel() {
             const handleMouseUp = () => {
               window.removeEventListener('mousemove', handleMouseMove)
               window.removeEventListener('mouseup', handleMouseUp)
+              hideHud()
             }
             window.addEventListener('mousemove', handleMouseMove)
             window.addEventListener('mouseup', handleMouseUp)
@@ -762,6 +764,7 @@ export function RenderControlsPanel() {
             const handleMouseUp = () => {
               window.removeEventListener('mousemove', handleMouseMove)
               window.removeEventListener('mouseup', handleMouseUp)
+              hideHud()
             }
             window.addEventListener('mousemove', handleMouseMove)
             window.addEventListener('mouseup', handleMouseUp)
@@ -790,6 +793,7 @@ export function RenderControlsPanel() {
                     const handleMouseUp = () => {
                       window.removeEventListener('mousemove', handleMouseMove)
                       window.removeEventListener('mouseup', handleMouseUp)
+                      hideHud()
                     }
                     window.addEventListener('mousemove', handleMouseMove)
                     window.addEventListener('mouseup', handleMouseUp)
@@ -839,6 +843,7 @@ export function RenderControlsPanel() {
                     const handleMouseUp = () => {
                       window.removeEventListener('mousemove', handleMouseMove)
                       window.removeEventListener('mouseup', handleMouseUp)
+                      hideHud()
                     }
                     window.addEventListener('mousemove', handleMouseMove)
                     window.addEventListener('mouseup', handleMouseUp)
@@ -886,6 +891,7 @@ export function RenderControlsPanel() {
             const handleMouseUp = () => {
               window.removeEventListener('mousemove', handleMouseMove)
               window.removeEventListener('mouseup', handleMouseUp)
+              hideHud()
             }
             window.addEventListener('mousemove', handleMouseMove)
             window.addEventListener('mouseup', handleMouseUp)
@@ -914,6 +920,7 @@ export function RenderControlsPanel() {
                     const handleMouseUp = () => {
                       window.removeEventListener('mousemove', handleMouseMove)
                       window.removeEventListener('mouseup', handleMouseUp)
+                      hideHud()
                     }
                     window.addEventListener('mousemove', handleMouseMove)
                     window.addEventListener('mouseup', handleMouseUp)
@@ -960,6 +967,7 @@ export function RenderControlsPanel() {
                     const handleMouseUp = () => {
                       window.removeEventListener('mousemove', handleMouseMove)
                       window.removeEventListener('mouseup', handleMouseUp)
+                      hideHud()
                     }
                     window.addEventListener('mousemove', handleMouseMove)
                     window.addEventListener('mouseup', handleMouseUp)
