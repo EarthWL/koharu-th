@@ -31,8 +31,10 @@ import {
   CoinsIcon,
   FileDiffIcon,
   PlusIcon,
+  DownloadIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { getHttpUrl } from '@/lib/backend'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
@@ -85,7 +87,7 @@ function uiLanguageName(): string {
 
 /** Build the system message injected at the top of every conversation —
  *  tells the assistant which project it's working on. */
-async function buildSystemPrompt(): Promise<string> {
+async function buildSystemPrompt(agenticMode?: boolean): Promise<string> {
   const uiLang = uiLanguageName()
   const project = useProjectStore.getState().info
   if (!project) {
@@ -98,7 +100,8 @@ async function buildSystemPrompt(): Promise<string> {
   try {
     series = await api.seriesMetaGet()
   } catch {}
-  return [
+
+  const baseInstructions = [
     'You are an AI assistant embedded in the Koharu manga translation editor.',
     `The user is working on project "${project.name}".`,
     `Reply to the user in the same language they write their message in (e.g., if they chat in Thai, respond in Thai; if they chat in English, respond in English). Default to ${uiLang} if the language cannot be determined.`,
@@ -118,8 +121,28 @@ async function buildSystemPrompt(): Promise<string> {
         })}`
       : '',
   ]
-    .filter(Boolean)
-    .join('\n')
+
+  if (agenticMode) {
+    return [
+      ...baseInstructions.filter(Boolean),
+      '',
+      'CRITICAL REQUEST - MULTI-STEP AGENTIC TRANSLATION CHAIN:',
+      'You MUST structure your response inside a multi-step translation chain using exact boundaries as follows:',
+      '---AGENTIC_CHAIN---',
+      '[STEP 1: Literal Translation]',
+      '(Provide a literal Japanese-to-Thai translation here, strictly matching word order and original structure to explain the syntax)',
+      '',
+      '[STEP 2: Context & Cultural Nuances]',
+      '(Analyze the manga context, character status/relationship, pop-culture references, slang, idioms, or onomatopoeia)',
+      '',
+      '[STEP 3: Premium Polish]',
+      '(Provide the final highly polished, contextualized, natural Thai translation suitable for typesetting inside the manga speech bubble. Only this output will be used on the canvas.)',
+      '---END_AGENTIC_CHAIN---',
+      'Make sure to output all three steps and use the exact bracket headers so the system can parse and display them in a stepper. Do not include any other markdown text outside the chain boundaries.',
+    ].join('\n')
+  }
+
+  return baseInstructions.filter(Boolean).join('\n')
 }
 
 interface DiffChunk {
@@ -164,6 +187,104 @@ function computeDiff(oldText: string, newText: string): DiffChunk[] {
   }
 
   return chunks.reverse()
+}
+
+interface AgenticSteps {
+  step1: string
+  step2: string
+  step3: string
+  isAgentic: boolean
+}
+
+function parseAgenticChain(content: string): AgenticSteps {
+  if (!content) return { step1: '', step2: '', step3: '', isAgentic: false }
+
+  const hasAgenticToken =
+    content.includes('---AGENTIC_CHAIN---') ||
+    content.includes('[STEP 1:') ||
+    content.includes('[STEP 2:') ||
+    content.includes('[STEP 3:')
+
+  if (!hasAgenticToken) {
+    return { step1: '', step2: '', step3: content, isAgentic: false }
+  }
+
+  let step1 = ''
+  let step2 = ''
+  let step3 = ''
+
+  const s1Index = content.indexOf('[STEP 1:')
+  const s2Index = content.indexOf('[STEP 2:')
+  const s3Index = content.indexOf('[STEP 3:')
+  const endIndex = content.indexOf('---END_AGENTIC_CHAIN---')
+
+  if (s1Index !== -1) {
+    const end =
+      s2Index !== -1
+        ? s2Index
+        : s3Index !== -1
+          ? s3Index
+          : endIndex !== -1
+            ? endIndex
+            : content.length
+    step1 = content.slice(s1Index + 8, end).trim()
+    if (step1.startsWith(']')) step1 = step1.slice(1).trim()
+    if (step1.startsWith('Literal Translation]')) step1 = step1.slice(20).trim()
+  }
+
+  if (s2Index !== -1) {
+    const end =
+      s3Index !== -1 ? s3Index : endIndex !== -1 ? endIndex : content.length
+    step2 = content.slice(s2Index + 8, end).trim()
+    if (step2.startsWith(']')) step2 = step2.slice(1).trim()
+    if (step2.startsWith('Context & Cultural Nuances]'))
+      step2 = step2.slice(27).trim()
+  }
+
+  if (s3Index !== -1) {
+    const end = endIndex !== -1 ? endIndex : content.length
+    step3 = content.slice(s3Index + 8, end).trim()
+    if (step3.startsWith(']')) step3 = step3.slice(1).trim()
+    if (step3.startsWith('Premium Polish]')) step3 = step3.slice(15).trim()
+  }
+
+  if (!step1 && !step2 && !step3) {
+    step3 = content
+  }
+
+  return { step1, step2, step3, isAgentic: true }
+}
+
+function calculateSimilarity(str1: string, str2: string): number {
+  if (!str1 || !str2) return 0
+  const s1 = str1.replace(/\s+/g, '')
+  const s2 = str2.replace(/\s+/g, '')
+  if (s1 === s2) return 1
+  if (s1.length < 2 || s2.length < 2) {
+    let matches = 0
+    for (let i = 0; i < s1.length; i++) {
+      if (s2.includes(s1[i])) matches++
+    }
+    return (2 * matches) / (s1.length + s2.length)
+  }
+
+  const getBigrams = (str: string) => {
+    const bigrams = new Set<string>()
+    for (let i = 0; i < str.length - 1; i++) {
+      bigrams.add(str.slice(i, i + 2))
+    }
+    return bigrams
+  }
+
+  const bigrams1 = getBigrams(s1)
+  const bigrams2 = getBigrams(s2)
+
+  let intersection = 0
+  bigrams1.forEach((b) => {
+    if (bigrams2.has(b)) intersection++
+  })
+
+  return (2 * intersection) / (bigrams1.size + bigrams2.size)
 }
 
 function rowToChatMessage(row: ChatMessageDto): ChatMessage {
@@ -430,6 +551,131 @@ export function ChatTabPanel() {
     return currentDocument.textBlocks[selectedBlockIndex] ?? null
   }, [selectedBlockIndex, currentDocument])
 
+  const documentsVersion = useEditorUiStore((s) => s.documentsVersion)
+  const [croppedContextUrl, setCroppedContextUrl] = useState<string | null>(
+    null,
+  )
+  const [croppedContextBlob, setCroppedContextBlob] = useState<Blob | null>(
+    null,
+  )
+
+  const [agenticMode, setAgenticMode] = useState<boolean>(() => {
+    return localStorage.getItem('koharu_chat_agentic_mode') === 'true'
+  })
+
+  const toggleAgenticMode = () => {
+    setAgenticMode((prev) => {
+      const next = !prev
+      localStorage.setItem('koharu_chat_agentic_mode', String(next))
+      return next
+    })
+  }
+
+  // Visual Context Auto-Crop Logic
+  useEffect(() => {
+    if (!selectedBlock || currentDocIndex === undefined) {
+      setCroppedContextUrl(null)
+      setCroppedContextBlob(null)
+      return
+    }
+
+    const { x, y, width, height } = selectedBlock
+    if (
+      typeof x !== 'number' ||
+      typeof y !== 'number' ||
+      typeof width !== 'number' ||
+      typeof height !== 'number'
+    ) {
+      setCroppedContextUrl(null)
+      setCroppedContextBlob(null)
+      return
+    }
+
+    let active = true
+
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    const baseUrl = `/api/image/${currentDocIndex}/base?v=${documentsVersion}`
+    img.src = getHttpUrl(baseUrl)
+
+    img.onload = () => {
+      if (!active) return
+      try {
+        const canvas = document.createElement('canvas')
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+
+        const padding = 40
+        const imgW = img.naturalWidth
+        const imgH = img.naturalHeight
+
+        const cropX = Math.max(0, x - padding)
+        const cropY = Math.max(0, y - padding)
+        const cropW = Math.min(imgW - cropX, width + padding * 2)
+        const cropH = Math.min(imgH - cropY, height + padding * 2)
+
+        if (cropW <= 0 || cropH <= 0) return
+
+        canvas.width = cropW
+        canvas.height = cropH
+
+        ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH)
+
+        canvas.toBlob(
+          (blob) => {
+            if (!active || !blob) return
+            setCroppedContextBlob(blob)
+            const dataUrl = URL.createObjectURL(blob)
+            setCroppedContextUrl(dataUrl)
+          },
+          'image/jpeg',
+          0.9,
+        )
+      } catch (err) {
+        console.error('Failed to crop block visual context', err)
+      }
+    }
+
+    img.onerror = (err) => {
+      console.error('Failed to load image for cropping', err)
+    }
+
+    return () => {
+      active = false
+      if (croppedContextUrl) {
+        URL.revokeObjectURL(croppedContextUrl)
+      }
+    }
+  }, [selectedBlock, currentDocIndex, documentsVersion])
+
+  // Translation Memory (TM) & Fuzzy Matching
+  const translationMemoryMatches = useMemo(() => {
+    if (!selectedBlock || !selectedBlock.text || !currentDocument?.textBlocks) {
+      return []
+    }
+    const matches: { text: string; translation: string; similarity: number }[] =
+      []
+
+    currentDocument.textBlocks.forEach((block, idx) => {
+      if (idx === selectedBlockIndex) return
+      if (!block.text || !block.translation) return
+
+      const similarity = calculateSimilarity(
+        selectedBlock.text || '',
+        block.text,
+      )
+      if (similarity >= 0.3) {
+        matches.push({
+          text: block.text,
+          translation: block.translation,
+          similarity,
+        })
+      }
+    })
+
+    return matches.sort((a, b) => b.similarity - a.similarity).slice(0, 3)
+  }, [selectedBlock, selectedBlockIndex, currentDocument])
+
   // Multi-Model Arena Compare
   const [arenaMode, setArenaMode] = useState(false)
   const [arenaActive, setArenaActive] = useState(false)
@@ -629,7 +875,7 @@ export function ChatTabPanel() {
     // which contains the expanded slash prompt).
     let systemContent = ''
     try {
-      systemContent = await buildSystemPrompt()
+      systemContent = await buildSystemPrompt(agenticMode)
     } catch {
       systemContent = 'You are an AI assistant for manga translation.'
     }
@@ -866,7 +1112,7 @@ export function ChatTabPanel() {
 
     let systemContent = ''
     try {
-      systemContent = await buildSystemPrompt()
+      systemContent = await buildSystemPrompt(agenticMode)
     } catch {
       systemContent = 'You are an AI assistant for manga translation.'
     }
@@ -1339,6 +1585,73 @@ export function ChatTabPanel() {
     }
   }
 
+  const exportChatHistory = () => {
+    if (!history.data || history.data.length === 0) return
+
+    const uiLang = uiLanguageName()
+    const project = projectInfo ? projectInfo.name : 'Unknown Project'
+
+    let md = `# Koharu Chat Session Export\n\n`
+    md += `* **Project**: ${project}\n`
+    md += `* **Export Date**: ${new Date().toLocaleString()}\n`
+    md += `* **UI Language**: ${uiLang}\n`
+    md += `* **Active Model**: ${provider}:${model}\n`
+    md += `* **Session Cost Estimate**: $${sessionTokenStats.costUsd.toFixed(5)} (${sessionTokenStats.totalTokens} tokens)\n\n`
+    md += `---\n\n`
+
+    const sorted = [...history.data].reverse()
+    sorted.forEach((m) => {
+      const roleStr = m.role.toUpperCase()
+      const timestampStr = m.createdAt
+        ? new Date(m.createdAt).toLocaleString()
+        : ''
+      const attachments = parseAttachments(m.attachments)
+
+      md += `### 👤 **${roleStr}** *${timestampStr}*\n`
+      if (m.model) {
+        md += `*Model used: ${m.model}*\n`
+      }
+      md += `\n${m.content ?? ''}\n\n`
+
+      if (attachments && attachments.length > 0) {
+        md += `**Attachments (${attachments.length}):**\n`
+        attachments.forEach((a, index) => {
+          md += `- Attachment ${index + 1}: [Image URL (${a.width}x${a.height})](${a.dataUrl.slice(0, 100)}...)\n`
+        })
+        md += `\n`
+      }
+
+      if (m.toolCalls) {
+        let calls = []
+        try {
+          calls = JSON.parse(m.toolCalls)
+        } catch {}
+        if (calls.length > 0) {
+          md += `**Tool Calls:**\n`
+          calls.forEach((c: any) => {
+            md += `- \`${c.name}\` with arguments \`${JSON.stringify(c.args)}\`\n`
+          })
+          md += `\n`
+        }
+      }
+
+      md += `---\n\n`
+    })
+
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.setAttribute('href', url)
+    link.setAttribute(
+      'download',
+      `koharu_chat_${projectInfo?.id ?? 'session'}_${Date.now()}.md`,
+    )
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
   const clearAll = async () => {
     if (clearing) return
     if (
@@ -1422,6 +1735,17 @@ export function ChatTabPanel() {
               <Redo2Icon className='size-3' />
             )}
             ทำซ้ำ
+          </Button>
+          <Button
+            variant='ghost'
+            size='sm'
+            className='hover:text-primary flex h-6 items-center gap-1 px-2 text-[10px] transition-colors duration-150 disabled:opacity-40'
+            title='ส่งออกประวัติการแชทเป็นไฟล์ Markdown'
+            disabled={!history.data?.length || sending}
+            onClick={exportChatHistory}
+          >
+            <DownloadIcon className='size-3' />
+            ส่งออก
           </Button>
           <Button
             variant='ghost'
@@ -1770,28 +2094,106 @@ export function ChatTabPanel() {
                 <XIcon className='size-3' />
               </Button>
             </div>
-            <div className='flex flex-col gap-1 rounded bg-black/5 p-1.5 dark:bg-white/5'>
-              {selectedBlock.text && (
-                <div className='flex items-start gap-1'>
-                  <span className='bg-primary/10 text-primary border-primary/20 shrink-0 rounded border px-1 text-[8px] font-semibold uppercase'>
-                    JP
-                  </span>
-                  <p className='truncate text-[10px] italic select-text'>
-                    {selectedBlock.text}
-                  </p>
+            <div className='flex items-center gap-2 rounded bg-black/5 p-1.5 dark:bg-white/5'>
+              {/* Cropped Context Thumbnail Preview */}
+              {croppedContextUrl && (
+                <div className='group/thumb border-border/80 bg-background/50 relative h-14 w-14 shrink-0 overflow-hidden rounded border shadow-sm'>
+                  <img
+                    src={croppedContextUrl}
+                    alt='Crop Context'
+                    className='h-full w-full object-cover transition-transform duration-200 group-hover/thumb:scale-105'
+                  />
+                  <div className='absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity duration-150 group-hover/thumb:opacity-100'>
+                    <button
+                      type='button'
+                      onClick={async (e) => {
+                        e.stopPropagation()
+                        if (!croppedContextBlob) return
+                        try {
+                          const att = await blobToAttachment(croppedContextBlob)
+                          setPendingAttachments((prev) => [...prev, att])
+                        } catch (err: any) {
+                          setError(
+                            `แนบภาพไม่สำเร็จ: ${err?.message ?? String(err)}`,
+                          )
+                        }
+                      }}
+                      className='bg-primary text-primary-foreground rounded px-1 py-0.5 text-[8px] font-bold transition-transform duration-100 hover:scale-105 active:scale-95'
+                    >
+                      แนบภาพ (Attach)
+                    </button>
+                  </div>
                 </div>
               )}
-              {selectedBlock.translation && (
-                <div className='flex items-start gap-1'>
-                  <span className='shrink-0 rounded border border-emerald-500/20 bg-emerald-500/10 px-1 text-[8px] font-semibold text-emerald-600 uppercase dark:text-emerald-400'>
-                    TH
-                  </span>
-                  <p className='truncate text-[10px] font-medium select-text'>
-                    {selectedBlock.translation}
-                  </p>
-                </div>
-              )}
+
+              <div className='flex min-w-0 flex-1 flex-col gap-1'>
+                {selectedBlock.text && (
+                  <div className='flex min-w-0 items-start gap-1'>
+                    <span className='bg-primary/10 text-primary border-primary/20 shrink-0 rounded border px-1 text-[8px] font-semibold uppercase'>
+                      JP
+                    </span>
+                    <p className='flex-1 truncate text-[10px] italic select-text'>
+                      {selectedBlock.text}
+                    </p>
+                  </div>
+                )}
+                {selectedBlock.translation && (
+                  <div className='flex min-w-0 items-start gap-1'>
+                    <span className='shrink-0 rounded border border-emerald-500/20 bg-emerald-500/10 px-1 text-[8px] font-semibold text-emerald-600 uppercase dark:text-emerald-400'>
+                      TH
+                    </span>
+                    <p className='flex-1 truncate text-[10px] font-medium select-text'>
+                      {selectedBlock.translation}
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
+
+            {/* Translation Memory (TM) Matches */}
+            {translationMemoryMatches.length > 0 && (
+              <div className='border-border/40 mt-1.5 space-y-1 border-t pt-1.5'>
+                <span className='text-muted-foreground flex items-center gap-1 text-[9px] font-bold tracking-wider uppercase'>
+                  <BookOpenIcon className='size-2.5 animate-pulse text-amber-500' />
+                  ความจำคำแปลคล้ายกัน (Translation Memory)
+                </span>
+                <div className='max-h-24 space-y-1 overflow-y-auto pr-0.5'>
+                  {translationMemoryMatches.map((m, idx) => (
+                    <div
+                      key={idx}
+                      className='bg-primary/5 hover:bg-primary/10 border-border/40 flex items-center justify-between gap-2 rounded border p-1 transition duration-150'
+                    >
+                      <div className='min-w-0 flex-1 space-y-0.5'>
+                        <p className='text-muted-foreground truncate text-[9px] italic'>
+                          {m.text}
+                        </p>
+                        <p className='text-foreground truncate text-[10px] font-medium'>
+                          {m.translation}
+                        </p>
+                      </div>
+                      <div className='flex shrink-0 items-center gap-1.5'>
+                        <span className='py-0.2 rounded border border-amber-500/20 bg-amber-500/10 px-1 font-mono text-[8px] font-bold text-amber-600 dark:text-amber-400'>
+                          {Math.round(m.similarity * 100)}%
+                        </span>
+                        <Button
+                          variant='outline'
+                          size='xs'
+                          onClick={() => {
+                            setInput(
+                              (prev) =>
+                                prev + (prev ? ' ' : '') + m.translation,
+                            )
+                          }}
+                          className='bg-background border-border/60 h-4.5 px-1 text-[8px] font-semibold shadow-sm'
+                        >
+                          ดึงคำแปล (Use)
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className='flex gap-1'>
               {selectedBlock.text && (
                 <Button
@@ -2008,6 +2410,28 @@ export function ChatTabPanel() {
               hidden
               onChange={(e) => void attachFromFile(e.target.files)}
             />
+
+            {/* Multi-Step Agentic Translation Chain (Stepped CoT) Button */}
+            <Button
+              variant='ghost'
+              size='icon-xs'
+              className={`relative size-6 transition-all duration-300 ${
+                agenticMode
+                  ? 'bg-purple-500/10 text-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.25)] hover:bg-purple-500/20 hover:text-purple-600'
+                  : 'hover:bg-accent text-primary'
+              }`}
+              onClick={toggleAgenticMode}
+              title='โหมดเกลาขั้นบันได (Agentic Chain: แปลตรงตัว -> วิเคราะห์บริบท -> เกลาภาษา)'
+            >
+              {agenticMode ? (
+                <>
+                  <span className='absolute inset-0 animate-pulse rounded-full bg-purple-500/20' />
+                  <SparklesIcon className='relative z-10 size-3 animate-spin [animation-duration:8s]' />
+                </>
+              ) : (
+                <SparklesIcon className='size-3 text-purple-500' />
+              )}
+            </Button>
 
             {/* Voice Dictation Microphone Button */}
             <Button
@@ -2658,20 +3082,127 @@ const StreamingBubble = memo(function StreamingBubble({
   streamingText: string
   onStop: () => void
 }) {
+  const steps = parseAgenticChain(streamingText)
+  const [activeTab, setActiveTab] = useState<
+    'step1' | 'step2' | 'step3' | null
+  >(null)
+
+  const latestStep = steps.step3 ? 'step3' : steps.step2 ? 'step2' : 'step1'
+  const currentTab = activeTab ?? latestStep
+
   return (
     <div className='border-border bg-card rounded-md border p-2 text-xs'>
       <div className='text-muted-foreground mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase'>
         <BotIcon className='size-3' />
-        assistant
+        assistant {steps.isAgentic && '(โหมดเกลาขั้นบันได)'}
         <Loader2Icon className='ml-auto size-3 animate-spin' />
       </div>
-      <div className='min-w-0'>
-        <ChatMarkdown>{streamingText}</ChatMarkdown>
-        <span className='ml-0.5 inline-block h-3 w-1 animate-pulse bg-current align-middle' />
-      </div>
+
+      {steps.isAgentic ? (
+        <div className='mt-1.5 space-y-2'>
+          {/* Gorgeous glassmorphic tab selector */}
+          <div className='border-border/40 grid grid-cols-3 gap-1 rounded-md border bg-black/5 p-1 dark:bg-white/5'>
+            <button
+              type='button'
+              onClick={() => setActiveTab('step1')}
+              className={`flex items-center justify-center gap-1 rounded py-1 text-[9px] font-medium transition duration-150 ${
+                currentTab === 'step1'
+                  ? 'bg-background text-foreground border-border/40 border font-semibold shadow-sm'
+                  : 'text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5'
+              }`}
+            >
+              <span>1️⃣ แปลตรงตัว</span>
+              {latestStep === 'step1' && (
+                <span className='size-1.5 animate-pulse rounded-full bg-purple-500' />
+              )}
+            </button>
+            <button
+              type='button'
+              onClick={() => setActiveTab('step2')}
+              className={`flex items-center justify-center gap-1 rounded py-1 text-[9px] font-medium transition duration-150 ${
+                currentTab === 'step2'
+                  ? 'bg-background text-foreground border-border/40 border font-semibold shadow-sm'
+                  : 'text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5'
+              }`}
+            >
+              <span>2️⃣ บริบทมังงะ</span>
+              {latestStep === 'step2' && (
+                <span className='size-1.5 animate-pulse rounded-full bg-purple-500' />
+              )}
+            </button>
+            <button
+              type='button'
+              onClick={() => setActiveTab('step3')}
+              className={`flex items-center justify-center gap-1 rounded py-1 text-[9px] font-medium transition duration-150 ${
+                currentTab === 'step3'
+                  ? 'bg-background text-foreground border-border/40 border font-semibold shadow-sm'
+                  : 'text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5'
+              }`}
+            >
+              <span>3️⃣ เกลาเกรด A</span>
+              {latestStep === 'step3' && (
+                <span className='size-1.5 animate-pulse rounded-full bg-purple-500' />
+              )}
+            </button>
+          </div>
+
+          {/* Stepped content container */}
+          <div className='bg-muted/20 border-border/30 relative min-w-0 rounded-md border p-2'>
+            {currentTab === 'step1' && (
+              <div className='animate-in fade-in duration-150'>
+                <div className='mb-1 text-[8px] font-semibold tracking-wider text-purple-600 uppercase dark:text-purple-400'>
+                  Step 1: แปลตรงตัวอักษร
+                </div>
+                {steps.step1 ? (
+                  <ChatMarkdown>{steps.step1}</ChatMarkdown>
+                ) : (
+                  <p className='text-muted-foreground text-[9px] italic'>
+                    กำลังแปลตรงตัวอักษร...
+                  </p>
+                )}
+              </div>
+            )}
+            {currentTab === 'step2' && (
+              <div className='animate-in fade-in duration-150'>
+                <div className='mb-1 text-[8px] font-semibold tracking-wider text-purple-600 uppercase dark:text-purple-400'>
+                  Step 2: วิเคราะห์บริบทมังงะและวัฒนธรรม
+                </div>
+                {steps.step2 ? (
+                  <ChatMarkdown>{steps.step2}</ChatMarkdown>
+                ) : (
+                  <p className='text-muted-foreground text-[9px] italic'>
+                    กำลังวิเคราะห์อารมณ์และบริบทตัวละคร...
+                  </p>
+                )}
+              </div>
+            )}
+            {currentTab === 'step3' && (
+              <div className='animate-in fade-in duration-150'>
+                <div className='mb-1 text-[8px] font-semibold tracking-wider text-purple-600 uppercase dark:text-purple-400'>
+                  Step 3: ผลลัพธ์เกลาภาษาขั้นสมบูรณ์
+                </div>
+                {steps.step3 ? (
+                  <ChatMarkdown>{steps.step3}</ChatMarkdown>
+                ) : (
+                  <p className='text-muted-foreground text-[9px] italic'>
+                    กำลังเกลาประโยคขั้นสุดท้าย...
+                  </p>
+                )}
+              </div>
+            )}
+            <span className='ml-0.5 inline-block h-3 w-1 animate-pulse bg-purple-500 align-middle' />
+          </div>
+        </div>
+      ) : (
+        <div className='min-w-0'>
+          <ChatMarkdown>{streamingText}</ChatMarkdown>
+          <span className='ml-0.5 inline-block h-3 w-1 animate-pulse bg-current align-middle' />
+        </div>
+      )}
+
       <button
         onClick={onStop}
-        className='text-muted-foreground hover:text-destructive mt-1 text-[10px] underline'
+        className='text-muted-foreground hover:text-destructive mt-2 text-[10px] underline'
       >
         Stop
       </button>
@@ -2700,12 +3231,18 @@ function MessageRow({
   onSwitchBranch?: (newIdx: number) => void
   selectedTranslation?: string
 }) {
+  const steps = useMemo(() => parseAgenticChain(m.content ?? ''), [m.content])
+  const [activeStepTab, setActiveStepTab] = useState<
+    'step1' | 'step2' | 'step3'
+  >('step3')
   const [copied, setCopied] = useState(false)
   const [showDiff, setShowDiff] = useState(false)
+
   const handleCopy = async () => {
     if (!m.content) return
     try {
-      await navigator.clipboard.writeText(m.content)
+      const copyText = steps.isAgentic ? steps.step3 : m.content
+      await navigator.clipboard.writeText(copyText)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch (err) {
@@ -2881,7 +3418,98 @@ function MessageRow({
               </div>
             ) : (
               <>
-                <ChatMarkdown>{m.content}</ChatMarkdown>
+                {steps.isAgentic ? (
+                  <div className='my-1.5 space-y-2 border-l-2 border-purple-500/30 py-0.5 pl-2'>
+                    {/* Gorgeous glassmorphic tab selector */}
+                    <div className='border-border/40 grid grid-cols-3 gap-1 rounded-md border bg-black/5 p-1 dark:bg-white/5'>
+                      <button
+                        type='button'
+                        onClick={() => setActiveStepTab('step1')}
+                        className={`flex items-center justify-center gap-1 rounded py-1 text-[9px] font-medium transition duration-150 ${
+                          activeStepTab === 'step1'
+                            ? 'bg-background text-foreground border-border/40 border font-semibold shadow-sm'
+                            : 'text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5'
+                        }`}
+                      >
+                        <span>1️⃣ แปลตรงตัว</span>
+                      </button>
+                      <button
+                        type='button'
+                        onClick={() => setActiveStepTab('step2')}
+                        className={`flex items-center justify-center gap-1 rounded py-1 text-[9px] font-medium transition duration-150 ${
+                          activeStepTab === 'step2'
+                            ? 'bg-background text-foreground border-border/40 border font-semibold shadow-sm'
+                            : 'text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5'
+                        }`}
+                      >
+                        <span>2️⃣ บริบทมังงะ</span>
+                      </button>
+                      <button
+                        type='button'
+                        onClick={() => setActiveStepTab('step3')}
+                        className={`flex items-center justify-center gap-1 rounded py-1 text-[9px] font-medium transition duration-150 ${
+                          activeStepTab === 'step3'
+                            ? 'bg-background text-foreground border-border/40 border font-semibold shadow-sm'
+                            : 'text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5'
+                        }`}
+                      >
+                        <span>3️⃣ เกลาเกรด A</span>
+                      </button>
+                    </div>
+
+                    {/* Stepped content container */}
+                    <div className='bg-muted/10 border-border/20 min-w-0 rounded-md border p-2'>
+                      {activeStepTab === 'step1' && (
+                        <div className='animate-in fade-in duration-150'>
+                          <div className='mb-1 text-[8px] font-semibold tracking-wider text-purple-600 uppercase dark:text-purple-400'>
+                            Step 1: แปลตรงตัวอักษร
+                          </div>
+                          {steps.step1 ? (
+                            <ChatMarkdown>{steps.step1}</ChatMarkdown>
+                          ) : (
+                            <p className='text-muted-foreground text-[9px] italic'>
+                              ไม่มีข้อมูลการแปลตรงตัว
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      {activeStepTab === 'step2' && (
+                        <div className='animate-in fade-in duration-150'>
+                          <div className='mb-1 text-[8px] font-semibold tracking-wider text-purple-600 uppercase dark:text-purple-400'>
+                            Step 2: วิเคราะห์บริบทมังงะและวัฒนธรรม
+                          </div>
+                          {steps.step2 ? (
+                            <ChatMarkdown>{steps.step2}</ChatMarkdown>
+                          ) : (
+                            <p className='text-muted-foreground text-[9px] italic'>
+                              ไม่มีข้อมูลการวิเคราะห์บริบท
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      {activeStepTab === 'step3' && (
+                        <div className='animate-in fade-in duration-150'>
+                          <div className='mb-1 flex items-center justify-between text-[8px] font-semibold tracking-wider text-purple-600 uppercase dark:text-purple-400'>
+                            <span>Step 3: ผลลัพธ์เกลาภาษาขั้นสมบูรณ์</span>
+                            <span className='py-0.2 rounded border border-purple-500/20 bg-purple-500/10 px-1 text-[8px] font-bold text-purple-600 select-none dark:text-purple-400'>
+                              Premium
+                            </span>
+                          </div>
+                          {steps.step3 ? (
+                            <ChatMarkdown>{steps.step3}</ChatMarkdown>
+                          ) : (
+                            <p className='text-muted-foreground text-[9px] italic'>
+                              ไม่มีข้อมูลการเกลาภาษา
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <ChatMarkdown>{m.content}</ChatMarkdown>
+                )}
+
                 {showDiff && selectedTranslation && (
                   <div className='bg-muted/40 border-border/50 animate-in fade-in slide-in-from-top-1 mt-2 space-y-1.5 rounded-md border p-2 font-sans text-[11px] leading-relaxed break-words whitespace-pre-wrap duration-200 select-text'>
                     <div className='text-muted-foreground border-border/30 mb-1 flex items-center gap-1 border-b pb-0.5 text-[8px] font-bold tracking-wider uppercase'>
@@ -2889,22 +3517,23 @@ function MessageRow({
                       เปรียบเทียบคำแปลเดิม (ชมพู) → คำแปล AI (เขียว)
                     </div>
                     <div className='flex flex-wrap gap-x-0.5 gap-y-1'>
-                      {computeDiff(selectedTranslation, m.content ?? '').map(
-                        (c, i) => (
-                          <span
-                            key={i}
-                            className={
-                              c.type === 'added'
-                                ? 'rounded-sm bg-emerald-500/15 px-0.5 font-medium text-emerald-700 dark:text-emerald-400'
-                                : c.type === 'removed'
-                                  ? 'rounded-sm bg-rose-500/15 px-0.5 font-medium text-rose-700 line-through dark:text-rose-400'
-                                  : 'text-foreground'
-                            }
-                          >
-                            {c.value}
-                          </span>
-                        ),
-                      )}
+                      {computeDiff(
+                        selectedTranslation,
+                        steps.isAgentic ? steps.step3 : (m.content ?? ''),
+                      ).map((c, i) => (
+                        <span
+                          key={i}
+                          className={
+                            c.type === 'added'
+                              ? 'rounded-sm bg-emerald-500/15 px-0.5 font-medium text-emerald-700 dark:text-emerald-400'
+                              : c.type === 'removed'
+                                ? 'rounded-sm bg-rose-500/15 px-0.5 font-medium text-rose-700 line-through dark:text-rose-400'
+                                : 'text-foreground'
+                          }
+                        >
+                          {c.value}
+                        </span>
+                      ))}
                     </div>
                   </div>
                 )}
