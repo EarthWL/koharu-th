@@ -75,7 +75,7 @@ export function EnginesTabPanel() {
         </Button>
       </div>
 
-      <ScrollArea className='flex-1'>
+      <ScrollArea className='min-h-0 min-w-0 flex-1'>
         <div className='space-y-4 p-3'>
           <HardwareSummary hardware={hardware.data} loading={hardware.isLoading} />
 
