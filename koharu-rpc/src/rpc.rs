@@ -56,6 +56,19 @@ fn err_response(id: u32, msg: &str) -> OutgoingMessage {
     }
 }
 
+fn diag_err_response(id: u32, err: &anyhow::Error) -> OutgoingMessage {
+    let diag = koharu_types::classify_error(err);
+    let error_str = match serde_json::to_string(&diag) {
+        Ok(json) => json,
+        Err(_) => format!("{err:#}"),
+    };
+    OutgoingMessage::Response {
+        id,
+        result: None,
+        error: Some(error_str),
+    }
+}
+
 fn to_value<T: Serialize>(val: &T) -> Result<rmpv::Value> {
     let bytes = rmp_serde::to_vec_named(val)?;
     Ok(rmp_serde::from_slice(&bytes)?)
@@ -308,7 +321,7 @@ async fn handle_socket(socket: WebSocket, state: WsState) {
                     let method = match parsed_method {
                         Ok(method) => method,
                         Err(err) => {
-                            let _ = tx.send(err_response(id, &format!("{err:#}"))).await;
+                            let _ = tx.send(diag_err_response(id, &err)).await;
                             return;
                         }
                     };
@@ -321,11 +334,11 @@ async fn handle_socket(socket: WebSocket, state: WsState) {
                     .await
                     {
                         Ok(Ok(result)) => ok_response(id, result),
-                        Ok(Err(err)) => err_response(id, &format!("{err:#}")),
+                        Ok(Err(err)) => diag_err_response(id, &err),
                         Err(_) => err_response(id, "Request timed out"),
                     }
                 }
-                Err(err) => err_response(id, &format!("{err:#}")),
+                Err(err) => diag_err_response(id, &err),
             };
             let _ = tx.send(response).await;
         });

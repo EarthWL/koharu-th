@@ -9,6 +9,7 @@ import { type OperationState } from '@/lib/operations'
 import { useOperationStore } from '@/lib/stores/operationStore'
 import { useUiErrorStore } from '@/lib/stores/uiErrorStore'
 import { useDocumentMutations } from '@/lib/query/mutations'
+import { ErrorDialog } from '@/components/ui/error-dialog'
 
 type TranslateFunc = ReturnType<typeof useTranslation>['t']
 
@@ -279,8 +280,17 @@ export function ActivityBubble() {
       aria-label={t('operations.title')}
       className='pointer-events-auto fixed right-6 bottom-6 z-100 flex w-80 max-w-[calc(100%-1.5rem)] flex-col gap-3'
     >
-      {error && (
+      {error && !error.diagnostic && (
         <ErrorCard message={error.message} onDismiss={clearError} t={t} />
+      )}
+      {error && error.diagnostic && (
+        <ErrorDialog
+          open={true}
+          onOpenChange={(open) => !open && clearError()}
+          code={error.diagnostic.code}
+          msgTh={error.diagnostic.msgTh}
+          details={error.diagnostic.details}
+        />
       )}
       {operation && (
         <OperationCard operation={operation} onCancel={cancelOperation} t={t} />

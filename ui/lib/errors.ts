@@ -1,6 +1,7 @@
 'use client'
 
 import { useUiErrorStore } from '@/lib/stores/uiErrorStore'
+import { DiagnosticError } from './ws'
 
 const SURFACED_RPC_METHODS = new Set([
   'open_documents',
@@ -35,6 +36,15 @@ export const normalizeErrorMessage = (error: unknown) => {
 
 export const reportRpcError = (method: string, error: unknown) => {
   if (!SURFACED_RPC_METHODS.has(method)) return
-  const message = normalizeErrorMessage(error)
-  useUiErrorStore.getState().showError(message)
+
+  if (error instanceof DiagnosticError) {
+    useUiErrorStore.getState().showError(error.message, {
+      code: error.code,
+      msgTh: error.msgTh,
+      details: error.details,
+    })
+  } else {
+    const message = normalizeErrorMessage(error)
+    useUiErrorStore.getState().showError(message)
+  }
 }
