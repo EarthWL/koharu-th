@@ -20,25 +20,6 @@ export type CloudProvider = 'none' | 'openai' | 'openrouter' | 'gemini' | 'anthr
  */
 export type OcrEngine = 'mit48px' | 'manga' | 'cloud'
 
-/**
- * Detector engine — mirrors `koharu_types::DetectorEngine`.
- * - `default` — current `comic_text_detector` (DBNet + UNet + YOLOv5
- *   trio, tuned for in-bubble text). Production default since fork.
- * - `anime_yolo` — YOLO12 trained on anime/manga text
- *   (mayocream/anime-text-yolo N variant), designed to catch SFX /
- *   stylised titles / out-of-bubble text the default misses.
- *   Lazy-loaded ~10MB on first use.
- *
- * When `anime_yolo` is picked, the pipeline still runs the default
- * detector in parallel just to get its bubble mask (YOLO12 has no
- * bubble branch and the inpaint step needs the mask).
- */
-export type DetectorEngine = 'default' | 'anime_yolo'
-
-/** Size variant for the Anime Text YOLO detector (~10MB to ~250MB).
- *  Bigger = better recall, slower, larger first-use download. */
-export type AnimeYoloVariant = 'n' | 's' | 'm' | 'l' | 'x'
-
 /** Per-provider wire config. Each provider keeps its own slot so the
  *  user can switch providers without re-pasting keys. */
 export type ProviderConfig = {
@@ -116,23 +97,6 @@ type PreferencesState = {
   activeProfileId: number | null
   setActiveProfileId: (id: number | null) => void
 
-  /** Active detector engine for the process pipeline. */
-  detectorEngine: DetectorEngine
-  setDetectorEngine: (engine: DetectorEngine) => void
-
-  /** Size variant for Anime Text YOLO. Only honoured when
-   *  `detectorEngine === 'anime_yolo'`. */
-  animeYoloVariant: AnimeYoloVariant
-  setAnimeYoloVariant: (variant: AnimeYoloVariant) => void
-
-  /** Confidence threshold for Anime Text YOLO. Lower = more detections
-   *  (and more noise); higher = fewer, stricter detections. Upstream
-   *  default is 0.25 — over-detection kicks in below 0.30, missed SFX
-   *  above 0.55. Only honoured when `detectorEngine === 'anime_yolo'`.
-   *  Backend clamps to [0.05, 0.95]. */
-  animeYoloConfidence: number
-  setAnimeYoloConfidence: (confidence: number) => void
-
   /** Apply a Thai-aware post-process pass to every LLM translation
    *  result before saving. Collapses inter-Thai whitespace (e.g.
    *  "กิน ข้าว" → "กินข้าว") and converts ASCII quotes to typographic
@@ -157,9 +121,6 @@ const initialPreferences = {
   ocrEngine: 'mit48px' as OcrEngine,
   ocrCloudProfileId: null as number | null,
   activeProfileId: null as number | null,
-  detectorEngine: 'default' as DetectorEngine,
-  animeYoloVariant: 'n' as AnimeYoloVariant,
-  animeYoloConfidence: 0.25,
   thaiPostProcessEnabled: true,
 }
 
@@ -244,11 +205,6 @@ export const usePreferencesStore = create<PreferencesState>()(
       setOcrEngine: (engine) => set({ ocrEngine: engine }),
       setOcrCloudProfileId: (id) => set({ ocrCloudProfileId: id }),
       setActiveProfileId: (id) => set({ activeProfileId: id }),
-      setDetectorEngine: (engine) => set({ detectorEngine: engine }),
-      setAnimeYoloVariant: (variant) => set({ animeYoloVariant: variant }),
-      setAnimeYoloConfidence: (confidence) =>
-        // Mirror backend clamp so the persisted value stays in range.
-        set({ animeYoloConfidence: Math.min(0.95, Math.max(0.05, confidence)) }),
       setThaiPostProcessEnabled: (enabled) =>
         set({ thaiPostProcessEnabled: enabled }),
       resetPreferences: () => set({ ...initialPreferences }),

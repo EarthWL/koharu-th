@@ -384,13 +384,11 @@ export const useDocumentMutations = () => {
         cancellable: true,
       })
       try {
-        const { detectorEngine, animeYoloVariant, animeYoloConfidence } =
-          usePreferencesStore.getState()
-        await api.detect(resolvedIndex, {
-          detectorEngine,
-          animeYoloVariant,
-          animeYoloConfidence,
-        })
+        // Engine choice + per-engine settings come from the machine-wide
+        // engine profile (Sidebar → Engines tab). Dispatch with no engine
+        // override so the backend resolves the active DetectionBoxes engine
+        // from the profile — one source of truth, no Settings-page duplicate.
+        await api.detect(resolvedIndex, {})
         await invalidateCurrentDocument(queryClient, resolvedIndex)
         await invalidateThumbnailAtIndex(queryClient, resolvedIndex)
 
@@ -441,9 +439,6 @@ export const useDocumentMutations = () => {
           cloudProvider,
           cloudModelName,
           cloudApiKey,
-          detectorEngine,
-          animeYoloVariant,
-          animeYoloConfidence,
         } = usePreferencesStore.getState()
         if (ocrEngine === 'cloud') {
           // Standalone OCR button → also respect Cloud Vision choice.
@@ -465,11 +460,7 @@ export const useDocumentMutations = () => {
           }
           let doc = await api.getDocument(resolvedIndex)
           if (doc.textBlocks.length === 0) {
-            await api.detect(resolvedIndex, {
-              detectorEngine,
-              animeYoloVariant,
-              animeYoloConfidence,
-            })
+            await api.detect(resolvedIndex, {})
             doc = await api.getDocument(resolvedIndex)
           }
           if (doc.textBlocks.length > 0) {
@@ -490,13 +481,11 @@ export const useDocumentMutations = () => {
             await api.updateTextBlocks(resolvedIndex, updated)
           }
         } else {
-          // Local OCR — thread the engine choice through so the user's
-          // Settings → OCR pick (Manga OCR vs MIT-48px) actually
-          // applies. Same bug pattern as standalone Detect: without
-          // this the backend silently defaults to MIT-48px and the
-          // user sees garbage for Japanese vertical text even though
-          // they explicitly chose Manga OCR.
-          await api.ocr(resolvedIndex, { ocrEngine })
+          // Local OCR — engine (MIT-48px vs Manga OCR) is resolved from
+          // the machine-wide engine profile (Sidebar → Engines tab), so
+          // dispatch with no override. Cloud Vision stays a frontend path
+          // (above) since it isn't a v2 engine yet.
+          await api.ocr(resolvedIndex, {})
         }
         await invalidateCurrentDocument(queryClient, resolvedIndex)
         await invalidateThumbnailAtIndex(queryClient, resolvedIndex)
@@ -616,9 +605,6 @@ export const useDocumentMutations = () => {
         cloudProvider,
         cloudModelName,
         cloudApiKey,
-        detectorEngine,
-        animeYoloVariant,
-        animeYoloConfidence,
       } = usePreferencesStore.getState()
       const { startOperation, finishOperation } = useOperationStore.getState()
       startOperation({
@@ -645,11 +631,7 @@ export const useDocumentMutations = () => {
               'Cloud Vision OCR is selected but no vision-capable profile is available. Configure one in Sidebar → Profiles or change OCR engine in Settings.',
             )
           }
-          await api.detect(resolvedIndex, {
-            detectorEngine,
-            animeYoloVariant,
-            animeYoloConfidence,
-          })
+          await api.detect(resolvedIndex, {})
           const doc = await api.getDocument(resolvedIndex)
           if (doc.textBlocks.length > 0) {
             // v2 blob-transport: doc.image is now a hex BlobId.
@@ -679,6 +661,8 @@ export const useDocumentMutations = () => {
             skipOcr: true,
           })
         } else {
+          // Local pipeline: detector + OCR engines (and their settings)
+          // resolve from the engine profile — no per-call overrides.
           await api.process({
             index: resolvedIndex,
             llmModelId: selectedModel,
@@ -686,10 +670,6 @@ export const useDocumentMutations = () => {
             shaderEffect: renderEffect,
             shaderStroke: renderStroke,
             fontFamily,
-            ocrEngine,
-            detectorEngine,
-            animeYoloVariant,
-            animeYoloConfidence,
           })
         }
       } catch (error) {
@@ -710,13 +690,11 @@ export const useDocumentMutations = () => {
     if (!totalPages) return
     // Cloud Vision OCR runs page-by-page from the frontend (no Rust
     // worker support yet — see roadmap Tier B #3) which would burn
-    // tokens fast across many pages. Fall back to MIT-48px for batch
-    // and let the user know once.
-    const effectiveEngine: 'mit48px' | 'manga' =
-      ocrEngine === 'cloud' ? 'mit48px' : ocrEngine
+    // tokens fast across many pages, so batch uses the engine profile's
+    // local OCR engine instead. Let the user know once.
     if (ocrEngine === 'cloud') {
       console.info(
-        '[processAll] Cloud Vision OCR is not used for batch — falling back to MIT-48px. Use Process current for individual pages with Cloud Vision.',
+        '[processAll] Cloud Vision OCR is not used for batch — the Engines-tab local OCR engine is used instead. Use Process current for individual pages with Cloud Vision.',
       )
     }
     startOperation({
@@ -726,18 +704,13 @@ export const useDocumentMutations = () => {
       total: totalPages,
     })
     try {
-      const { detectorEngine, animeYoloVariant, animeYoloConfidence } =
-        usePreferencesStore.getState()
+      // Detector + OCR engines (and settings) come from the engine profile.
       await api.process({
         llmModelId: selectedModel,
         language: selectedLanguage,
         shaderEffect: renderEffect,
         shaderStroke: renderStroke,
         fontFamily,
-        ocrEngine: effectiveEngine,
-        detectorEngine,
-        animeYoloVariant,
-        animeYoloConfidence,
       })
     } catch (error) {
       console.error('Failed to start processing:', error)

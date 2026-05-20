@@ -20,7 +20,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Slider } from '@/components/ui/slider'
 import { invoke, isTauri } from '@/lib/backend'
 import type { DeviceInfo } from '@/lib/rpc-types'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
@@ -49,14 +48,6 @@ export default function SettingsPage() {
   const ocrCloudProfileId = usePreferencesStore((s) => s.ocrCloudProfileId)
   const setOcrCloudProfileId = usePreferencesStore(
     (s) => s.setOcrCloudProfileId,
-  )
-  const detectorEngine = usePreferencesStore((s) => s.detectorEngine)
-  const setDetectorEngine = usePreferencesStore((s) => s.setDetectorEngine)
-  const animeYoloVariant = usePreferencesStore((s) => s.animeYoloVariant)
-  const setAnimeYoloVariant = usePreferencesStore((s) => s.setAnimeYoloVariant)
-  const animeYoloConfidence = usePreferencesStore((s) => s.animeYoloConfidence)
-  const setAnimeYoloConfidence = usePreferencesStore(
-    (s) => s.setAnimeYoloConfidence,
   )
   const projectInfo = useProjectStore((s) => s.info)
   const cloudProvider = usePreferencesStore((s) => s.cloudProvider)
@@ -188,201 +179,76 @@ export default function SettingsPage() {
               </Select>
             </section>
 
-            {/* Engines Section */}
+            {/* Engines Section — engine choice + per-engine settings now
+                live in the Engines tab of the project sidebar. Only Cloud
+                Vision OCR stays here because it isn't a v2 engine yet. */}
             <section className='mb-8'>
               <h2 className='text-foreground mb-1 text-sm font-bold'>
                 {t('settings.engines', 'Engines')}
               </h2>
               <p className='text-muted-foreground mb-4 text-sm'>
                 {t(
-                  'settings.enginesDescription',
-                  'Pick which ML model handles each pipeline stage. Most stages only have one option today — more will land in future releases.',
+                  'settings.enginesConfiguredInTab',
+                  'Detector, OCR, inpaint and render engines — and all their settings — are configured in the Engines tab of the project sidebar. Cloud Vision OCR is the one exception and is toggled here.',
                 )}
               </p>
 
-              {/* Detector sub-card — engine + variant + hint live together */}
-              <div className='bg-card border-border mb-3 rounded-lg border p-4'>
-                <h3 className='text-foreground mb-3 text-xs font-semibold uppercase tracking-wide'>
-                  {t('settings.engineDetector', 'Detector')}
-                </h3>
-                <div className='grid grid-cols-[max-content_1fr] items-center gap-x-6 gap-y-3 text-sm'>
-                  <label className='text-muted-foreground'>
-                    {t('settings.engineDetectorEngine', 'Engine')}
-                  </label>
-                  <Select
-                    value={detectorEngine}
-                    onValueChange={(v) =>
-                      setDetectorEngine(v as 'default' | 'anime_yolo')
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value='default'>
-                        Default (comic_text_detector)
-                      </SelectItem>
-                      <SelectItem value='anime_yolo'>
-                        Anime Text YOLO
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  {detectorEngine === 'anime_yolo' && (
-                    <>
-                      <label className='text-muted-foreground'>
-                        {t('settings.engineDetectorVariant', 'Variant')}
-                      </label>
-                      <Select
-                        value={animeYoloVariant}
-                        onValueChange={(v) =>
-                          setAnimeYoloVariant(v as 'n' | 's' | 'm' | 'l' | 'x')
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value='n'>
-                            N · nano · ~10MB · fastest
-                          </SelectItem>
-                          <SelectItem value='s'>
-                            S · small · ~30MB
-                          </SelectItem>
-                          <SelectItem value='m'>
-                            M · medium · ~80MB
-                          </SelectItem>
-                          <SelectItem value='l'>
-                            L · large · ~150MB
-                          </SelectItem>
-                          <SelectItem value='x'>
-                            X · xlarge · ~250MB · best recall
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-
-                      <label className='text-muted-foreground self-start pt-2'>
-                        {t('settings.engineDetectorConfidence', 'Confidence')}
-                      </label>
-                      <div className='flex flex-col gap-2 pt-1.5'>
-                        <div className='flex items-center gap-3'>
-                          <Slider
-                            min={5}
-                            max={95}
-                            step={5}
-                            value={[Math.round(animeYoloConfidence * 100)]}
-                            onValueChange={(vals) =>
-                              setAnimeYoloConfidence((vals[0] ?? 25) / 100)
-                            }
-                            className='flex-1'
-                          />
-                          <span className='text-foreground w-12 text-right font-mono text-xs tabular-nums'>
-                            {animeYoloConfidence.toFixed(2)}
-                          </span>
-                          {Math.abs(animeYoloConfidence - 0.25) > 0.001 && (
-                            <button
-                              type='button'
-                              onClick={() => setAnimeYoloConfidence(0.25)}
-                              className='text-muted-foreground hover:text-foreground text-xs underline-offset-2 hover:underline'
-                            >
-                              {t('settings.reset', 'Reset')}
-                            </button>
-                          )}
-                        </div>
-                        <div className='text-muted-foreground/60 flex justify-between text-[10px] uppercase tracking-wide'>
-                          <span>{t('settings.confidenceMoreDetections', 'More (noisy)')}</span>
-                          <span>{t('settings.confidenceFewerDetections', 'Fewer (strict)')}</span>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                {detectorEngine === 'anime_yolo' && (
-                  <p className='text-muted-foreground/70 mt-4 border-t border-border/60 pt-3 text-xs leading-relaxed'>
-                    {t(
-                      'settings.engineDetectorAnimeYoloHint',
-                      'Anime Text YOLO (mayocream/anime-text-yolo, YOLO12) is tuned for anime/manga text and catches SFX, stylised titles, and out-of-bubble text the default detector misses. Bubble mask still comes from the default detector (YOLO has no bubble branch). Switching variant reloads the model on next Process — pick N for speed, X for max recall. Raise Confidence (~0.35–0.45) to cut over-detection on noisy pages; lower it to rescue faint SFX.',
-                    )}
-                  </p>
-                )}
-              </div>
-
-              {/* OCR sub-card */}
+              {/* Cloud Vision OCR — frontend-orchestrated, not a v2 engine */}
               <div className='bg-card border-border rounded-lg border p-4'>
-                <h3 className='text-foreground mb-3 text-xs font-semibold uppercase tracking-wide'>
-                  {t('settings.engineOcr', 'OCR')}
-                </h3>
-                <div className='grid grid-cols-[max-content_1fr] items-center gap-x-6 gap-y-3 text-sm'>
-                  <label className='text-muted-foreground'>
-                    {t('settings.engineOcrEngine', 'Engine')}
-                  </label>
-                  <Select
-                    value={ocrEngine}
-                    onValueChange={(v) =>
-                      setOcrEngine(v as 'mit48px' | 'manga' | 'cloud')
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value='mit48px'>
-                        MIT-48px (default · multilingual, local)
-                      </SelectItem>
-                      <SelectItem value='manga'>
-                        Manga OCR (Japanese-tuned, local, ~100MB first-use download)
-                      </SelectItem>
-                      <SelectItem value='cloud'>
-                        Cloud Vision (uses a saved LLM profile · counts tokens)
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  {ocrEngine === 'cloud' && (
-                    <>
-                      <label className='text-muted-foreground'>
-                        {t('settings.engineOcrCloudProfile', 'Vision profile')}
-                      </label>
-                      <Select
-                        value={
-                          ocrCloudProfileId == null
-                            ? 'active'
-                            : String(ocrCloudProfileId)
-                        }
-                        onValueChange={(v) =>
-                          setOcrCloudProfileId(v === 'active' ? null : Number(v))
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value='active'>
-                            (Use the active translation profile)
-                          </SelectItem>
-                          {visionProfiles.map((p) => (
-                            <SelectItem key={p.id} value={String(p.id)}>
-                              {p.name} · {p.provider} · {p.modelName}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </>
-                  )}
-                </div>
-
-                <p className='text-muted-foreground/70 mt-4 border-t border-border/60 pt-3 text-xs leading-relaxed'>
-                  {ocrEngine === 'cloud'
-                    ? t(
-                        'settings.engineOcrCloudHint',
-                        'Cloud Vision OCR sends the page image + bubble coordinates to the selected vision-capable LLM and asks for the text per bubble. Quality is usually best, but every page costs tokens. Use for hard pages; pick a local engine for batch translation in the queue (batch never uses Cloud Vision — it falls back to MIT-48px). Calls are logged to the Cost Dashboard as use_case=ocr.',
-                      )
-                    : t(
-                        'settings.engineOcrHint',
-                        'MIT-48px is the production default and handles Latin / CJK / Thai. Manga OCR (mayocream/manga-ocr) is tuned for Japanese handwriting + stylised SFX; first switch downloads ~100MB of weights.',
+                <label className='flex cursor-pointer items-start justify-between gap-4 text-sm'>
+                  <div className='min-w-0 flex-1'>
+                    <div className='text-foreground font-medium'>
+                      {t('settings.engineOcrCloud', 'Cloud Vision OCR')}
+                    </div>
+                    <div className='text-muted-foreground/80 mt-1 text-xs leading-relaxed'>
+                      {t(
+                        'settings.engineOcrCloudToggleHint',
+                        'When on, the standalone OCR button and Process current send each detected bubble to a vision-capable LLM instead of the local OCR engine. Best quality, but every page costs tokens. When off, OCR uses the local engine chosen in the Engines tab. Batch never uses Cloud Vision.',
                       )}
-                </p>
+                    </div>
+                  </div>
+                  <input
+                    type='checkbox'
+                    checked={ocrEngine === 'cloud'}
+                    onChange={(e) =>
+                      setOcrEngine(e.target.checked ? 'cloud' : 'mit48px')
+                    }
+                    className='mt-1 size-4 cursor-pointer accent-primary'
+                  />
+                </label>
+
+                {ocrEngine === 'cloud' && (
+                  <div className='border-border/60 mt-3 grid grid-cols-[max-content_1fr] items-center gap-x-6 gap-y-3 border-t pt-3 text-sm'>
+                    <label className='text-muted-foreground'>
+                      {t('settings.engineOcrCloudProfile', 'Vision profile')}
+                    </label>
+                    <Select
+                      value={
+                        ocrCloudProfileId == null
+                          ? 'active'
+                          : String(ocrCloudProfileId)
+                      }
+                      onValueChange={(v) =>
+                        setOcrCloudProfileId(v === 'active' ? null : Number(v))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value='active'>
+                          (Use the active translation profile)
+                        </SelectItem>
+                        {visionProfiles.map((p) => (
+                          <SelectItem key={p.id} value={String(p.id)}>
+                            {p.name} · {p.provider} · {p.modelName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
                 {ocrEngine === 'cloud' &&
                   profiles.data &&
                   visionProfiles.length === 0 &&
