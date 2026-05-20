@@ -533,6 +533,9 @@ pub struct AppStorageStats {
     /// recent-projects.json (UI convenience list). Removing only forgets
     /// the recent list — actual project folders are untouched.
     pub recent_projects: StorageEntry,
+    /// Stale temporary files / partial downloads (.part, .download, .tmp)
+    /// left in the HuggingFace model cache folder. Safe to clear anytime.
+    pub orphan_cache: StorageEntry,
 }
 
 /// Which artefact group to clear. Maps 1:1 to AppStorageStats fields.
@@ -545,6 +548,7 @@ pub enum StorageClearTarget {
     ModelsHf,
     FontsCustom,
     RecentProjects,
+    OrphanCache,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

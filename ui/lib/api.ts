@@ -1099,6 +1099,7 @@ export type StorageClearTarget =
   | 'modelsHf'
   | 'fontsCustom'
   | 'recentProjects'
+  | 'orphanCache'
 
 export type StorageEntry = {
   /** Absolute path on disk — shown in UI so user sees what'll be touched. */
@@ -1117,6 +1118,8 @@ export type AppStorageStats = {
   fontsCustom: StorageEntry
   /** recent-projects.json (UI convenience). Project folders themselves unaffected. */
   recentProjects: StorageEntry
+  /** Stale temporary files/partial downloads (.part, .download, .tmp) in the HuggingFace cache folder. */
+  orphanCache: StorageEntry
 }
 
 export type StorageClearError = {

@@ -162,6 +162,58 @@ async fn after_project_open(state: AppResources) {
     if let Err(err) = super::queue_ensure_running(state).await {
         tracing::warn!("queue: ensure_running on project open failed: {err:#}");
     }
+
+    // Startup & Project Open Self-Healing and SQLite Incremental Auto-Vacuum Page Recovery.
+    // Done asynchronously in a background blocking task to ensure zero runtime overhead.
+    let p_cleanup = project.clone();
+    tokio::task::spawn_blocking(move || {
+        let root = p_cleanup.root();
+        
+        // 1. Delete `.backup_restore_temp` directory/file if left over from aborted restore operations
+        let backup_temp = root.join(".backup_restore_temp");
+        if backup_temp.exists() {
+            if backup_temp.is_dir() {
+                if let Err(err) = std::fs::remove_dir_all(&backup_temp) {
+                    tracing::warn!(path = ?backup_temp, ?err, "failed to remove stale .backup_restore_temp directory");
+                } else {
+                    tracing::info!(path = ?backup_temp, "successfully cleaned up stale .backup_restore_temp directory");
+                }
+            } else if let Err(err) = std::fs::remove_file(&backup_temp) {
+                tracing::warn!(path = ?backup_temp, ?err, "failed to remove stale .backup_restore_temp file");
+            }
+        }
+        
+        // 2. Scan and delete any stale manifest backup `.koharuproj.tmp` files
+        if let Ok(entries) = std::fs::read_dir(root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(ext) = path.extension() {
+                        if ext == "tmp" {
+                            if let Some(stem) = path.file_stem() {
+                                if stem.to_string_lossy().ends_with(".koharuproj") {
+                                    if let Err(err) = std::fs::remove_file(&path) {
+                                        tracing::warn!(?path, ?err, "failed to remove stale .koharuproj.tmp file");
+                                    } else {
+                                        tracing::info!(?path, "successfully cleaned up stale .koharuproj.tmp file");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Trigger background database page recovery (PRAGMA incremental_vacuum)
+        if let Ok(conn) = p_cleanup.pool().get() {
+            if let Err(err) = koharu_project::db::incremental_vacuum(&conn, 500) {
+                tracing::warn!(?err, "failed to run incremental vacuum during project open");
+            } else {
+                tracing::info!("successfully ran incremental vacuum on project database");
+            }
+        }
+    });
 }
 
 /// Push the now-open project to the top of the recent-projects list.

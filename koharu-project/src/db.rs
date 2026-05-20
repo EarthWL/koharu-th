@@ -62,12 +62,30 @@ pub fn open(path: impl AsRef<Path>) -> Result<Pool> {
             "PRAGMA foreign_keys = ON;
              PRAGMA journal_mode = WAL;
              PRAGMA synchronous = NORMAL;
-             PRAGMA busy_timeout = 5000;",
+             PRAGMA busy_timeout = 5000;
+             PRAGMA auto_vacuum = INCREMENTAL;",
         )
     });
     let pool = Pool::new(manager)?;
     {
         let mut conn = pool.get()?;
+        
+        // SQLite Auto-Vacuum Transition Migration:
+        // Setting auto_vacuum = INCREMENTAL on an existing database requires a one-time full VACUUM
+        // to write the necessary metadata pages. Check if auto_vacuum is not set to INCREMENTAL (2).
+        let current_auto_vacuum: i32 = conn.query_row("PRAGMA auto_vacuum;", [], |row| row.get(0)).unwrap_or(0);
+        if current_auto_vacuum != 2 {
+            tracing::info!(
+                current = current_auto_vacuum,
+                "Database auto_vacuum is not INCREMENTAL. Transitioning database to INCREMENTAL mode via VACUUM..."
+            );
+            if let Err(err) = conn.execute_batch("PRAGMA auto_vacuum = INCREMENTAL; VACUUM;") {
+                tracing::warn!(?err, "Failed to migrate database to auto_vacuum = INCREMENTAL");
+            } else {
+                tracing::info!("Database auto_vacuum successfully migrated to INCREMENTAL");
+            }
+        }
+
         run_migrations(&mut conn)?;
     }
     Ok(pool)
@@ -116,6 +134,17 @@ fn run_migrations(conn: &mut Conn) -> Result<()> {
             ],
         )?;
         tx.commit()?;
+    }
+    Ok(())
+}
+
+/// Run incremental vacuum to reclaim empty space on-demand or during background maintenance.
+/// Reclaims up to `pages` pages. If `pages` is 0, it reclaims all free pages.
+pub fn incremental_vacuum(conn: &rusqlite::Connection, pages: usize) -> Result<()> {
+    if pages == 0 {
+        conn.execute("PRAGMA incremental_vacuum;", [])?;
+    } else {
+        conn.execute(&format!("PRAGMA incremental_vacuum({});", pages), [])?;
     }
     Ok(())
 }

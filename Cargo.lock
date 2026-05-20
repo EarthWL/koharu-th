@@ -3929,6 +3929,7 @@ dependencies = [
  "koharu-project",
  "koharu-renderer",
  "koharu-types",
+ "libc",
  "once_cell",
  "open",
  "rayon",

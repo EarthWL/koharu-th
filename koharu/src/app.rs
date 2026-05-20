@@ -193,6 +193,8 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
     // (b) the renamed copy is never loaded — it is only kept around for
     // IObit's own deferred-delete queue.
     cleanup_cleaner_temp_files(LIB_ROOT.as_path());
+    cleanup_app_temp_files(APP_ROOT.as_path());
+
 
     // hook model cache dir
     koharu_ml::set_cache_dir(MODEL_ROOT.to_path_buf())?;
@@ -648,6 +650,29 @@ fn cleanup_cleaner_temp_files(dir: &std::path::Path) {
         }
     }
 }
+
+/// Remove stale .tmp and .json.tmp files left behind in the application's root directory
+/// after crashes or aborted atomic-write operations.
+fn cleanup_app_temp_files(dir: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            let lower = name_str.to_lowercase();
+            if lower.ends_with(".json.tmp") || lower.ends_with(".tmp") {
+                match std::fs::remove_file(&path) {
+                    Ok(()) => tracing::info!(?path, "removed stale app temporary file"),
+                    Err(err) => tracing::warn!(?path, ?err, "failed to remove stale app temporary file"),
+                }
+            }
+        }
+    }
+}
+
 
 ///
 /// Symlinks and Windows NTFS junctions are skipped rather than traversed, to

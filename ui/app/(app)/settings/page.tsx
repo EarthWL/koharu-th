@@ -797,6 +797,12 @@ const STORAGE_ROWS: RowSpec[] = [
       'Anime YOLO, Manga OCR, comic_text_detector, LaMa, font detector. Re-fetched on first inference.',
   },
   {
+    target: 'orphanCache',
+    label: 'Incomplete download cache',
+    description:
+      'Temporary files (.part, .download, .tmp) left behind by aborted or interrupted AI model downloads. Safe to clear anytime.',
+  },
+  {
     target: 'fontsCustom',
     label: 'Custom fonts',
     description:
