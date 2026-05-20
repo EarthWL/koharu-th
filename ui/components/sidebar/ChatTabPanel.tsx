@@ -496,10 +496,18 @@ export function ChatTabPanel() {
                 setSlashIndex((i) => (i - 1 + len) % len)
                 return
               }
-              if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+              if (e.key === 'Tab') {
                 e.preventDefault()
                 const idx = Math.min(slashIndex, len - 1)
                 completeSlash(slashMatches[idx].name)
+                return
+              }
+              // Enter while the picker is open does NOT send — guards
+              // against accidentally firing a half-typed command. Press
+              // Tab to complete first; once the picker closes, Enter
+              // sends as usual.
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
                 return
               }
               if (e.key === 'Escape') {
@@ -858,7 +866,7 @@ function SlashPicker({
         className='text-muted-foreground hover:bg-accent w-full border-t px-2 py-1 text-left text-[10px]'
         onClick={onClose}
       >
-        ↑↓ select · Tab/↵ complete · Esc close
+        ↑↓ select · Tab complete · Esc close
       </button>
     </div>
   )
