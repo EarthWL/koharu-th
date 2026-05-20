@@ -205,12 +205,17 @@ async fn after_project_open(state: AppResources) {
             }
         }
 
-        // 3. Trigger background database page recovery (PRAGMA incremental_vacuum)
+        // 3. Trigger background database page recovery (PRAGMA incremental_vacuum) and query optimization (PRAGMA optimize)
         if let Ok(conn) = p_cleanup.pool().get() {
             if let Err(err) = koharu_project::db::incremental_vacuum(&conn, 500) {
                 tracing::warn!(?err, "failed to run incremental vacuum during project open");
             } else {
                 tracing::info!("successfully ran incremental vacuum on project database");
+            }
+            if let Err(err) = conn.execute("PRAGMA optimize;", []) {
+                tracing::warn!(?err, "failed to run PRAGMA optimize during project open");
+            } else {
+                tracing::info!("successfully ran PRAGMA optimize on project database");
             }
         }
 
@@ -1717,11 +1722,16 @@ impl Drop for SecureApiKey {
     }
 }
 
+static CLOUD_LLM_SEMAPHORE: once_cell::sync::Lazy<tokio::sync::Semaphore> =
+    once_cell::sync::Lazy::new(|| tokio::sync::Semaphore::new(3));
+
 pub async fn cloud_llm_call(
     state: AppResources,
     payload: CloudLlmCallPayload,
 ) -> anyhow::Result<CloudLlmCallResult> {
     check_debugger()?;
+
+    let _permit = CLOUD_LLM_SEMAPHORE.acquire().await.unwrap();
 
     let project = require_project(&state).await?;
     let api_key_plaintext = tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
@@ -1745,109 +1755,170 @@ pub async fn cloud_llm_call(
     })
     .await??;
 
-    let client = reqwest::Client::builder()
+    let client = koharu_http::create_client_builder()
         .timeout(std::time::Duration::from_secs(45))
         .min_tls_version(reqwest::tls::Version::TLS_1_2)
         .build()?;
 
-    let text = match provider.as_str() {
-        "gemini" => {
-            let url = format!(
-                "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-                payload.model_name, secure_key.0
-            );
-            let mut req = client.post(&url);
-            if payload.json_mode {
-                req = req.json(&serde_json::json!({
-                    "contents": [{ "parts": [{ "text": payload.prompt }] }],
-                    "generationConfig": {
-                        "responseMimeType": "application/json"
+    let mut max_retries = 5;
+    let mut delay = std::time::Duration::from_millis(1000);
+    let mut attempt = 0;
+
+    let text = loop {
+        attempt += 1;
+        
+        let client_clone = client.clone();
+        let provider_str = provider.as_str();
+        let payload_prompt = &payload.prompt;
+        let secure_key_val = &secure_key.0;
+        
+        let result: anyhow::Result<String> = async {
+            match provider_str {
+                "gemini" => {
+                    let url = format!(
+                        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+                        payload.model_name, secure_key_val
+                    );
+                    let mut req = client_clone.post(&url);
+                    if payload.json_mode {
+                        req = req.json(&serde_json::json!({
+                            "contents": [{ "parts": [{ "text": payload_prompt }] }],
+                            "generationConfig": {
+                                "responseMimeType": "application/json"
+                            }
+                        }));
+                    } else {
+                        req = req.json(&serde_json::json!({
+                            "contents": [{ "parts": [{ "text": payload_prompt }] }]
+                        }));
                     }
-                }));
-            } else {
-                req = req.json(&serde_json::json!({
-                    "contents": [{ "parts": [{ "text": payload.prompt }] }]
-                }));
-            }
-            let res = req.send().await?;
-            if !res.status().is_success() {
-                let err_text = res.text().await?;
-                anyhow::bail!("Gemini API error: {}", err_text);
-            }
-            let res_body: serde_json::Value = res.json().await?;
-            res_body["candidates"][0]["content"]["parts"][0]["text"]
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("Failed to parse text from Gemini response"))?
-                .to_string()
-        }
-        "openai" | "openrouter" => {
-            let base_url = payload.api_url.as_deref().unwrap_or_else(|| {
-                if provider == "openrouter" {
-                    "https://openrouter.ai/api/v1"
-                } else {
-                    "https://api.openai.com/v1"
+                    let res = req.send().await?;
+                    let status = res.status();
+                    if !status.is_success() {
+                        let err_text = res.text().await?;
+                        if status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
+                            anyhow::bail!("transient: Gemini API error status={}: {}", status, err_text);
+                        } else {
+                            anyhow::bail!("fatal: Gemini API error status={}: {}", status, err_text);
+                        }
+                    }
+                    let res_body: serde_json::Value = res.json().await?;
+                    let txt = res_body["candidates"][0]["content"]["parts"][0]["text"]
+                        .as_str()
+                        .ok_or_else(|| anyhow::anyhow!("Failed to parse text from Gemini response"))?
+                        .to_string();
+                    Ok(txt)
                 }
-            });
-            let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
-            let mut req = client.post(&url)
-                .header("Authorization", format!("Bearer {}", secure_key.0));
-            
-            if provider == "openrouter" {
-                req = req.header("HTTP-Referer", "https://github.com/EarthWL/koharu-th")
-                    .header("X-Title", "Koharu Manga Studio");
-            }
+                "openai" | "openrouter" => {
+                    let base_url = payload.api_url.as_deref().unwrap_or_else(|| {
+                        if provider_str == "openrouter" {
+                            "https://openrouter.ai/api/v1"
+                        } else {
+                            "https://api.openai.com/v1"
+                        }
+                    });
+                    let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+                    let mut req = client_clone.post(&url)
+                        .header("Authorization", format!("Bearer {}", secure_key_val));
+                    
+                    if provider_str == "openrouter" {
+                        req = req.header("HTTP-Referer", "https://github.com/EarthWL/koharu-th")
+                            .header("X-Title", "Koharu Manga Studio");
+                    }
 
-            let mut body = serde_json::json!({
-                "model": payload.model_name,
-                "messages": [
-                    { "role": "user", "content": payload.prompt }
-                ]
-            });
+                    let mut body = serde_json::json!({
+                        "model": payload.model_name,
+                        "messages": [
+                            { "role": "user", "content": payload_prompt }
+                        ]
+                    });
 
-            if payload.json_mode {
-                body["response_format"] = serde_json::json!({ "type": "json_object" });
-            }
+                    if payload.json_mode {
+                        body["response_format"] = serde_json::json!({ "type": "json_object" });
+                    }
 
-            let res = req.json(&body).send().await?;
-            if !res.status().is_success() {
-                let err_text = res.text().await?;
-                anyhow::bail!("{} API error: {}", provider, err_text);
+                    let res = req.json(&body).send().await?;
+                    let status = res.status();
+                    if !status.is_success() {
+                        let err_text = res.text().await?;
+                        if status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
+                            anyhow::bail!("transient: {} API error status={}: {}", provider_str, status, err_text);
+                        } else {
+                            anyhow::bail!("fatal: {} API error status={}: {}", provider_str, status, err_text);
+                        }
+                    }
+                    let res_body: serde_json::Value = res.json().await?;
+                    let txt = res_body["choices"][0]["message"]["content"]
+                        .as_str()
+                        .ok_or_else(|| anyhow::anyhow!("Failed to parse content from OpenAI response"))?
+                        .to_string();
+                    Ok(txt)
+                }
+                "anthropic" => {
+                    let base_url = payload.api_url.as_deref().unwrap_or("https://api.anthropic.com");
+                    let url = format!("{}/v1/messages", base_url.trim_end_matches('/'));
+                    
+                    let req = client_clone.post(&url)
+                        .header("x-api-key", secure_key_val.as_str())
+                        .header("anthropic-version", "2023-06-01")
+                        .header("content-type", "application/json");
+
+                    let body = serde_json::json!({
+                        "model": payload.model_name,
+                        "max_tokens": 4096,
+                        "messages": [
+                            { "role": "user", "content": payload_prompt }
+                        ]
+                    });
+
+                    let res = req.json(&body).send().await?;
+                    let status = res.status();
+                    if !status.is_success() {
+                        let err_text = res.text().await?;
+                        if status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
+                            anyhow::bail!("transient: Anthropic API error status={}: {}", status, err_text);
+                        } else {
+                            anyhow::bail!("fatal: Anthropic API error status={}: {}", status, err_text);
+                        }
+                    }
+                    let res_body: serde_json::Value = res.json().await?;
+                    let txt = res_body["content"][0]["text"]
+                        .as_str()
+                        .ok_or_else(|| anyhow::anyhow!("Failed to parse text from Anthropic response"))?
+                        .to_string();
+                    Ok(txt)
+                }
+                _ => anyhow::bail!("fatal: Unsupported cloud provider: {}", provider_str),
             }
-            let res_body: serde_json::Value = res.json().await?;
-            res_body["choices"][0]["message"]["content"]
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("Failed to parse content from OpenAI response"))?
-                .to_string()
+        }.await;
+
+        match result {
+            Ok(txt) => break txt,
+            Err(e) => {
+                let err_str = e.to_string();
+                if err_str.contains("fatal:") || attempt >= max_retries {
+                    tracing::error!("LLM Call failed definitively on attempt {}: {}", attempt, err_str);
+                    anyhow::bail!(e);
+                }
+                
+                // Calculate Jitter
+                let now_nanos = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0);
+                // Jitter factor between 0.75 and 1.25
+                let jitter = 0.75 + ((now_nanos % 100) as f64 / 200.0);
+                let sleep_dur = delay.mul_f64(jitter);
+                
+                tracing::warn!(
+                    "Transient LLM error (attempt {}/{}): {}. Retrying in {:?}...",
+                    attempt, max_retries, err_str, sleep_dur
+                );
+                
+                tokio::time::sleep(sleep_dur).await;
+                delay *= 2;
+            }
         }
-        "anthropic" => {
-            let base_url = payload.api_url.as_deref().unwrap_or("https://api.anthropic.com");
-            let url = format!("{}/v1/messages", base_url.trim_end_matches('/'));
-            
-            let req = client.post(&url)
-                .header("x-api-key", secure_key.0.as_str())
-                .header("anthropic-version", "2023-06-01")
-                .header("content-type", "application/json");
-
-            let body = serde_json::json!({
-                "model": payload.model_name,
-                "max_tokens": 4096,
-                "messages": [
-                    { "role": "user", "content": payload.prompt }
-                ]
-            });
-
-            let res = req.json(&body).send().await?;
-            if !res.status().is_success() {
-                let err_text = res.text().await?;
-                anyhow::bail!("Anthropic API error: {}", err_text);
-            }
-            let res_body: serde_json::Value = res.json().await?;
-            res_body["content"][0]["text"]
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("Failed to parse text from Anthropic response"))?
-                .to_string()
-        }
-        _ => anyhow::bail!("Unsupported cloud provider: {}", provider),
     };
 
     Ok(CloudLlmCallResult { text })

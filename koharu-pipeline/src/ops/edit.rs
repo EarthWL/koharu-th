@@ -551,7 +551,7 @@ pub async fn dilate_mask(state: AppResources, payload: MaskMorphPayload) -> anyh
 
         let gray = segment.to_luma8();
         let dilated = imageproc::morphology::dilate(&gray, Norm::LInf, payload.radius);
-        document.segment = Some(SerializableDynamicImage(DynamicImage::ImageLuma8(dilated)));
+        document.segment = Some(DynamicImage::ImageLuma8(dilated).into());
         Ok(())
     })
     .await
@@ -570,7 +570,7 @@ pub async fn erode_mask(state: AppResources, payload: MaskMorphPayload) -> anyho
 
         let gray = segment.to_luma8();
         let eroded = imageproc::morphology::erode(&gray, Norm::LInf, payload.radius);
-        document.segment = Some(SerializableDynamicImage(DynamicImage::ImageLuma8(eroded)));
+        document.segment = Some(DynamicImage::ImageLuma8(eroded).into());
         Ok(())
     })
     .await
@@ -726,8 +726,8 @@ pub async fn inpaint_partial(
     }
 
     let image_crop =
-        SerializableDynamicImage(snapshot.image.crop_imm(x0, y0, crop_width, crop_height));
-    let mask_crop = SerializableDynamicImage(mask_image.crop_imm(x0, y0, crop_width, crop_height));
+        SerializableDynamicImage(std::sync::Arc::new(snapshot.image.crop_imm(x0, y0, crop_width, crop_height)));
+    let mask_crop = SerializableDynamicImage(std::sync::Arc::new(mask_image.crop_imm(x0, y0, crop_width, crop_height)));
 
     let inpainted_crop = state
         .ml

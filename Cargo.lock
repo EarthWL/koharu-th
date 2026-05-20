@@ -3925,6 +3925,7 @@ dependencies = [
  "image",
  "imageproc",
  "koharu-api",
+ "koharu-http",
  "koharu-ml",
  "koharu-project",
  "koharu-renderer",

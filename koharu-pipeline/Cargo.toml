@@ -14,6 +14,7 @@ publish.workspace = true
 [dependencies]
 koharu-api = { workspace = true }
 koharu-types = { workspace = true }
+koharu-http = { workspace = true }
 koharu-ml = { workspace = true }
 koharu-project = { workspace = true }
 koharu-renderer = { workspace = true }

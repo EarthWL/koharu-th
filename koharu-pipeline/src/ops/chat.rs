@@ -162,7 +162,7 @@ pub async fn web_fetch_url(
         anyhow::bail!("URL must start with http:// or https://");
     }
 
-    let client = reqwest::Client::builder()
+    let client = koharu_http::create_client_builder()
         .timeout(Duration::from_secs(TIMEOUT_SECS))
         .redirect(reqwest::redirect::Policy::limited(5))
         .user_agent("koharu-ai-chat/0.1 (manga translation assistant)")

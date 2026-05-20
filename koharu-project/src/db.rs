@@ -52,6 +52,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "translation_queue",
         sql: include_str!("../migrations/V006__translation_queue.sql"),
     },
+    Migration {
+        version: 7,
+        name: "index_optimization",
+        sql: include_str!("../migrations/V007__index_optimization.sql"),
+    },
 ];
 
 /// Open (or create) the database at `path`, install required PRAGMAs,

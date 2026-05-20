@@ -212,7 +212,7 @@ impl Renderer {
                 px[2] = ((px[2] as u32 * 255 + alpha / 2) / alpha).min(255) as u8;
             }
 
-            document.rendered = Some(SerializableDynamicImage(DynamicImage::ImageRgba8(img)));
+            document.rendered = Some(DynamicImage::ImageRgba8(img).into());
         }
         Ok(())
     }
@@ -431,7 +431,7 @@ impl Renderer {
         text_block.y = layout_box.y;
         text_block.width = layout_box.width;
         text_block.height = layout_box.height;
-        text_block.rendered = Some(SerializableDynamicImage(DynamicImage::ImageRgba8(rendered)));
+        text_block.rendered = Some(DynamicImage::ImageRgba8(rendered).into());
         Ok(())
     }
 
