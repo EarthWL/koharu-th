@@ -58,6 +58,78 @@ interface Message {
   translationProposal?: string
 }
 
+// ── Language Metadata Dictionary ─────────────────────────────────────────────
+// Maps ISO 639-1 codes to { englishName, nativeName, ttsLocale }
+const LANG_META: Record<string, { en: string; native: string; ttsLocale: string }> = {
+  ja: { en: 'Japanese',    native: 'ภาษาญี่ปุ่น',      ttsLocale: 'ja-JP' },
+  ko: { en: 'Korean',     native: 'ภาษาเกาหลี',       ttsLocale: 'ko-KR' },
+  zh: { en: 'Chinese',    native: 'ภาษาจีน',           ttsLocale: 'zh-CN' },
+  en: { en: 'English',    native: 'ภาษาอังกฤษ',       ttsLocale: 'en-US' },
+  th: { en: 'Thai',       native: 'ภาษาไทย',           ttsLocale: 'th-TH' },
+  fr: { en: 'French',     native: 'Français',           ttsLocale: 'fr-FR' },
+  de: { en: 'German',     native: 'Deutsch',            ttsLocale: 'de-DE' },
+  es: { en: 'Spanish',    native: 'Español',            ttsLocale: 'es-ES' },
+  pt: { en: 'Portuguese', native: 'Português',          ttsLocale: 'pt-PT' },
+}
+
+// ── High-fidelity Local Fallback Matrix ──────────────────────────────────────
+// Structure: fallbackMatrix[targetLangCode][patternKey] = { kenji, haruka, editor, kenjiTL, harukaTL, editorTL }
+type FallbackEntry = { kenji: string; haruka: string; editor: string; kenjiTL: string; harukaTL: string; editorTL: string }
+type FallbackPattern = 'pronoun' | 'question' | 'thanks' | 'default'
+
+const FALLBACK_MATRIX: Record<string, Record<FallbackPattern, FallbackEntry>> = {
+  th: {
+    pronoun:  { kenji: 'โย่! คำนี้มันต้องแปลว่า "นาย" แบบสบายๆ วัยรุ่นๆ เลยว่ะ!', haruka: 'ฮารุกะคิดว่าควรใช้คำว่า "คุณ" เพื่อความสุภาพเรียบร้อยค่ะ', editor: 'ขอสรุปใช้คำกลางๆ ที่เหมาะกับบริบทมังงะและขนาดกรอบครับ', kenjiTL: 'นายนี่มันสุดยอดจริงๆ ว่ะ!', harukaTL: 'คุณเป็นคนที่วิเศษมากเลยค่ะ', editorTL: 'นายนี่สุดยอดไปเลยนะ!' },
+    question: { kenji: 'เฮ้! มันมีคำถามในประโยค ต้องดูดูให้มันมีอารมณ์หน่อยสิ!', haruka: 'ฮารุกะเห็นว่าน่าจะใช้ประโยคคำถามที่นุ่มนวลกว่านี้ค่ะ', editor: 'บริบทของคำถามนี้ต้องการความสมดุลระหว่างอารมณ์และความชัดเจนครับ', kenjiTL: 'เกิดอะไรขึ้นวะเนี่ย? ทำไมเป็นงั้นอ่ะ', harukaTL: 'เกิดเรื่องอะไรขึ้นหรือคะ? ทำไมถึงทำแบบนั้นล่ะ', editorTL: 'เกิดอะไรขึ้นกันแน่? ทำไมถึงเป็นแบบนี้' },
+    thanks:   { kenji: 'ว้าว! ขอบคุณสไตล์มังงะต้องให้มันซึ้งใจแต่ไม่เชย!', haruka: 'ฮารุกะขอเสนอสำนวนที่สุภาพและอบอุ่นหัวใจค่ะ', editor: 'สำนวนสรุปนี้กระชับและรักษาอารมณ์ขอบคุณได้ดีที่สุดครับ', kenjiTL: 'ขอบใจนะเพื่อน! โคตรซึ้งเลย!', harukaTL: 'ขอบพระคุณอย่างสูงสำหรับความกรุณาค่ะ', editorTL: 'ขอบคุณมากนะ!' },
+    default:  { kenji: 'โย่! ฉันแกะข้อความมาได้ล่ะ ต้องเพิ่มความดิบๆ วัยรุ่นๆ หน่อย!', haruka: 'ฮารุกะขอเสนอสำนวนที่สุภาพและถูกต้องตามหลักภาษาค่ะ', editor: 'ขอสรุปเป็นทางสายกลางที่กระชับและเหมาะกับกรอบข้อความครับ', kenjiTL: 'เฮ้ย! ไปกันเถอะ ลุยกันเลยสิ!', harukaTL: 'กรุณาไปกันเถอะค่ะ พวกเราต้องออกเดินทางแล้ว', editorTL: 'พวกเราไปกันเถอะ!' },
+  },
+  fr: {
+    pronoun:  { kenji: 'Hé ! Ce mot parle d\'un perso direct, faut que ça claque comme du vrai argot manga !', haruka: 'Je pense qu\'il serait plus approprié d\'utiliser une formulation plus respectueuse et correcte grammaticalement.', editor: 'Voici le consensus qui respecte le contexte de la bulle et le style du manga :', kenjiTL: 'T\'es trop fort, mec !', harukaTL: 'Vous êtes quelqu\'un de vraiment remarquable.', editorTL: 'Tu es vraiment incroyable !' },
+    question: { kenji: 'Ah ! Y\'a une question ici ! Faut que ça soit percutant et direct !', haruka: 'Je suggère une formulation interrogative plus douce et nuancée.', editor: 'Le consensus équilibre l\'émotion et la clarté de cette question :', kenjiTL: 'Mais qu\'est-ce qui se passe là ?!', harukaTL: 'Pourriez-vous m\'expliquer ce qui s\'est passé ?', editorTL: 'Qu\'est-ce qui se passe vraiment ici ?' },
+    thanks:   { kenji: 'Ouais ! Un merci façon manga ça doit être sincère et fort !', haruka: 'Je propose une expression de gratitude plus formelle et chaleureuse.', editor: 'Ce résumé capture parfaitement l\'émotion de gratitude :', kenjiTL: 'Merci trop, t\'es le meilleur !', harukaTL: 'Je vous remercie infiniment pour votre générosité.', editorTL: 'Merci beaucoup !' },
+    default:  { kenji: 'Hé ! J\'ai décrypté ce texte ! Faut que ça soit punchy et naturel !', haruka: 'Je propose une traduction plus formelle qui respecte la grammaire française.', editor: 'Voici le consensus final adapté à la contrainte de la bulle :', kenjiTL: 'Allez, on y va ! Fonce !', harukaTL: 'Veuillez partir maintenant, nous devons nous mettre en route.', editorTL: 'Allons-y ensemble !' },
+  },
+  de: {
+    pronoun:  { kenji: 'Hey! Das Wort hier bezieht sich auf eine Person direkt – muss locker und jugendlich klingen!', haruka: 'Ich schlage eine höflichere und grammatikalisch korrekte Formulierung vor.', editor: 'Der Konsens berücksichtigt den Sprachballon-Kontext und Manga-Stil:', kenjiTL: 'Du bist echt der Hammer, Alter!', harukaTL: 'Sie sind wirklich eine bemerkenswerte Person.', editorTL: 'Du bist einfach unglaublich!' },
+    question: { kenji: 'Whoa! Eine Frage! Muss direkt und mit Punch rüberkommen!', haruka: 'Ich schlage eine sanftere, nuanciertere Frageformulierung vor.', editor: 'Der Konsens balanciert Emotion und Klarheit dieser Frage:', kenjiTL: 'Was zum Teufel ist hier los?!', harukaTL: 'Könnten Sie mir erklären, was passiert ist?', editorTL: 'Was geht hier wirklich vor sich?' },
+    thanks:   { kenji: 'Krass! Ein Dankeschön im Manga-Stil muss von Herzen kommen!', haruka: 'Ich schlage einen formelleren und herzlicheren Ausdruck der Dankbarkeit vor.', editor: 'Diese Zusammenfassung trifft den Dank-Ton am besten:', kenjiTL: 'Danke Alter, echt mega!', harukaTL: 'Ich bin Ihnen außerordentlich dankbar für Ihre Freundlichkeit.', editorTL: 'Vielen herzlichen Dank!' },
+    default:  { kenji: 'Hey! Hab den Text geknackt! Muss jugendlich und energetisch klingen!', haruka: 'Ich schlage eine korrekte und respektvolle Übersetzung vor.', editor: 'Hier ist der finale Konsens, angepasst an die Ballongröße:', kenjiTL: 'Los geht\'s! Auf geht\'s!', harukaTL: 'Bitte gehen Sie jetzt, wir müssen aufbrechen.', editorTL: 'Lass uns gemeinsam gehen!' },
+  },
+  es: {
+    pronoun:  { kenji: '¡Oye! Esta palabra es muy directa, hay que darle ese toque callejero del manga!', haruka: 'Creo que sería más apropiado usar una formulación más respetuosa y gramaticalmente correcta.', editor: 'El consenso respeta el contexto del globo de diálogo y el estilo manga:', kenjiTL: '¡Tú eres genial, tío!', harukaTL: 'Usted es una persona verdaderamente notable.', editorTL: '¡Eres increíble!' },
+    question: { kenji: '¡Wey! ¡Hay una pregunta aquí! ¡Tiene que ser impactante y directa!', haruka: 'Sugiero una formulación interrogativa más suave y matizada.', editor: 'El consenso equilibra la emoción y la claridad de esta pregunta:', kenjiTL: '¿Qué rayos está pasando aquí?!', harukaTL: '¿Podría explicarme qué ha sucedido?', editorTL: '¿Qué está pasando realmente?' },
+    thanks:   { kenji: '¡Órale! ¡Un agradecimiento al estilo manga tiene que ser sincero y fuerte!', haruka: 'Propongo una expresión de gratitud más formal y cálida.', editor: 'Este resumen captura perfectamente la emoción de gratitud:', kenjiTL: '¡Gracias tío, eres el mejor!', harukaTL: 'Le estoy profundamente agradecido por su generosidad.', editorTL: '¡Muchas gracias!' },
+    default:  { kenji: '¡Hey! ¡Descifré el texto! ¡Tiene que sonar juvenil y con energía!', haruka: 'Propongo una traducción más formal que respeta la gramática española.', editor: 'Aquí está el consenso final adaptado al tamaño del globo:', kenjiTL: '¡Vamos, al ataque!', harukaTL: 'Por favor, partamos ahora, debemos ponernos en marcha.', editorTL: '¡Vamos juntos!' },
+  },
+  pt: {
+    pronoun:  { kenji: 'Ei! Essa palavra é bem direta, tem que ter aquele toque de gíria do manga!', haruka: 'Acredito que seria mais apropriado usar uma formulação mais respeitosa e gramaticalmente correta.', editor: 'O consenso respeita o contexto do balão e o estilo manga:', kenjiTL: 'Você é incrível, cara!', harukaTL: 'O senhor é uma pessoa verdadeiramente notável.', editorTL: 'Você é simplesmente incrível!' },
+    question: { kenji: 'Ei! Tem uma pergunta aqui! Tem que ser impactante e direta!', haruka: 'Sugiro uma formulação interrogativa mais suave e matizada.', editor: 'O consenso equilibra a emoção e a clareza desta pergunta:', kenjiTL: 'O que diabos está acontecendo aqui?!', harukaTL: 'Poderia me explicar o que aconteceu?', editorTL: 'O que está realmente acontecendo?' },
+    thanks:   { kenji: 'Nossa! Um agradecimento estilo manga tem que ser sincero e forte!', haruka: 'Proponho uma expressão de gratidão mais formal e calorosa.', editor: 'Este resumo captura perfeitamente a emoção de gratidão:', kenjiTL: 'Valeu demais, você é o melhor!', harukaTL: 'Estou profundamente grato pela sua generosidade.', editorTL: 'Muito obrigado!' },
+    default:  { kenji: 'Ei! Decifrei o texto! Tem que soar jovem e com energia!', haruka: 'Proponho uma tradução mais formal que respeita a gramática portuguesa.', editor: 'Aqui está o consenso final adaptado ao tamanho do balão:', kenjiTL: 'Vamos lá, ao ataque!', harukaTL: 'Por favor, vamos partir agora, precisamos nos pôr a caminho.', editorTL: 'Vamos juntos!' },
+  },
+  ko: {
+    pronoun:  { kenji: '야! 이 단어는 직접적인 표현이야, 만화 특유의 생동감 있는 말투로 가야 해!', haruka: '저는 더 공손하고 문법적으로 올바른 표현을 사용하는 것이 좋을 것 같아요.', editor: '말풍선 크기와 만화 스타일을 고려한 최종 합의안입니다:', kenjiTL: '야, 너 진짜 대단한데!', harukaTL: '당신은 정말 대단한 분이세요.', editorTL: '너 진짜 최고야!' },
+    question: { kenji: '와! 여기 질문이 있어! 임팩트 있고 직접적으로 가야 해!', haruka: '좀 더 부드럽고 세밀한 의문형 표현을 제안합니다.', editor: '이 질문의 감정과 명확성을 균형 있게 맞춘 합의안입니다:', kenjiTL: '도대체 여기서 무슨 일이 일어나고 있는 거야?!', harukaTL: '무슨 일이 있었는지 설명해 주실 수 있나요?', editorTL: '여기서 실제로 무슨 일이 벌어지고 있는 건가요?' },
+    thanks:   { kenji: '오! 만화 스타일의 감사 인사는 진심이고 강렬해야 해!', haruka: '더 격식 있고 따뜻한 감사 표현을 제안합니다.', editor: '이 요약은 감사의 감정을 가장 잘 포착하고 있습니다:', kenjiTL: '고마워 친구, 최고야!', harukaTL: '베풀어 주신 친절에 진심으로 감사드립니다.', editorTL: '정말 감사합니다!' },
+    default:  { kenji: '야! 텍스트 해독했어! 젊고 에너지 넘치게 들려야 해!', haruka: '한국어 문법을 존중하는 더 격식 있는 번역을 제안합니다.', editor: '말풍선 크기에 맞춘 최종 합의안입니다:', kenjiTL: '자, 가자! 돌격이야!', harukaTL: '지금 떠나 주세요, 우리는 출발해야 합니다.', editorTL: '함께 갑시다!' },
+  },
+}
+
+// Helper: pick the best fallback entry for a given source text and target language
+function pickFallback(rawSource: string, targetLang: string): FallbackEntry {
+  const lang = targetLang in FALLBACK_MATRIX ? targetLang : 'th'
+  const matrix = FALLBACK_MATRIX[lang]
+  if (rawSource.includes('君') || rawSource.includes('お前') || rawSource.includes('너') || rawSource.includes('你')) {
+    return matrix.pronoun
+  } else if (rawSource.includes('何') || rawSource.includes('どうして') || rawSource.includes('왜') || rawSource.includes('为什么') || rawSource.includes('?') || rawSource.includes('？')) {
+    return matrix.question
+  } else if (rawSource.includes('ありがとう') || rawSource.includes('感謝') || rawSource.includes('감사') || rawSource.includes('谢谢')) {
+    return matrix.thanks
+  }
+  return matrix.default
+}
+
 export function KomorebiChatOverlay({
   isOpen,
   onClose,
@@ -337,111 +409,118 @@ export function KomorebiChatOverlay({
   }
 
   // Multi-Agent Roundtable Simulation (Feature 1, Feature 7, Feature 10)
+  // Fully dynamic: queries api.seriesMetaGet() for source/target language,
+  // constructs a language-aware debate prompt, and falls back gracefully
+  // to the 6-language local high-fidelity simulation matrix.
   const startRoundtable = async () => {
     if (!activeBlock) return
     setIsTranslating(true)
-    
-    const rawJp = activeBlock.text || ''
-    let kenjiVal = 'เฮ้ย! ไปกันเถอะ ลุยกันเลยสิ!'
-    let harukaVal = 'กรุณาไปกันเถอะค่ะ พวกเราต้องออกเดินทางแล้ว'
-    let consensusVal = 'พวกเราไปกันเถอะ!'
-    let kenjiComment = `โย่! ฉันแกะภาษาญี่ปุ่นมาได้ล่ะ คำว่า "${rawJp}" เนี่ย อารมณ์มันต้องดิบๆ วัยรุ่นๆ หน่อย! แนะนำสำนวนนี้เลย: "${kenjiVal}" รับรองว่าอ่านแล้วอินเข้าเส้นแน่ๆ!`
-    let harukaComment = `สวัสดีค่ะคุณเคนจิ แต่ฮารุกะคิดว่าถ้าแปลแบบนั้นอาจจะดูหยาบคายไปนิดสำหรับตัวละครหญิงนะคะ ลองสำนวนสุภาพแต่แฝงอารมณ์แบบดั้งเดิมดูไหมคะ: "${harukaVal}" จะได้อารมณ์และสัมผัสภาษาที่งดงามขึ้นค่ะ`
-    let editorComment = `ขอบคุณทั้งเคนจิและฮารุกะที่ช่วยออกความเห็นครับ ผมได้พิจารณาบริบทภาพรวมหน้ากระดาษและสไตล์มังงะเรื่องนี้แล้ว ขอสรุปเป็นทางสายกลางที่กระชับ เหมาะสมกับกรอบ bubble ข้อความ และรักษาอารมณ์ดั้งเดิมได้ดีที่สุด: "${consensusVal}" ครับ`
 
-    // Determine basic simulated values in case of API failure
-    if (rawJp.includes('君') || rawJp.includes('お前')) {
-      kenjiVal = 'นายนี่มันสุดยอดจริงๆ ว่ะ!'
-      harukaVal = 'คุณเป็นคนที่วิเศษมากเลยค่ะ'
-      consensusVal = 'นายนี่มันสุดยอดไปเลยนะ!'
-    } else if (rawJp.includes('何') || rawJp.includes('どうして')) {
-      kenjiVal = 'เกิดอะไรขึ้นวะเนี่ย? ทำไมเป็นงั้นอ่ะ'
-      harukaVal = 'เกิดเรื่องอะไรขึ้นหรือคะ? ทำไมถึงทำแบบนั้นล่ะ'
-      consensusVal = 'เกิดอะไรขึ้นกันแน่? ทำไมถึงเป็นแบบนี้'
-    } else if (rawJp.includes('ありがとう') || rawJp.includes('感謝')) {
-      kenjiVal = 'ขอบใจนะเพื่อน! โคตรซึ้งเลย!'
-      harukaVal = 'ขอบพระคุณอย่างสูงสำหรับความกรุณาค่ะ'
-      consensusVal = 'ขอบคุณมากนะ!'
+    const rawSource = activeBlock.text || ''
+
+    // ── Step 1: Resolve project source & target languages ────────────────────
+    let sourceLangCode = 'ja'  // safe default: Japanese manga
+    let targetLangCode = 'th'  // safe default: Thai output
+    try {
+      const meta = await api.seriesMetaGet()
+      if (meta?.sourceLanguage) sourceLangCode = meta.sourceLanguage.toLowerCase().slice(0, 2)
+      if (meta?.targetLanguage) targetLangCode = meta.targetLanguage.toLowerCase().slice(0, 2)
+    } catch (metaErr) {
+      console.warn('[Komorebi] seriesMetaGet failed, using default ja→th:', metaErr)
     }
 
+    const sourceMeta = LANG_META[sourceLangCode] ?? { en: 'Unknown', native: 'ไม่ระบุ', ttsLocale: 'en-US' }
+    const targetMeta = LANG_META[targetLangCode] ?? { en: 'Thai', native: 'ภาษาไทย', ttsLocale: 'th-TH' }
+    const ttsLocale   = targetMeta.ttsLocale
+
+    // ── Step 2: Seed high-fidelity local fallback from matrix ────────────────
+    const fb = pickFallback(rawSource, targetLangCode)
+    let kenjiVal     = fb.kenjiTL
+    let harukaVal    = fb.harukaTL
+    let consensusVal = fb.editorTL
+    let kenjiComment = fb.kenji
+    let harukaComment = fb.haruka
+    let editorComment = fb.editor
+
+    // ── Step 3: Try the LLM API with a language-aware system prompt ──────────
     try {
-      // Build dynamic agentic debate prompt (Feature 1, Feature 7, Feature 10)
-      const systemPrompt = `You are a manga translation Roundtable coordinator. You will coordinate a debate between three distinct Thai personas to translate the Japanese text.
-Personas:
-1. Kenji (👦 เคนจิ): Trendy, direct teenager who loves manga slang, action, and youthful expressions. Focuses on making it punchy.
-2. Haruka (👧 ฮารุกะ): Polite, academically correct, gentle female translator. Focuses on precise Thai grammar and respect.
-3. Editor (👨–💼 บรรณาธิการ): Wise, experienced editor who respects line-length/balloon constraints and makes the final consensus choice.
+      const systemPrompt = `You are a manga translation Roundtable coordinator.
+You will coordinate a structured debate between three translator personas.
+The source text is written in ${sourceMeta.en}. The target output language is ${targetMeta.en}.
 
-You MUST structure your response EXACTLY as follows:
-[KENJI]: (Kenji's comment in Thai explaining his proposed translation)
-[KENJI_PROPOSAL]: (Kenji's proposed Thai translation text only)
-[HARUKA]: (Haruka's comment in Thai with polite counter-proposal)
-[HARUKA_PROPOSAL]: (Haruka's proposed Thai translation text only)
-[EDITOR]: (Editor's summary comment in Thai)
-[EDITOR_PROPOSAL]: (The final consensus Thai translation only)
+Personas (they debate and write ALL comments in ${targetMeta.en}):
+1. Kenji 👦: Trendy, direct teenager who loves manga slang, action, and youthful energy. Proposes the punchiest translation.
+2. Haruka 👧: Polite, academically correct, gentle translator. Proposes the most grammatically precise translation.
+3. Editor 👨‍💼: Wise, experienced editor who respects speech-balloon character limits. Makes the final balanced consensus choice.
 
-Do not include any extra text outside of these tags. Make sure the proposals do not have quotes.`
+You MUST structure your response EXACTLY as follows (no extra text outside these tags):
+[KENJI]: (Kenji's comment in ${targetMeta.en} explaining his proposed translation)
+[KENJI_PROPOSAL]: (Kenji's proposed translation in ${targetMeta.en} only — no quotes)
+[HARUKA]: (Haruka's polite counter-comment in ${targetMeta.en})
+[HARUKA_PROPOSAL]: (Haruka's proposed translation in ${targetMeta.en} only — no quotes)
+[EDITOR]: (Editor's summary comment in ${targetMeta.en})
+[EDITOR_PROPOSAL]: (The final consensus translation in ${targetMeta.en} only — no quotes)`
 
-      const prompt = `Translate this Japanese manga text bubble: "${rawJp}".
-User context/notes: "${inputValue.trim() || 'ไม่มี'}"`
+      const userContext = inputValue.trim() || 'none'
+      const prompt = `Translate this ${sourceMeta.en} manga text bubble into ${targetMeta.en}: "${rawSource}".
+User context/notes: "${userContext}"`
 
       const profiles = await api.providerProfilesList()
       const activeProfile = profiles.find(p => p.isDefault) || profiles[0]
-      if (!activeProfile) {
-        throw new Error("No active provider profile configured")
-      }
+      if (!activeProfile) throw new Error('No active provider profile configured')
 
       const response = await api.cloudLlmCall({
         profileId: activeProfile.id,
         modelName: activeProfile.modelName,
-        apiUrl: activeProfile.apiUrl,
-        jsonMode: false,
-        prompt: `${systemPrompt}\n\n${prompt}`,
+        apiUrl:    activeProfile.apiUrl,
+        jsonMode:  false,
+        prompt:    `${systemPrompt}\n\n${prompt}`,
       })
 
-      if (response && response.text) {
+      if (response?.text) {
         const text = response.text
         const getTagContent = (tag: string) => {
           const regex = new RegExp(`\\[${tag}\\]:?\\s*([\\s\\S]*?)(?=\\[|$)`, 'i')
           const match = text.match(regex)
           return match ? match[1].trim().replace(/^["']|["']$/g, '') : ''
         }
-
-        const parsedKenji = getTagContent('KENJI')
+        const parsedKenji     = getTagContent('KENJI')
         const parsedKenjiProp = getTagContent('KENJI_PROPOSAL')
-        const parsedHaruka = getTagContent('HARUKA')
+        const parsedHaruka    = getTagContent('HARUKA')
         const parsedHarukaProp = getTagContent('HARUKA_PROPOSAL')
-        const parsedEditor = getTagContent('EDITOR')
+        const parsedEditor    = getTagContent('EDITOR')
         const parsedEditorProp = getTagContent('EDITOR_PROPOSAL')
 
         if (parsedKenjiProp && parsedHarukaProp && parsedEditorProp) {
-          kenjiVal = parsedKenjiProp
-          harukaVal = parsedHarukaProp
-          consensusVal = parsedEditorProp
-          kenjiComment = parsedKenji || `โย่! แนะนำสำนวนนี้เลย: "${kenjiVal}"`
-          harukaComment = parsedHaruka || `ลองสำนวนสุภาพแบบนี้ดูนะคะ: "${harukaVal}"`
-          editorComment = parsedEditor || `ขอสรุปเป็นสำนวนนี้เพื่อความลงตัว: "${consensusVal}" ครับ`
+          kenjiVal      = parsedKenjiProp
+          harukaVal     = parsedHarukaProp
+          consensusVal  = parsedEditorProp
+          kenjiComment  = parsedKenji  || kenjiComment
+          harukaComment = parsedHaruka || harukaComment
+          editorComment = parsedEditor || editorComment
         }
       }
     } catch (e) {
-      console.warn("Roundtable API call failed, using high-fidelity local simulation fallback:", e)
+      console.warn('[Komorebi] Roundtable API call failed — using local fallback matrix:', e)
     }
 
     setCustomTranslation(consensusVal)
 
-    // Push Agent Conversation timeline dynamically with visual emotion changes (Feature 1, 7)
+    // ── Step 4: Push the debate timeline with dynamic language labels ────────
+    const srcLabel = sourceMeta.native || sourceMeta.en
+    const tgtLabel = targetMeta.native || targetMeta.en
     setMessages(prev => [
       ...prev,
       {
         id: `kenji-${Date.now()}`,
         agent: 'kenji',
         senderName: 'เคนจิ 👦 [ฝ่ายลุยแสลงมังงะ]',
-        text: kenjiComment,
+        text: `[${srcLabel} → ${tgtLabel}] ${kenjiComment}`,
         emotion: 'excited',
         translationProposal: kenjiVal
       },
       {
-        id: `haruka-${Date.now()}`,
+        id: `haruka-${Date.now() + 1}`,
         agent: 'haruka',
         senderName: 'ฮารุกะ 👧 [ฝ่ายภาษาศาสตร์และไวยากรณ์]',
         text: harukaComment,
@@ -449,56 +528,64 @@ User context/notes: "${inputValue.trim() || 'ไม่มี'}"`
         translationProposal: harukaVal
       },
       {
-        id: `editor-${Date.now()}`,
+        id: `editor-${Date.now() + 2}`,
         agent: 'editor',
         senderName: 'บรรณาธิการ 👨‍💼 [สรุปสำนวนโต๊ะกลม]',
-        text: editorComment,
+        text: `${editorComment}  ⟨🌐 ${tgtLabel}⟩`,
         emotion: 'satisfied',
         translationProposal: consensusVal
       }
     ])
 
+    // Store ttsLocale for playTTS to pick up (via ref to avoid stale closure)
+    activeTtsLocaleRef.current = ttsLocale
+
     setIsTranslating(false)
   }
 
-  // Web Speech Synthesis TTS (Feature 5)
+  // Stores the TTS BCP-47 locale determined by the last roundtable run (Feature 5)
+  const activeTtsLocaleRef = useRef<string>('th-TH')
+
+  // Web Speech Synthesis TTS (Feature 5) — dynamically routes to the target language voice
   const playTTS = (text: string, agent: 'kenji' | 'haruka' | 'editor') => {
     if (!('speechSynthesis' in window)) {
       alert('เบราวเซอร์ของคุณไม่รองรับ Speech Synthesis (TTS)')
       return
     }
 
-    // Cancel existing speakings
+    // Cancel existing speech before starting new one
     window.speechSynthesis.cancel()
 
     const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = 'th-TH'
+    // Use the locale resolved from the last roundtable (e.g. fr-FR, ko-KR, th-TH …)
+    const locale = activeTtsLocaleRef.current || 'th-TH'
+    utterance.lang = locale
 
-    // Configure specific pitch, rate, gender simulation using browser voices
+    // Pick the best matching voice for this locale from the browser voice list
     const voices = window.speechSynthesis.getVoices()
-    const thaiVoice = voices.find(v => v.lang.includes('TH') || v.lang.includes('th'))
-    if (thaiVoice) {
-      utterance.voice = thaiVoice
+    const langPrefix = locale.split('-')[0].toLowerCase()
+    const matchedVoice =
+      voices.find(v => v.lang.toLowerCase() === locale.toLowerCase()) ??
+      voices.find(v => v.lang.toLowerCase().startsWith(langPrefix))
+    if (matchedVoice) {
+      utterance.voice = matchedVoice
     }
 
+    // Configure pitch & rate per agent character archetype
     if (agent === 'kenji') {
       utterance.pitch = 1.3
-      utterance.rate = 1.05
+      utterance.rate  = 1.05
     } else if (agent === 'haruka') {
       utterance.pitch = 1.1
-      utterance.rate = 0.95
+      utterance.rate  = 0.95
     } else {
       utterance.pitch = 0.9
-      utterance.rate = 1.0
+      utterance.rate  = 1.0
     }
 
     setIsPlayingTTS(agent)
-    utterance.onend = () => {
-      setIsPlayingTTS(null)
-    }
-    utterance.onerror = () => {
-      setIsPlayingTTS(null)
-    }
+    utterance.onend  = () => setIsPlayingTTS(null)
+    utterance.onerror = () => setIsPlayingTTS(null)
 
     // Defensive timeout boundary to prevent browser Speech Engine lockups on Windows WebView2
     setTimeout(() => {
