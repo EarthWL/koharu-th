@@ -562,7 +562,22 @@ ${blocksJson}`
     } else if (cloudProvider === 'openrouter') {
       raw = await fetchOpenRouter(prompt, cloudApiKey, cloudModelName, true)
     } else if (cloudProvider === 'gemini') {
-      raw = await fetchGemini(prompt, cloudApiKey, cloudModelName, true)
+      // Pin Gemini's output to `{index, translation}` via responseSchema —
+      // structured output bypasses instruction-following entirely.
+      // Without this, Gemini 3.5 Flash kept echoing the input shape
+      // (returning `{index, text}` with source-language text) which
+      // the strict parser then rejected.
+      raw = await fetchGemini(prompt, cloudApiKey, cloudModelName, true, undefined, {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            index: { type: 'integer' },
+            translation: { type: 'string' },
+          },
+          required: ['index', 'translation'],
+        },
+      })
     } else if (cloudProvider === 'anthropic') {
       raw = await fetchAnthropic(prompt, cloudApiKey, cloudModelName, true)
     } else {
@@ -902,6 +917,12 @@ async function fetchGemini(
   model: string,
   isJsonMode = false,
   onChunk?: StreamHandler,
+  /** Optional response schema for structured output. When provided
+   *  alongside isJsonMode, Gemini is FORCED to produce JSON matching
+   *  this schema — instruction-following becomes irrelevant. Used by
+   *  the batch translate path to pin `{index, translation}` even
+   *  when Gemini 3.5 wants to echo the input `text` key.  */
+  responseSchema?: object,
 ): Promise<CloudResult> {
   // Gemini exposes a separate :streamGenerateContent endpoint for SSE
   // streaming. We use alt=sse to get the data:-prefixed framing that
@@ -917,6 +938,9 @@ async function fetchGemini(
 
   if (isJsonMode) {
     body.generationConfig.responseMimeType = 'application/json'
+    if (responseSchema) {
+      body.generationConfig.responseSchema = responseSchema
+    }
   }
 
   const res = await fetch(endpoint, {
