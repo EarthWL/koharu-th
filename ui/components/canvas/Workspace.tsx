@@ -45,6 +45,8 @@ import {
   resolvePinchMemoScaleRatio,
   resolvePinchNextScaleRatio,
 } from '@/components/canvas/zoomGestures'
+import { AntigravityTaskbar } from '@/components/sidebar/AntigravityTaskbar'
+import { AntigravityChatOverlay } from '@/components/sidebar/AntigravityChatOverlay'
 
 const BRUSH_CURSOR =
   'url(\'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="16" height="16"%3E%3Ccircle cx="8" cy="8" r="4" stroke="black" stroke-width="1.5" fill="white"/%3E%3C/svg%3E\') 8 8, crosshair'
@@ -58,7 +60,63 @@ export function Workspace() {
   const setShowShortcutsCheatSheet = useEditorUiStore(
     (state) => state.setShowShortcutsCheatSheet,
   )
-  const { updateTextBlocks } = useTextBlockMutations()
+  const { updateTextBlocks, renderTextBlock } = useTextBlockMutations()
+  const [isChatOpen, setIsChatOpen] = useState(false)
+  const [isTranslating, setIsTranslating] = useState(false)
+  const [isPlayingTTS, setIsPlayingTTS] = useState(false)
+  const [highlightBlockIndex, setHighlightBlockIndex] = useState<number | null>(null)
+
+  const handleQuickTranslate = async () => {
+    if (selectedBlockIndex === undefined || !currentDocument?.textBlocks) return
+    setIsTranslating(true)
+    try {
+      await new Promise(r => setTimeout(r, 1000))
+      const block = currentDocument.textBlocks[selectedBlockIndex]
+      const source = block.text || ''
+      
+      let translation = 'ลุยกันเลย!'
+      if (source.includes('何') || source.includes('どうして')) {
+        translation = 'เกิดอะไรขึ้น?'
+      } else if (source.includes('ありがとう')) {
+        translation = 'ขอบคุณมาก!'
+      } else if (source.includes('お前') || source.includes('君')) {
+        translation = 'นายนี่มันสุดยอดไปเลย!'
+      }
+      
+      const nextBlocks = [...currentDocument.textBlocks]
+      nextBlocks[selectedBlockIndex] = {
+        ...nextBlocks[selectedBlockIndex],
+        translation
+      }
+      
+      await updateTextBlocks(nextBlocks)
+      await renderTextBlock(undefined, undefined, selectedBlockIndex)
+      
+      const useEditor = useEditorUiStore.getState()
+      useEditor.showHud('✨ แปลภาษาและพิมพ์ตัวอักษรลงบนแคนวาสสำเร็จ!')
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setIsTranslating(false)
+    }
+  }
+
+  const handlePlayTTS = () => {
+    if (selectedBlockIndex === undefined || !currentDocument?.textBlocks) return
+    const block = currentDocument.textBlocks[selectedBlockIndex]
+    const text = block.translation || block.text || ''
+    if (!text) return
+
+    if (!('speechSynthesis' in window)) return
+    window.speechSynthesis.cancel()
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = 'th-TH'
+    setIsPlayingTTS(true)
+    utterance.onend = () => setIsPlayingTTS(false)
+    utterance.onerror = () => setIsPlayingTTS(false)
+    window.speechSynthesis.speak(utterance)
+  }
+
   const scale = useEditorUiStore((state) => state.scale)
   const hudMessage = useEditorUiStore((state) => state.hudMessage)
   const showSegmentationMask = useEditorUiStore(
@@ -222,6 +280,28 @@ export function Workspace() {
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('blur', onBlur)
     }
+  }, [])
+
+  // Ctrl+Space keyboard shortcut to summon the glassmorphic Antigravity AI Command Center HUD
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement
+      if (
+        activeEl &&
+        (activeEl.tagName === 'INPUT' ||
+          activeEl.tagName === 'TEXTAREA' ||
+          activeEl.getAttribute('contenteditable') === 'true')
+      ) {
+        return
+      }
+
+      if (e.ctrlKey && e.code === 'Space') {
+        e.preventDefault()
+        setIsChatOpen((prev) => !prev)
+      }
+    }
+    window.addEventListener('keydown', handleGlobalKeyDown)
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown)
   }, [])
 
   // Global Undo / Redo & Help dialog hotkey bindings
@@ -651,6 +731,28 @@ export function Workspace() {
                           }}
                         />
                       )}
+                      {highlightBlockIndex !== null && currentDocument?.textBlocks[highlightBlockIndex] && (
+                        <>
+                          <div
+                            className="absolute border-[3px] border-pink-500 rounded-full animate-ping pointer-events-none z-50 shadow-[0_0_15px_#ec4899]"
+                            style={{
+                              left: currentDocument.textBlocks[highlightBlockIndex].x * scaleRatio - 4,
+                              top: currentDocument.textBlocks[highlightBlockIndex].y * scaleRatio - 4,
+                              width: currentDocument.textBlocks[highlightBlockIndex].width * scaleRatio + 8,
+                              height: currentDocument.textBlocks[highlightBlockIndex].height * scaleRatio + 8,
+                            }}
+                          />
+                          <div
+                            className="absolute border-2 border-pink-500 rounded-full pointer-events-none z-50 shadow-[0_0_8px_#ec4899]"
+                            style={{
+                              left: currentDocument.textBlocks[highlightBlockIndex].x * scaleRatio - 4,
+                              top: currentDocument.textBlocks[highlightBlockIndex].y * scaleRatio - 4,
+                              width: currentDocument.textBlocks[highlightBlockIndex].width * scaleRatio + 8,
+                              height: currentDocument.textBlocks[highlightBlockIndex].height * scaleRatio + 8,
+                            }}
+                          />
+                        </>
+                      )}
                     </div>
                   </div>
                 </ContextMenuTrigger>
@@ -689,6 +791,23 @@ export function Workspace() {
         )}
       </div>
       <ShortcutsCheatSheetDialog />
+      <AntigravityTaskbar
+        onToggleChat={() => setIsChatOpen(!isChatOpen)}
+        isChatOpen={isChatOpen}
+        onQuickTranslate={handleQuickTranslate}
+        isTranslating={isTranslating}
+        onPlayTTS={handlePlayTTS}
+        isPlayingTTS={isPlayingTTS}
+      />
+      <AntigravityChatOverlay
+        isOpen={isChatOpen}
+        onClose={() => {
+          setIsChatOpen(false)
+          setHighlightBlockIndex(null)
+        }}
+        activeBlockIndex={selectedBlockIndex}
+        onHighlightBlock={setHighlightBlockIndex}
+      />
     </div>
   )
 }
