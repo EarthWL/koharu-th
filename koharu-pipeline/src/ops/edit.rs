@@ -350,6 +350,72 @@ async fn record_session_change(
     }
 }
 
+/// Scene-relevant fingerprint of a scene block (id-free content). Used
+/// by the drift guard to compare the session scene against the Document
+/// position-by-position.
+fn scene_block_relevant(b: &koharu_core::scene::TextBlock) -> serde_json::Value {
+    serde_json::json!({
+        "r": [b.region.x, b.region.y, b.region.width, b.region.height],
+        "t": b.source_text,
+        "tr": b.translation,
+        "l": b.source_lang,
+        "rot": b.rotation_deg,
+        "s": serde_json::to_value(&b.style).ok(),
+    })
+}
+
+/// Drift guard (scrutinize MAJOR fix). After a structural edit the
+/// node_id preservation relies on `find_matching_previous` — a heuristic
+/// that *could* assign a valid-but-wrong id (e.g. two near-identical
+/// blocks during a delete), silently desyncing the session scene from
+/// the Document. Verify they match position-by-position on (node_id +
+/// scene-relevant content); on any mismatch DROP the session so a wrong
+/// undo can't fire. The Document stays at its correct post-edit state —
+/// the only cost is losing undo for this one edit. Fail-safe over silent
+/// corruption. Only called for structural edits (read_doc clones the
+/// doc, so we avoid it on every move/resize).
+async fn verify_session_or_invalidate(state: &AppResources, index: usize) {
+    let doc = match state_tx::read_doc(&state.state, index).await {
+        Ok(d) => d,
+        Err(_) => return,
+    };
+    let doc_fp: Vec<(u64, serde_json::Value)> = doc
+        .text_blocks
+        .iter()
+        .map(|b| (b.node_id, scene_block_relevant(&v1_block_to_scene(b))))
+        .collect();
+
+    let mut guard = state.session.write().await;
+    let mismatch = match guard.session_for_mut(index) {
+        Some(session) => match session.scene().pages.keys().next().copied() {
+            Some(page) => {
+                let scene_fp: Vec<(u64, serde_json::Value)> = session
+                    .scene()
+                    .pages
+                    .get(&page)
+                    .map(|p| {
+                        p.text_blocks
+                            .values()
+                            .map(|b| (b.id.0, scene_block_relevant(b)))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                scene_fp != doc_fp
+            }
+            None => false,
+        },
+        None => false, // no in-sync session → nothing recorded → nothing to verify
+    };
+    if mismatch {
+        tracing::warn!(
+            doc_index = index,
+            "session scene drifted from Document after a structural edit \
+             (block-match ambiguity) — dropping history to stay safe"
+        );
+        guard.invalidate_if_doc(index);
+    }
+}
+
 pub async fn update_text_blocks(
     state: AppResources,
     payload: UpdateTextBlocksPayload,
@@ -412,7 +478,13 @@ pub async fn update_text_blocks(
 
     match plan {
         Some((updates, adds, removes)) => {
+            let structural = !adds.is_empty() || !removes.is_empty();
             record_session_change(&state, index, updates, adds, removes).await;
+            // Structural edits depend on the heuristic matcher — verify
+            // the result didn't drift, and drop history if it did.
+            if structural {
+                verify_session_or_invalidate(&state, index).await;
+            }
         }
         // Too complex to map to a single undo step — drop history.
         None => {
@@ -686,7 +758,11 @@ pub async fn add_text_block(
     state: AppResources,
     payload: AddTextBlockPayload,
 ) -> anyhow::Result<usize> {
-    let result = state_tx::mutate_doc(&state.state, payload.index, |document| {
+    let index = payload.index;
+    let (new_index, block) = state_tx::mutate_doc(&state.state, index, |document| {
+        // Fresh stable id above the current max so it can't collide
+        // with an id already referenced by session history.
+        let next_id = document.text_blocks.iter().map(|b| b.node_id).max().unwrap_or(0) + 1;
         let mut block = TextBlock {
             x: payload.x,
             y: payload.y,
@@ -695,37 +771,38 @@ pub async fn add_text_block(
             confidence: 1.0,
             ..Default::default()
         };
+        block.node_id = next_id;
         block.set_layout_seed(block.x, block.y, block.width, block.height);
-        document.text_blocks.push(block);
-        Ok(document.text_blocks.len() - 1)
+        document.text_blocks.push(block.clone());
+        Ok((document.text_blocks.len() - 1, block))
     })
-    .await;
-    // Audit #9/B1: appending shifts no existing NodeId but adds a
-    // NodeId at len+1 that session.scene doesn't know about — next
-    // undo of an engine-emitted Op would silent-skip on this new
-    // block. Invalidate so the bridge rebuilds at next engine run.
-    state.session.write().await.invalidate_if_doc(payload.index);
-    result
+    .await?;
+    // Record as an undoable InsertTextBlock (no-op if no in-sync
+    // session); the drift guard drops history if anything desynced.
+    record_session_change(&state, index, Vec::new(), vec![(new_index, block)], Vec::new()).await;
+    verify_session_or_invalidate(&state, index).await;
+    Ok(new_index)
 }
 
 pub async fn remove_text_block(
     state: AppResources,
     payload: RemoveTextBlockPayload,
 ) -> anyhow::Result<usize> {
-    let result = state_tx::mutate_doc(&state.state, payload.index, |document| {
+    let index = payload.index;
+    let (len, removed_node_id) = state_tx::mutate_doc(&state.state, index, |document| {
         if payload.text_block_index >= document.text_blocks.len() {
             anyhow::bail!("Text block {} not found", payload.text_block_index);
         }
-        document.text_blocks.remove(payload.text_block_index);
-        Ok(document.text_blocks.len())
+        let removed = document.text_blocks.remove(payload.text_block_index);
+        Ok((document.text_blocks.len(), removed.node_id))
     })
-    .await;
-    // Audit #9/B1: the canonical drift trigger from self-test —
-    // removing a block makes NodeId(k) for k > removed-index shift
-    // by -1 in array terms, so every prior AddTextBlock entry in
-    // session history now maps to the wrong row. Invalidate.
-    state.session.write().await.invalidate_if_doc(payload.index);
-    result
+    .await?;
+    // Record as an undoable RemoveTextBlock (its inverse InsertTextBlock
+    // restores at the original index). No-op without an in-sync session;
+    // the drift guard drops history if the mapping desynced.
+    record_session_change(&state, index, Vec::new(), Vec::new(), vec![removed_node_id]).await;
+    verify_session_or_invalidate(&state, index).await;
+    Ok(len)
 }
 
 pub async fn dilate_mask(state: AppResources, payload: MaskMorphPayload) -> anyhow::Result<()> {
