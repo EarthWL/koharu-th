@@ -37,6 +37,13 @@ const ALPHA_RING_RADIUS: u8 = 7;
 /// โดยที่คุณภาพที่ขนาดอ่านมังงะปกติไม่ต่างกัน
 const MAX_INPAINT_SIDE: u32 = 512;
 
+/// ขนาดด้านสั้นสุด (px) ที่ LaMa รับได้ ก่อน internal narrow/split op พัง
+/// LaMa downsample ภาพหลายชั้น ถ้า crop บางกว่านี้ (เช่น eraser brush ลด
+/// mask เหลือเส้น 1px) intermediate tensor จะมี dim เหลือ 1 แล้ว candle
+/// narrow ล้มกลาง inference ได้ error อ่านไม่รู้เรื่อง (`narrow invalid args
+/// ... [1, 128, 1, 13]`) — gate ที่ input ดีกว่าปล่อยให้พังกลางทาง (KI-3)
+const MIN_INPAINT_DIM: u32 = 16;
+
 type Xyxy = [u32; 4];
 
 struct BalloonMasks {
@@ -384,6 +391,7 @@ impl Lama {
         max_side: Option<u32>,
     ) -> Result<RgbImage> {
         let (w, h) = image.dimensions();
+        check_min_inpaint_dims(w, h)?;
         let cap = max_side.unwrap_or(MAX_INPAINT_SIDE);
         let long_side = w.max(h);
 
@@ -469,6 +477,20 @@ impl Lama {
     }
 }
 
+/// Reject crops too thin for LaMa before they reach candle (KI-3).
+/// `inference_blockwise`'s single degenerate crop fails the whole
+/// batch — acceptable: such crops come from an eraser-narrowed mask
+/// the user can re-widen, and a friendly toast beats the cryptic
+/// `narrow invalid args ... [1, 128, 1, 13]` tensor error.
+fn check_min_inpaint_dims(w: u32, h: u32) -> Result<()> {
+    if w < MIN_INPAINT_DIM || h < MIN_INPAINT_DIM {
+        bail!(
+            "พื้นที่เล็กเกินไปสำหรับการลบข้อความ ({w}×{h}px, ขั้นต่ำ {MIN_INPAINT_DIM}×{MIN_INPAINT_DIM}px) \
+             — ลองขยายพื้นที่ด้วยแปรง mask หรือใช้ Fit to Bubble"
+        );
+    }
+    Ok(())
+}
 fn binarize_mask(mask: &DynamicImage) -> GrayImage {
     let mut binary = mask.to_luma8();
     for pixel in binary.pixels_mut() {
@@ -864,9 +886,9 @@ fn stddev3(values: [f64; 3]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        ALPHA_RING_RADIUS, BALLOON_WINDOW_ASPECT_RATIO, BALLOON_WINDOW_RATIO, clear_mask_bbox,
-        count_nonzero, enlarge_window, extract_balloon_mask, restore_alpha_channel,
-        try_fill_balloon,
+        ALPHA_RING_RADIUS, BALLOON_WINDOW_ASPECT_RATIO, BALLOON_WINDOW_RATIO, MIN_INPAINT_DIM,
+        check_min_inpaint_dims, clear_mask_bbox, count_nonzero, enlarge_window,
+        extract_balloon_mask, restore_alpha_channel, try_fill_balloon,
     };
     use image::{GrayImage, Luma, Rgb, RgbImage};
     use imageproc::drawing::draw_hollow_rect_mut;
@@ -980,6 +1002,18 @@ mod tests {
         let restored = restore_alpha_channel(&image, &alpha, &mask);
         assert_eq!(restored.get_pixel(15, 15).0[3], 64);
         assert_eq!(restored.get_pixel(2, 2).0[3], 255);
+    }
+
+    #[test]
+    fn rejects_crops_thinner_than_model_minimum() {
+        let min = MIN_INPAINT_DIM;
+        // a 1px-tall strip (the eraser-brush degenerate case) is rejected
+        assert!(check_min_inpaint_dims(200, 1).is_err());
+        assert!(check_min_inpaint_dims(min - 1, 100).is_err());
+        assert!(check_min_inpaint_dims(min, min - 1).is_err());
+        // a square crop at exactly the minimum is accepted
+        assert!(check_min_inpaint_dims(min, min).is_ok());
+        assert!(check_min_inpaint_dims(512, 512).is_ok());
     }
 
     #[test]
