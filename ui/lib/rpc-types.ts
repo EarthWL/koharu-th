@@ -193,6 +193,7 @@ export type RpcMethodMap = {
   relaunch_app: [void, void]
   text_block_fit_to_bubble: [any, any]
   update_text_block: [any, any]
+  collab_publish: [CollabEvent, boolean]
 }
 
 export type QueueStatus =
@@ -231,9 +232,16 @@ export type ProcessProgress = {
   overallPercent: number
 }
 
+export type CollabEvent = {
+  session_id: string
+  event_type: string
+  payload: any
+}
+
 export type RpcNotificationMap = {
   download_progress: DownloadProgress
   process_progress: ProcessProgress
+  collab_sync: CollabEvent
 }
 
 export type BackupDto = {

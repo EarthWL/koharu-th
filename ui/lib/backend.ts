@@ -244,6 +244,21 @@ export function subscribeProcessProgress(
   )
 }
 
+export function subscribeCollabSync(
+  cb: (p: RpcNotificationMap['collab_sync']) => void,
+): () => void {
+  return getClient().onNotification<RpcNotificationMap['collab_sync']>(
+    'collab_sync',
+    cb,
+  )
+}
+
+export async function publishCollab(
+  event: RpcNotificationMap['collab_sync']
+): Promise<boolean> {
+  return getClient().invoke<boolean>('collab_publish', event)
+}
+
 export function getHttpUrl(path: string): string {
   const isDev = process.env.NODE_ENV === 'development'
   if (isDev) {
