@@ -8,11 +8,11 @@ use koharu_api::commands::{
 };
 use koharu_api::parse::parse_hex_color;
 use koharu_api::views::{TextBlockInfo, to_block_info};
-use koharu_core::{Op, Region, TextBlockPatch};
+use koharu_core::{NodeId, Op, Region, TextBlockPatch};
 use koharu_types::{SerializableDynamicImage, TextBlock, TextStyle};
 use tracing::instrument;
 
-use crate::engine_bridge::index_to_node_id;
+use crate::engine_bridge::v1_block_to_scene;
 use crate::style_convert::scene_style_from_v1;
 use crate::{AppResources, state_tx};
 
@@ -268,46 +268,75 @@ fn full_patch_from_block(blk: &TextBlock) -> TextBlockPatch {
     }
 }
 
-/// Record same-position block edits as an undoable session batch.
+/// Record a text-block change as an undoable session batch, keyed by
+/// the blocks' stable `node_id` (NOT array position — so it survives
+/// add/remove). Shared by the bulk replace, single update, and
+/// fit-to-bubble so EVERY Document text-block mutation keeps the session
+/// scene in lockstep. Drift here is consequential: the next edit's
+/// `compute_inverse` reads the scene, so a stale scene yields an inverse
+/// that reverts the wrong values.
 ///
-/// Shared by the bulk replace, the single update, and fit-to-bubble so
-/// EVERY Document text-block mutation keeps the session scene in lock
-/// step. Drift here is consequential: the next edit's `compute_inverse`
-/// reads the scene, so a stale scene yields an inverse that reverts the
-/// wrong values (the undo-review MAJOR finding — AI-chat single edits
-/// used to bypass this).
+/// - `updates`: (node_id, new block) for surviving blocks whose content
+///   changed → `UpdateTextBlock`.
+/// - `adds`: (insert index, new block carrying a fresh node_id) →
+///   `InsertTextBlock`.
+/// - `removes`: node_ids of deleted blocks → `RemoveTextBlock`.
 ///
-/// Best-effort: when the session isn't in-sync for `index` we skip
-/// recording (the Document edit still applied); on a missing target
-/// node or apply error we invalidate rather than commit a partial batch.
-async fn record_block_edits(state: &AppResources, index: usize, changes: &[(usize, TextBlock)]) {
-    if changes.is_empty() {
+/// Best-effort: with no in-sync session we skip recording (the Document
+/// edit still applied); if any update/remove target is missing from the
+/// scene we invalidate rather than commit a partial, inconsistent batch.
+async fn record_session_change(
+    state: &AppResources,
+    index: usize,
+    updates: Vec<(u64, TextBlock)>,
+    adds: Vec<(usize, TextBlock)>,
+    removes: Vec<u64>,
+) {
+    if updates.is_empty() && adds.is_empty() && removes.is_empty() {
         return;
     }
     let mut guard = state.session.write().await;
     let mut drift = false;
     if let Some(session) = guard.session_for_mut(index) {
         if let Some(page) = session.scene().pages.keys().next().copied() {
-            let all_present = session
+            let scene_ok = session
                 .scene()
                 .pages
                 .get(&page)
                 .map(|p| {
-                    changes
+                    updates
                         .iter()
-                        .all(|(i, _)| p.text_blocks.contains_key(&index_to_node_id(*i)))
+                        .all(|(id, _)| *id != 0 && p.text_blocks.contains_key(&NodeId(*id)))
+                        && removes
+                            .iter()
+                            .all(|id| *id != 0 && p.text_blocks.contains_key(&NodeId(*id)))
+                        && adds.iter().all(|(_, b)| b.node_id != 0)
                 })
                 .unwrap_or(false);
-            if all_present {
-                let ops = changes
-                    .iter()
-                    .map(|(i, blk)| Op::UpdateTextBlock {
+            if scene_ok {
+                let mut ops: Vec<Op> = Vec::new();
+                // Removes first (keyed by id, order-independent), then
+                // inserts in ascending index, then content updates.
+                for id in &removes {
+                    ops.push(Op::RemoveTextBlock { page, id: NodeId(*id) });
+                }
+                let mut adds_sorted = adds;
+                adds_sorted.sort_by_key(|(i, _)| *i);
+                for (i, b) in &adds_sorted {
+                    ops.push(Op::InsertTextBlock {
                         page,
-                        id: index_to_node_id(*i),
-                        patch: full_patch_from_block(blk),
-                    })
-                    .collect();
-                if session.apply(Op::Batch(ops)).is_err() {
+                        index: *i,
+                        block: v1_block_to_scene(b),
+                    });
+                }
+                for (id, b) in &updates {
+                    ops.push(Op::UpdateTextBlock {
+                        page,
+                        id: NodeId(*id),
+                        patch: full_patch_from_block(b),
+                    });
+                }
+                if !ops.is_empty() && session.apply(Op::Batch(ops)).is_err() {
                     drift = true;
                 }
             } else {
@@ -326,54 +355,66 @@ pub async fn update_text_blocks(
     payload: UpdateTextBlocksPayload,
 ) -> anyhow::Result<()> {
     let index = payload.index;
-    // Mutate the Document (behaviour unchanged) AND compute a positional
-    // diff so a same-length edit (move / resize / rotate / translation /
-    // style — no add/remove) can be recorded as an undoable batch.
-    // `None` = block count changed (add/remove) → can't map to the
-    // session's NodeIds yet (needs stable ids, increment 3) → invalidate.
-    let diff: Option<Vec<(usize, TextBlock)>> =
-        state_tx::mutate_doc(&state.state, index, |document| {
-            let previous = std::mem::take(&mut document.text_blocks);
-            document.text_blocks = payload.text_blocks;
+    // Mutate the Document and, in the same pass, work out an undoable
+    // plan against the session. We match each NEW block to a previous
+    // one (find_matching_previous) and PRESERVE its stable `node_id`;
+    // unmatched new blocks are genuine adds (fresh id), unmatched old
+    // blocks are removes. Updates/adds/removes are keyed by node_id, so
+    // the recorded ops survive reordering. A complex multi-structural
+    // change (>1 add+remove, e.g. a re-detect) can't be mapped cleanly →
+    // `None` falls back to invalidating history.
+    type Plan = (Vec<(u64, TextBlock)>, Vec<(usize, TextBlock)>, Vec<u64>);
+    let plan: Option<Plan> = state_tx::mutate_doc(&state.state, index, |document| {
+        let previous = std::mem::take(&mut document.text_blocks);
+        document.text_blocks = payload.text_blocks;
 
-            let mut used_previous = vec![false; previous.len()];
-            for (block_index, block) in document.text_blocks.iter_mut().enumerate() {
-                let matched_idx =
-                    find_matching_previous(block, block_index, &previous, &used_previous);
-                if let Some(idx) = matched_idx {
-                    used_previous[idx] = true;
-                    rehydrate_runtime_text_block_state(block, Some(&previous[idx]));
-                } else {
-                    rehydrate_runtime_text_block_state(block, None);
+        let mut next_id = previous.iter().map(|b| b.node_id).max().unwrap_or(0) + 1;
+        let mut used_previous = vec![false; previous.len()];
+        let mut updates: Vec<(u64, TextBlock)> = Vec::new();
+        let mut adds: Vec<(usize, TextBlock)> = Vec::new();
+
+        for (block_index, block) in document.text_blocks.iter_mut().enumerate() {
+            let matched_idx =
+                find_matching_previous(block, block_index, &previous, &used_previous);
+            if let Some(idx) = matched_idx {
+                used_previous[idx] = true;
+                rehydrate_runtime_text_block_state(block, Some(&previous[idx]));
+                // Preserve the stable id so the session mapping holds.
+                block.node_id = previous[idx].node_id;
+                if scene_relevant_changed(&previous[idx], block) {
+                    updates.push((block.node_id, block.clone()));
                 }
-            }
-
-            let diff = if previous.len() == document.text_blocks.len() {
-                Some(
-                    previous
-                        .iter()
-                        .zip(document.text_blocks.iter())
-                        .enumerate()
-                        .filter(|(_, (old, new))| scene_relevant_changed(old, new))
-                        .map(|(i, (_, new))| (i, new.clone()))
-                        .collect(),
-                )
             } else {
-                None
-            };
-            Ok(diff)
-        })
-        .await?;
-
-    match diff {
-        // Same-length edit → record an undoable batch (no-op if the
-        // session isn't in-sync). Empty changes → helper returns early.
-        Some(changes) => {
-            record_block_edits(&state, index, &changes).await;
+                rehydrate_runtime_text_block_state(block, None);
+                // Genuine new block → assign a fresh id above the max.
+                block.node_id = next_id;
+                next_id += 1;
+                adds.push((block_index, block.clone()));
+            }
         }
-        // Structural change (count differs) — bulk add/remove. Keep the
-        // pre-stable-mapping behaviour: drop history so undo can't
-        // corrupt the NodeId↔index mapping. (Increment 3 lifts this.)
+        let removes: Vec<u64> = previous
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !used_previous[*i])
+            .map(|(_, b)| b.node_id)
+            .collect();
+
+        // Only single-structural changes map cleanly to one undo step
+        // (the editor's appendBlock / removeBlock). Multiple at once
+        // (re-detect replace) → invalidate.
+        if adds.len() + removes.len() <= 1 {
+            Ok(Some((updates, adds, removes)))
+        } else {
+            Ok(None)
+        }
+    })
+    .await?;
+
+    match plan {
+        Some((updates, adds, removes)) => {
+            record_session_change(&state, index, updates, adds, removes).await;
+        }
+        // Too complex to map to a single undo step — drop history.
         None => {
             state.session.write().await.invalidate_if_doc(index);
         }
@@ -479,7 +520,14 @@ pub async fn update_text_block(
     .await?;
     // Keep the session scene in sync + make this edit undoable (covers
     // the AI-chat path, which is the only caller of the single endpoint).
-    record_block_edits(&state, index, std::slice::from_ref(&(block_index, new_block))).await;
+    record_session_change(
+        &state,
+        index,
+        vec![(new_block.node_id, new_block)],
+        Vec::new(),
+        Vec::new(),
+    )
+    .await;
     Ok(info)
 }
 
@@ -623,7 +671,14 @@ pub async fn text_block_fit_to_bubble(
         Ok((to_block_info(block_index, block), block.clone()))
     })
     .await?;
-    record_block_edits(&state, index, std::slice::from_ref(&(block_index, new_block))).await;
+    record_session_change(
+        &state,
+        index,
+        vec![(new_block.node_id, new_block)],
+        Vec::new(),
+        Vec::new(),
+    )
+    .await;
     Ok(info)
 }
 

@@ -677,6 +677,31 @@ fn scene_block_to_v1(block: SceneTextBlock) -> koharu_types::TextBlock {
     }
 }
 
+/// v1 Document block → scene block (inverse of `scene_block_to_v1`).
+/// Used by the manual add/insert undo path so the recorded
+/// Add/InsertTextBlock op carries the full scene representation,
+/// including the block's stable `node_id` as its scene `NodeId`.
+pub fn v1_block_to_scene(block: &koharu_types::TextBlock) -> SceneTextBlock {
+    SceneTextBlock {
+        id: NodeId(block.node_id),
+        region: Region {
+            x: block.x.max(0.0) as u32,
+            y: block.y.max(0.0) as u32,
+            width: block.width.max(0.0) as u32,
+            height: block.height.max(0.0) as u32,
+        },
+        source_text: block.text.clone(),
+        translation: block.translation.clone(),
+        style: block
+            .style
+            .as_ref()
+            .map(crate::style_convert::scene_style_from_v1),
+        source_lang: block.source_language.clone(),
+        font_prediction: None,
+        rotation_deg: block.rotation_deg,
+    }
+}
+
 /// Special-case helper for engines that REPLACE text blocks
 /// (detector re-run). Caller invokes this before driving the
 /// engine. Phase 4.6 will replace with a proper
