@@ -364,7 +364,27 @@ const TOOLS: ToolDef[] = [
         color: { type: 'string', description: 'Hex like #ffffff.' },
       },
     },
-    handler: (args) => api.updateTextBlock(args),
+    handler: async (args) => {
+      // Self-test fix: api.updateTextBlock resolves to `void`, which
+      // serialised back as empty in the chat UI's tool-result
+      // accordion. The user expanded the rows after /translate-page
+      // and saw 5 empty boxes — no confirmation that anything
+      // actually happened. Synthesize a status object so the
+      // accordion shows what changed per block.
+      await api.updateTextBlock(args)
+      const trimmed =
+        typeof args.translation === 'string'
+          ? args.translation.length > 80
+            ? args.translation.slice(0, 80) + '…'
+            : args.translation
+          : undefined
+      return {
+        ok: true,
+        pageIndex: args.index,
+        textBlockIndex: args.textBlockIndex,
+        translation: trimmed,
+      }
+    },
   },
 
   // ── QC consistency check ──────────────────────────────────────
