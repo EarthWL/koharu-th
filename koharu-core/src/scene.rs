@@ -115,6 +115,8 @@ pub struct TextStyle {
     pub letter_spacing_px: Option<f32>,
     pub min_font_size: Option<f32>,
     pub vertical_align: Option<VerticalAlign>,
+    #[serde(default)]
+    pub writing_mode: Option<WritingMode>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -144,6 +146,16 @@ pub enum VerticalAlign {
     Top,
     Middle,
     Bottom,
+}
+
+/// Text-orientation override. Mirrors `koharu_types::TextWritingMode`.
+/// `Auto` lets the renderer decide from script + bubble shape.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WritingMode {
+    Auto,
+    Horizontal,
+    Vertical,
 }
 
 /// Output of the font-detection model (yuzumarker-font-detection).

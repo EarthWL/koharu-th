@@ -1245,6 +1245,7 @@ mod tests {
                 letter_spacing_px: None,
                 min_font_size: None,
                 vertical_align: None,
+                writing_mode: None,
             }),
             ..Default::default()
         };

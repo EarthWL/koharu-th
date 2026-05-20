@@ -13,7 +13,9 @@ import {
   AlignLeftIcon,
   AlignRightIcon,
   AlignVerticalJustifyCenterIcon,
+  ArrowDownIcon,
   ArrowDownToLineIcon,
+  ArrowRightIcon,
   ArrowUpToLineIcon,
   BoldIcon,
   BookmarkIcon,
@@ -254,6 +256,10 @@ export function RenderControlsPanel() {
     selectedBlock?.style?.verticalAlign ??
     firstBlock?.style?.verticalAlign ??
     'top'
+  const currentWritingMode =
+    selectedBlock?.style?.writingMode ??
+    firstBlock?.style?.writingMode ??
+    'auto'
   const fontLabel = t('render.fontLabel')
   const effectLabel = t('render.effectLabel')
   const strokeLabel = t('render.effectBorder')
@@ -301,6 +307,8 @@ export function RenderControlsPanel() {
       'minFontSize' in updates ? updates.minFontSize : style?.minFontSize,
     verticalAlign:
       'verticalAlign' in updates ? updates.verticalAlign : style?.verticalAlign,
+    writingMode:
+      'writingMode' in updates ? updates.writingMode : style?.writingMode,
   })
 
   const applyStyleToSelected = (updates: Partial<TextStyle>) => {
@@ -346,6 +354,7 @@ export function RenderControlsPanel() {
           letterSpacingPx: currentLetterSpacing,
           minFontSize: currentMinFontSize,
           verticalAlign: currentVerticalAlign,
+          writingMode: currentWritingMode,
         }
 
   // Overwrite every block's style wholesale (presets / "apply to all"
@@ -710,6 +719,64 @@ export function RenderControlsPanel() {
                     }}
                   >
                     <Icon className='size-3.5' />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side='bottom' sideOffset={4}>
+                  {item.label}
+                </TooltipContent>
+              </Tooltip>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className='grid w-full min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-1.5'>
+        <span className='text-muted-foreground text-[10px] font-medium tracking-wide uppercase'>
+          {t('render.writingModeLabel')}
+        </span>
+        <div className='flex min-w-0 flex-wrap items-center gap-1'>
+          {(
+            [
+              { value: 'auto', label: t('render.writingAuto'), Icon: null },
+              {
+                value: 'horizontal',
+                label: t('render.writingHorizontal'),
+                Icon: ArrowRightIcon,
+              },
+              {
+                value: 'vertical',
+                label: t('render.writingVertical'),
+                Icon: ArrowDownIcon,
+              },
+            ] as const
+          ).map((item) => {
+            const active = currentWritingMode === item.value
+            const Icon = item.Icon
+            return (
+              <Tooltip key={item.value}>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant='outline'
+                    size='icon-sm'
+                    aria-label={item.label}
+                    data-testid={`render-writing-${item.value}`}
+                    disabled={!hasBlocks}
+                    className={cn(
+                      'size-7',
+                      active &&
+                        'bg-primary text-primary-foreground border-primary hover:bg-primary/90',
+                    )}
+                    onClick={() => {
+                      if (applyStyleToSelected({ writingMode: item.value }))
+                        return
+                      applyStyleToAll({ writingMode: item.value })
+                    }}
+                  >
+                    {Icon ? (
+                      <Icon className='size-3.5' />
+                    ) : (
+                      <span className='text-[10px] font-semibold'>A</span>
+                    )}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side='bottom' sideOffset={4}>

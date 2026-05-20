@@ -211,6 +211,20 @@ pub enum VerticalAlign {
     Bottom,
 }
 
+/// User override for text orientation. `Auto` (default) lets the
+/// renderer pick from script + bubble aspect ratio (CJK in a tall
+/// bubble → vertical). `Horizontal` / `Vertical` force the choice —
+/// useful for SFX or stylised lettering where the auto-heuristic
+/// (which never goes vertical for non-CJK like Thai) guesses wrong.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum TextWritingMode {
+    #[default]
+    Auto,
+    Horizontal,
+    Vertical,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextStyle {
@@ -239,6 +253,10 @@ pub struct TextStyle {
     /// behaviour (None) is Top to keep current visual output unchanged.
     #[serde(default)]
     pub vertical_align: Option<VerticalAlign>,
+    /// Force horizontal / vertical text, or `None`/`Auto` to let the
+    /// renderer decide from script + bubble shape.
+    #[serde(default)]
+    pub writing_mode: Option<TextWritingMode>,
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]

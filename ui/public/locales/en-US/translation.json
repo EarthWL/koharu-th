@@ -175,7 +175,11 @@
     "presetApply": "Apply this preset",
     "presetSetDefault": "Use for new blocks",
     "presetDelete": "Delete preset",
-    "presetDefaultBadge": "new-block default"
+    "presetDefaultBadge": "new-block default",
+    "writingModeLabel": "Text dir",
+    "writingAuto": "Auto (decide by script + bubble)",
+    "writingHorizontal": "Horizontal",
+    "writingVertical": "Vertical (top→bottom)"
   },
   "textBlocks": {
     "emptyPrompt": "Open an image to see text blocks.",

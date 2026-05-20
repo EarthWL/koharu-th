@@ -253,6 +253,7 @@ impl Renderer {
             letter_spacing_px: None,
             min_font_size: None,
             vertical_align: None,
+            writing_mode: None,
         });
 
         apply_global_font_family(&mut style.font_families, font_family);
@@ -274,7 +275,15 @@ impl Renderer {
                 })
             })
             .unwrap_or([0, 0, 0, 255]);
-        let writing_mode = writing_mode_for_block(&layout_source_block);
+        // Honour an explicit per-block override; otherwise auto-detect
+        // from script + bubble aspect ratio. `Auto` (and None) defer to
+        // the heuristic — which never picks vertical for non-CJK, so the
+        // override is the only way to get vertical Thai/Latin SFX.
+        let writing_mode = match style.writing_mode {
+            Some(koharu_types::TextWritingMode::Horizontal) => WritingMode::Horizontal,
+            Some(koharu_types::TextWritingMode::Vertical) => WritingMode::VerticalRl,
+            _ => writing_mode_for_block(&layout_source_block),
+        };
         let english_layout =
             english_layout_behavior(text_block, &normalized_translation, writing_mode);
         let english_horizontal_layout = english_layout != EnglishLayoutBehavior::Disabled;

@@ -324,6 +324,7 @@ pub async fn update_text_block(
                 letter_spacing_px: None,
                 min_font_size: None,
                 vertical_align: None,
+                writing_mode: None,
             });
 
             if let Some(families) = payload.font_families {

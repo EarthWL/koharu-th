@@ -17,11 +17,11 @@
 
 use koharu_core::scene::{
     RenderEffect as SceneEffect, RenderStroke as SceneStroke, TextAlign as SceneAlign,
-    TextStyle as SceneStyle, VerticalAlign as SceneVAlign,
+    TextStyle as SceneStyle, VerticalAlign as SceneVAlign, WritingMode as SceneWritingMode,
 };
 use koharu_types::{
     TextAlign as V1Align, TextShaderEffect as V1Effect, TextStrokeStyle as V1Stroke,
-    TextStyle as V1Style, VerticalAlign as V1VAlign,
+    TextStyle as V1Style, TextWritingMode as V1WritingMode, VerticalAlign as V1VAlign,
 };
 
 /// Default text colour when a scene block leaves `color` unset.
@@ -60,6 +60,22 @@ fn valign_scene_to_v1(a: SceneVAlign) -> V1VAlign {
     }
 }
 
+fn wmode_v1_to_scene(m: V1WritingMode) -> SceneWritingMode {
+    match m {
+        V1WritingMode::Auto => SceneWritingMode::Auto,
+        V1WritingMode::Horizontal => SceneWritingMode::Horizontal,
+        V1WritingMode::Vertical => SceneWritingMode::Vertical,
+    }
+}
+
+fn wmode_scene_to_v1(m: SceneWritingMode) -> V1WritingMode {
+    match m {
+        SceneWritingMode::Auto => V1WritingMode::Auto,
+        SceneWritingMode::Horizontal => V1WritingMode::Horizontal,
+        SceneWritingMode::Vertical => V1WritingMode::Vertical,
+    }
+}
+
 /// Convert a persisted v1 `TextStyle` (the shape stored on
 /// `Document`/SQLite and edited by the Render panel) into the scene
 /// representation the engine pipeline carries.
@@ -82,6 +98,7 @@ pub fn scene_style_from_v1(s: &V1Style) -> SceneStyle {
         letter_spacing_px: s.letter_spacing_px,
         min_font_size: s.min_font_size,
         vertical_align: s.vertical_align.map(valign_v1_to_scene),
+        writing_mode: s.writing_mode.map(wmode_v1_to_scene),
     }
 }
 
@@ -106,6 +123,7 @@ pub fn v1_style_from_scene(s: &SceneStyle) -> V1Style {
         letter_spacing_px: s.letter_spacing_px,
         min_font_size: s.min_font_size,
         vertical_align: s.vertical_align.map(valign_scene_to_v1),
+        writing_mode: s.writing_mode.map(wmode_scene_to_v1),
     }
 }
 
@@ -133,6 +151,7 @@ mod tests {
             letter_spacing_px: Some(0.5),
             min_font_size: Some(14.0),
             vertical_align: Some(V1VAlign::Middle),
+            writing_mode: Some(V1WritingMode::Vertical),
         };
 
         let scene = scene_style_from_v1(&original);
@@ -151,6 +170,7 @@ mod tests {
         assert_eq!(back.letter_spacing_px, Some(0.5));
         assert_eq!(back.min_font_size, Some(14.0));
         assert_eq!(back.vertical_align, Some(V1VAlign::Middle));
+        assert_eq!(back.writing_mode, Some(V1WritingMode::Vertical));
     }
 
     #[test]
@@ -166,6 +186,7 @@ mod tests {
             letter_spacing_px: None,
             min_font_size: None,
             vertical_align: None,
+            writing_mode: None,
         };
         assert_eq!(v1_style_from_scene(&scene).color, DEFAULT_TEXT_COLOR);
     }

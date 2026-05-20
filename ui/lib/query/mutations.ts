@@ -9,6 +9,7 @@ import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { useLlmUiStore } from '@/lib/stores/llmUiStore'
 import { useOperationStore } from '@/lib/stores/operationStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
+import { useTextStylePresetsStore } from '@/lib/stores/textStylePresetsStore'
 import { queryKeys } from '@/lib/query/keys'
 import {
   ocrPageViaCloud,
@@ -392,6 +393,30 @@ export const useDocumentMutations = () => {
         })
         await invalidateCurrentDocument(queryClient, resolvedIndex)
         await invalidateThumbnailAtIndex(queryClient, resolvedIndex)
+
+        // Seed freshly-detected blocks with the user's default style
+        // preset (if one is starred) so they match the chosen house
+        // style without manual styling. Only touches blocks that have
+        // no style yet, so a re-detect won't stomp existing edits.
+        const defaultStyle =
+          useTextStylePresetsStore.getState().getDefaultStyle()
+        if (defaultStyle) {
+          const doc = queryClient.getQueryData<any>(
+            queryKeys.documents.current(resolvedIndex),
+          )
+          const blocks: any[] = doc?.textBlocks ?? []
+          if (blocks.some((b) => !b.style)) {
+            const next = blocks.map((b) =>
+              b.style ? b : { ...b, style: { ...defaultStyle } },
+            )
+            queryClient.setQueryData(
+              queryKeys.documents.current(resolvedIndex),
+              { ...doc, textBlocks: next },
+            )
+            await enqueueTextBlockSync(resolvedIndex, next)
+          }
+        }
+
         useEditorUiStore.getState().setShowRenderedImage(false)
       } finally {
         finishOperation()

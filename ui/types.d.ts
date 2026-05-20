@@ -37,6 +37,9 @@ export type FontPrediction = {
 
 export type VerticalAlign = 'top' | 'middle' | 'bottom'
 
+/** Text-orientation override; 'auto' (default) lets the renderer decide. */
+export type TextWritingMode = 'auto' | 'horizontal' | 'vertical'
+
 export type TextStyle = {
   fontFamilies: string[]
   fontSize?: number
@@ -52,6 +55,8 @@ export type TextStyle = {
   minFontSize?: number
   /** Top / Middle / Bottom inside the bubble. Defaults to top. */
   verticalAlign?: VerticalAlign
+  /** Force horizontal/vertical text; 'auto'/undefined = renderer decides. */
+  writingMode?: TextWritingMode
 }
 
 export type TextBlock = {

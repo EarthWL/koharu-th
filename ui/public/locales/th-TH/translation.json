@@ -202,7 +202,11 @@
     "presetApply": "ใช้พรีเซ็ตนี้",
     "presetSetDefault": "ใช้กับกล่องใหม่",
     "presetDelete": "ลบพรีเซ็ต",
-    "presetDefaultBadge": "ค่าเริ่มต้นกล่องใหม่"
+    "presetDefaultBadge": "ค่าเริ่มต้นกล่องใหม่",
+    "writingModeLabel": "แนวข้อความ",
+    "writingAuto": "อัตโนมัติ (ดูจากภาษา + บับเบิล)",
+    "writingHorizontal": "แนวนอน",
+    "writingVertical": "แนวตั้ง (บน→ล่าง)"
   },
   "textBlocks": {
     "emptyPrompt": "เปิดภาพเพื่อดู text blocks",
