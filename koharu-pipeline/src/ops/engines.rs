@@ -33,8 +33,36 @@ pub async fn engines_list(_state: AppResources) -> Result<Vec<EngineInfoView>> {
 /// and it only refreshes on user-triggered "Re-probe" clicks +
 /// initial load. A future cache can store the probe result in
 /// `AppResources` if it becomes hot.
-pub async fn hardware_detected(_state: AppResources) -> Result<DetectedHardware> {
-    Ok(koharu_engines::probe())
+pub async fn hardware_detected(state: AppResources) -> Result<DetectedHardware> {
+    let mut hw = koharu_engines::probe();
+
+    // Ground truth: the raw cudarc probe (koharu_engines::probe) and
+    // candle's device selection (koharu_ml::device → state.device) are
+    // two independent CUDA detections that can disagree — e.g. the
+    // probe's CudaContext::new fails on some driver / dynamic-loading
+    // combos while candle already resolved a working CUDA device at
+    // startup. If candle is actually running on the accelerator, it IS
+    // available; trust that so the Engine tab can't show "CPU only"
+    // (every engine "No backend") while inference runs on the GPU.
+    // Detail fields (name/VRAM/compute cap) stay best-effort from the
+    // raw probe; only availability is reconciled.
+    match state.device {
+        koharu_ml::Device::Cuda(_) if !hw.cuda_available => {
+            hw.cuda_available = true;
+            if hw.gpu_vendor.is_none() {
+                hw.gpu_vendor = Some(koharu_core::GpuVendor::Nvidia);
+            }
+        }
+        koharu_ml::Device::Metal(_) if !hw.metal_available => {
+            hw.metal_available = true;
+            if hw.gpu_vendor.is_none() {
+                hw.gpu_vendor = Some(koharu_core::GpuVendor::Apple);
+            }
+        }
+        _ => {}
+    }
+
+    Ok(hw)
 }
 
 /// Read the saved engine profile. Missing file = empty profile —

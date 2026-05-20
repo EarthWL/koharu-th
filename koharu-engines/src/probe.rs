@@ -101,7 +101,19 @@ fn probe_cuda() -> Option<CudaInfo> {
     // CUDA-capable GPU is present. All of those mean "no CUDA" —
     // map to `None` so the higher-level probe records
     // `cuda_available: false` and moves on.
-    let ctx = CudaContext::new(0).ok()?;
+    // Don't swallow the error: when candle clearly runs on CUDA but this
+    // probe reports none, the cause hides in this Result. Log it so a
+    // user's single run surfaces the real driver/dynamic-loading reason.
+    let ctx = match CudaContext::new(0) {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!(
+                "CUDA probe: CudaContext::new(0) failed ({e:?}); reporting no CUDA. \
+                 If ML inference still uses CUDA, hardware_detected reconciles via the candle device."
+            );
+            return None;
+        }
+    };
 
     // Anything below this point is "extra detail" — if a getter
     // fails, we fall back to `None` for that field but keep
