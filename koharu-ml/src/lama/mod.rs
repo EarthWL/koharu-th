@@ -407,9 +407,11 @@ impl Lama {
 
         // Crop ใหญ่เกิน cap: downscale → inference → upscale กลับ
         // ใช้ proportional scaling เพื่อรักษา aspect ratio
-        let scale = cap as f32 / long_side as f32;
-        let new_w = ((w as f32 * scale).round() as u32).max(1);
-        let new_h = ((h as f32 * scale).round() as u32).max(1);
+        // clamp ที่ MIN_INPAINT_DIM ไม่ใช่ 1: crop ทรงยาว-แบน (เช่น 2000×20)
+        // ผ่าน gate ด้านบน (ทั้งสองด้าน ≥16) แต่ proportional downscale อาจย่อ
+        // ด้านสั้นเหลือ <16 → candle narrow op พังเหมือน KI-3 เดิม. clamp ด้านสั้น
+        // ให้ ≥16 เพี้ยน aspect นิดเดียวบนด้านที่เล็กอยู่แล้ว แต่ inpaint สำเร็จ
+        let (new_w, new_h) = downscale_dims(w, h, cap, MIN_INPAINT_DIM);
 
         let image_small = DynamicImage::ImageRgb8(image.clone())
             .resize_exact(new_w, new_h, image::imageops::FilterType::Lanczos3)
@@ -482,6 +484,17 @@ impl Lama {
 /// batch — acceptable: such crops come from an eraser-narrowed mask
 /// the user can re-widen, and a friendly toast beats the cryptic
 /// `narrow invalid args ... [1, 128, 1, 13]` tensor error.
+/// Proportional downscale of `(w, h)` so the long side hits `max_side`,
+/// but never letting either side fall below `min_dim` (KI-3): a long-thin
+/// crop that passes `check_min_inpaint_dims` can still proportionally shrink
+/// its short side below the model floor and crash candle's narrow op.
+fn downscale_dims(w: u32, h: u32, max_side: u32, min_dim: u32) -> (u32, u32) {
+    let scale = max_side as f32 / w.max(h) as f32;
+    let new_w = ((w as f32 * scale).round() as u32).max(min_dim);
+    let new_h = ((h as f32 * scale).round() as u32).max(min_dim);
+    (new_w, new_h)
+}
+
 fn check_min_inpaint_dims(w: u32, h: u32) -> Result<()> {
     if w < MIN_INPAINT_DIM || h < MIN_INPAINT_DIM {
         bail!(
@@ -886,9 +899,9 @@ fn stddev3(values: [f64; 3]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        ALPHA_RING_RADIUS, BALLOON_WINDOW_ASPECT_RATIO, BALLOON_WINDOW_RATIO, MIN_INPAINT_DIM,
-        check_min_inpaint_dims, clear_mask_bbox, count_nonzero, enlarge_window,
-        extract_balloon_mask, restore_alpha_channel, try_fill_balloon,
+        ALPHA_RING_RADIUS, BALLOON_WINDOW_ASPECT_RATIO, BALLOON_WINDOW_RATIO, MAX_INPAINT_SIDE,
+        MIN_INPAINT_DIM, check_min_inpaint_dims, clear_mask_bbox, count_nonzero, downscale_dims,
+        enlarge_window, extract_balloon_mask, restore_alpha_channel, try_fill_balloon,
     };
     use image::{GrayImage, Luma, Rgb, RgbImage};
     use imageproc::drawing::draw_hollow_rect_mut;
@@ -1014,6 +1027,21 @@ mod tests {
         // a square crop at exactly the minimum is accepted
         assert!(check_min_inpaint_dims(min, min).is_ok());
         assert!(check_min_inpaint_dims(512, 512).is_ok());
+    }
+
+    #[test]
+    fn downscale_never_shrinks_a_side_below_model_minimum() {
+        let min = MIN_INPAINT_DIM;
+        let max = MAX_INPAINT_SIDE;
+        // long-thin crop that passes the gate (both sides >= 16) but whose
+        // short side proportionally downscales to < 16 — the KI-3 hole.
+        let (w, h) = downscale_dims(2000, 20, max, min);
+        assert_eq!(w, max);
+        assert!(h >= min, "short side must be clamped, got {h}");
+        // a normal-aspect large crop keeps proportional scaling
+        let (w, h) = downscale_dims(1024, 768, max, min);
+        assert_eq!(w, max);
+        assert_eq!(h, 384);
     }
 
     #[test]
