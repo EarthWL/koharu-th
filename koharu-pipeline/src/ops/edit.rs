@@ -8,9 +8,12 @@ use koharu_api::commands::{
 };
 use koharu_api::parse::parse_hex_color;
 use koharu_api::views::{TextBlockInfo, to_block_info};
+use koharu_core::{Op, Region, TextBlockPatch};
 use koharu_types::{SerializableDynamicImage, TextBlock, TextStyle};
 use tracing::instrument;
 
+use crate::engine_bridge::index_to_node_id;
+use crate::style_convert::scene_style_from_v1;
 use crate::{AppResources, state_tx};
 
 use super::utils::{InpaintRegionExt, blank_rgba};
@@ -228,31 +231,142 @@ fn paste_crop(stitched: &mut image::RgbaImage, patch: &image::RgbaImage, x0: u32
     image::imageops::replace(stitched, patch, i64::from(x0), i64::from(y0));
 }
 
+/// Scene-relevant fields of a TextBlock (the ones that map to an
+/// `UpdateTextBlock` op). Runtime-only fields — `rendered`, layout
+/// seeds, `lock_layout_box` — are intentionally excluded so the undo
+/// diff doesn't fire on a re-render or a seed bump.
+fn scene_relevant_changed(old: &TextBlock, new: &TextBlock) -> bool {
+    if (old.x, old.y, old.width, old.height) != (new.x, new.y, new.width, new.height)
+        || old.text != new.text
+        || old.translation != new.translation
+        || old.source_language != new.source_language
+        || old.rotation_deg != new.rotation_deg
+    {
+        return true;
+    }
+    // TextStyle has no PartialEq — compare by serialized form.
+    serde_json::to_value(&old.style).ok() != serde_json::to_value(&new.style).ok()
+}
+
+/// Build a full `UpdateTextBlock` patch from a v1 block. Over-specifies
+/// (sets every scene field, even unchanged ones) — harmless because the
+/// forward re-sets identical values and `compute_inverse` captures the
+/// PRIOR scene value per field, so undo restores correctly.
+fn full_patch_from_block(blk: &TextBlock) -> TextBlockPatch {
+    TextBlockPatch {
+        region: Some(Region {
+            x: blk.x.max(0.0) as u32,
+            y: blk.y.max(0.0) as u32,
+            width: blk.width.max(0.0) as u32,
+            height: blk.height.max(0.0) as u32,
+        }),
+        source_text: Some(blk.text.clone()),
+        translation: Some(blk.translation.clone()),
+        source_lang: Some(blk.source_language.clone()),
+        style: Some(blk.style.as_ref().map(scene_style_from_v1)),
+        rotation_deg: Some(blk.rotation_deg),
+    }
+}
+
 pub async fn update_text_blocks(
     state: AppResources,
     payload: UpdateTextBlocksPayload,
 ) -> anyhow::Result<()> {
-    let result = state_tx::mutate_doc(&state.state, payload.index, |document| {
-        let previous = std::mem::take(&mut document.text_blocks);
-        document.text_blocks = payload.text_blocks;
+    let index = payload.index;
+    // Mutate the Document (behaviour unchanged) AND compute a positional
+    // diff so a same-length edit (move / resize / rotate / translation /
+    // style — no add/remove) can be recorded as an undoable batch.
+    // `None` = block count changed (add/remove) → can't map to the
+    // session's NodeIds yet (needs stable ids, increment 3) → invalidate.
+    let diff: Option<Vec<(usize, TextBlock)>> =
+        state_tx::mutate_doc(&state.state, index, |document| {
+            let previous = std::mem::take(&mut document.text_blocks);
+            document.text_blocks = payload.text_blocks;
 
-        let mut used_previous = vec![false; previous.len()];
-        for (block_index, block) in document.text_blocks.iter_mut().enumerate() {
-            let matched_idx = find_matching_previous(block, block_index, &previous, &used_previous);
-            if let Some(idx) = matched_idx {
-                used_previous[idx] = true;
-                rehydrate_runtime_text_block_state(block, Some(&previous[idx]));
-            } else {
-                rehydrate_runtime_text_block_state(block, None);
+            let mut used_previous = vec![false; previous.len()];
+            for (block_index, block) in document.text_blocks.iter_mut().enumerate() {
+                let matched_idx =
+                    find_matching_previous(block, block_index, &previous, &used_previous);
+                if let Some(idx) = matched_idx {
+                    used_previous[idx] = true;
+                    rehydrate_runtime_text_block_state(block, Some(&previous[idx]));
+                } else {
+                    rehydrate_runtime_text_block_state(block, None);
+                }
             }
+
+            let diff = if previous.len() == document.text_blocks.len() {
+                Some(
+                    previous
+                        .iter()
+                        .zip(document.text_blocks.iter())
+                        .enumerate()
+                        .filter(|(_, (old, new))| scene_relevant_changed(old, new))
+                        .map(|(i, (_, new))| (i, new.clone()))
+                        .collect(),
+                )
+            } else {
+                None
+            };
+            Ok(diff)
+        })
+        .await?;
+
+    match diff {
+        Some(changes) => {
+            if !changes.is_empty() {
+                let mut guard = state.session.write().await;
+                let mut drift = false;
+                if let Some(session) = guard.session_for_mut(index) {
+                    if let Some(page) = session.scene().pages.keys().next().copied() {
+                        // Every target node must exist in the scene; a
+                        // missing one means the scene drifted from the
+                        // Document — invalidate rather than apply a
+                        // partial, inconsistent batch.
+                        let all_present = session
+                            .scene()
+                            .pages
+                            .get(&page)
+                            .map(|p| {
+                                changes
+                                    .iter()
+                                    .all(|(i, _)| p.text_blocks.contains_key(&index_to_node_id(*i)))
+                            })
+                            .unwrap_or(false);
+                        if all_present {
+                            let ops = changes
+                                .iter()
+                                .map(|(i, blk)| Op::UpdateTextBlock {
+                                    page,
+                                    id: index_to_node_id(*i),
+                                    patch: full_patch_from_block(blk),
+                                })
+                                .collect();
+                            if session.apply(Op::Batch(ops)).is_err() {
+                                drift = true;
+                            }
+                        } else {
+                            drift = true;
+                        }
+                    }
+                }
+                // `session` borrow ended (NLL) — safe to invalidate now.
+                if drift {
+                    guard.invalidate_if_doc(index);
+                }
+                // No in-sync session → history simply not recorded; the
+                // edit still applied to the Document above.
+            }
+            // Empty diff → nothing changed in scene terms; leave session.
         }
-        Ok(())
-    })
-    .await;
-    // Audit #9/B1: bulk replace breaks NodeId↔array mapping —
-    // invalidate session so the next engine run rebuilds.
-    state.session.write().await.invalidate_if_doc(payload.index);
-    result
+        // Structural change (count differs) — bulk add/remove. Keep the
+        // pre-stable-id behaviour: drop history so undo can't corrupt the
+        // NodeId↔index mapping.
+        None => {
+            state.session.write().await.invalidate_if_doc(index);
+        }
+    }
+    Ok(())
 }
 
 pub async fn update_text_block(
