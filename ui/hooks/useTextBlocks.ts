@@ -8,6 +8,7 @@ import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { TextBlock } from '@/types'
 import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query/keys'
+import { toast } from 'sonner'
 
 const TEXT_BLOCK_RENDER_DEBOUNCE_MS = 250
 
@@ -163,7 +164,7 @@ export function useTextBlocks() {
       await api.textBlockFitToBubble(currentDocumentIndex, index)
     } catch (err: any) {
       console.error('[useTextBlocks] fitBlockToBubble failed', err)
-      alert(err?.message ?? String(err))
+      toast.error(err?.message ?? String(err))
       return
     }
     await queryClient.invalidateQueries({

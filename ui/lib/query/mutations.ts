@@ -22,12 +22,13 @@ import {
   flushMaskSync as flushMaskSyncQueue,
   flushTextBlockSync,
 } from '@/lib/services/syncQueues'
-import { applyThaiPostProcessToBlocks } from '@/lib/util/thaiPostProcess'
+import { applySmartPostProcessToBlocks } from '@/lib/util/postProcess'
 import i18n from '@/lib/i18n'
+import { toast } from 'sonner'
 import {
-  applyThaiPostProcess,
+  applySmartPostProcess,
   detectDominantLanguage,
-} from '@/lib/thaiPostProcess'
+} from '@/lib/smartPostProcess'
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => {
@@ -55,25 +56,25 @@ const invalidateThumbnailAtIndex = async (
 
 /**
  * After any translation flow lands on disk (Rust pipeline LLM step
- * or local llm_generate), run the Thai post-process pass over the
+ * or local llm_generate), run the smart post-process pass over the
  * persisted text_blocks if the user has it enabled. No-op if disabled
- * or if no Thai content exists (regex skips it). Cheap — single doc
+ * or if no content needs it (regex skips it). Cheap — single doc
  * fetch + at most one updateTextBlocks if anything changed.
  * Issue #21.
  */
-const maybeApplyThaiPostProcess = async (index: number) => {
-  if (!usePreferencesStore.getState().thaiPostProcessEnabled) return
+const maybeApplySmartPostProcess = async (index: number) => {
+  if (!usePreferencesStore.getState().smartPostProcessEnabled) return
   try {
     const doc = await api.getDocument(index)
     if (!doc?.textBlocks?.length) return
-    const cleaned = applyThaiPostProcessToBlocks(doc.textBlocks)
+    const cleaned = applySmartPostProcessToBlocks(doc.textBlocks)
     if (cleaned !== doc.textBlocks) {
       await api.updateTextBlocks(index, cleaned)
     }
   } catch (err) {
     // Post-process is cosmetic — never block the translation flow if
     // it fails. Log once and continue.
-    console.warn('[thai-postprocess] skipped:', err)
+    console.warn('[smart-postprocess] skipped:', err)
   }
 }
 
@@ -467,7 +468,7 @@ export const useDocumentMutations = () => {
               sourceLang.toLowerCase().includes('ja') ||
               sourceLang.toLowerCase().includes('jp') ||
               sourceLang.toLowerCase().includes('日本語')
-            finalEngine = isJapanese ? 'manga' : 'mit48px'
+            finalEngine = isJapanese ? 'manga' : 'cloud'
           }
 
           // Trigger OCR using the final chosen local engine
@@ -749,7 +750,7 @@ export const useDocumentMutations = () => {
         cloudTargetLanguage,
         fontFamily,
         inpaintMaxSide,
-        thaiPostProcess,
+        smartPostProcess,
       } = usePreferencesStore.getState()
       const { startOperation, finishOperation } = useOperationStore.getState()
       startOperation({
@@ -802,8 +803,8 @@ export const useDocumentMutations = () => {
                 }
               }
             }
-            const processed = thaiPostProcess
-              ? applyThaiPostProcessToBlocks(nextBlocks)
+            const processed = smartPostProcess
+              ? applySmartPostProcessToBlocks(nextBlocks)
               : nextBlocks
             await updateTextBlocks(processed, resolvedIndex)
           }
@@ -829,13 +830,13 @@ export const useDocumentMutations = () => {
             inpaintMaxSide,
           })
           // Apply Thai post-processing ถ้าเปิดใช้งาน
-          if (thaiPostProcess) {
+          if (smartPostProcess) {
             const doc = await api.getDocument(resolvedIndex)
             if (doc.textBlocks.some((b: any) => b.translation)) {
               const updated = doc.textBlocks.map((b: any) => ({
                 ...b,
                 translation: b.translation
-                  ? applyThaiPostProcess(b.translation)
+                  ? applysmartPostProcess(b.translation)
                   : b.translation,
               }))
               await api.updateTextBlocks(resolvedIndex, updated)
@@ -862,7 +863,7 @@ export const useDocumentMutations = () => {
       const resolvedIndex =
         index ?? useEditorUiStore.getState().currentDocumentIndex
       const { selectedLanguage } = useLlmUiStore.getState()
-      const { thaiPostProcess } = usePreferencesStore.getState()
+      const { smartPostProcess } = usePreferencesStore.getState()
       const { startOperation, finishOperation } = useOperationStore.getState()
 
       const doc = await api.getDocument(resolvedIndex)
@@ -880,13 +881,13 @@ export const useDocumentMutations = () => {
         for (let i = 0; i < total; i++) {
           await api.llmGenerate(resolvedIndex, i, selectedLanguage ?? undefined)
           // Apply Thai post-processing ต่อ block นี้
-          if (thaiPostProcess) {
+          if (smartPostProcess) {
             const updated = await api.getDocument(resolvedIndex)
             const block = updated.textBlocks[i]
             if (block?.translation) {
               const patched = updated.textBlocks.map((b: any, idx: number) =>
                 idx === i
-                  ? { ...b, translation: applyThaiPostProcess(b.translation) }
+                  ? { ...b, translation: applysmartPostProcess(b.translation) }
                   : b,
               )
               await api.updateTextBlocks(resolvedIndex, patched)
@@ -1140,7 +1141,7 @@ export const useLlmMutations = () => {
       const resolvedIndex =
         index ?? useEditorUiStore.getState().currentDocumentIndex
 
-      const { cloudProvider, cloudTargetLanguage } =
+      const { cloudProvider, cloudTargetLanguage, smartPostProcess } =
         usePreferencesStore.getState()
       const selectedLanguage = useLlmUiStore.getState().selectedLanguage
 
@@ -1176,9 +1177,8 @@ export const useLlmMutations = () => {
               // Issue #21 — Thai post-process before save (no extra
               // round-trip vs the local-LLM path; we have the blocks
               // in-memory already).
-              const processed = usePreferencesStore.getState()
-                .thaiPostProcessEnabled
-                ? applyThaiPostProcessToBlocks(nextBlocks)
+              const processed = smartPostProcess
+                ? applySmartPostProcessToBlocks(nextBlocks)
                 : nextBlocks
               // Pass the resolved page index explicitly so a mid-flight
               // page switch can't redirect the save to the wrong doc.
@@ -1189,7 +1189,7 @@ export const useLlmMutations = () => {
               await updateTextBlocks(processed, resolvedIndex)
             } catch (e: any) {
               console.error('Cloud LLM Generation failed:', e)
-              alert(e.message || 'Translation failed')
+              toast.error(e.message || 'Translation failed')
             }
           }
         } else if (currentDocument?.textBlocks) {
@@ -1245,9 +1245,8 @@ export const useLlmMutations = () => {
               }
 
               // Issue #21 — Thai post-process before save.
-              const processed = usePreferencesStore.getState()
-                .thaiPostProcessEnabled
-                ? applyThaiPostProcessToBlocks(nextBlocks)
+              const processed = smartPostProcess
+                ? applySmartPostProcessToBlocks(nextBlocks)
                 : nextBlocks
               // Pin to resolvedIndex (see comment on the single-block
               // path above — same race fix completion).
@@ -1277,7 +1276,7 @@ export const useLlmMutations = () => {
             }
           } catch (e: any) {
             console.error('Cloud LLM Batch JSON Generation failed:', e)
-            alert(
+            toast.error(
               e.message ||
                 'Batch JSON translation failed. The AI or API might have failed to return a proper JSON structure.',
             )
@@ -1329,7 +1328,7 @@ export const useLlmMutations = () => {
         // Issue #21 — local LLM writes translations directly via Rust
         // pipeline, so we post-process server-side state via the helper
         // (fetch + apply + save back if changed).
-        await maybeApplyThaiPostProcess(resolvedIndex)
+        await maybeApplySmartPostProcess(resolvedIndex)
         await invalidateCurrentDocument(queryClient, resolvedIndex)
       }
 

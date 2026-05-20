@@ -672,12 +672,30 @@ fn set_ml_device_config(selection: String) -> std::result::Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn get_installed_addons() -> Vec<String> {
+    let mut addons = Vec::new();
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(parent) = exe_path.parent() {
+            let possible_addons = ["fr", "de", "es", "pt", "ko"];
+            for addon in possible_addons {
+                let flag_path = parent.join(format!("addon_{}.flag", addon));
+                if flag_path.exists() {
+                    addons.push(addon.to_string());
+                }
+            }
+        }
+    }
+    addons
+}
+
     let app = tauri::Builder::default()
         .append_invoke_initialization_script(format!("window.__KOHARU_WS_PORT__ = {};", ws_port))
         .invoke_handler(tauri::generate_handler![
             relaunch_app,
             get_ml_device_config,
-            set_ml_device_config
+            set_ml_device_config,
+            get_installed_addons
         ])
         .setup({
             let shared = shared.clone();

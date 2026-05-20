@@ -1564,7 +1564,7 @@ pub async fn provider_profile_add(
             .unwrap_or(false)
         {
             let r = secret_ops::new_ref();
-            if let Err(err) = secret_ops::put(&r, payload.api_key.as_deref().unwrap()) {
+            if let Err(err) = secret_ops::put(&r, payload.api_key.as_deref().unwrap_or("")) {
                 tracing::warn!(?err, "keyring put failed; storing without secret");
                 None
             } else {
@@ -1928,7 +1928,7 @@ pub async fn cloud_llm_call(
 ) -> anyhow::Result<CloudLlmCallResult> {
     check_debugger()?;
 
-    let _permit = CLOUD_LLM_SEMAPHORE.acquire().await.unwrap();
+    let _permit = CLOUD_LLM_SEMAPHORE.acquire().await.map_err(|e| anyhow::anyhow!("semaphore closed: {e}"))?;
 
     let project = require_project(&state).await?;
     

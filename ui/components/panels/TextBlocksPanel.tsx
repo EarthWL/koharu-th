@@ -46,6 +46,7 @@ import { DraftTextarea } from '@/components/ui/draft-textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Slider } from '@/components/ui/slider'
 import { Label } from '@/components/ui/label'
+import { toast } from 'sonner'
 import {
   Select,
   SelectContent,
@@ -186,7 +187,7 @@ export function TextBlocksPanel() {
     // memory on it.
     const MAX_BYTES = 10 * 1024 * 1024
     if (file.size > MAX_BYTES) {
-      alert(t('textBlocks.importTooLarge', { max: 10 }))
+      toast.error(t('textBlocks.importTooLarge', { max: 10 }))
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
     }
@@ -200,7 +201,7 @@ export function TextBlocksPanel() {
         const text = event.target?.result as string
         const parsed = JSON.parse(text)
         if (!Array.isArray(parsed)) {
-          alert(t('textBlocks.importBadShape'))
+          toast.error(t('textBlocks.importBadShape'))
           return
         }
         // Validate the row shape so a malformed file doesn't quietly
@@ -211,7 +212,7 @@ export function TextBlocksPanel() {
             row && typeof row === 'object' && typeof row.index === 'number',
         )
         if (!validShape) {
-          alert(t('textBlocks.importBadShape'))
+          toast.error(t('textBlocks.importBadShape'))
           return
         }
         // Drain pending per-block edits before issuing the bulk write —
@@ -232,7 +233,7 @@ export function TextBlocksPanel() {
         })
         await replaceAllBlocks(updatedBlocks)
       } catch (err: any) {
-        alert(
+        toast.error(
           t('textBlocks.importFailed', {
             message: err?.message ?? String(err),
           }),

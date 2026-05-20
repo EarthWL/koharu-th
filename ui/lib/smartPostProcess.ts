@@ -1,30 +1,11 @@
 /**
- * Thai text post-processing — applied after LLM translation when
- * `thaiPostProcess` preference is enabled.
- *
- * Rules:
- * 1. Straight quotes → curly quotes  ("..." → "...")
- * 2. Strip excess spaces between Thai script characters
- *    (LLMs often output "ไป แล้ว" instead of "ไปแล้ว")
+ * Typography post-processing — applied after LLM translation when
+ * `smartPostProcess` preference is enabled.
  */
 
-// ช่วง Unicode ของอักษรไทย U+0E00–U+0E7F
-const THAI = '\u0e00-\u0e7f'
-// Regex: space ที่อยู่ระหว่างตัวอักษรไทย 2 ตัว
-const THAI_SPACE_RE = new RegExp(`([${THAI}]) ([${THAI}])`, 'g')
-// วนซ้ำเพื่อจัดการกรณี "ก า รไ ป"  → "การไป" (หลายช่อง)
-const applyRepeatedly = (re: RegExp, s: string, rep: string) => {
-  let prev = ''
-  while (prev !== s) {
-    prev = s
-    s = s.replace(re, rep)
-  }
-  return s
-}
+import { applySmartPostProcess as delegateApply } from './util/postProcess'
 
-import { applyThaiPostProcess as delegateApply } from './util/thaiPostProcess'
-
-export function applyThaiPostProcess(text: string): string {
+export function applySmartPostProcess(text: string): string {
   return delegateApply(text)
 }
 

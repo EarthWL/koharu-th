@@ -30,9 +30,10 @@ import { useLlmModelsQuery, useLlmReadyQuery } from '@/lib/query/hooks'
 import { useDocumentMutations, useLlmMutations } from '@/lib/query/mutations'
 import { useOperationStore } from '@/lib/stores/operationStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type ProviderProfileDto } from '@/lib/api'
 import { effectiveDbProvider } from '@/lib/services/profileHelpers'
+import { toast } from 'sonner'
 
 const PROVIDER_LABEL: Record<string, string> = {
   openai: 'OpenAI',
@@ -180,6 +181,7 @@ function WorkflowButtons() {
 }
 
 function LlmStatusPopover() {
+  const queryClient = useQueryClient()
   const { data: llmModels = [] } = useLlmModelsQuery()
   const llmSelectedModel = useLlmUiStore((state) => state.selectedModel)
   const llmSelectedLanguage = useLlmUiStore((state) => state.selectedLanguage)
@@ -200,6 +202,12 @@ function LlmStatusPopover() {
   } = usePreferencesStore()
   const { t } = useTranslation()
   const isCloudActive = cloudProvider !== 'none'
+
+  const { data: backendAddons = [] } = useQuery({
+    queryKey: ['app', 'addons'],
+    queryFn: () => api.getInstalledAddons(),
+    enabled: !!window.__TAURI__,
+  })
 
   // Profiles drive the engine picker — local engine is always available;
   // each saved profile becomes one option.
@@ -437,11 +445,11 @@ function LlmStatusPopover() {
                     if (detected && activeLanguages.includes(detected)) {
                       llmSetSelectedLanguage(detected)
                     } else if (detected) {
-                      alert(
+                      toast.error(
                         `Detected: ${detected}, but model doesn't support it.`,
                       )
                     } else {
-                      alert('Could not detect language.')
+                      toast.error('Could not detect language.')
                     }
                   }}
                   className='h-6 w-full text-[10px]'
@@ -474,7 +482,16 @@ function LlmStatusPopover() {
                 </label>
                 <Select
                   value={cloudTargetLanguage}
-                  onValueChange={setCloudTargetLanguage}
+                  onValueChange={async (lng) => {
+                    setCloudTargetLanguage(lng)
+                    try {
+                      const currentMeta = queryClient.getQueryData<any>(['project', 'series-meta']) || {}
+                      await api.seriesMetaUpdate({ ...currentMeta, targetLanguage: lng })
+                      await queryClient.invalidateQueries({ queryKey: ['project', 'series-meta'] })
+                    } catch (err) {
+                      console.error('Failed to sync target language to project:', err)
+                    }
+                  }}
                 >
                   <SelectTrigger className='w-full'>
                     <SelectValue placeholder='Language' />
@@ -484,11 +501,23 @@ function LlmStatusPopover() {
                     <SelectItem value='English'>English</SelectItem>
                     <SelectItem value='Japanese'>Japanese</SelectItem>
                     <SelectItem value='Chinese'>Chinese</SelectItem>
-                    <SelectItem value='Korean'>Korean</SelectItem>
-                    <SelectItem value='French'>French</SelectItem>
-                    <SelectItem value='German'>German</SelectItem>
-                    <SelectItem value='Spanish'>Spanish</SelectItem>
-                    <SelectItem value='Portuguese'>Portuguese</SelectItem>
+                    
+                    {/* Filter addon languages based on flag files or in-app store */}
+                    {(backendAddons.includes('ko') || usePreferencesStore.getState().installedAddons.includes('addon-ko')) && (
+                      <SelectItem value='Korean'>Korean</SelectItem>
+                    )}
+                    {(backendAddons.includes('fr') || usePreferencesStore.getState().installedAddons.includes('addon-fr')) && (
+                      <SelectItem value='French'>French</SelectItem>
+                    )}
+                    {(backendAddons.includes('de') || usePreferencesStore.getState().installedAddons.includes('addon-de')) && (
+                      <SelectItem value='German'>German</SelectItem>
+                    )}
+                    {(backendAddons.includes('es') || usePreferencesStore.getState().installedAddons.includes('addon-es')) && (
+                      <SelectItem value='Spanish'>Spanish</SelectItem>
+                    )}
+                    {(backendAddons.includes('pt') || usePreferencesStore.getState().installedAddons.includes('addon-pt')) && (
+                      <SelectItem value='Portuguese'>Portuguese</SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
               </div>

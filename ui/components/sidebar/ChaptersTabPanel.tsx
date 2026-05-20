@@ -34,6 +34,7 @@ import { useProjectStore } from '@/lib/stores/projectStore'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { ExtractEntitiesModal } from '@/components/project/ExtractEntitiesModal'
 import { useEnqueueChapter, useQueueList } from '@/lib/query/queue'
+import { toast } from 'sonner'
 
 const STATUS_OPTIONS: { value: ChapterStatus; label: string }[] = [
   { value: 'pending', label: 'Pending' },
@@ -143,7 +144,7 @@ function NewChapterForm({
       setChapterNumber(String(num + 1))
       onCreated()
     } catch (err: any) {
-      alert(err?.message ?? String(err))
+      toast.error(err?.message ?? String(err))
     } finally {
       setBusy(false)
     }
@@ -237,7 +238,7 @@ function ChapterRow({
       setSidebarTab('pages')
       onRequestExtract()
     } catch (err: any) {
-      alert(err?.message ?? String(err))
+      toast.error(err?.message ?? String(err))
     } finally {
       setOpeningForExtract(false)
     }
@@ -253,7 +254,7 @@ function ChapterRow({
       setSidebarTab('pages')
       router.push('/')
     } catch (err: any) {
-      alert(err?.message ?? String(err))
+      toast.error(err?.message ?? String(err))
     } finally {
       setOpening(false)
     }
@@ -268,14 +269,14 @@ function ChapterRow({
         onChanged()
         window.setTimeout(() => setJustAdded(null), 2500)
       } else if (r.skipped > 0) {
-        alert(`Skipped ${r.skipped} files (unsupported / copy failed)`)
+        toast.error(`Skipped ${r.skipped} files (unsupported / copy failed)`)
       }
       // If both `added` and `skipped` are zero, the user cancelled the
       // file picker. Stay silent — no false-positive alert needed.
       // (Previous: silent no-op even on skipped > 0; now skipped surfaces
       // a message and cancel still stays quiet.)
     } catch (err: any) {
-      alert(err?.message ?? String(err))
+      toast.error(err?.message ?? String(err))
     } finally {
       setAddingPages(false)
     }
@@ -297,14 +298,14 @@ function ChapterRow({
     try {
       const r = await api.chapterExportCbz(chapter.id)
       if (r.path) {
-        alert(
+        toast.error(
           `Exported ${r.pageCount} page(s) (${
             r.usedRender ? 'rendered' : 'raw source'
           }) → ${r.path}`,
         )
       }
     } catch (err: any) {
-      alert(err?.message ?? String(err))
+      toast.error(err?.message ?? String(err))
     } finally {
       setExportingCbz(false)
     }
@@ -325,13 +326,13 @@ function ChapterRow({
     try {
       const r = await api.chapterClearPages(chapter.id)
       if (r.failed > 0) {
-        alert(
+        toast.error(
           `ลบสำเร็จ ${r.removed} ไฟล์ แต่มี ${r.failed} ไฟล์ลบไม่ได้ (อาจถูก lock โดย OS preview / โปรแกรมอื่น). ดู log ฝั่ง Rust สำหรับรายละเอียด.`,
         )
       }
       onChanged()
     } catch (err: any) {
-      alert(err?.message ?? String(err))
+      toast.error(err?.message ?? String(err))
     } finally {
       setClearingPages(false)
     }

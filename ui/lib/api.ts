@@ -65,6 +65,10 @@ export const api = {
     return invoke('app_version')
   },
 
+  async getInstalledAddons(): Promise<string[]> {
+    return invoke('get_installed_addons')
+  },
+
   async deviceInfo(): Promise<DeviceInfo> {
     const payload = await invoke('device')
     return parseOrLogAndThrow(deviceInfoSchema, payload, 'device')

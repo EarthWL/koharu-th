@@ -2,6 +2,7 @@
 
 import { create } from 'zustand'
 import { isTauri, invoke } from '../backend'
+import { toast } from 'sonner'
 
 export type UpdateState = {
   isOpen: boolean
@@ -93,7 +94,7 @@ export async function triggerUpdateCheck(manual: boolean = false) {
 
     if (!update) {
       if (manual) {
-        alert(
+        toast.error(
           'คุณใช้งานเวอร์ชันล่าสุดอยู่แล้ว! (You are on the latest version)',
         )
       }
@@ -118,7 +119,7 @@ export async function triggerUpdateCheck(manual: boolean = false) {
   } catch (err: any) {
     store.setError(err?.message ?? String(err))
     if (manual) {
-      alert(`ไม่สามารถตรวจสอบอัปเดตได้: ${err?.message ?? err}`)
+      toast.error(`ไม่สามารถตรวจสอบอัปเดตได้: ${err?.message ?? err}`)
     }
   }
 }
@@ -177,7 +178,7 @@ export async function startAutoDownload(silent: boolean = false) {
   } catch (err: any) {
     store.setError(err?.message ?? String(err))
     if (!silent) {
-      alert(`การดาวน์โหลด/ติดตั้งอัปเดตล้มเหลว: ${err?.message ?? err}`)
+      toast.error(`การดาวน์โหลด/ติดตั้งอัปเดตล้มเหลว: ${err?.message ?? err}`)
     }
   }
 }

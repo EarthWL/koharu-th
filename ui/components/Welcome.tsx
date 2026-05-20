@@ -26,6 +26,7 @@ import { useProjectMutations } from '@/lib/query/projectMutations'
 import { useProjectStore } from '@/lib/stores/projectStore'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { useDocumentMutations } from '@/lib/query/mutations'
+import { toast } from 'sonner'
 
 type WizardStep =
   | { kind: 'home' }
@@ -107,7 +108,7 @@ export function Welcome() {
         } catch {
           // Best-effort prune; if it fails the row just stays.
         }
-        alert(
+        toast.error(
           t(
             'welcome.openRecentMissing',
             'Project folder no longer exists at "{{path}}" — removed from recents.',
@@ -115,7 +116,7 @@ export function Welcome() {
           ),
         )
       } else {
-        alert(
+        toast.error(
           t('welcome.openRecentFailed', 'Could not open project: {{msg}}', {
             msg,
           }),
@@ -135,7 +136,7 @@ export function Welcome() {
       // leaving the backend row intact while the user sees it gone.
       // Now: keep the row in the list and surface the failure so the
       // user can retry (or check disk/permissions).
-      alert(
+      toast.error(
         t(
           'welcome.removeRecentFailed',
           'Could not remove from recent: {{msg}}',

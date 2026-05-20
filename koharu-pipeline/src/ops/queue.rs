@@ -163,7 +163,7 @@ async fn worker_loop(
             *guard = None;
             return Ok(());
         }
-        let entry = entry.unwrap();
+        let entry = entry.expect("entry is proven Some here");
 
         // Reset per-entry signal + advertise current entry to observers.
         cancel_current.store(false, Ordering::Relaxed);

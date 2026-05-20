@@ -38,6 +38,7 @@ import {
   type TranslationMeta,
 } from '@/lib/services/cloudLlm'
 import type { TextBlock } from '@/types'
+import { toast } from 'sonner'
 
 type Filter = 'all' | 'untranslated' | 'translated'
 
@@ -412,7 +413,7 @@ function TranslateProfilePicker({
               try {
                 const { apiKey } = await api.providerProfileSecretGet(p.id)
                 if (!apiKey) {
-                  alert(`Profile "${p.name}" has no API key in keyring.`)
+                  toast.error(`Profile "${p.name}" has no API key in keyring.`)
                   return
                 }
                 onPick({
@@ -422,7 +423,7 @@ function TranslateProfilePicker({
                   model: p.modelName,
                 })
               } catch (err: any) {
-                alert(err?.message ?? String(err))
+                toast.error(err?.message ?? String(err))
               }
             }}
             className='hover:bg-accent flex w-full items-start gap-1 rounded-sm px-2 py-1.5 text-left text-xs transition'

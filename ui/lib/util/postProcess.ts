@@ -30,7 +30,7 @@ import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 
 const THAI_CLUSTER = /([฀-๿])\s+(?=[฀-๿])/g
 
-export function applyThaiPostProcess(text: string): string {
+export function applySmartPostProcess(text: string): string {
   if (!text) return text
 
   const { cloudTargetLanguage } = usePreferencesStore.getState()
@@ -119,13 +119,13 @@ export function applyThaiPostProcess(text: string): string {
  * with the input, so React Query / Zustand referential equality checks
  * still skip no-op re-renders.
  */
-export function applyThaiPostProcessToBlocks<
+export function applySmartPostProcessToBlocks<
   T extends { translation?: string | null },
 >(blocks: T[]): T[] {
   let anyChanged = false
   const next = blocks.map((b) => {
     if (!b.translation) return b
-    const cleaned = applyThaiPostProcess(b.translation)
+    const cleaned = applySmartPostProcess(b.translation)
     if (cleaned === b.translation) return b
     anyChanged = true
     return { ...b, translation: cleaned }

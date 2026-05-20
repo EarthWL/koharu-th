@@ -22,6 +22,7 @@ import { useProjectMutations } from '@/lib/query/projectMutations'
 import { useProjectStore } from '@/lib/stores/projectStore'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { detectSourceLanguageFromBlocks } from '@/lib/util/detectSourceLanguage'
+import { toast } from 'sonner'
 
 export function ProjectTabPanel() {
   const info = useProjectStore((s) => s.info)
@@ -141,11 +142,11 @@ export function ProjectTabPanel() {
 
   const backup = async () => {
     const r = await api.projectBackupPicker().catch((e) => {
-      alert(e?.message ?? String(e))
+      toast.error(e?.message ?? String(e))
       return null
     })
     if (r?.path) {
-      alert(`✓ ${r.fileCount} files → ${r.path.split(/[\\/]/).pop()}`)
+      toast.success(` ${r.fileCount} files → ${r.path.split(/[\\/]/).pop()}`)
     }
   }
 
@@ -326,11 +327,11 @@ export function ProjectTabPanel() {
                 setEmbedding({ done: 0, total: 0, label: 'starting…' })
                 try {
                   const r = await runTmEmbeddingBackfill((p) => setEmbedding(p))
-                  alert(
+                  toast.error(
                     `Embedded ${r.embedded} TM entries with ${r.model}. Semantic lookup is now available.`,
                   )
                 } catch (e: any) {
-                  alert(e?.message ?? String(e))
+                  toast.error(e?.message ?? String(e))
                 } finally {
                   setEmbedding(null)
                 }
@@ -355,13 +356,13 @@ export function ProjectTabPanel() {
                   try {
                     const r = await api.tmExportTmx()
                     if (r.path) {
-                      alert(`Exported ${r.entries} TM entries → ${r.path}`)
+                      toast.error(`Exported ${r.entries} TM entries → ${r.path}`)
                     }
                   } catch (e: any) {
-                    alert(e?.message ?? String(e))
+                    toast.error(e?.message ?? String(e))
                   }
                 }}
-                title='Export translation memory as TMX (Trados / OmegaT / MemoQ)'
+                title={`Export translation memory for ${draft.targetLanguage || 'Target Language'} as TMX (Trados / OmegaT / MemoQ)`}
               >
                 <DownloadIcon className='size-3' />
                 TM → TMX
@@ -374,12 +375,12 @@ export function ProjectTabPanel() {
                   try {
                     const r = await api.tmImportTmx()
                     if (r.inserted || r.skipped) {
-                      alert(
+                      toast.error(
                         `Inserted ${r.inserted}, skipped ${r.skipped} duplicate(s).`,
                       )
                     }
                   } catch (e: any) {
-                    alert(e?.message ?? String(e))
+                    toast.error(e?.message ?? String(e))
                   }
                 }}
                 title='Import TMX file into translation memory'

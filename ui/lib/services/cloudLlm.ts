@@ -1,6 +1,7 @@
 import { usePreferencesStore } from '../stores/preferencesStore'
 import { useProjectStore } from '../stores/projectStore'
 import { api, type TmEntryDto } from '../api'
+import { toast } from 'sonner'
 
 /** Token counts as reported by the provider. `null` = provider didn't return them. */
 export type TokenUsage = {
@@ -642,7 +643,7 @@ Only return the translation, no extra text:\n\n${text}`
   ) {
     const origName = attempts[0]?.name ?? 'โปรไฟล์เดิม'
     setTimeout(() => {
-      alert(
+      toast.error(
         `⚠️ ระบบสลับผู้ให้บริการสำรองอัตโนมัติทำงาน!\n\nเนื่องจากโปรไฟล์หลัก "${origName}" ขัดข้องหรือโควตาหมด ระบบจึงสลับไปใช้โปรไฟล์สำรอง "${successfulAttempt!.name}" เพื่อแปลข้อความให้ท่านอย่างต่อเนื่องเรียบร้อยครับ`,
       )
     }, 10)

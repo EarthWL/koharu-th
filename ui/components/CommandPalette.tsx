@@ -25,6 +25,7 @@ import { useProjectMutations } from '@/lib/query/projectMutations'
 import { SLASH_COMMANDS } from '@/lib/services/chatSlashCommands'
 import { flushAllSyncQueues } from '@/lib/services/syncQueues'
 import { effectiveDbProvider } from '@/lib/services/profileHelpers'
+import { toast } from 'sonner'
 
 /**
  * Global Cmd+K / Ctrl+K command palette. Surfaces frequent actions
@@ -86,7 +87,7 @@ export function CommandPalette() {
       await queryClient.invalidateQueries({ queryKey: ['documents'] })
       router.push('/')
     } catch (err: any) {
-      alert(err?.message ?? String(err))
+      toast.error(err?.message ?? String(err))
     }
   }
 
@@ -113,10 +114,10 @@ export function CommandPalette() {
     try {
       const r = await api.chapterExportCbz(c.id)
       if (r.path) {
-        alert(t('palette.exportDone', { count: r.pageCount, path: r.path }))
+        toast.error(t('palette.exportDone', { count: r.pageCount, path: r.path }))
       }
     } catch (err: any) {
-      alert(err?.message ?? String(err))
+      toast.error(err?.message ?? String(err))
     }
   }
 

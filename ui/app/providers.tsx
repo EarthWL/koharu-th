@@ -21,6 +21,7 @@ import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { triggerUpdateCheck } from '@/lib/services/autoUpdater'
 import { UpdateDialog } from '@/components/UpdateDialog'
 import { useOperationStore } from '@/lib/stores/operationStore'
+import { Toaster } from '@/components/ui/sonner'
 
 export function Providers({ children }: { children: ReactNode }) {
   const [mounted, setMounted] = useState(false)
@@ -118,21 +119,21 @@ export function Providers({ children }: { children: ReactNode }) {
         // 'failed' / 'cancelled' (helper is a no-op when no Thai
         // content exists, so safe to over-call).
         void (async () => {
-          const { applyThaiPostProcessToBlocks } =
-            await import('@/lib/util/thaiPostProcess')
+          const { applySmartPostProcessToBlocks } =
+            await import('@/lib/util/postProcess')
           const { usePreferencesStore } =
             await import('@/lib/stores/preferencesStore')
-          if (!usePreferencesStore.getState().thaiPostProcessEnabled) return
+          if (!usePreferencesStore.getState().smartPostProcessEnabled) return
           try {
             const { api } = await import('@/lib/api')
             const doc = await api.getDocument(currentDocumentIndex)
             if (!doc?.textBlocks?.length) return
-            const cleaned = applyThaiPostProcessToBlocks(doc.textBlocks)
+            const cleaned = applySmartPostProcessToBlocks(doc.textBlocks)
             if (cleaned !== doc.textBlocks) {
               await api.updateTextBlocks(currentDocumentIndex, cleaned)
             }
           } catch (err) {
-            console.warn('[thai-postprocess] pipeline-end skipped:', err)
+            console.warn('[smart-postprocess] pipeline-end skipped:', err)
           }
         })()
 
@@ -196,6 +197,7 @@ export function Providers({ children }: { children: ReactNode }) {
           <TooltipProvider delayDuration={0}>
             {children}
             <UpdateDialog />
+            <Toaster position="bottom-center" />
           </TooltipProvider>
         </ThemeProvider>
       </I18nextProvider>

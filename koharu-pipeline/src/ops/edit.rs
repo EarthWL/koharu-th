@@ -491,7 +491,7 @@ pub async fn text_block_fit_to_bubble(
         let block = document
             .text_blocks
             .get_mut(payload.text_block_index)
-            .unwrap();
+            .ok_or_else(|| anyhow::anyhow!("Text block {} not found", payload.text_block_index))?;
         block.x = new_x;
         block.y = new_y;
         block.width = new_w;
@@ -803,7 +803,7 @@ fn recursive_xy_cut(
     for i in 0..y_merged.len().saturating_sub(1) {
         let size = y_merged[i+1].0 - y_merged[i].1;
         if size > min_gap_y {
-            if best_y_gap.is_none() || size > best_y_gap.unwrap().2 {
+            if best_y_gap.map_or(true, |(_, _, best_size)| size > best_size) {
                 best_y_gap = Some((y_merged[i].1, y_merged[i+1].0, size));
             }
         }
@@ -835,7 +835,7 @@ fn recursive_xy_cut(
     for i in 0..x_merged.len().saturating_sub(1) {
         let size = x_merged[i+1].0 - x_merged[i].1;
         if size > min_gap_x {
-            if best_x_gap.is_none() || size > best_x_gap.unwrap().2 {
+            if best_x_gap.map_or(true, |(_, _, best_size)| size > best_size) {
                 best_x_gap = Some((x_merged[i].1, x_merged[i+1].0, size));
             }
         }

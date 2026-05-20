@@ -29,6 +29,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { triggerUpdateCheck } from '@/lib/services/autoUpdater'
 import { flushAllSyncQueues } from '@/lib/services/syncQueues'
+import { toast } from 'sonner'
 
 type MenuItem = {
   label: string
@@ -103,7 +104,7 @@ export function MenuBar() {
             useProjectStore.getState().setInfo(info)
             void refreshCurrent()
           } catch (err: any) {
-            alert(err?.message ?? String(err))
+            toast.error(err?.message ?? String(err))
           }
         })()
       },
@@ -247,7 +248,7 @@ export function MenuBar() {
     const { checkForUpdates } = await import('@/lib/services/updateCheck')
     const result = await checkForUpdates(current)
     if (result.kind === 'up-to-date') {
-      alert(
+      toast.error(
         t('menu.updateUpToDate', {
           current: result.currentVersion,
           latest: result.latestVersion,
@@ -256,7 +257,7 @@ export function MenuBar() {
       return
     }
     if (result.kind === 'error') {
-      alert(t('menu.updateCheckFailed', { message: result.message }))
+      toast.error(t('menu.updateCheckFailed', { message: result.message }))
       return
     }
     const open = confirm(

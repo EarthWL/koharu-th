@@ -27,6 +27,7 @@ import { useTextBlocks } from '@/hooks/useTextBlocks'
 import { useTextBlockMutations } from '@/lib/query/mutations'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 
 // Sorensen-Dice Coefficient for fuzzy string similarity (RAG-Lite Feature 9)
 function diceCoefficient(a: string, b: string): number {
@@ -549,7 +550,7 @@ User context/notes: "${userContext}"`
   // Web Speech Synthesis TTS (Feature 5) — dynamically routes to the target language voice
   const playTTS = (text: string, agent: 'kenji' | 'haruka' | 'editor') => {
     if (!('speechSynthesis' in window)) {
-      alert('เบราวเซอร์ของคุณไม่รองรับ Speech Synthesis (TTS)')
+      toast.error('เบราวเซอร์ของคุณไม่รองรับ Speech Synthesis (TTS)')
       return
     }
 
@@ -615,7 +616,7 @@ User context/notes: "${userContext}"`
       const useEditor = useEditorUiStore.getState()
       useEditor.showHud('🎉 บันทึกและพิมพ์ตัวอักษรลงแคนวาสมังงะเรียบร้อยแล้ว!')
     } catch (e) {
-      alert(`ไม่สามารถบันทึกลงแคนวาสได้: ${e}`)
+      toast.error(`ไม่สามารถบันทึกลงแคนวาสได้: ${e}`)
     }
   }
 

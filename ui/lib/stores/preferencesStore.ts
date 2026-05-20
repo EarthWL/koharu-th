@@ -143,14 +143,13 @@ type PreferencesState = {
   animeYoloConfidence: number
   setAnimeYoloConfidence: (confidence: number) => void
 
-  /** Apply a Thai-aware post-process pass to every LLM translation
-   *  result before saving. Collapses inter-Thai whitespace (e.g.
+  /** Apply a smart post-process pass to every LLM translation
+   *  result before saving. Collapses inter-language whitespace (e.g.
    *  "กิน ข้าว" → "กินข้าว") and converts ASCII quotes to typographic
    *  curly quotes. Mixed-script content like character names is
-   *  preserved. Default true since this fork's primary output is Thai;
-   *  toggle off to keep raw LLM output verbatim. Issue #21. */
-  thaiPostProcessEnabled: boolean
-  setThaiPostProcessEnabled: (enabled: boolean) => void
+   *  preserved. Toggle off to keep raw LLM output verbatim. Issue #21. */
+  smartPostProcessEnabled: boolean
+  setSmartPostProcessEnabled: (enabled: boolean) => void
 
   autoUpdateMode: AutoUpdateMode
   setAutoUpdateMode: (mode: AutoUpdateMode) => void
@@ -164,11 +163,11 @@ type PreferencesState = {
   inpaintEngine: InpaintEngine
   setInpaintEngine: (engine: InpaintEngine) => void
 
-  /** เปิด Thai post-processing หลัง LLM แปล:
+  /** เปิด Smart post-processing หลัง LLM แปล:
    *  - แปลง straight quotes " " → curly \u201c \u201d
    *  - ลบ space เกินระหว่างตัวอักษรไทย */
-  thaiPostProcess: boolean
-  setThaiPostProcess: (enabled: boolean) => void
+  smartPostProcess: boolean
+  setSmartPostProcess: (enabled: boolean) => void
 
   llmFailoverEnabled: boolean
   setLlmFailoverEnabled: (enabled: boolean) => void
@@ -201,11 +200,11 @@ const initialPreferences = {
   detectorEngine: 'default' as DetectorEngine,
   animeYoloVariant: 'auto' as AnimeYoloVariant,
   animeYoloConfidence: 0.25,
-  thaiPostProcessEnabled: true,
+  smartPostProcessEnabled: true,
   autoUpdateMode: 'notify' as AutoUpdateMode,
   inpaintMaxSide: 512 as InpaintQuality,
   inpaintEngine: 'lama' as InpaintEngine,
-  thaiPostProcess: true,
+  smartPostProcess: true,
   llmFailoverEnabled: false,
   llmFailoverPriority: [] as number[],
   installedAddons: [] as string[],
@@ -302,12 +301,12 @@ export const usePreferencesStore = create<PreferencesState>()(
         set({
           animeYoloConfidence: Math.min(0.95, Math.max(0.05, confidence)),
         }),
-      setThaiPostProcessEnabled: (enabled) =>
-        set({ thaiPostProcessEnabled: enabled }),
+      setSmartPostProcessEnabled: (enabled) =>
+        set({ smartPostProcessEnabled: enabled }),
       setAutoUpdateMode: (mode) => set({ autoUpdateMode: mode }),
       setInpaintMaxSide: (side) => set({ inpaintMaxSide: side }),
       setInpaintEngine: (engine) => set({ inpaintEngine: engine }),
-      setThaiPostProcess: (enabled) => set({ thaiPostProcess: enabled }),
+      setSmartPostProcess: (enabled) => set({ smartPostProcess: enabled }),
       setLlmFailoverEnabled: (enabled) => set({ llmFailoverEnabled: enabled }),
       setLlmFailoverPriority: (priority) =>
         set({ llmFailoverPriority: priority }),

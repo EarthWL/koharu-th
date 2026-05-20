@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { api, type PromptTemplateDto, type PromptUseCase } from '@/lib/api'
+import { toast } from 'sonner'
 
 const USE_CASES: { value: PromptUseCase; label: string }[] = [
   { value: 'translate', label: 'Translate' },
@@ -72,7 +73,7 @@ export function PromptsTabPanel() {
               // alert is acceptable here since the button isn't part of
               // any open form. Keeps the user aware that creation failed
               // instead of silently doing nothing.
-              alert(`Failed to create template: ${err?.message ?? err}`)
+              toast.error(`Failed to create template: ${err?.message ?? err}`)
             }
           }}
         >

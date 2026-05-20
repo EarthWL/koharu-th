@@ -49,6 +49,7 @@ import {
   fetchOpenAiModels,
   isLikelyChatModel,
 } from '@/lib/services/openaiModels'
+import { toast } from 'sonner'
 import {
   fetchAnthropicModels,
   formatAnthropicCreatedAt,
@@ -973,7 +974,7 @@ function ProfileFormModal({
           </div>
         </div>
 
-        {/* Inline error banner — replaces blocking alert() for save
+        {/* Inline error banner — replaces blocking toast.error() for save
             failures. Auto-clears when the user changes any field
             (next save attempt re-runs and re-sets if still bad). */}
         {formError && (

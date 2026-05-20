@@ -48,6 +48,7 @@ import ruRU from '@/public/locales/ru-RU/translation.json'
 
 import { DynamicEngineSettingsForm } from '@/components/settings/DynamicEngineSettingsForm'
 import { CollaborativeSessionHUD } from '@/components/settings/CollaborativeSessionHUD'
+import { toast } from 'sonner'
 
 const THEME_OPTIONS = [
   {
@@ -91,9 +92,22 @@ const THEME_OPTIONS = [
 export default function SettingsPage() {
   const { t, i18n } = useTranslation()
   const { theme, setTheme } = useTheme()
+  const { data: backendAddons = [] } = useQuery({
+    queryKey: ['app', 'addons'],
+    queryFn: () => api.getInstalledAddons(),
+    enabled: !!window.__TAURI__,
+  })
   const locales = useMemo(
-    () => Object.keys(i18n.options.resources || {}),
-    [i18n.options.resources],
+    () => {
+      const allLocales = Object.keys(i18n.options.resources || {})
+      const storeAddons = usePreferencesStore.getState().installedAddons || []
+      return allLocales.filter(code => {
+        if (code === 'en-US' || code === 'th-TH') return true
+        const base = code.split('-')[0]
+        return backendAddons.includes(base) || storeAddons.includes('addon-' + base)
+      })
+    },
+    [i18n.options.resources, backendAddons],
   )
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo>()
   const [mlDeviceSelection, setMlDeviceSelection] = useState<string>('AUTO')
@@ -124,8 +138,8 @@ export default function SettingsPage() {
   const setInpaintMaxSide = usePreferencesStore((s) => s.setInpaintMaxSide)
   const inpaintEngine = usePreferencesStore((s) => s.inpaintEngine)
   const setInpaintEngine = usePreferencesStore((s) => s.setInpaintEngine)
-  const thaiPostProcess = usePreferencesStore((s) => s.thaiPostProcess)
-  const setThaiPostProcess = usePreferencesStore((s) => s.setThaiPostProcess)
+  const smartPostProcess = usePreferencesStore((s) => s.smartPostProcess)
+  const setsmartPostProcess = usePreferencesStore((s) => s.setsmartPostProcess)
   const projectInfo = useProjectStore((s) => s.info)
   const cloudProvider = usePreferencesStore((s) => s.cloudProvider)
   const cloudModelName = usePreferencesStore((s) => s.cloudModelName)
@@ -664,22 +678,22 @@ export default function SettingsPage() {
                 </p>
               </div>
 
-              {/* Thai post-processing sub-card */}
+              {/* Smart Typography & Post-Processing sub-card */}
               <div className='bg-card border-border rounded-lg border p-4'>
                 <h3 className='text-foreground mb-3 text-xs font-semibold tracking-wide uppercase'>
-                  {t('settings.thaiPostProcess', 'Thai post-processing')}
+                  {t('settings.smartPostProcess', 'Smart Typography & Post-Processing')}
                 </h3>
                 <div className='flex items-center justify-between gap-4'>
                   <div className='min-w-0'>
                     <p className='text-foreground text-sm'>
                       {t(
-                        'settings.thaiPostProcessLabel',
+                        'settings.smartPostProcessLabel',
                         'Normalize quotes & spaces',
                       )}
                     </p>
                     <p className='text-muted-foreground mt-0.5 text-xs'>
                       {t(
-                        'settings.thaiPostProcessHint',
+                        'settings.smartPostProcessHint',
                         'แปลง " " → \u201c \u201d และลบ space เกินระหว่างตัวอักษรไทย (เช่น "ไป แล้ว" → "ไปแล้ว")',
                       )}
                     </p>
@@ -687,18 +701,18 @@ export default function SettingsPage() {
                   <button
                     type='button'
                     role='switch'
-                    aria-checked={thaiPostProcess}
+                    aria-checked={smartPostProcess}
                     data-testid='settings-thai-post-process'
-                    onClick={() => setThaiPostProcess(!thaiPostProcess)}
+                    onClick={() => setsmartPostProcess(!smartPostProcess)}
                     className={[
                       'focus-visible:ring-ring relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus-visible:ring-2 focus-visible:outline-none',
-                      thaiPostProcess ? 'bg-primary' : 'bg-input',
+                      smartPostProcess ? 'bg-primary' : 'bg-input',
                     ].join(' ')}
                   >
                     <span
                       className={[
                         'bg-background pointer-events-none inline-block size-4 rounded-full shadow-lg ring-0 transition-transform',
-                        thaiPostProcess ? 'translate-x-4' : 'translate-x-0',
+                        smartPostProcess ? 'translate-x-4' : 'translate-x-0',
                       ].join(' ')}
                     />
                   </button>
@@ -1524,14 +1538,14 @@ function NextGenStudioSection() {
     setClearingCache(true)
     try {
       const res = await api.appStorageClear(['modelsHf'])
-      alert(
+      toast.error(
         isTh
           ? `ล้างแคชเรียบร้อยแล้ว! คืนพื้นที่ว่างในเครื่อง: ${formatBytes(res.freedBytes)}`
           : `Successfully cleared cache! Freed ${formatBytes(res.freedBytes)}.`,
       )
       loadCacheSize()
     } catch (err: any) {
-      alert(`Failed to clear cache: ${err?.message || err}`)
+      toast.error(`Failed to clear cache: ${err?.message || err}`)
     } finally {
       setClearingCache(false)
     }
@@ -1546,7 +1560,7 @@ function NextGenStudioSection() {
       if (diskSpace.freeBytes < neededBytes) {
         const freeMb = Math.round(diskSpace.freeBytes / (1024 * 1024))
         const neededMb = Math.round(neededBytes / (1024 * 1024))
-        alert(
+        toast.error(
           isTh
             ? `⚠️ พื้นที่ฮาร์ดดิสก์ไม่เพียงพอสำหรับการดาวน์โหลด!\nต้องการอย่างน้อย: ${neededMb} MB\nพื้นที่ว่างปัจจุบันของคุณ: ${freeMb} MB\nกรุณาเคลียร์พื้นที่ในเครื่องก่อนดาวน์โหลดโมเดล`
             : `⚠️ Insufficient disk space for download!\nRequires at least: ${neededMb} MB\nYour current free space: ${freeMb} MB\nPlease free up some disk space before installing.`,
@@ -1618,7 +1632,7 @@ function NextGenStudioSection() {
       await api.projectBackupSilent()
       await loadBackups()
     } catch (err: any) {
-      alert(`Failed to create snapshot: ${err?.message || err}`)
+      toast.error(`Failed to create snapshot: ${err?.message || err}`)
     } finally {
       setCreatingBackup(false)
     }
@@ -1633,14 +1647,14 @@ function NextGenStudioSection() {
     setRestoring(true)
     try {
       await api.projectBackupRestore(name)
-      alert(
+      toast.error(
         isTh
           ? 'กู้คืนข้อมูลโปรเจกต์สำเร็จแล้ว! กำลังโหลดหน้าใหม่...'
           : 'Project restored successfully! Reloading studio...',
       )
       window.location.reload()
     } catch (err: any) {
-      alert(`Failed to restore project: ${err?.message || err}`)
+      toast.error(`Failed to restore project: ${err?.message || err}`)
     } finally {
       setRestoring(false)
     }
