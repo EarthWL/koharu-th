@@ -864,13 +864,22 @@ export async function generateCloudBatchTranslation(
   }
 
   const blocksJson = JSON.stringify(blocks, null, 2)
-  const prompt = `You are an expert manga translator.
-Your task is to translate the 'text' fields in the following JSON array to ${language}.
-The texts are sequential dialogue balloons and sound effects from a manga page. 
-${context ? `Here is the translation context from previous pages/bubbles to keep consistency:\n${context}\n\n` : ''}Ensure the translation sounds natural, conversational, and flows logically between the sequential index blocks as characters speaking to each other.
+  const prompt = `You are an expert manga translator translating to ${language}.
 
-Return ONLY a valid JSON array of objects with the exact same 'index' values and your translated strings in the 'translation' fields.
-Do not include any other text, conversational filler, markdown formatting, or code blocks.
+${context ? `Here is the translation context from previous pages/bubbles to keep consistency:\n${context}\n\n` : ''}INPUT FORMAT (read but do NOT echo this shape):
+[ { "index": <n>, "text": "<source>" }, ... ]
+
+OUTPUT FORMAT (mandatory — MUST use the key "translation", NOT "text"):
+[ { "index": <n>, "translation": "<${language} translation>" }, ... ]
+
+Critical rules:
+1. The output key MUST be "translation". Do NOT echo the input key "text" — that is a common mistake.
+2. The "translation" value MUST be in ${language}. Do NOT return the original ${blocks.length > 0 ? 'source' : 'text'} unchanged.
+3. Translate every entry. Sequential indices are sequential dialogue from a manga page; make it sound natural and conversational and flow between speakers.
+4. Output ONLY the JSON array. No markdown fences, no preface, no trailing commentary.
+
+Example output for [ { "index": 0, "text": "こんにちは" } ] → [ { "index": 0, "translation": "<${language} version of \\"hello\\">" } ]
+
 Input:
 ${blocksJson}`
 
@@ -920,29 +929,36 @@ ${blocksJson}`
   try {
     const parsed = JSON.parse(jsonString)
     if (Array.isArray(parsed)) {
-      // Gemini 3.5 Flash often echoes the input key shape — when the
-      // prompt sends `{index, text}` the model returns `{index, text}`
-      // even though the prompt asks for `{index, translation}`. The
-      // returned `text` value IS the translation (the model rewrote
-      // it). Accept both keys to make the parser robust across that
-      // family of providers; prefer `translation` when both are set
-      // (some providers return both during instruction-tuning hits).
-      const validItems = parsed
-        .filter(
+      // Strict schema: require the "translation" key. Earlier
+      // attempt at leniency (accepting "text" as a translation
+      // fallback) silently stored the SOURCE Japanese into the
+      // translation field when the model echoed the input shape
+      // without actually translating. Better to throw and let the
+      // user retry / pick a better model than to apply garbage.
+      // The reinforced prompt above carries an explicit example
+      // showing the correct output key.
+      const validItems = parsed.filter(
+        (item) =>
+          typeof item.index === 'number' &&
+          typeof item.translation === 'string',
+      )
+      if (validItems.length === 0) {
+        // Diagnose the common failure mode: model returned
+        // {index, text} (Gemini 3.5 echo pattern). Surface a
+        // clearer error so the user knows to retry or change
+        // model — not a silent untranslated paste-back.
+        const echoedTextShape = parsed.some(
           (item) =>
-            typeof item.index === 'number' &&
-            (typeof item.translation === 'string' || typeof item.text === 'string'),
+            typeof item.index === 'number' && typeof item.text === 'string',
         )
-        .map((item) => ({
-          index: item.index,
-          translation:
-            typeof item.translation === 'string' ? item.translation : item.text,
-        }))
-      if (validItems.length > 0) {
-        return validItems
-      } else {
-         throw new Error('JSON array is missing required "index" + ("translation" or "text") fields')
+        if (echoedTextShape) {
+          throw new Error(
+            'Model echoed the input shape (returned "text" instead of "translation") — translation did not run. Retry, or try a different model / provider.',
+          )
+        }
+        throw new Error('JSON array is missing required "index" and "translation" fields')
       }
+      return validItems
     }
     throw new Error('Parsed result is not an array')
   } catch (err: any) {
