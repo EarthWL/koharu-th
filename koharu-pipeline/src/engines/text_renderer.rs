@@ -65,13 +65,13 @@ const SETTING_STROKE_JSON: &str = "stroke_json";
 const SETTINGS: &[SettingDescriptor] = &[
     SettingDescriptor::Toggle {
         id: SETTING_EFFECT_BOLD,
-        label_i18n_key: "engineSettings.render.bold",
+        label_i18n_key: "engineSettings.render.bold.label",
         default: false,
         help_i18n_key: Some("engineSettings.render.bold.help"),
     },
     SettingDescriptor::Toggle {
         id: SETTING_EFFECT_ITALIC,
-        label_i18n_key: "engineSettings.render.italic",
+        label_i18n_key: "engineSettings.render.italic.label",
         default: false,
         help_i18n_key: Some("engineSettings.render.italic.help"),
     },

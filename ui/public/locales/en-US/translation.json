@@ -1,4 +1,39 @@
 {
+  "engineSettings": {
+    "animeYolo": {
+      "variant": {
+        "label": "Model size (variant)",
+        "help": "Bigger variants catch more text but run slower and download larger weights. N (nano, ~10 MB) is fastest; X (xlarge, ~250 MB) has the best recall. Changing this reloads the model on the next run.",
+        "n": "N · nano · ~10 MB · fastest",
+        "s": "S · small · ~30 MB",
+        "m": "M · medium · ~80 MB",
+        "l": "L · large · ~150 MB",
+        "x": "X · xlarge · ~250 MB · best recall"
+      },
+      "confidence": {
+        "label": "Confidence threshold",
+        "help": "Minimum score for a detection to be kept. Lower catches more text (including faint SFX) but adds noise; raise it (~0.35–0.45) to cut over-detection on busy pages. Default 0.25."
+      },
+      "nms": {
+        "label": "Overlap suppression (NMS IoU)",
+        "help": "How much two boxes may overlap before the weaker one is dropped. Lower merges overlapping detections more aggressively. Default 0.50; try 0.35–0.40 when a partial and a full detection of the same text stack on top of each other."
+      },
+      "containment": {
+        "label": "Containment merge",
+        "help": "Drops a box when it sits at least this far inside a larger one — catches small text nested in a bigger box that overlap suppression misses. Set to 1.00 to turn it off. Default 0.80."
+      }
+    },
+    "render": {
+      "bold": {
+        "label": "Bold",
+        "help": "Render translated text in bold by default. You can still override it per text block."
+      },
+      "italic": {
+        "label": "Italic",
+        "help": "Render translated text in italic by default. You can still override it per text block."
+      }
+    }
+  },
   "common": {
     "initializing": "Initializing..."
   },

@@ -58,7 +58,7 @@ const SETTING_CONTAINMENT: &str = "merge_contained_pct";
 const SETTINGS: &[SettingDescriptor] = &[
     SettingDescriptor::Select {
         id: SETTING_VARIANT,
-        label_i18n_key: "engineSettings.animeYolo.variant",
+        label_i18n_key: "engineSettings.animeYolo.variant.label",
         options: &[
             ("n", "engineSettings.animeYolo.variant.n"),
             ("s", "engineSettings.animeYolo.variant.s"),
@@ -71,7 +71,7 @@ const SETTINGS: &[SettingDescriptor] = &[
     },
     SettingDescriptor::Slider {
         id: SETTING_CONFIDENCE,
-        label_i18n_key: "engineSettings.animeYolo.confidence",
+        label_i18n_key: "engineSettings.animeYolo.confidence.label",
         min: 0.05,
         max: 0.95,
         step: 0.01,
@@ -85,7 +85,7 @@ const SETTINGS: &[SettingDescriptor] = &[
     // text stack.
     SettingDescriptor::Slider {
         id: SETTING_NMS,
-        label_i18n_key: "engineSettings.animeYolo.nms",
+        label_i18n_key: "engineSettings.animeYolo.nms.label",
         min: 0.30,
         max: 0.70,
         step: 0.01,
@@ -101,7 +101,7 @@ const SETTINGS: &[SettingDescriptor] = &[
     // already handles).
     SettingDescriptor::Slider {
         id: SETTING_CONTAINMENT,
-        label_i18n_key: "engineSettings.animeYolo.containment",
+        label_i18n_key: "engineSettings.animeYolo.containment.label",
         min: 0.50,
         max: 1.0,
         step: 0.05,
