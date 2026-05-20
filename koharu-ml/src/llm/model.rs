@@ -96,7 +96,26 @@ impl Llm {
             _ => eos_token_id,
         };
 
-        let device = device(use_cpu)?;
+        let model_size_bytes = std::fs::metadata(&model_path)?.len();
+        let total_layers = ct.metadata.get(&format!("{arch}.block_count"))
+            .and_then(|v| v.to_u32().ok())
+            .unwrap_or(28) as usize;
+
+        let strategy = if use_cpu {
+            crate::offloader::MemoryStrategy::FullCpu
+        } else {
+            crate::offloader::get_offload_strategy(model_size_bytes, total_layers)
+        };
+
+        let device = match strategy {
+            crate::offloader::MemoryStrategy::FullCpu => Device::Cpu,
+            _ => device(use_cpu)?,
+        };
+        tracing::info!(
+            "[ML-Model] Selected device {:?} based on offload strategy {:?}",
+            device,
+            strategy
+        );
 
         let bos_token = tokenizer
             .id_to_token(bos_token_id)
