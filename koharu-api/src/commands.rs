@@ -1,5 +1,6 @@
 use koharu_types::{
-    AnimeYoloVariant, DetectorEngine, InpaintEngine, OcrEngine, TextBlock, TextShaderEffect, TextStrokeStyle,
+    AnimeYoloVariant, DetectorEngine, InpaintEngine, OcrEngine, ReadingOrder, TextBlock,
+    TextShaderEffect, TextStrokeStyle,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -68,6 +69,13 @@ pub struct RenderPayload {
 pub struct UpdateTextBlocksPayload {
     pub index: usize,
     pub text_blocks: Vec<TextBlock>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReorderTextBlocksPayload {
+    pub index: usize,
+    pub reading_order: ReadingOrder,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

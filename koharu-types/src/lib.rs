@@ -140,6 +140,18 @@ impl AnimeYoloVariant {
     }
 }
 
+/// Bounding box layout reading order preference.
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadingOrder {
+    #[default]
+    Rtl,
+    Ltr,
+    Custom,
+}
+
 use std::{path::PathBuf, sync::Arc};
 
 use ::image::GenericImageView;
