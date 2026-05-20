@@ -4004,6 +4004,7 @@ dependencies = [
  "koharu-http",
  "koharu-pipeline",
  "koharu-types",
+ "once_cell",
  "rmcp",
  "rmp-serde",
  "rmpv",

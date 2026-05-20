@@ -17,6 +17,18 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::sync::{broadcast, mpsc};
 
 use crate::shared::{SharedResources, get_resources_wait};
+use once_cell::sync::Lazy;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollabEvent {
+    pub session_id: String,
+    pub event_type: String,
+    pub payload: rmpv::Value,
+}
+
+static COLLAB_CHANNEL: Lazy<(broadcast::Sender<CollabEvent>, broadcast::Receiver<CollabEvent>)> = Lazy::new(|| {
+    broadcast::channel(2048)
+});
 
 #[derive(Debug, Deserialize)]
 struct RawIncoming {
@@ -244,6 +256,11 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::QueueEnqueue => call(operations::queue_enqueue, state, params).await,
         Method::QueueCancel => call(operations::queue_cancel, state, params).await,
         Method::QueueClearFinished => call0(operations::queue_clear_finished, state).await,
+        Method::CollabPublish => {
+            let event: CollabEvent = from_value(params)?;
+            let _ = COLLAB_CHANNEL.0.send(event);
+            to_value(&true)
+        }
     }
 }
 
@@ -271,6 +288,28 @@ async fn handle_socket(socket: WebSocket, state: WsState) {
         koharu_pipeline::pipeline::subscribe(),
         tx.clone(),
     );
+
+    let mut collab_rx = COLLAB_CHANNEL.0.subscribe();
+    let collab_tx = tx.clone();
+    tokio::spawn(async move {
+        loop {
+            match collab_rx.recv().await {
+                Ok(event) => {
+                    if let Ok(params) = to_value(&event) {
+                        let msg = OutgoingMessage::Notification {
+                            method: "collab_sync".to_string(),
+                            params,
+                        };
+                        if collab_tx.send(msg).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
 
     let send_task = tokio::spawn(async move {
         while let Some(msg) = send_rx.recv().await {

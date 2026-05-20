@@ -114,6 +114,7 @@ pub enum Method {
     QueueEnqueue,
     QueueCancel,
     QueueClearFinished,
+    CollabPublish,
 }
 
 impl Method {
@@ -216,6 +217,7 @@ impl Method {
         Method::QueueEnqueue,
         Method::QueueCancel,
         Method::QueueClearFinished,
+        Method::CollabPublish,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -318,6 +320,7 @@ impl Method {
             Method::QueueEnqueue => "queue_enqueue",
             Method::QueueCancel => "queue_cancel",
             Method::QueueClearFinished => "queue_clear_finished",
+            Method::CollabPublish => "collab_publish",
         }
     }
 }
@@ -431,6 +434,7 @@ impl FromStr for Method {
             "queue_enqueue" => Method::QueueEnqueue,
             "queue_cancel" => Method::QueueCancel,
             "queue_clear_finished" => Method::QueueClearFinished,
+            "collab_publish" => Method::CollabPublish,
             _ => anyhow::bail!("Unknown method: {s}"),
         };
         Ok(method)
