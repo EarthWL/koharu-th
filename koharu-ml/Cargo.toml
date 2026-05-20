@@ -16,6 +16,7 @@ koharu-http = { workspace = true }
 koharu-types = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
+blake3 = { workspace = true }
 image = { workspace = true }
 imageproc = { workspace = true }
 candle-core = { workspace = true }

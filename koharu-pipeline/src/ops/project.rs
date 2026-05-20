@@ -1725,51 +1725,52 @@ impl Drop for SecureApiKey {
 static CLOUD_LLM_SEMAPHORE: once_cell::sync::Lazy<tokio::sync::Semaphore> =
     once_cell::sync::Lazy::new(|| tokio::sync::Semaphore::new(3));
 
-pub async fn cloud_llm_call(
-    state: AppResources,
-    payload: CloudLlmCallPayload,
-) -> anyhow::Result<CloudLlmCallResult> {
-    check_debugger()?;
-
-    let _permit = CLOUD_LLM_SEMAPHORE.acquire().await.unwrap();
-
-    let project = require_project(&state).await?;
-    let api_key_plaintext = tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
+async fn do_single_llm_call_with_creds(
+    state: &AppResources,
+    profile_id: i64,
+    primary_id: i64,
+    client: &reqwest::Client,
+    prompt: &str,
+    json_mode: bool,
+    payload_api_url: Option<&str>,
+    payload_model_name: &str,
+) -> anyhow::Result<String> {
+    let project = require_project(state).await?;
+    
+    // Retrieve API key, provider, API URL, and model name in a blocking task
+    let (api_key_plaintext, provider, db_api_url, db_model_name) = tokio::task::spawn_blocking(move || -> anyhow::Result<(String, String, Option<String>, String)> {
         let conn = project.pool().get()?;
-        let profile = profile_ops::get(&conn, payload.profile_id)?
-            .ok_or_else(|| anyhow::anyhow!("profile {} not found", payload.profile_id))?;
+        let profile = profile_ops::get(&conn, profile_id)?
+            .ok_or_else(|| anyhow::anyhow!("profile {} not found", profile_id))?;
         let r = profile.api_key_ref.as_deref()
             .ok_or_else(|| anyhow::anyhow!("API key reference missing for profile"))?;
         let raw_key = secret_ops::get(r)?.ok_or_else(|| anyhow::anyhow!("Keyring entry empty"))?;
-        Ok(raw_key)
+        Ok((raw_key, profile.provider.as_str().to_string(), profile.api_url, profile.model_name))
     })
     .await??;
 
     let secure_key = SecureApiKey(api_key_plaintext);
     
-    let provider = tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
-        let conn = project.pool().get()?;
-        let profile = profile_ops::get(&conn, payload.profile_id)?
-            .ok_or_else(|| anyhow::anyhow!("profile {} not found", payload.profile_id))?;
-        Ok(profile.provider)
-    })
-    .await??;
+    let api_url = if profile_id == primary_id {
+        payload_api_url.or(db_api_url.as_deref())
+    } else {
+        db_api_url.as_deref()
+    };
 
-    let client = koharu_http::create_client_builder()
-        .timeout(std::time::Duration::from_secs(45))
-        .min_tls_version(reqwest::tls::Version::TLS_1_2)
-        .build()?;
+    let model_name = if profile_id == primary_id && !payload_model_name.is_empty() {
+        payload_model_name
+    } else {
+        &db_model_name
+    };
 
     let mut max_retries = 5;
     let mut delay = std::time::Duration::from_millis(1000);
     let mut attempt = 0;
 
-    let text = loop {
+    loop {
         attempt += 1;
-        
         let client_clone = client.clone();
         let provider_str = provider.as_str();
-        let payload_prompt = &payload.prompt;
         let secure_key_val = &secure_key.0;
         
         let result: anyhow::Result<String> = async {
@@ -1777,19 +1778,19 @@ pub async fn cloud_llm_call(
                 "gemini" => {
                     let url = format!(
                         "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-                        payload.model_name, secure_key_val
+                        model_name, secure_key_val
                     );
                     let mut req = client_clone.post(&url);
-                    if payload.json_mode {
+                    if json_mode {
                         req = req.json(&serde_json::json!({
-                            "contents": [{ "parts": [{ "text": payload_prompt }] }],
+                            "contents": [{ "parts": [{ "text": prompt }] }],
                             "generationConfig": {
                                 "responseMimeType": "application/json"
                             }
                         }));
                     } else {
                         req = req.json(&serde_json::json!({
-                            "contents": [{ "parts": [{ "text": payload_prompt }] }]
+                            "contents": [{ "parts": [{ "text": prompt }] }]
                         }));
                     }
                     let res = req.send().await?;
@@ -1810,7 +1811,7 @@ pub async fn cloud_llm_call(
                     Ok(txt)
                 }
                 "openai" | "openrouter" => {
-                    let base_url = payload.api_url.as_deref().unwrap_or_else(|| {
+                    let base_url = api_url.unwrap_or_else(|| {
                         if provider_str == "openrouter" {
                             "https://openrouter.ai/api/v1"
                         } else {
@@ -1827,13 +1828,13 @@ pub async fn cloud_llm_call(
                     }
 
                     let mut body = serde_json::json!({
-                        "model": payload.model_name,
+                        "model": model_name,
                         "messages": [
-                            { "role": "user", "content": payload_prompt }
+                            { "role": "user", "content": prompt }
                         ]
                     });
 
-                    if payload.json_mode {
+                    if json_mode {
                         body["response_format"] = serde_json::json!({ "type": "json_object" });
                     }
 
@@ -1855,7 +1856,7 @@ pub async fn cloud_llm_call(
                     Ok(txt)
                 }
                 "anthropic" => {
-                    let base_url = payload.api_url.as_deref().unwrap_or("https://api.anthropic.com");
+                    let base_url = api_url.unwrap_or("https://api.anthropic.com");
                     let url = format!("{}/v1/messages", base_url.trim_end_matches('/'));
                     
                     let req = client_clone.post(&url)
@@ -1864,10 +1865,10 @@ pub async fn cloud_llm_call(
                         .header("content-type", "application/json");
 
                     let body = serde_json::json!({
-                        "model": payload.model_name,
+                        "model": model_name,
                         "max_tokens": 4096,
                         "messages": [
-                            { "role": "user", "content": payload_prompt }
+                            { "role": "user", "content": prompt }
                         ]
                     });
 
@@ -1893,12 +1894,12 @@ pub async fn cloud_llm_call(
         }.await;
 
         match result {
-            Ok(txt) => break txt,
+            Ok(txt) => break Ok(txt),
             Err(e) => {
                 let err_str = e.to_string();
                 if err_str.contains("fatal:") || attempt >= max_retries {
-                    tracing::error!("LLM Call failed definitively on attempt {}: {}", attempt, err_str);
-                    anyhow::bail!(e);
+                    tracing::error!("LLM Call failed definitively on attempt {}/{} for profile {}: {}", attempt, max_retries, profile_id, err_str);
+                    return Err(e);
                 }
                 
                 // Calculate Jitter
@@ -1906,22 +1907,122 @@ pub async fn cloud_llm_call(
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_nanos())
                     .unwrap_or(0);
-                // Jitter factor between 0.75 and 1.25
                 let jitter = 0.75 + ((now_nanos % 100) as f64 / 200.0);
                 let sleep_dur = delay.mul_f64(jitter);
                 
                 tracing::warn!(
-                    "Transient LLM error (attempt {}/{}): {}. Retrying in {:?}...",
-                    attempt, max_retries, err_str, sleep_dur
+                    "Transient LLM error for profile {} (attempt {}/{}): {}. Retrying in {:?}...",
+                    profile_id, attempt, max_retries, err_str, sleep_dur
                 );
                 
                 tokio::time::sleep(sleep_dur).await;
                 delay *= 2;
             }
         }
-    };
+    }
+}
 
-    Ok(CloudLlmCallResult { text })
+pub async fn cloud_llm_call(
+    state: AppResources,
+    payload: CloudLlmCallPayload,
+) -> anyhow::Result<CloudLlmCallResult> {
+    check_debugger()?;
+
+    let _permit = CLOUD_LLM_SEMAPHORE.acquire().await.unwrap();
+
+    let project = require_project(&state).await?;
+    
+    let client = koharu_http::create_client_builder()
+        .timeout(std::time::Duration::from_secs(45))
+        .min_tls_version(reqwest::tls::Version::TLS_1_2)
+        .build()?;
+
+    let primary_id = payload.profile_id;
+
+    // 1. Try the primary profile
+    let primary_res = do_single_llm_call_with_creds(
+        &state,
+        primary_id,
+        primary_id,
+        &client,
+        &payload.prompt,
+        payload.json_mode,
+        payload.api_url.as_deref(),
+        &payload.model_name,
+    ).await;
+
+    match primary_res {
+        Ok(text) => Ok(CloudLlmCallResult { text }),
+        Err(primary_err) => {
+            tracing::warn!(
+                "Primary LLM profile {} failed definitively: {}. Initiating Multi-LLM Failover Gateway...",
+                primary_id, primary_err
+            );
+
+            // 2. Fetch alternative profiles from database
+            let project_clone = project.clone();
+            let alt_profiles = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<ProviderProfile>> {
+                let conn = project_clone.pool().get()?;
+                let list = profile_ops::list(&conn)?;
+                Ok(list)
+            })
+            .await??;
+
+            // 3. Iterate fallback profiles
+            for profile in alt_profiles {
+                if profile.id == primary_id {
+                    continue;
+                }
+
+                // Verify if it has a keyring reference before trying it
+                if profile.api_key_ref.is_none() {
+                    tracing::info!(
+                        "Skipping fallback profile {} ({}) because it has no keyring reference.",
+                        profile.id, profile.name
+                    );
+                    continue;
+                }
+
+                tracing::info!(
+                    "Attempting failover to fallback profile {} ({}, provider: {})",
+                    profile.id, profile.name, profile.provider.as_str()
+                );
+
+                let fallback_res = do_single_llm_call_with_creds(
+                    &state,
+                    profile.id,
+                    primary_id,
+                    &client,
+                    &payload.prompt,
+                    payload.json_mode,
+                    profile.api_url.as_deref(),
+                    &profile.model_name,
+                ).await;
+
+                match fallback_res {
+                    Ok(text) => {
+                        tracing::info!(
+                            "Multi-LLM Failover successful! Recovered using profile {} ({})",
+                            profile.id, profile.name
+                        );
+                        return Ok(CloudLlmCallResult { text });
+                    }
+                    Err(fallback_err) => {
+                        tracing::warn!(
+                            "Fallback profile {} ({}) failed: {}. Trying next...",
+                            profile.id, profile.name, fallback_err
+                        );
+                    }
+                }
+            }
+
+            // If all failed, return the primary error
+            anyhow::bail!(
+                "All LLM profiles failed definitively. Primary error: {}",
+                primary_err
+            );
+        }
+    }
 }
 
 pub async fn llm_call_log(

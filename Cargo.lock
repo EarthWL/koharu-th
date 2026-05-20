@@ -3887,6 +3887,7 @@ name = "koharu-ml"
 version = "1.2.2"
 dependencies = [
  "anyhow",
+ "blake3",
  "candle-core",
  "candle-nn",
  "candle-transformers",
