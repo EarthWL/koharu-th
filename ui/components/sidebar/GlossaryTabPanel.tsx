@@ -8,6 +8,7 @@ import {
   SparklesIcon,
   Trash2Icon,
   UploadIcon,
+  DownloadIcon,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
@@ -44,6 +45,35 @@ export function GlossaryTabPanel() {
   const [importOpen, setImportOpen] = useState(false)
   const refresh = () => void glossary.refetch()
 
+  const exportCsv = () => {
+    const data = glossary.data ?? []
+    if (data.length === 0) return
+    const header = ['source', 'target', 'category', 'aliases', 'notes']
+    const escapeCsv = (str: string) => {
+      const clean = str.replace(/"/g, '""')
+      return `"${clean}"`
+    }
+    const rows = data.map((item) => {
+      const aliasesStr = Array.isArray(item.aliases) ? item.aliases.join('|') : ''
+      return [
+        escapeCsv(item.sourceText),
+        escapeCsv(item.targetText),
+        escapeCsv(item.category),
+        escapeCsv(aliasesStr),
+        escapeCsv(item.contextNote ?? '')
+      ].join(',')
+    })
+    const csvContent = '\uFEFF' + [header.join(','), ...rows].join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `glossary_${Date.now()}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
   const filtered = useMemo(() => {
     const all = glossary.data ?? []
     if (!query.trim()) return all
@@ -74,6 +104,16 @@ export function GlossaryTabPanel() {
               onClick={() => setImportOpen(true)}
             >
               <UploadIcon className='size-3' />
+            </Button>
+            <Button
+              variant='ghost'
+              size='icon-xs'
+              className='size-6'
+              title='Export CSV'
+              onClick={exportCsv}
+              disabled={!glossary.data || glossary.data.length === 0}
+            >
+              <DownloadIcon className='size-3' />
             </Button>
             <Button
               variant='ghost'

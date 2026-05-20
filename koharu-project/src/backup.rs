@@ -14,7 +14,7 @@ use crate::manifest::MANIFEST_FILENAME;
 
 /// Names of top-level directories that should NOT be included in the
 /// backup. Everything else under the project root is packed verbatim.
-const SKIP_DIRS: &[&str] = &["export", "target", "node_modules", ".git"];
+const SKIP_DIRS: &[&str] = &["export", "target", "node_modules", ".git", ".koharu", "backups"];
 
 /// Stream the project at `root` into a zip file at `out_zip`.
 /// Returns the count of files written.

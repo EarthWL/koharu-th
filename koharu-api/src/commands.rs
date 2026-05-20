@@ -339,6 +339,28 @@ pub struct ProjectBackupResult {
     pub file_count: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectBackupRestorePayload {
+    pub backup_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupDto {
+    pub name: String,
+    pub path: String,
+    pub size_bytes: u64,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectDiskSpaceResult {
+    pub free_bytes: u64,
+}
+
+
 /// Summary returned by project_open / project_create / project_current.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]

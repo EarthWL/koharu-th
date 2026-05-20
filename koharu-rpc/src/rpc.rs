@@ -129,6 +129,18 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::ProjectBackupPicker => {
             call0(operations::project_backup_picker, state).await
         }
+        Method::ProjectBackupSilent => {
+            call0(operations::project_backup_silent, state).await
+        }
+        Method::ProjectBackupList => {
+            call0(operations::project_backup_list, state).await
+        }
+        Method::ProjectBackupRestore => {
+            call(operations::project_backup_restore, state, params).await
+        }
+        Method::ProjectCheckDiskSpace => {
+            call0(operations::project_check_disk_space, state).await
+        }
         Method::RecentProjectsList => call0(operations::recent_projects_list, state).await,
         Method::RecentProjectsRemove => {
             call(operations::recent_projects_remove, state, params).await

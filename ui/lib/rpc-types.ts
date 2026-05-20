@@ -99,6 +99,10 @@ export type RpcMethodMap = {
   project_close: [void, any]
   project_current: [void, any]
   project_backup_picker: [void, any]
+  project_backup_silent: [void, { path: string | null; fileCount: number }]
+  project_backup_list: [void, BackupDto[]]
+  project_backup_restore: [{ backupName: string }, void]
+  project_check_disk_space: [void, ProjectDiskSpaceResult]
   recent_projects_list: [void, any]
   recent_projects_remove: [any, any]
 
@@ -231,3 +235,15 @@ export type RpcNotificationMap = {
   download_progress: DownloadProgress
   process_progress: ProcessProgress
 }
+
+export type BackupDto = {
+  name: string
+  path: string
+  sizeBytes: number
+  createdAt: string
+}
+
+export type ProjectDiskSpaceResult = {
+  freeBytes: number
+}
+

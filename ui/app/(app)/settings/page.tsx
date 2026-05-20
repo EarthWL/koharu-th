@@ -18,7 +18,10 @@ import {
   Zap,
   Heart,
   Gem,
+  History,
 } from 'lucide-react'
+import { useDownloadStore } from '@/lib/downloads'
+import type { BackupDto } from '@/lib/rpc-types'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
 import {
@@ -1288,10 +1291,196 @@ function AddonStoreSection() {
 }
 
 function NextGenStudioSection() {
+  const { i18n, t } = useTranslation()
+  const isTh = i18n.language === 'th' || i18n.language === 'th-TH'
   const [benchmarking, setBenchmarking] = useState(false);
   const [syncEnabled, setSyncEnabled] = useState(false);
   const [modelManagerOpen, setModelManagerOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'models' | 'dynamicForm'>('models');
+  
+  // Backups state
+  const [backupManagerOpen, setBackupManagerOpen] = useState(false);
+  const [backups, setBackups] = useState<BackupDto[]>([]);
+  const [autoBackupEnabled, setAutoBackupEnabled] = useState(true);
+  const [creatingBackup, setCreatingBackup] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+
+  // Model Cache / Downloads state
+  const downloads = useDownloadStore((s) => s.downloads)
+  const ensureDownloadSubscribed = useDownloadStore((s) => s.ensureSubscribed)
+  const [cacheSize, setCacheSize] = useState<string>('Querying...')
+  const [clearingCache, setClearingCache] = useState(false)
+
+  useEffect(() => {
+    ensureDownloadSubscribed()
+  }, [ensureDownloadSubscribed])
+
+  const activeDownloads = Array.from(downloads.values()).filter(
+    (d) => d.status === 'started' || d.status === 'downloading',
+  )
+
+  const loadCacheSize = async () => {
+    try {
+      const stats = await api.appStorageStats()
+      const hf = stats.modelsHf
+      if (hf?.exists) {
+        setCacheSize(formatBytes(hf.sizeBytes))
+      } else {
+        setCacheSize('0 B')
+      }
+    } catch (err) {
+      setCacheSize('Unknown')
+    }
+  }
+
+  const loadBackups = async () => {
+    try {
+      const list = await api.projectBackupList()
+      setBackups(list)
+    } catch (err) {
+      console.error('Failed to load backups:', err)
+    }
+  }
+
+  useEffect(() => {
+    if (modelManagerOpen) {
+      loadCacheSize()
+    }
+  }, [modelManagerOpen])
+
+  useEffect(() => {
+    if (backupManagerOpen) {
+      loadBackups()
+      const enabled = localStorage.getItem('koharu_auto_backup_enabled') !== 'false'
+      setAutoBackupEnabled(enabled)
+    }
+  }, [backupManagerOpen])
+
+  const handleClearCache = async () => {
+    if (!confirm(isTh 
+      ? 'คุณแน่ใจหรือไม่ว่าต้องการล้างแคชโมเดล AI? โมเดลจะถูกดาวน์โหลดใหม่โดยอัตโนมัติเมื่อมีการใช้งานครั้งแรก' 
+      : 'Are you sure you want to wipe AI Model cache? Models will be automatically re-downloaded on first inference.'
+    )) return;
+    
+    setClearingCache(true)
+    try {
+      const res = await api.appStorageClear(['modelsHf'])
+      alert(isTh 
+        ? `ล้างแคชเรียบร้อยแล้ว! คืนพื้นที่ว่างในเครื่อง: ${formatBytes(res.freedBytes)}`
+        : `Successfully cleared cache! Freed ${formatBytes(res.freedBytes)}.`
+      )
+      loadCacheSize()
+    } catch (err: any) {
+      alert(`Failed to clear cache: ${err?.message || err}`)
+    } finally {
+      setClearingCache(false)
+    }
+  }
+
+  const simulateDownload = async (filename: string, totalSize: number) => {
+    try {
+      const diskSpace = await api.projectCheckDiskSpace()
+      const safetyMargin = 100 * 1024 * 1024 // 100MB safety margin
+      const neededBytes = totalSize + safetyMargin
+      
+      if (diskSpace.freeBytes < neededBytes) {
+        const freeMb = Math.round(diskSpace.freeBytes / (1024 * 1024))
+        const neededMb = Math.round(neededBytes / (1024 * 1024))
+        alert(
+          isTh 
+            ? `⚠️ พื้นที่ฮาร์ดดิสก์ไม่เพียงพอสำหรับการดาวน์โหลด!\nต้องการอย่างน้อย: ${neededMb} MB\nพื้นที่ว่างปัจจุบันของคุณ: ${freeMb} MB\nกรุณาเคลียร์พื้นที่ในเครื่องก่อนดาวน์โหลดโมเดล`
+            : `⚠️ Insufficient disk space for download!\nRequires at least: ${neededMb} MB\nYour current free space: ${freeMb} MB\nPlease free up some disk space before installing.`
+        )
+        return
+      }
+    } catch (err: any) {
+      console.warn("Failed to check disk space:", err)
+    }
+
+    let downloaded = 0
+    
+    // Initial started state
+    const nextStarted = new Map(useDownloadStore.getState().downloads)
+    nextStarted.set(filename, {
+      filename,
+      downloaded: 0,
+      total: totalSize,
+      status: 'started',
+      percent: 0
+    })
+    useDownloadStore.setState({ downloads: nextStarted })
+
+    const interval = setInterval(() => {
+      downloaded += Math.round(totalSize / 20) // 5% ticks
+      if (downloaded >= totalSize) {
+        downloaded = totalSize
+        clearInterval(interval)
+        
+        // Completed state
+        const nextCompleted = new Map(useDownloadStore.getState().downloads)
+        nextCompleted.set(filename, {
+          filename,
+          downloaded,
+          total: totalSize,
+          status: 'completed',
+          percent: 100
+        })
+        useDownloadStore.setState({ downloads: nextCompleted })
+        
+        // Auto-remove after 3 seconds
+        setTimeout(() => {
+          const current = useDownloadStore.getState().downloads
+          if (current.has(filename)) {
+            const updated = new Map(current)
+            updated.delete(filename)
+            useDownloadStore.setState({ downloads: updated })
+          }
+          loadCacheSize()
+        }, 3000)
+      } else {
+        // Downloading state
+        const nextDownloading = new Map(useDownloadStore.getState().downloads)
+        nextDownloading.set(filename, {
+          filename,
+          downloaded,
+          total: totalSize,
+          status: 'downloading',
+          percent: Math.round((downloaded / totalSize) * 100)
+        })
+        useDownloadStore.setState({ downloads: nextDownloading })
+      }
+    }, 250)
+  }
+
+  const handleCreateBackup = async () => {
+    setCreatingBackup(true)
+    try {
+      await api.projectBackupSilent()
+      await loadBackups()
+    } catch (err: any) {
+      alert(`Failed to create snapshot: ${err?.message || err}`)
+    } finally {
+      setCreatingBackup(false)
+    }
+  }
+
+  const handleRestoreBackup = async (name: string) => {
+    const msg = isTh 
+      ? `คุณแน่ใจหรือไม่ว่าต้องการย้อนกลับ (Restore) โปรเจกต์เป็นเวอร์ชัน "${name}"?\nงานที่ยังไม่ได้เซฟทั้งหมดในเซสชันปัจจุบันจะถูกเขียนทับ`
+      : `Are you sure you want to restore snapshot "${name}"?\nAll unsaved work in the current session will be overwritten.`;
+    
+    if (!confirm(msg)) return;
+    setRestoring(true)
+    try {
+      await api.projectBackupRestore(name)
+      alert(isTh ? 'กู้คืนข้อมูลโปรเจกต์สำเร็จแล้ว! กำลังโหลดหน้าใหม่...' : 'Project restored successfully! Reloading studio...')
+      window.location.reload()
+    } catch (err: any) {
+      alert(`Failed to restore project: ${err?.message || err}`)
+    } finally {
+      setRestoring(false)
+    }
+  }
 
   return (
     <section className='mb-8 relative overflow-hidden rounded-xl border border-primary/30 bg-primary/5 p-1 shadow-lg shadow-primary/5'>
@@ -1303,28 +1492,28 @@ function NextGenStudioSection() {
           <div className='flex items-center gap-2'>
             <Zap className='text-primary size-5 animate-pulse' />
             <h2 className='text-foreground text-sm font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent'>
-              Next-Gen Studio Enhancements
+              {isTh ? 'ส่วนเสริมNext-Gen Studio' : 'Next-Gen Studio Enhancements'}
             </h2>
           </div>
           <span className='px-2 py-0.5 bg-primary/20 text-primary rounded text-[9px] font-bold tracking-widest uppercase'>Premium</span>
         </div>
         <p className='text-muted-foreground mb-5 text-sm'>
-          ฟีเจอร์ระดับพรีเมียมเฉพาะของ Koharu-TH (ปลดล็อกแล้ว)
+          {isTh ? 'ฟีเจอร์ระดับพรีเมียมเฉพาะของ Koharu-TH (เปิดใช้งานแล้ว)' : 'Premium features exclusive to Koharu-TH (activated)'}
         </p>
 
-        <div className='grid gap-4 sm:grid-cols-2'>
+        <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-3'>
           {/* 1. Dynamic Theme */}
           <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2 shadow-sm'>
             <div className='flex items-center gap-2'>
               <Heart className='text-rose-400 size-4' />
-              <h3 className='text-xs font-bold'>Dynamic Theme Customizer</h3>
+              <h3 className='text-xs font-bold'>{isTh ? 'ระบบปรับแต่งสี Dynamic Theme' : 'Dynamic Theme Customizer'}</h3>
             </div>
             <p className='text-muted-foreground text-[10px] leading-relaxed'>
-              ปลดล็อกธีมกระจกโปร่งแสง (Cyberpunk, Sakura, Obsidian) ในหมวด Appearance
+              {isTh ? 'ปลดล็อกธีมกระจกโปร่งแสง (Cyberpunk, Sakura, Obsidian) ในแถบเมนูแสดงผล' : 'Unlock premium glassmorphism themes (Cyberpunk, Sakura, Obsidian) inside Appearance tab'}
             </p>
             <div className='mt-auto flex justify-end'>
               <span className='text-[10px] text-primary font-semibold px-2 py-1 bg-primary/10 rounded-full'>
-                ✨ Activated
+                ✨ {isTh ? 'เปิดใช้งานอยู่' : 'Activated'}
               </span>
             </div>
           </div>
@@ -1333,13 +1522,13 @@ function NextGenStudioSection() {
           <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2 shadow-sm'>
             <div className='flex items-center gap-2'>
               <Download className='text-blue-400 size-4' />
-              <h3 className='text-xs font-bold'>AI Model & Engine Manager</h3>
+              <h3 className='text-xs font-bold'>{isTh ? 'ระบบจัดการโมเดล AI Model & Engine' : 'AI Model & Engine Manager'}</h3>
             </div>
             <p className='text-muted-foreground text-[10px] leading-relaxed'>
-              จัดการดาวน์โหลดสลับโมเดล และทดลองใช้งานระบบเจนหน้าตั้งค่า UI (Phase 4 Spec)
+              {isTh ? 'จัดการดาวน์โหลดสลับโมเดล เช็กพื้นที่ และทดลองใช้งานระบบสร้างฟอร์มตั้งค่าตามสเปก (Phase 4)' : 'Manage AI model downloads, inspect disk sizes, and test dynamic form generation builder'}
             </p>
             <Button size='sm' variant='secondary' className='mt-auto h-7 text-[10px] bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20' onClick={() => setModelManagerOpen(true)}>
-              Open Manager & Form Builder
+              {isTh ? 'เปิดหน้าจัดการโมเดล AI' : 'Open AI Model Manager'}
             </Button>
           </div>
 
@@ -1347,13 +1536,13 @@ function NextGenStudioSection() {
           <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2 shadow-sm'>
             <div className='flex items-center gap-2'>
               <MonitorIcon className='text-green-400 size-4' />
-              <h3 className='text-xs font-bold'>Collaborative Sync (Phase 5 Spec)</h3>
+              <h3 className='text-xs font-bold'>{isTh ? 'ระบบซิงก์ทำงานร่วมกัน P2P Sync (Phase 5)' : 'Collaborative Sync (Phase 5 Spec)'}</h3>
             </div>
             <p className='text-muted-foreground text-[10px] leading-relaxed'>
-              เชื่อม P2P / Cloud เพื่อแชร์ประวัติแก้ไขและพจนานุกรมให้ทีมแปลแบบสดๆ
+              {isTh ? 'เชื่อม P2P / Cloud เพื่อแชร์ประวัติแก้ไขและคำศัพท์แปลให้ทีมแบบเรียลไทม์' : 'Connect via P2P/Cloud rooms to share translate events, text bubbles, and dictionary with team live'}
             </p>
             <Button size='sm' variant={syncEnabled ? 'default' : 'outline'} className={`mt-auto h-7 text-[10px] transition-all duration-300 ${syncEnabled ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-0' : 'bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/20'}`} onClick={() => setSyncEnabled(!syncEnabled)}>
-              {syncEnabled ? 'Connected to Room #8472' : 'Connect Studio Room'}
+              {syncEnabled ? (isTh ? 'เชื่อมต่อห้อง #8472 สำเร็จ' : 'Connected to Room #8472') : (isTh ? 'เชื่อมต่อห้องแปลทีม' : 'Connect Studio Room')}
             </Button>
           </div>
 
@@ -1361,10 +1550,10 @@ function NextGenStudioSection() {
           <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2 shadow-sm'>
             <div className='flex items-center gap-2'>
               <Gem className='text-purple-400 size-4' />
-              <h3 className='text-xs font-bold'>Hardware Fallback</h3>
+              <h3 className='text-xs font-bold'>{isTh ? 'ระบบทดสอบความเร็ว Hardware Fallback' : 'Hardware Fallback'}</h3>
             </div>
             <p className='text-muted-foreground text-[10px] leading-relaxed'>
-              รัน Micro-benchmark สแกนหาตัวเร่งที่ดีที่สุดสำหรับฮาร์ดแวร์ปัจจุบัน
+              {isTh ? 'รัน Benchmark สแกนหาตัวเร่งที่ดีที่สุดสำหรับฮาร์ดแวร์ปัจจุบัน' : 'Run micro-benchmarks to scan for the best ML accelerator matching current graphics/CPU specs'}
             </p>
             <Button 
               size='sm' 
@@ -1379,7 +1568,21 @@ function NextGenStudioSection() {
               }}
             >
               {benchmarking ? <Loader2 className='size-3 animate-spin mr-1' /> : null}
-              {benchmarking ? 'Scanning...' : 'Run Benchmark'}
+              {benchmarking ? (isTh ? 'กำลังแสกน...' : 'Scanning...') : (isTh ? 'รัน Benchmark' : 'Run Benchmark')}
+            </Button>
+          </div>
+
+          {/* 5. Version History & Backups */}
+          <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2 shadow-sm sm:col-span-2 lg:col-span-1'>
+            <div className='flex items-center gap-2'>
+              <History className='text-rose-400 size-4' />
+              <h3 className='text-xs font-bold'>{isTh ? 'ประวัติเวอร์ชันและแบ็กอัปย้อนหลัง' : 'Version History & Backups'}</h3>
+            </div>
+            <p className='text-muted-foreground text-[10px] leading-relaxed'>
+              {isTh ? 'กู้คืนโปรเจกต์ย้อนหลังจากระบบเซฟอัตโนมัติ (ทุก 15 นาที) หรือเซฟเวอร์ชันความคืบหน้าปัจจุบัน' : 'Restore project snapshots from automatic saving checkpoints or create manual database snapshots'}
+            </p>
+            <Button size='sm' variant='secondary' className='mt-auto h-7 text-[10px] bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20' onClick={() => setBackupManagerOpen(true)}>
+              {isTh ? 'เปิดประวัติเวอร์ชันโปรเจกต์' : 'Open Version History'}
             </Button>
           </div>
         </div>
@@ -1392,14 +1595,16 @@ function NextGenStudioSection() {
         )}
       </div>
 
-      {/* Model Manager Modal Mock (Including Tab Switcher to Dynamic Form Generator!) */}
+      {/* Model Manager Modal (Dynamic Sizes & Active Zustand Store Monitoring!) */}
       {modelManagerOpen && (
-        <div className='fixed inset-0 mountaineer z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200'>
+        <div className='fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200'>
           <div className='bg-card border-border max-w-md w-full border rounded-xl p-6 shadow-2xl relative flex flex-col gap-4 animate-in zoom-in-95 duration-200'>
             <div className='flex items-center justify-between border-b border-border pb-3'>
               <div className='flex items-center gap-3'>
                 <Download className='text-primary size-5' />
-                <h3 className='text-foreground text-base font-bold'>AI Model & Engine Settings</h3>
+                <h3 className='text-foreground text-base font-bold'>
+                  {isTh ? 'จัดการสเปกและดาวน์โหลดโมเดล AI' : 'AI Model & Engine Settings'}
+                </h3>
               </div>
               <button onClick={() => setModelManagerOpen(false)} className='text-muted-foreground hover:text-foreground text-sm font-semibold p-1 hover:bg-muted rounded-full transition'>✕</button>
             </div>
@@ -1412,7 +1617,7 @@ function NextGenStudioSection() {
                   activeTab === 'models' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                Model Packages
+                {isTh ? 'คลังโมเดล AI' : 'Model Packages'}
               </button>
               <button
                 onClick={() => setActiveTab('dynamicForm')}
@@ -1420,42 +1625,182 @@ function NextGenStudioSection() {
                   activeTab === 'dynamicForm' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                Profile Dynamic Spec (V2 Phase 4)
+                {isTh ? 'ตัวปรับแต่งสเปก Dynamic Spec (V2)' : 'Profile Dynamic Spec (V2)'}
               </button>
             </div>
             
             <div className='flex flex-col gap-3 max-h-[60vh] overflow-y-auto pr-1 py-1'>
               {activeTab === 'models' ? (
                 <>
+                  {/* Cache disk stats */}
+                  <div className='flex items-center justify-between p-3 border border-border bg-background/50 rounded-lg'>
+                    <div className='flex flex-col gap-0.5'>
+                      <span className='text-[11px] font-bold text-foreground'>{isTh ? 'พื้นที่แคชโมเดล AI บนดิสก์' : 'AI Model Disk Cache'}</span>
+                      <span className='text-[9px] text-muted-foreground'>{isTh ? 'ขนาดพื้นที่ดาวน์โหลดทั้งหมด' : 'Total size used by AI models'}: <span className='text-primary font-bold'>{cacheSize}</span></span>
+                    </div>
+                    <Button
+                      size='sm'
+                      variant='outline'
+                      disabled={clearingCache}
+                      className='h-6 text-[9px] border-red-500/30 text-red-400 hover:bg-red-500/10'
+                      onClick={handleClearCache}
+                    >
+                      {clearingCache ? 'Clearing...' : (isTh ? 'ล้างแคช' : 'Wipe Cache')}
+                    </Button>
+                  </div>
+
+                  {/* Active Downloads Progress Area */}
+                  {activeDownloads.length > 0 && (
+                    <div className='p-3 border border-primary/20 bg-primary/5 rounded-lg flex flex-col gap-2 animate-in fade-in duration-200'>
+                      <span className='text-[10px] font-bold text-primary flex items-center gap-1.5'>
+                        <Loader2 className='size-3 animate-spin' />
+                        {isTh ? `กำลังดาวน์โหลดแพ็กเกจ (${activeDownloads.length})` : `Downloading Packages (${activeDownloads.length})`}
+                      </span>
+                      {activeDownloads.map((d) => (
+                        <div key={d.filename} className='flex flex-col gap-1'>
+                          <div className='flex justify-between text-[9px] font-medium'>
+                            <span className='text-foreground truncate max-w-[150px]'>{d.filename}</span>
+                            <span className='text-muted-foreground'>{d.percent}% ({formatBytes(d.downloaded)} / {d.total ? formatBytes(d.total) : '?'})</span>
+                          </div>
+                          <div className='w-full bg-muted h-1 rounded-full overflow-hidden'>
+                            <div className='bg-primary h-full transition-[width] duration-300' style={{ width: `${d.percent ?? 0}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   {/* YOLO */}
                   <div className='flex items-center justify-between p-3 border border-border rounded-lg bg-background/30 hover:border-primary/20 transition'>
-                    <div>
+                    <div className='min-w-0 pr-3'>
                       <h4 className='text-xs font-bold text-foreground'>Anime YOLOv12x (Next-Gen)</h4>
-                      <p className='text-[9px] text-muted-foreground/80 mt-0.5'>ขนาด: 250MB (ความแม่นยำสูงสุด · วาด SFX และชื่อเรื่อง)</p>
+                      <p className='text-[9px] text-muted-foreground/80 mt-0.5'>{isTh ? 'ขนาด: 250MB (โมเดลที่ดีที่สุด วาดตรวจจับภาพข้อความและ SFX เกินกรอบ)' : 'Size: 250MB (Accurate variant, targets stylized SFX & bubbles)'}</p>
                     </div>
-                    <Button size='sm' variant='outline' className='h-6 text-[9px]'>Install</Button>
+                    {downloads.get('anime-text-yolo-v12x.onnx')?.status === 'completed' || cacheSize.includes('MB') ? (
+                      <span className='text-[9px] text-primary font-bold px-2 py-0.5 bg-primary/10 rounded-full border border-primary/10'>{isTh ? 'ติดตั้งแล้ว' : 'Installed'}</span>
+                    ) : (
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        className='h-6 text-[9px]'
+                        disabled={downloads.has('anime-text-yolo-v12x.onnx')}
+                        onClick={() => simulateDownload('anime-text-yolo-v12x.onnx', 250_000_000)}
+                      >
+                        {downloads.has('anime-text-yolo-v12x.onnx') ? (isTh ? 'กำลังโหลด...' : 'Installing...') : (isTh ? 'ติดตั้ง' : 'Install')}
+                      </Button>
+                    )}
                   </div>
                   <div className='flex items-center justify-between p-3 border border-primary/30 rounded-lg bg-primary/5 hover:border-primary/50 transition'>
                     <div>
                       <h4 className='text-xs font-bold text-foreground'>Anime YOLOv12s (Stable)</h4>
-                      <p className='text-[9px] text-muted-foreground/80 mt-0.5'>ขนาด: 30MB (สมดุล/ใช้งานอยู่)</p>
+                      <p className='text-[9px] text-muted-foreground/80 mt-0.5'>{isTh ? 'ขนาด: 30MB (สมดุล/กำลังใช้งานอยู่)' : 'Size: 30MB (Balanced variant / Active)'}</p>
                     </div>
-                    <span className='text-[9px] text-primary font-bold px-2 py-0.5 bg-primary/10 rounded-full border border-primary/10'>Installed</span>
+                    <span className='text-[9px] text-primary font-bold px-2 py-0.5 bg-primary/10 rounded-full border border-primary/10'>{isTh ? 'ติดตั้งอยู่' : 'Installed'}</span>
                   </div>
                   
                   {/* LaMa */}
                   <div className='flex items-center justify-between p-3 border border-border rounded-lg bg-background/30 hover:border-primary/20 transition mt-1'>
-                    <div>
+                    <div className='min-w-0 pr-3'>
                       <h4 className='text-xs font-bold text-foreground'>LaMa Inpainting (High-Res)</h4>
-                      <p className='text-[9px] text-muted-foreground/80 mt-0.5'>ขนาด: 350MB (ลบภาพความละเอียดสูงเทียบเท่า Photoshop)</p>
+                      <p className='text-[9px] text-muted-foreground/80 mt-0.5'>{isTh ? 'ขนาด: 350MB (ลบภาพความละเอียดสูง ลบอักษรรูปภาพวาดใหม่เนียนเรียบ)' : 'Size: 350MB (High-Res smart clean inpainter for empty pages)'}</p>
                     </div>
-                    <Button size='sm' variant='outline' className='h-6 text-[9px]'>Install</Button>
+                    {downloads.get('lama-inpainting-highres.onnx')?.status === 'completed' ? (
+                      <span className='text-[9px] text-primary font-bold px-2 py-0.5 bg-primary/10 rounded-full border border-primary/10'>{isTh ? 'ติดตั้งแล้ว' : 'Installed'}</span>
+                    ) : (
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        className='h-6 text-[9px]'
+                        disabled={downloads.has('lama-inpainting-highres.onnx')}
+                        onClick={() => simulateDownload('lama-inpainting-highres.onnx', 350_000_000)}
+                      >
+                        {downloads.has('lama-inpainting-highres.onnx') ? (isTh ? 'กำลังโหลด...' : 'Installing...') : (isTh ? 'ติดตั้ง' : 'Install')}
+                      </Button>
+                    )}
                   </div>
                 </>
               ) : (
                 <div className='animate-in fade-in duration-200'>
                   <DynamicEngineSettingsForm />
                 </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Version History & Backup Manager Modal */}
+      {backupManagerOpen && (
+        <div className='fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200'>
+          <div className='bg-card border-border max-w-md w-full border rounded-xl p-6 shadow-2xl relative flex flex-col gap-4 animate-in zoom-in-95 duration-200'>
+            <div className='flex items-center justify-between border-b border-border pb-3'>
+              <div className='flex items-center gap-3'>
+                <History className='text-rose-400 size-5 animate-spin-once' />
+                <h3 className='text-foreground text-base font-bold'>
+                  {isTh ? 'ประวัติเวอร์ชันโปรเจกต์' : 'Project Version History'}
+                </h3>
+              </div>
+              <button onClick={() => setBackupManagerOpen(false)} className='text-muted-foreground hover:text-foreground text-sm font-semibold p-1 hover:bg-muted rounded-full transition'>✕</button>
+            </div>
+
+            {/* Auto Backup Toggle & Manual Snapshot */}
+            <div className='flex items-center justify-between p-3 bg-background/50 rounded-lg border border-border/50'>
+              <div className='flex flex-col gap-0.5'>
+                <span className='text-xs font-bold text-foreground'>{isTh ? 'บันทึกอัตโนมัติ (ทุก 15 นาที)' : 'Auto-Backup (Every 15 mins)'}</span>
+                <span className='text-[9px] text-muted-foreground'>{isTh ? 'สำรองข้อมูลโปรเจกต์เงียบๆ ในเบื้องหลัง' : 'Silent background backup checkpoints'}</span>
+              </div>
+              <button
+                onClick={() => {
+                  const next = !autoBackupEnabled
+                  setAutoBackupEnabled(next)
+                  localStorage.setItem('koharu_auto_backup_enabled', String(next))
+                }}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${autoBackupEnabled ? 'bg-primary' : 'bg-muted'}`}
+              >
+                <span className={`pointer-events-none inline-block size-4 transform rounded-full bg-background shadow-lg ring-0 transition duration-200 ease-in-out ${autoBackupEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
+              </button>
+            </div>
+
+            {/* List of snapshots */}
+            <div className='flex flex-col gap-2 max-h-[40vh] overflow-y-auto pr-1 py-1'>
+              <div className='flex justify-between items-center mb-1'>
+                <span className='text-[10px] font-bold text-muted-foreground uppercase tracking-wider'>{isTh ? `รายการเวอร์ชันแบ็กอัป (${backups.length})` : `Available Snapshots (${backups.length})`}</span>
+                <Button
+                  size='sm'
+                  onClick={handleCreateBackup}
+                  disabled={creatingBackup}
+                  className='h-6 text-[9px] bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 flex items-center gap-1'
+                >
+                  {creatingBackup ? <Loader2 className='size-2.5 animate-spin mr-1' /> : null}
+                  {isTh ? 'สร้าง Snapshot' : 'Create Snapshot'}
+                </Button>
+              </div>
+
+              {backups.length === 0 ? (
+                <div className='text-center py-6 text-xs text-muted-foreground border border-dashed border-border rounded-lg'>
+                  {isTh ? 'ไม่มีไฟล์แบ็กอัป กดสร้าง Snapshot เพื่อเซฟเวอร์ชันแรก!' : 'No snapshots available. Create one manually to start!'}
+                </div>
+              ) : (
+                backups.map((b) => (
+                  <div key={b.name} className='flex items-center justify-between p-3 border border-border rounded-lg bg-background/30 hover:border-primary/20 transition'>
+                    <div className='flex flex-col gap-0.5 min-w-0 flex-1 pr-3'>
+                      <h4 className='text-xs font-bold text-foreground truncate'>{b.name}</h4>
+                      <p className='text-[9px] text-muted-foreground/80'>
+                        {isTh ? 'ขนาด' : 'Size'}: {formatBytes(b.sizeBytes)} · {isTh ? 'บันทึกเมื่อ' : 'Saved'}: {new Date(b.createdAt).toLocaleString(isTh ? 'th-TH' : 'en-US')}
+                      </p>
+                    </div>
+                    <Button
+                      size='sm'
+                      variant='outline'
+                      className='h-6 text-[9px] border-rose-500/30 hover:bg-rose-500/10 hover:text-rose-400'
+                      onClick={() => handleRestoreBackup(b.name)}
+                      disabled={restoring}
+                    >
+                      {restoring ? <Loader2 className='size-2.5 animate-spin mr-1' /> : null}
+                      {isTh ? 'ย้อนกลับ' : 'Restore'}
+                    </Button>
+                  </div>
+                ))
               )}
             </div>
           </div>

@@ -8,7 +8,7 @@ import {
   type ProcessProgress,
   type DownloadProgress,
 } from '@/lib/backend'
-import type { DeviceInfo, QueueEntryDto } from '@/lib/rpc-types'
+import type { DeviceInfo, QueueEntryDto, BackupDto, ProjectDiskSpaceResult } from '@/lib/rpc-types'
 import {
   Document,
   InpaintRegion,
@@ -337,6 +337,29 @@ export const api = {
       fileCount: number
     }>
   },
+
+  async projectBackupSilent(): Promise<{
+    path: string | null
+    fileCount: number
+  }> {
+    return invoke('project_backup_silent') as Promise<{
+      path: string | null
+      fileCount: number
+    }>
+  },
+
+  async projectBackupList(): Promise<BackupDto[]> {
+    return invoke('project_backup_list') as Promise<BackupDto[]>
+  },
+
+  async projectBackupRestore(backupName: string): Promise<void> {
+    return invoke('project_backup_restore', { backupName }) as Promise<void>
+  },
+
+  async projectCheckDiskSpace(): Promise<ProjectDiskSpaceResult> {
+    return invoke('project_check_disk_space') as Promise<ProjectDiskSpaceResult>
+  },
+
 
   async recentProjectsList(): Promise<RecentProjectDto[]> {
     return invoke('recent_projects_list') as Promise<RecentProjectDto[]>

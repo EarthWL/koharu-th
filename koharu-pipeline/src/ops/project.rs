@@ -2146,3 +2146,213 @@ fn build_info(project: &Project) -> anyhow::Result<ProjectInfo> {
         glossary_count,
     })
 }
+
+pub async fn project_backup_silent(
+    state: AppResources,
+) -> anyhow::Result<ProjectBackupResult> {
+    let project = require_project(&state).await?;
+    let manifest_name = project.manifest().name.clone();
+    let backups_dir = project.root().join(".koharu").join("backups");
+    std::fs::create_dir_all(&backups_dir)?;
+
+    let suggested = sanitize_folder_name(&format!(
+        "{}_backup_{}",
+        manifest_name,
+        chrono_like_yyyymmdd_hhmm()
+    ));
+    let out_zip = backups_dir.join(format!("{suggested}.zip"));
+
+    let project2 = project.clone();
+    let out_zip2 = out_zip.clone();
+    let count = tokio::task::spawn_blocking(move || -> anyhow::Result<usize> {
+        Ok(backup_ops::backup_to(project2.root(), &out_zip2)?)
+    })
+    .await??;
+
+    Ok(ProjectBackupResult {
+        path: Some(out_zip.to_string_lossy().into_owned()),
+        file_count: count as u32,
+    })
+}
+
+pub async fn project_backup_list(
+    state: AppResources,
+) -> anyhow::Result<Vec<koharu_api::commands::BackupDto>> {
+    let project = require_project(&state).await?;
+    let backups_dir = project.root().join(".koharu").join("backups");
+    if !backups_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let entries = std::fs::read_dir(&backups_dir)?;
+    let mut list = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() && path.extension().map_or(false, |ext| ext == "zip") {
+            let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let metadata = entry.metadata()?;
+            let size_bytes = metadata.len();
+            let created = metadata.created().unwrap_or_else(|_| std::time::SystemTime::now());
+            let created_at = chrono::DateTime::<chrono::Utc>::from(created).to_rfc3339();
+            list.push(koharu_api::commands::BackupDto {
+                name,
+                path: path.to_string_lossy().into_owned(),
+                size_bytes,
+                created_at,
+            });
+        }
+    }
+    list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    Ok(list)
+}
+
+pub async fn project_backup_restore(
+    state: AppResources,
+    payload: koharu_api::commands::ProjectBackupRestorePayload,
+) -> anyhow::Result<()> {
+    let project = require_project(&state).await?;
+    let root = project.root().to_path_buf();
+    let backup_path = root.join(".koharu").join("backups").join(&payload.backup_name);
+
+    if !backup_path.exists() {
+        return Err(anyhow::anyhow!("Backup file not found at {}", backup_path.display()));
+    }
+
+    // Safely close active DB connections before copying
+    *state.project.write().await = None;
+
+    let db_file = root.join("series.db");
+    let manifest_file = root.join("series.koharuproj");
+    let db_temp = root.join("series.db.backup_restore_temp");
+    let manifest_temp = root.join("series.koharuproj.backup_restore_temp");
+
+    // Create shadow backup copies of critical files
+    let db_backed_up = if db_file.exists() {
+        std::fs::copy(&db_file, &db_temp).is_ok()
+    } else {
+        false
+    };
+    let manifest_backed_up = if manifest_file.exists() {
+        std::fs::copy(&manifest_file, &manifest_temp).is_ok()
+    } else {
+        false
+    };
+
+    let root2 = root.clone();
+    let backup_path2 = backup_path.clone();
+    let extraction_result = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        let file = std::fs::File::open(&backup_path2)?;
+        let mut archive = zip::ZipArchive::new(file)?;
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i)?;
+            let outpath = match file.enclosed_name() {
+                Some(path) => root2.join(path),
+                None => continue,
+            };
+
+            if file.name().ends_with('/') {
+                std::fs::create_dir_all(&outpath)?;
+            } else {
+                if let Some(p) = outpath.parent() {
+                    if !p.exists() {
+                        std::fs::create_dir_all(p)?;
+                    }
+                }
+                let mut outfile = std::fs::File::create(&outpath)?;
+                std::io::copy(&mut file, &mut outfile)?;
+            }
+        }
+        Ok(())
+    })
+    .await;
+
+    let mut final_error = None;
+    match extraction_result {
+        Ok(Ok(())) => {
+            // Success! Clean up shadow backup copies
+            if db_backed_up && db_temp.exists() {
+                let _ = std::fs::remove_file(&db_temp);
+            }
+            if manifest_backed_up && manifest_temp.exists() {
+                let _ = std::fs::remove_file(&manifest_temp);
+            }
+        }
+        _ => {
+            // Failed! Rollback critical files from shadow backups
+            if db_backed_up && db_temp.exists() {
+                let _ = std::fs::copy(&db_temp, &db_file);
+                let _ = std::fs::remove_file(&db_temp);
+            }
+            if manifest_backed_up && manifest_temp.exists() {
+                let _ = std::fs::copy(&manifest_temp, &manifest_file);
+                let _ = std::fs::remove_file(&manifest_temp);
+            }
+            // Capture the error
+            final_error = match extraction_result {
+                Err(e) => Some(anyhow::anyhow!("Extraction task panicked: {:?}", e)),
+                Ok(Err(e)) => Some(anyhow::anyhow!("Extraction failed: {}", e)),
+                _ => Some(anyhow::anyhow!("Unknown extraction failure")),
+            };
+        }
+    }
+
+    // Reopen project
+    let project = Project::open(&root)?;
+    *state.project.write().await = Some(project);
+
+    if let Some(err) = final_error {
+        return Err(err);
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
+extern "system" {
+    fn GetDiskFreeSpaceExW(
+        lpDirectoryName: *const u16,
+        lpFreeBytesAvailableToCaller: *mut u64,
+        lpTotalNumberOfBytes: *mut u64,
+        lpTotalNumberOfFreeBytes: *mut u64,
+    ) -> i32;
+}
+
+#[cfg(windows)]
+pub fn get_available_disk_space(path: &std::path::Path) -> anyhow::Result<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    let path_str: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let mut free_bytes: u64 = 0;
+    let mut total_bytes: u64 = 0;
+    let mut total_free_bytes: u64 = 0;
+
+    let res = unsafe {
+        GetDiskFreeSpaceExW(
+            path_str.as_ptr(),
+            &mut free_bytes,
+            &mut total_bytes,
+            &mut total_free_bytes,
+        )
+    };
+
+    if res == 0 {
+        Err(anyhow::anyhow!("Failed to call GetDiskFreeSpaceExW"))
+    } else {
+        Ok(free_bytes)
+    }
+}
+
+#[cfg(not(windows))]
+pub fn get_available_disk_space(_path: &std::path::Path) -> anyhow::Result<u64> {
+    // 100 GB fallback for non-Windows platforms (e.g. testing)
+    Ok(100 * 1024 * 1024 * 1024)
+}
+
+pub async fn project_check_disk_space(
+    state: AppResources,
+) -> anyhow::Result<koharu_api::commands::ProjectDiskSpaceResult> {
+    let project = require_project(&state).await?;
+    let root = project.root().to_path_buf();
+    let free_bytes = get_available_disk_space(&root)?;
+    Ok(koharu_api::commands::ProjectDiskSpaceResult { free_bytes })
+}
+

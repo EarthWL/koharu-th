@@ -3921,6 +3921,7 @@ name = "koharu-pipeline"
 version = "1.2.2"
 dependencies = [
  "anyhow",
+ "chrono",
  "image",
  "imageproc",
  "koharu-api",

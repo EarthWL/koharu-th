@@ -283,6 +283,35 @@ export function ImportGlossaryModal({
             >
               {t('glossaryImport.insertExample')}
             </Button>
+            <Button
+              variant='outline'
+              size='sm'
+              className='ml-auto bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 flex items-center gap-1.5'
+              onClick={() => {
+                const input = document.createElement('input')
+                input.type = 'file'
+                input.accept = '.json,.csv'
+                input.onchange = (e) => {
+                  const file = (e.target as HTMLInputElement).files?.[0]
+                  if (!file) return
+                  const reader = new FileReader()
+                  reader.onload = (evt) => {
+                    const content = evt.target?.result as string
+                    setText(content)
+                    const ext = file.name.split('.').pop()?.toLowerCase()
+                    if (ext === 'csv') setFormat('csv')
+                    else if (ext === 'json') setFormat('json')
+                    setResult(null)
+                    setImportError(null)
+                  }
+                  reader.readAsText(file)
+                }
+                input.click()
+              }}
+            >
+              <UploadIcon className='size-3.5' />
+              {t('glossaryImport.chooseFile', 'Import File')}
+            </Button>
           </div>
 
           <Textarea

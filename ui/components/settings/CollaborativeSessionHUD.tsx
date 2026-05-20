@@ -1,7 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Activity, Users, ShieldAlert, Wifi, Check, Sparkles, RefreshCw } from 'lucide-react'
+import { Activity, Users, ShieldAlert, Wifi, Check, Sparkles, RefreshCw, AlertTriangle } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { ConflictResolutionModal, type TextBlockConflict } from './ConflictResolutionModal'
 
 type LogEvent = {
   id: string
@@ -28,6 +30,24 @@ const EVENT_ACTIONS = [
   { action: 're-routed Translation failover strategy to backup provider', user: 'EarthWL (Upstream)', color: 'text-blue-400' },
 ]
 
+const MOCK_CONFLICT: TextBlockConflict = {
+  bubbleId: 'Speech Bubble #14',
+  pageName: 'Page 3',
+  local: {
+    text: 'この戦いが終わったら、一緒に帰ろう。',
+    translation: 'ถ้าการต่อสู้ครั้งนี้จบลง พวกเรากลับด้วยกันนะ...',
+    coord: 'x: 142, y: 580, w: 210, h: 90',
+    lastModified: 'Just now by HetCreep',
+  },
+  remote: {
+    text: 'この戦いが終わったら、一緒に帰ろう。',
+    translation: 'พอสงครามครั้งนี้สิ้นสุดลง กลับบ้านด้วยกันเถอะนะ...',
+    coord: 'x: 140, y: 582, w: 215, h: 92',
+    lastModified: '3 seconds ago',
+    user: 'EarthWL (Upstream)',
+  },
+}
+
 export function CollaborativeSessionHUD() {
   const [latency, setLatency] = useState<number>(12)
   const [events, setEvents] = useState<LogEvent[]>([
@@ -35,6 +55,10 @@ export function CollaborativeSessionHUD() {
     { id: '2', time: '20:42:05', user: 'EarthWL (Upstream)', avatar: 'E', action: 'joined translation room', color: 'text-blue-400' },
     { id: '3', time: '20:42:15', user: 'Koharu AI Engine', avatar: 'K', action: 'connected to active LLM provider pipeline', color: 'text-emerald-400' },
   ])
+
+  // Conflict state
+  const [conflictOpen, setConflictOpen] = useState(false)
+  const [currentConflict, setCurrentConflict] = useState<TextBlockConflict>(MOCK_CONFLICT)
 
   // Latency micro-variance simulation to feel "alive"
   useEffect(() => {
@@ -63,9 +87,44 @@ export function CollaborativeSessionHUD() {
         color: randomAction.color,
       }
       setEvents((prev) => [newEvent, ...prev.slice(0, 4)])
-    }, 5000)
+    }, 8000)
     return () => clearInterval(eventInterval)
   }, [])
+
+  const triggerConflict = () => {
+    setCurrentConflict(MOCK_CONFLICT)
+    setConflictOpen(true)
+  }
+
+  const handleResolveConflict = (decision: 'local' | 'remote' | 'merged', resolvedText: string) => {
+    setConflictOpen(false)
+    const now = new Date()
+    const timeString = now.toTimeString().split(' ')[0]
+    
+    let decisionText = ''
+    let userColor = 'text-purple-400'
+    if (decision === 'local') {
+      decisionText = 'resolved bubble sync conflict on Speech Bubble #14: KEPT LOCAL'
+      userColor = 'text-rose-400'
+    } else if (decision === 'remote') {
+      decisionText = 'resolved bubble sync conflict on Speech Bubble #14: ACCEPTED REMOTE'
+      userColor = 'text-blue-400'
+    } else {
+      decisionText = `resolved bubble sync conflict on Speech Bubble #14: MERGED to "${resolvedText}"`
+      userColor = 'text-purple-400'
+    }
+
+    const resolutionLog: LogEvent = {
+      id: String(Date.now()),
+      time: timeString,
+      user: 'HetCreep (Lead)',
+      avatar: 'H',
+      action: decisionText,
+      color: userColor,
+    }
+
+    setEvents((prev) => [resolutionLog, ...prev])
+  }
 
   return (
     <div className='flex flex-col gap-4 text-xs font-sans text-foreground'>
@@ -89,10 +148,22 @@ export function CollaborativeSessionHUD() {
 
       {/* Active Team list */}
       <div className='flex flex-col gap-2'>
-        <span className='text-muted-foreground font-semibold flex items-center gap-1.5 uppercase text-[9px] tracking-wide'>
-          <Users className='size-3.5 text-primary' />
-          Active Team Editors ({USERS_LIST.filter(u => u.active).length} / {USERS_LIST.length})
-        </span>
+        <div className='flex items-center justify-between'>
+          <span className='text-muted-foreground font-semibold flex items-center gap-1.5 uppercase text-[9px] tracking-wide'>
+            <Users className='size-3.5 text-primary' />
+            Active Team Editors ({USERS_LIST.filter(u => u.active).length} / {USERS_LIST.length})
+          </span>
+          {/* Conflict Simulator Trigger */}
+          <Button
+            onClick={triggerConflict}
+            size='sm'
+            variant='outline'
+            className='h-6 text-[9px] bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/20 flex items-center gap-1 transition-all duration-300'
+          >
+            <AlertTriangle className='size-3 animate-bounce' />
+            Simulate Bubble Conflict
+          </Button>
+        </div>
         <div className='grid grid-cols-2 gap-2'>
           {USERS_LIST.map((user) => (
             <div 
@@ -134,6 +205,14 @@ export function CollaborativeSessionHUD() {
           ))}
         </div>
       </div>
+
+      {/* Conflict Resolution Dialog Overlay */}
+      <ConflictResolutionModal
+        open={conflictOpen}
+        conflict={currentConflict}
+        onClose={() => setConflictOpen(false)}
+        onResolve={handleResolveConflict}
+      />
     </div>
   )
 }
