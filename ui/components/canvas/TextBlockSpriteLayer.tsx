@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { memo } from 'react'
 import { TextBlock } from '@/types'
 import {
   cancelObjectUrlRevoke,
@@ -10,14 +10,46 @@ import {
 
 type TextBlockSpriteLayerProps = {
   blocks?: TextBlock[]
-  scale: number
+  documentWidth: number
+  documentHeight: number
   visible: boolean
   style?: React.CSSProperties
 }
 
+class SpriteCache {
+  private cache = new Map<Uint8Array, string>()
+  private keys: Uint8Array[] = []
+  private maxItems = 100
+
+  get(bytes: Uint8Array): string {
+    const existing = this.cache.get(bytes)
+    if (existing) return existing
+
+    const blob = convertToBlob(bytes)
+    const url = URL.createObjectURL(blob)
+    cancelObjectUrlRevoke(url)
+
+    this.cache.set(bytes, url)
+    this.keys.push(bytes)
+
+    if (this.keys.length > this.maxItems) {
+      const oldest = this.keys.shift()!
+      const oldestUrl = this.cache.get(oldest)
+      if (oldestUrl) {
+        this.cache.delete(oldest)
+        revokeObjectUrlLater(oldestUrl)
+      }
+    }
+    return url
+  }
+}
+
+const spriteCache = new SpriteCache()
+
 export function TextBlockSpriteLayer({
   blocks,
-  scale,
+  documentWidth,
+  documentHeight,
   visible,
   style,
 }: TextBlockSpriteLayerProps) {
@@ -41,38 +73,29 @@ export function TextBlockSpriteLayer({
         <TextBlockSprite
           key={`${block.x}-${block.y}-${index}`}
           block={block}
-          scale={scale}
+          documentWidth={documentWidth}
+          documentHeight={documentHeight}
         />
       ))}
     </div>
   )
 }
 
-function TextBlockSprite({
+const TextBlockSprite = memo(function TextBlockSprite({
   block,
-  scale,
+  documentWidth,
+  documentHeight,
 }: {
   block: TextBlock
-  scale: number
+  documentWidth: number
+  documentHeight: number
 }) {
-  const [src, setSrc] = useState<string | null>(null)
   const sprite = block.rendered
+  if (block.visible === false || !sprite?.length || documentWidth <= 0 || documentHeight <= 0) {
+    return null
+  }
 
-  useEffect(() => {
-    if (!sprite?.length) {
-      setSrc(null)
-      return
-    }
-    const blob = convertToBlob(sprite)
-    const objectUrl = URL.createObjectURL(blob)
-    cancelObjectUrlRevoke(objectUrl)
-    setSrc(objectUrl)
-    return () => {
-      revokeObjectUrlLater(objectUrl)
-    }
-  }, [sprite])
-
-  if (block.visible === false || !src) return null
+  const src = spriteCache.get(sprite)
 
   return (
     <img
@@ -81,10 +104,10 @@ function TextBlockSprite({
       draggable={false}
       style={{
         position: 'absolute',
-        left: `${block.x * scale}px`,
-        top: `${block.y * scale}px`,
-        width: `${block.width * scale}px`,
-        height: `${block.height * scale}px`,
+        left: `${(block.x / documentWidth) * 100}%`,
+        top: `${(block.y / documentHeight) * 100}%`,
+        width: `${(block.width / documentWidth) * 100}%`,
+        height: `${(block.height / documentHeight) * 100}%`,
         transformOrigin: 'center',
         transform: `rotate(${block.rotationDeg ?? 0}deg)`,
         userSelect: 'none',
@@ -93,4 +116,4 @@ function TextBlockSprite({
       }}
     />
   )
-}
+})

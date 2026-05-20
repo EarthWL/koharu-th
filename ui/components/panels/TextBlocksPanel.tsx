@@ -3,6 +3,7 @@
 import React, { useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'motion/react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { TextBlock } from '@/types'
 import {
   AlertTriangleIcon,
@@ -64,6 +65,20 @@ export function TextBlocksPanel() {
     fitBlockToBubble,
   } = useTextBlocks()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const viewportRef = useRef<HTMLDivElement>(null)
+
+  const rowVirtualizer = useVirtualizer({
+    count: textBlocks.length,
+    getScrollElement: () => viewportRef.current,
+    estimateSize: () => 36,
+    overscan: 10,
+  })
+
+  React.useEffect(() => {
+    if (selectedBlockIndex !== undefined && selectedBlockIndex >= 0 && selectedBlockIndex < textBlocks.length) {
+      rowVirtualizer.scrollToIndex(selectedBlockIndex, { align: 'auto' })
+    }
+  }, [selectedBlockIndex, textBlocks.length, rowVirtualizer])
   const { t } = useTranslation()
   const { llmGenerate } = useLlmMutations()
   const { data: llmReady = false } = useLlmReadyQuery()
@@ -314,6 +329,7 @@ export function TextBlocksPanel() {
       <ScrollArea
         className='min-h-0 flex-1'
         viewportClassName='pb-1'
+        viewportRef={viewportRef}
         data-testid='textblocks-scroll'
       >
         <div className='p-2'>
@@ -334,27 +350,45 @@ export function TextBlocksPanel() {
                 }
                 setSelectedBlockIndex(Number(value))
               }}
-              className='flex flex-col gap-1'
+              className='relative w-full'
+              style={{
+                height: `${rowVirtualizer.getTotalSize()}px`,
+              }}
             >
-              {textBlocks.map((block, index) => (
-                <BlockCard
-                  key={`${document.id}-${index}`}
-                  block={block}
-                  index={index}
-                  selected={index === selectedBlockIndex}
-                  onChange={(updates) => void replaceBlock(index, updates)}
-                  onGenerate={(style) => void handleGenerate(index, style)}
-                  onFitToBubble={() => void fitBlockToBubble(index)}
-                  onMoveBlock={(direction) =>
-                    void handleMoveBlock(index, direction)
-                  }
-                  onMoveBlockToIndex={handleMoveBlockToIndex}
-                  isFirst={index === 0}
-                  isLast={index === textBlocks.length - 1}
-                  generating={generatingIndex === index}
-                  llmReady={isLlmAvailable}
-                />
-              ))}
+              {rowVirtualizer.getVirtualItems().map((virtualItem) => {
+                const index = virtualItem.index
+                const block = textBlocks[index]
+                if (!block) return null
+                return (
+                  <div
+                    key={virtualItem.key}
+                    data-index={index}
+                    ref={rowVirtualizer.measureElement}
+                    className='absolute top-0 left-0 w-full'
+                    style={{
+                      transform: `translateY(${virtualItem.start}px)`,
+                    }}
+                  >
+                    <BlockCard
+                      key={`${document.id}-${index}`}
+                      block={block}
+                      index={index}
+                      selected={index === selectedBlockIndex}
+                      onChange={(updates) => void replaceBlock(index, updates)}
+                      onGenerate={(style) => void handleGenerate(index, style)}
+                      onFitToBubble={() => void fitBlockToBubble(index)}
+                      onMoveBlock={(direction) =>
+                        void handleMoveBlock(index, direction)
+                      }
+                      onMoveBlockToIndex={handleMoveBlockToIndex}
+                      isFirst={index === 0}
+                      isLast={index === textBlocks.length - 1}
+                      generating={generatingIndex === index}
+                      llmReady={isLlmAvailable}
+                    />
+                  </div>
+                )
+              })}
             </Accordion>
           )}
         </div>
@@ -415,7 +449,7 @@ function BlockCard({
       data-testid={`textblock-card-${index}`}
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2, delay: index * 0.03 }}
+      transition={{ duration: 0.2, delay: Math.min(index, 5) * 0.03 }}
     >
       <div
         draggable={!block.locked}

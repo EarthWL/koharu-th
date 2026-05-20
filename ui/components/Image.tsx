@@ -19,6 +19,9 @@ type ImageProps = {
 
 const FADE_DURATION_MS = 180
 
+const TRANSPARENT_GIF =
+  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+
 // Cross-fade between successive image buffers to avoid UI flicker when
 // swapping inpaint results.
 export function Image({
@@ -33,6 +36,19 @@ export function Image({
   ...props
 }: ImageProps) {
   const dataDep = dataKey ?? src ?? data
+
+  const currentImgRef = useRef<HTMLImageElement>(null)
+  const nextImgRef = useRef<HTMLImageElement>(null)
+  const plainImgRef = useRef<HTMLImageElement>(null)
+
+  useEffect(() => {
+    return () => {
+      // Force release texture memory on unmount
+      if (currentImgRef.current) currentImgRef.current.src = TRANSPARENT_GIF
+      if (nextImgRef.current) nextImgRef.current.src = TRANSPARENT_GIF
+      if (plainImgRef.current) plainImgRef.current.src = TRANSPARENT_GIF
+    }
+  }, [])
 
   // Simple path without transitions (used for static base image to avoid extra paints)
   const [plainSrc, setPlainSrc] = useState<string | null>(null)
@@ -57,12 +73,12 @@ export function Image({
   }, [data, dataDep, transition, src])
 
   if (!transition) {
-    if (!visible || !plainSrc) return null
     return (
       <img
         {...props}
+        ref={plainImgRef}
         alt={alt}
-        src={plainSrc}
+        src={visible && plainSrc ? plainSrc : TRANSPARENT_GIF}
         draggable={false}
         style={{
           position: 'absolute',
@@ -72,6 +88,7 @@ export function Image({
           width: '100%',
           height: '100%',
           objectFit: 'contain',
+          display: visible && plainSrc ? undefined : 'none',
           ...style,
           opacity,
         }}
@@ -220,8 +237,6 @@ export function Image({
     return () => window.clearTimeout(timeout)
   }, [nextSrc, crossfade, promoteNext])
 
-  if (!visible || (!currentSrc && !nextSrc)) return null
-
   const baseStyle: CSSProperties = {
     position: 'absolute',
     inset: 0,
@@ -235,36 +250,36 @@ export function Image({
 
   return (
     <>
-      {currentSrc && (
-        <img
-          {...props}
-          alt={alt}
-          src={currentSrc}
-          draggable={false}
-          style={{
-            ...baseStyle,
-            opacity: nextSrc ? (crossfade ? 0 : opacity) : opacity,
-            transition:
-              nextSrc && crossfade
-                ? `opacity ${FADE_DURATION_MS}ms ease`
-                : undefined,
-          }}
-        />
-      )}
-      {nextSrc && (
-        <img
-          {...props}
-          alt={alt}
-          src={nextSrc}
-          draggable={false}
-          onTransitionEnd={promoteNext}
-          style={{
-            ...baseStyle,
-            opacity: crossfade ? opacity : 0,
-            transition: `opacity ${FADE_DURATION_MS}ms ease`,
-          }}
-        />
-      )}
+      <img
+        {...props}
+        ref={currentImgRef}
+        alt={alt}
+        src={visible && currentSrc ? currentSrc : TRANSPARENT_GIF}
+        draggable={false}
+        style={{
+          ...baseStyle,
+          display: visible && currentSrc ? undefined : 'none',
+          opacity: nextSrc ? (crossfade ? 0 : opacity) : opacity,
+          transition:
+            nextSrc && crossfade
+              ? `opacity ${FADE_DURATION_MS}ms ease`
+              : undefined,
+        }}
+      />
+      <img
+        {...props}
+        ref={nextImgRef}
+        alt={alt}
+        src={visible && nextSrc ? nextSrc : TRANSPARENT_GIF}
+        draggable={false}
+        onTransitionEnd={promoteNext}
+        style={{
+          ...baseStyle,
+          display: visible && nextSrc ? undefined : 'none',
+          opacity: crossfade ? opacity : 0,
+          transition: `opacity ${FADE_DURATION_MS}ms ease`,
+        }}
+      />
     </>
   )
 }

@@ -607,10 +607,11 @@ export function Workspace() {
                           }}
                           {...brushBindings}
                         />
-                        {showTextBlocksOverlay && (
+                        {showTextBlocksOverlay && currentDocument && (
                           <TextBlockSpriteLayer
-                            blocks={currentDocument?.textBlocks}
-                            scale={scaleRatio}
+                            blocks={currentDocument.textBlocks}
+                            documentWidth={currentDocument.width}
+                            documentHeight={currentDocument.height}
                             visible={!showRenderedImage}
                             style={{ zIndex: 30 }}
                           />
