@@ -168,7 +168,19 @@ Workspace `cargo build --workspace --lib` and `cargo test --workspace
 
 ## Known issues (workaround documented; no in-tree fix yet)
 
-### KI-3: LaMa tensor `narrow` error on degenerate crop (planned fix)
+### ~~KI-3: LaMa tensor `narrow` error on degenerate crop~~ — RESOLVED 2026-05-20
+
+**Fix**: `check_min_inpaint_dims(w, h)` gates the top of
+`inference_model_rgb` in `koharu-ml/src/lama/mod.rs`; crops thinner
+than `MIN_INPAINT_DIM` (16px) on either axis bail with a Thai-friendly
+toast ("พื้นที่เล็กเกินไปสำหรับการลบข้อความ … ลองขยายพื้นที่ด้วยแปรง mask
+หรือใช้ Fit to Bubble") instead of letting candle's internal narrow op
+fail mid-inference. Gating at the input covers both the blockwise
+(eraser-narrowed bubble) and `inference_crop` (full-image) paths. Unit
+test `rejects_crops_thinner_than_model_minimum` covers the boundary.
+8/8 lama lib tests green.
+
+<details><summary>original report</summary>
 
 **Symptom**: Toast surfaces
 `narrow invalid args start + len > dim_len: [1, 128, 1, 13], dim: 2, start: 1, len: 1`
@@ -217,6 +229,8 @@ just gate the input.
 up. Tensor error is non-fatal; user can work around by
 re-running detect + auto-inpaint (which uses bubble-mask sized
 regions) or by enlarging the mask before inpaint_partial.
+
+</details>
 
 ### KI-2: Manual UI edits clear undo history (planned fix)
 
