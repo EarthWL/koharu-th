@@ -8,6 +8,7 @@ pub mod ops;
 pub mod pipeline;
 pub mod session_slot;
 pub mod state_tx;
+pub mod style_convert;
 
 use std::sync::Arc;
 

@@ -264,7 +264,15 @@ fn build_tmp_document(
             detector: None,
             text: block.source_text.clone(),
             translation: block.translation.clone(),
-            style: None,
+            // Pass the per-block style through to the renderer (it reads
+            // font size / colour / stroke / align / line-height /
+            // letter-spacing / min-font-size / vertical-align off this).
+            // Previously hard-coded None, which made every Render-panel
+            // control a no-op on the v2 engine path.
+            style: block
+                .style
+                .as_ref()
+                .map(crate::style_convert::v1_style_from_scene),
             font_prediction: None,
             rendered: None,
             lock_layout_box: false,

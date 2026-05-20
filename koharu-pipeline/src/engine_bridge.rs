@@ -320,7 +320,12 @@ fn build_scene_from_document(doc: &Document, blobs: &BlobStore) -> Result<(Scene
                 },
                 source_text: v1.text.clone(),
                 translation: v1.translation.clone(),
-                style: None, // v1 style shape differs; skip for Phase 4.1
+                // Carry the per-block render style across the bridge so
+                // the renderer honours font/colour/stroke/align/etc the
+                // user set in the Render panel. (Phase 4.1 stubbed this
+                // `None`, which silently disabled every Render control
+                // through the v2 engine path.)
+                style: v1.style.as_ref().map(crate::style_convert::scene_style_from_v1),
                 source_lang: v1.source_language.clone(),
                 font_prediction: None, // converted on demand by translate/render engines
             },
