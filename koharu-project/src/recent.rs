@@ -63,7 +63,9 @@ fn write(store: &Path, entries: &[RecentProject]) -> Result<()> {
         std::fs::create_dir_all(parent).map_err(|e| Error::io(parent, e))?;
     }
     let bytes = serde_json::to_vec_pretty(entries)?;
-    std::fs::write(store, bytes).map_err(|e| Error::io(store, e))
+    // Crash-safe (#49): temp file + fsync + atomic rename so a crash
+    // can't truncate the recent-projects list to garbage.
+    crate::fs_atomic::atomic_write(store, &bytes).map_err(|e| Error::io(store, e))
 }
 
 /// Normalise a path for equality: try canonicalize() (resolves

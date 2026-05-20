@@ -143,16 +143,13 @@ pub fn post_open_v1_to_v2(root: &Path, manifest: &mut Manifest) -> Result<()> {
     Ok(())
 }
 
-/// Atomic manifest write: serialize → write to `.tmp` → rename
-/// onto the real path. Rename is atomic on the same filesystem,
-/// so a crash leaves either the old manifest intact OR the new
-/// one in place — never a torn write.
+/// Atomic manifest write — temp file + fsync + rename so a crash mid-
+/// migration leaves either the old manifest intact OR the new one in
+/// place, never a torn write. Shares the crash-safe writer with
+/// `Manifest::write` / recent-projects (#49).
 fn write_manifest_atomic(manifest: &Manifest, path: &Path) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(manifest)?;
-    let tmp = path.with_extension("koharuproj.tmp");
-    std::fs::write(&tmp, &bytes).map_err(|e| crate::error::Error::io(&tmp, e))?;
-    std::fs::rename(&tmp, path).map_err(|e| crate::error::Error::io(path, e))?;
-    Ok(())
+    crate::fs_atomic::atomic_write(path, &bytes).map_err(|e| crate::error::Error::io(path, e))
 }
 
 /// Compute the backup path for a given db file. Internal helper

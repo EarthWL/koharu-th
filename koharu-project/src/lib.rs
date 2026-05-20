@@ -17,6 +17,7 @@ pub mod character;
 pub mod chat;
 mod db;
 mod error;
+mod fs_atomic;
 pub mod glossary;
 mod manifest;
 pub mod migration;
