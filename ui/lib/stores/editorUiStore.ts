@@ -1,7 +1,7 @@
 'use client'
 
 import { create } from 'zustand'
-import { RenderEffect, RenderStroke, ToolMode } from '@/types'
+import { RenderEffect, RenderStroke, ToolMode, TextStyle } from '@/types'
 
 type EditorUiState = {
   totalPages: number
@@ -19,6 +19,8 @@ type EditorUiState = {
   renderEffect: RenderEffect
   renderStroke: RenderStroke
   readingOrder: 'rtl' | 'ltr' | 'custom'
+  copiedStyle?: TextStyle
+  hudMessage?: string
   setTotalPages: (count: number) => void
   setCurrentDocumentIndex: (index: number) => void
   setScale: (scale: number) => void
@@ -33,6 +35,9 @@ type EditorUiState = {
   setRenderEffect: (effect: RenderEffect) => void
   setRenderStroke: (stroke: RenderStroke) => void
   setReadingOrder: (order: 'rtl' | 'ltr' | 'custom') => void
+  setCopiedStyle: (style?: TextStyle) => void
+  setHudMessage: (msg?: string) => void
+  showHud: (msg: string) => void
   resetUiState: () => void
 }
 
@@ -125,6 +130,18 @@ export const useEditorUiStore = create<EditorUiState>((set, get) => ({
   setRenderEffect: (effect) => set({ renderEffect: effect }),
   setRenderStroke: (stroke) => set({ renderStroke: stroke }),
   setReadingOrder: (order) => set({ readingOrder: order }),
+  setCopiedStyle: (style) => set({ copiedStyle: style }),
+  setHudMessage: (msg) => set({ hudMessage: msg }),
+  showHud: (msg) => {
+    const state = get() as any
+    if (state.hudTimeoutId) {
+      clearTimeout(state.hudTimeoutId)
+    }
+    const timeoutId = setTimeout(() => {
+      set({ hudMessage: undefined, hudTimeoutId: undefined } as any)
+    }, 1200)
+    set({ hudMessage: msg, hudTimeoutId: timeoutId } as any)
+  },
   resetUiState: () =>
     set(() => ({
       ...initialState,

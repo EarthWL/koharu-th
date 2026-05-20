@@ -43,6 +43,7 @@ const BRUSH_CURSOR =
 
 export function Workspace() {
   const scale = useEditorUiStore((state) => state.scale)
+  const hudMessage = useEditorUiStore((state) => state.hudMessage)
   const showSegmentationMask = useEditorUiStore(
     (state) => state.showSegmentationMask,
   )
@@ -597,6 +598,11 @@ export function Workspace() {
             <ScrollAreaPrimitive.Thumb className='bg-muted-foreground/40 rounded' />
           </ScrollAreaPrimitive.Scrollbar>
         </ScrollAreaPrimitive.Root>
+        {hudMessage && (
+          <div className='pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-1.5 rounded bg-[#2c2c2c]/95 border border-[#3e3e3e] px-3 py-1.5 text-[11px] font-mono text-zinc-100 shadow-lg select-none transition-opacity duration-150 animate-in fade-in slide-in-from-bottom-2'>
+            {hudMessage}
+          </div>
+        )}
       </div>
     </div>
   )

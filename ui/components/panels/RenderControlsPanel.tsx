@@ -162,6 +162,7 @@ export function RenderControlsPanel() {
   const renderStroke = useEditorUiStore((state) => state.renderStroke)
   const setRenderEffect = useEditorUiStore((state) => state.setRenderEffect)
   const setRenderStroke = useEditorUiStore((state) => state.setRenderStroke)
+  const showHud = useEditorUiStore((state) => state.showHud)
   const { updateTextBlocks } = useTextBlockMutations()
   const { retranslateImage } = useDocumentMutations()
   const { data: availableFonts = [] } = useFontsQuery()
@@ -711,6 +712,7 @@ export function RenderControlsPanel() {
               const deltaX = moveEvent.clientX - startX
               const nextVal = Math.max(6, Math.min(300, startVal + Math.round(deltaX / 2)))
               applyStyleToSelected({ fontSize: nextVal }) || applyStyleToAll({ fontSize: nextVal })
+              showHud(`Font Size: ${nextVal}px`)
             }
             const handleMouseUp = () => {
               window.removeEventListener('mousemove', handleMouseMove)
@@ -755,6 +757,7 @@ export function RenderControlsPanel() {
               const deltaX = moveEvent.clientX - startX
               const nextVal = Number(Math.max(0.8, Math.min(2.0, startVal + deltaX * 0.005)).toFixed(2))
               applyStyleToSelected({ lineHeight: nextVal }) || applyStyleToAll({ lineHeight: nextVal })
+              showHud(`Line Height: ${nextVal}`)
             }
             const handleMouseUp = () => {
               window.removeEventListener('mousemove', handleMouseMove)
@@ -782,6 +785,7 @@ export function RenderControlsPanel() {
                       const deltaX = moveEvent.clientX - startX
                       const nextVal = Number(Math.max(0.8, Math.min(2.0, startVal + deltaX * 0.005)).toFixed(2))
                       applyStyleToSelected({ lineHeight: nextVal }) || applyStyleToAll({ lineHeight: nextVal })
+                      showHud(`Line Height: ${nextVal}`)
                     }
                     const handleMouseUp = () => {
                       window.removeEventListener('mousemove', handleMouseMove)
@@ -830,6 +834,7 @@ export function RenderControlsPanel() {
                       const deltaX = moveEvent.clientX - startX
                       const nextVal = Number(Math.max(-2, Math.min(8, startVal + deltaX * 0.05)).toFixed(1))
                       applyStyleToSelected({ letterSpacingPx: nextVal }) || applyStyleToAll({ letterSpacingPx: nextVal })
+                      showHud(`Letter Spacing: ${nextVal}px`)
                     }
                     const handleMouseUp = () => {
                       window.removeEventListener('mousemove', handleMouseMove)
@@ -876,6 +881,7 @@ export function RenderControlsPanel() {
               const deltaX = moveEvent.clientX - startX
               const nextVal = Math.max(-100, Math.min(100, startVal + Math.round(deltaX / 2)))
               applyStyleToSelected({ baselineShiftPx: nextVal }) || applyStyleToAll({ baselineShiftPx: nextVal })
+              showHud(`Baseline Shift: ${nextVal}px`)
             }
             const handleMouseUp = () => {
               window.removeEventListener('mousemove', handleMouseMove)
@@ -903,6 +909,7 @@ export function RenderControlsPanel() {
                       const deltaX = moveEvent.clientX - startX
                       const nextVal = Math.max(-100, Math.min(100, startVal + Math.round(deltaX / 2)))
                       applyStyleToSelected({ baselineShiftPx: nextVal }) || applyStyleToAll({ baselineShiftPx: nextVal })
+                      showHud(`Baseline Shift: ${nextVal}px`)
                     }
                     const handleMouseUp = () => {
                       window.removeEventListener('mousemove', handleMouseMove)
@@ -948,6 +955,7 @@ export function RenderControlsPanel() {
                       const deltaX = moveEvent.clientX - startX
                       const nextVal = Number(Math.max(0.2, Math.min(3.0, startVal + deltaX * 0.005)).toFixed(2))
                       applyStyleToSelected({ horizontalScale: nextVal }) || applyStyleToAll({ horizontalScale: nextVal })
+                      showHud(`Horizontal Scale: ${nextVal}`)
                     }
                     const handleMouseUp = () => {
                       window.removeEventListener('mousemove', handleMouseMove)

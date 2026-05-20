@@ -84,6 +84,9 @@ function TextBlockAnnotation({
 }: TextBlockAnnotationProps) {
   const scale = useEditorUiStore((state) => state.scale)
   const scaleRatio = scale / 100
+  const showHud = useEditorUiStore((state) => state.showHud)
+  const copiedStyle = useEditorUiStore((state) => state.copiedStyle)
+  const setCopiedStyle = useEditorUiStore((state) => state.setCopiedStyle)
 
   const scaledSize = {
     width: Math.max(0, block.width * scaleRatio),
@@ -123,6 +126,7 @@ function TextBlockAnnotation({
         x: block.x + dx,
         y: block.y + dy,
       })
+      showHud(`X: ${block.x + dx}px  Y: ${block.y + dy}px`)
     },
     {
       enabled: selected && interactive,
@@ -155,6 +159,7 @@ function TextBlockAnnotation({
           fontSize: nextSize
         }
       })
+      showHud(`Font Size: ${nextSize}px`)
     },
     {
       enabled: selected && interactive,
@@ -187,6 +192,7 @@ function TextBlockAnnotation({
             lineHeight: nextVal
           }
         })
+        showHud(`Line Height: ${nextVal}`)
       } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
         const currentLetterSpacing = currentStyle.letterSpacingPx ?? 0
         const delta = event.key === 'ArrowRight' ? 0.5 : -0.5
@@ -197,6 +203,7 @@ function TextBlockAnnotation({
             letterSpacingPx: nextVal
           }
         })
+        showHud(`Letter Spacing: ${nextVal}px`)
       }
     },
     {
@@ -228,6 +235,7 @@ function TextBlockAnnotation({
       onUpdate({
         rotationDeg: nextRotation
       })
+      showHud(`Angle: ${nextRotation}°`)
     },
     {
       enabled: selected && interactive,
@@ -235,6 +243,52 @@ function TextBlockAnnotation({
       enableOnFormTags: false,
     },
     [selected, interactive, block.rotationDeg, onUpdate]
+  )
+
+  // Keyboard copy-paste style
+  useHotkeys(
+    'ctrl+alt+c,ctrl+shift+c',
+    (event) => {
+      if (!interactive || !selected) return
+      event.preventDefault()
+      if (block.style) {
+        setCopiedStyle(block.style)
+        showHud('Copied Style')
+      } else {
+        showHud('No Style to Copy')
+      }
+    },
+    {
+      enabled: selected && interactive,
+      preventDefault: true,
+      enableOnFormTags: false,
+    },
+    [selected, interactive, block.style, setCopiedStyle, showHud]
+  )
+
+  useHotkeys(
+    'ctrl+alt+v,ctrl+shift+v',
+    (event) => {
+      if (!interactive || !selected) return
+      event.preventDefault()
+      if (copiedStyle) {
+        onUpdate({
+          style: {
+            ...block.style,
+            ...copiedStyle
+          }
+        })
+        showHud('Pasted Style')
+      } else {
+        showHud('No Copied Style')
+      }
+    },
+    {
+      enabled: selected && interactive,
+      preventDefault: true,
+      enableOnFormTags: false,
+    },
+    [selected, interactive, block.style, copiedStyle, onUpdate, showHud]
   )
 
   useEffect(() => {
@@ -334,7 +388,24 @@ function TextBlockAnnotation({
       }}
       className='absolute'
     >
-      <div className='relative h-full w-full select-none'>
+      <div 
+        className='relative h-full w-full select-none'
+        onDoubleClick={(event) => {
+          if (!interactive) return
+          event.stopPropagation()
+          onSelect(index)
+          
+          setTimeout(() => {
+            const el = window.document.querySelector(
+              `[data-testid="textblock-translation-${index}"]`
+            ) as HTMLTextAreaElement | null
+            if (el) {
+              el.focus()
+              el.select()
+            }
+          }, 150)
+        }}
+      >
         <div
           className={`absolute inset-0 rounded ${
             selected

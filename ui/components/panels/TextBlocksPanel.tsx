@@ -346,6 +346,7 @@ function BlockCard({
   llmReady,
 }: BlockCardProps) {
   const { t } = useTranslation()
+  const showHud = useEditorUiStore((state) => state.showHud)
   const hasOcr = !!block.text?.trim()
   const hasTranslation = !!block.translation?.trim()
   const preview = block.translation?.trim() || block.text?.trim()
@@ -531,6 +532,7 @@ function BlockCard({
                       const deltaX = moveEvent.clientX - startX
                       const nextVal = Math.max(-180, Math.min(180, startVal + deltaX))
                       onChange({ rotationDeg: nextVal })
+                      showHud(`Angle: ${nextVal}°`)
                     }
                     const handleMouseUp = () => {
                       window.removeEventListener('mousemove', handleMouseMove)
