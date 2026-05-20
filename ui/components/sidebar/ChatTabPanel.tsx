@@ -403,7 +403,19 @@ export function ChatTabPanel() {
       )}
 
       {/* Messages */}
-      <ScrollArea className='min-h-0 min-w-0 flex-1' viewportRef={scrollRef}>
+      {/* viewportClassName `[&>div]:!block`: Radix wraps the viewport's
+          content in a `display:table; min-width:100%` div that grows to its
+          widest descendant — a wide markdown table or long tool line then
+          stretches the whole column so paragraphs stop wrapping and content
+          spills past the sidebar ("the chat box burrows"). Forcing that
+          wrapper back to `display:block` (beats Radix's inline style via
+          `!important`) lets min-w-0 + break-words + the table's own
+          overflow-x-auto do their job. */}
+      <ScrollArea
+        className='min-h-0 min-w-0 flex-1'
+        viewportClassName='[&>div]:!block'
+        viewportRef={scrollRef}
+      >
         <div className='w-full min-w-0 space-y-2 p-2'>
           {!history.data?.length ? (
             <EmptyState />

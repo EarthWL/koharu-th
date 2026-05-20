@@ -501,10 +501,17 @@ pub async fn update_text_block(
     let index = payload.index;
     let block_index = payload.text_block_index;
     let (info, new_block) = state_tx::mutate_doc(&state.state, index, move |document| {
-        let block = document
-            .text_blocks
-            .get_mut(block_index)
-            .ok_or_else(|| anyhow::anyhow!("Text block {} not found", block_index))?;
+        let block_count = document.text_blocks.len();
+        let block = document.text_blocks.get_mut(block_index).ok_or_else(|| {
+            // Actionable message: a common failure is the caller (e.g. the
+            // AI-chat agent) passing a 1-based page number as the 0-based
+            // document `index`, or targeting a page whose blocks aren't the
+            // ones it inspected. Report the doc index + block count so the
+            // mismatch is visible instead of a bare "not found".
+            anyhow::anyhow!(
+                "Text block {block_index} not found: document index {index} has {block_count} block(s) (valid block indices 0..{block_count}). Check the document index (0-based) matches the page you mean."
+            )
+        })?;
         // Self-test fix #2: track whether the change invalidates
         // the rendered sprite. Pure-position moves (x/y only) do
         // NOT change the sprite contents — only its placement on
