@@ -265,6 +265,16 @@ function WorkflowButtons() {
   const isRendering =
     operation?.type === 'process-current' && operation?.step === 'render'
 
+  // Explicit Render = "show me the finished page". Hide the Text Block
+  // overlay (outlines + handles) so the user sees the clean composite,
+  // not the editing scaffolding on top of it. The LayersPanel toggle
+  // (or selecting a block) brings the overlay back when they want to
+  // keep editing.
+  const handleRender = async () => {
+    await render()
+    useEditorUiStore.getState().setShowTextBlocksOverlay(false)
+  }
+
   const handleTranslate = async () => {
     setGenerating(true)
     try {
@@ -349,7 +359,7 @@ function WorkflowButtons() {
       <Button
         variant='ghost'
         size='xs'
-        onClick={render}
+        onClick={handleRender}
         data-testid='toolbar-render'
         disabled={isRendering}
       >

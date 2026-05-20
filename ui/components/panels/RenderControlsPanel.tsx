@@ -1,6 +1,12 @@
 'use client'
 
-import { useEffect, useState, type ComponentType } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentType,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   AlignCenterIcon,
@@ -39,7 +45,10 @@ import {
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { useFontsQuery } from '@/lib/query/hooks'
-import { useTextBlockMutations } from '@/lib/query/mutations'
+import {
+  useDocumentMutations,
+  useTextBlockMutations,
+} from '@/lib/query/mutations'
 import { cn } from '@/lib/utils'
 
 const DEFAULT_COLOR: RgbaColor = [0, 0, 0, 255]
@@ -157,7 +166,29 @@ export function RenderControlsPanel() {
   const setRenderEffect = useEditorUiStore((state) => state.setRenderEffect)
   const setRenderStroke = useEditorUiStore((state) => state.setRenderStroke)
   const { updateTextBlocks } = useTextBlockMutations()
+  const { render: renderFullPage } = useDocumentMutations()
   const { data: availableFonts = [] } = useFontsQuery()
+
+  // Debounced full-page composite re-bake. The selected-block edit
+  // path re-bakes via useTextBlocks.replaceBlock, but the global /
+  // apply-all path here writes block data (or the render-shader store)
+  // without re-rendering — so changing a render control while no block
+  // is selected used to do nothing on-canvas until a manual Render.
+  // This pushes ONE re-bake ~300ms after the last tweak.
+  const renderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scheduleRender = useCallback(() => {
+    if (renderTimerRef.current) clearTimeout(renderTimerRef.current)
+    renderTimerRef.current = setTimeout(() => {
+      renderTimerRef.current = null
+      void renderFullPage()
+    }, 300)
+  }, [renderFullPage])
+  useEffect(
+    () => () => {
+      if (renderTimerRef.current) clearTimeout(renderTimerRef.current)
+    },
+    [],
+  )
   const fontFamily = usePreferencesStore((state) => state.fontFamily)
   const setFontFamily = usePreferencesStore((state) => state.setFontFamily)
   const { textBlocks, selectedBlockIndex, replaceBlock } = useTextBlocks()
@@ -276,6 +307,9 @@ export function RenderControlsPanel() {
       style: buildStyle(block, block.style, updates),
     }))
     void updateTextBlocks(nextBlocks)
+    // updateTextBlocks persists data but does not re-bake the composite;
+    // schedule one so the change is visible without a manual Render.
+    scheduleRender()
   }
 
   const mergeFontFamilies = (
@@ -290,6 +324,9 @@ export function RenderControlsPanel() {
     const normalized = normalizeStroke(nextStroke)
     if (applyStyleToSelected({ stroke: normalized })) return
     setRenderStroke(normalized)
+    // No block selected: the stroke lives in the render-shader store
+    // and is consumed at render time — re-bake so it's visible now.
+    scheduleRender()
   }
 
   const updateStrokeWidth = (value: number) => {
@@ -359,6 +396,7 @@ export function RenderControlsPanel() {
                   }),
                 }))
                 void updateTextBlocks(nextBlocks)
+                scheduleRender()
               }}
               options={fontOptions.map(
                 (font): SearchableSelectOption => ({
@@ -434,6 +472,7 @@ export function RenderControlsPanel() {
                       }
                       if (applyStyleToSelected({ effect: nextEffect })) return
                       setRenderEffect(nextEffect)
+                      scheduleRender()
                     }}
                   >
                     <Icon className='size-3.5' />
