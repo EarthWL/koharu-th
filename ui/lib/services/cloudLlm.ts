@@ -920,18 +920,28 @@ ${blocksJson}`
   try {
     const parsed = JSON.parse(jsonString)
     if (Array.isArray(parsed)) {
-      // Validate that the array actually contains what we need (at least partially)
-      const validItems = parsed.filter(
-        (item) =>
-          typeof item.index === 'number' &&
-          typeof item.translation === 'string',
-      )
+      // Gemini 3.5 Flash often echoes the input key shape — when the
+      // prompt sends `{index, text}` the model returns `{index, text}`
+      // even though the prompt asks for `{index, translation}`. The
+      // returned `text` value IS the translation (the model rewrote
+      // it). Accept both keys to make the parser robust across that
+      // family of providers; prefer `translation` when both are set
+      // (some providers return both during instruction-tuning hits).
+      const validItems = parsed
+        .filter(
+          (item) =>
+            typeof item.index === 'number' &&
+            (typeof item.translation === 'string' || typeof item.text === 'string'),
+        )
+        .map((item) => ({
+          index: item.index,
+          translation:
+            typeof item.translation === 'string' ? item.translation : item.text,
+        }))
       if (validItems.length > 0) {
         return validItems
       } else {
-        throw new Error(
-          'JSON array is missing required "index" and "translation" fields',
-        )
+         throw new Error('JSON array is missing required "index" + ("translation" or "text") fields')
       }
     }
     throw new Error('Parsed result is not an array')

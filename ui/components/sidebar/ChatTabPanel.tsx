@@ -837,6 +837,17 @@ export function ChatTabPanel() {
 
   const refresh = () => void history.refetch()
 
+  // Self-test follow-up: thin compat shim so existing setError(...)
+  // call sites (attachCurrentPage, attachFromFile, clearAll,
+  // deleteMessage) keep working after the chat-state refactor that
+  // moved `error` into useChatActivityStore. Pre-fix the local
+  // setError was removed and these sites threw ReferenceError on
+  // the first attach attempt — the throw fired BEFORE the try
+  // block's finally, so attaching=true stayed pinned + the spinner
+  // ran forever.
+  const setError = (msg: string | null) =>
+    useChatActivityStore.setState({ error: msg })
+
   const attachCurrentPage = async () => {
     setAttaching(true)
     setError(null)
