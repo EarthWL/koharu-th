@@ -146,7 +146,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -157,7 +157,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -621,14 +621,14 @@ dependencies = [
 [[package]]
 name = "candle-core"
 version = "0.9.2"
-source = "git+https://github.com/mayocream/candle?branch=cuda-dynamic-loading#b7a98f1d1ab830d729556a92fae440b3debf4980"
+source = "git+https://github.com/mayocream/candle?branch=cuda-dynamic-loading#38be780754e954d88b63bbe1ef7e4098bbaa4c02"
 dependencies = [
  "byteorder",
  "candle-kernels",
  "candle-metal-kernels",
  "candle-ug",
  "cudarc 0.19.3",
- "float8 0.6.0",
+ "float8",
  "gemm 0.19.0",
  "half",
  "libm",
@@ -642,6 +642,7 @@ dependencies = [
  "rayon",
  "safetensors 0.7.0",
  "thiserror 2.0.18",
+ "tokenizers",
  "yoke 0.8.1",
  "zip 7.2.0",
 ]
@@ -649,7 +650,7 @@ dependencies = [
 [[package]]
 name = "candle-kernels"
 version = "0.9.2"
-source = "git+https://github.com/mayocream/candle?branch=cuda-dynamic-loading#b7a98f1d1ab830d729556a92fae440b3debf4980"
+source = "git+https://github.com/mayocream/candle?branch=cuda-dynamic-loading#38be780754e954d88b63bbe1ef7e4098bbaa4c02"
 dependencies = [
  "bindgen_cuda",
 ]
@@ -657,7 +658,7 @@ dependencies = [
 [[package]]
 name = "candle-metal-kernels"
 version = "0.9.2"
-source = "git+https://github.com/mayocream/candle?branch=cuda-dynamic-loading#b7a98f1d1ab830d729556a92fae440b3debf4980"
+source = "git+https://github.com/mayocream/candle?branch=cuda-dynamic-loading#38be780754e954d88b63bbe1ef7e4098bbaa4c02"
 dependencies = [
  "half",
  "objc2",
@@ -671,7 +672,7 @@ dependencies = [
 [[package]]
 name = "candle-nn"
 version = "0.9.2"
-source = "git+https://github.com/mayocream/candle?branch=cuda-dynamic-loading#b7a98f1d1ab830d729556a92fae440b3debf4980"
+source = "git+https://github.com/mayocream/candle?branch=cuda-dynamic-loading#38be780754e954d88b63bbe1ef7e4098bbaa4c02"
 dependencies = [
  "candle-core",
  "candle-metal-kernels",
@@ -688,7 +689,7 @@ dependencies = [
 [[package]]
 name = "candle-transformers"
 version = "0.9.2"
-source = "git+https://github.com/mayocream/candle?branch=cuda-dynamic-loading#b7a98f1d1ab830d729556a92fae440b3debf4980"
+source = "git+https://github.com/mayocream/candle?branch=cuda-dynamic-loading#38be780754e954d88b63bbe1ef7e4098bbaa4c02"
 dependencies = [
  "byteorder",
  "candle-core",
@@ -706,7 +707,7 @@ dependencies = [
 [[package]]
 name = "candle-ug"
 version = "0.9.2"
-source = "git+https://github.com/mayocream/candle?branch=cuda-dynamic-loading#b7a98f1d1ab830d729556a92fae440b3debf4980"
+source = "git+https://github.com/mayocream/candle?branch=cuda-dynamic-loading#38be780754e954d88b63bbe1ef7e4098bbaa4c02"
 dependencies = [
  "ug",
  "ug-cuda",
@@ -1269,7 +1270,7 @@ version = "0.19.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6468cb7fa330840f3ebcd8df51edc0e7bf5c18df524792ce6004c6821851cdf3"
 dependencies = [
- "float8 0.7.0",
+ "float8",
  "half",
  "libloading 0.9.0",
 ]
@@ -1496,7 +1497,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1528,7 +1529,7 @@ version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab8ecd87370524b461f8557c119c405552c396ed91fc0a8eec68679eab26f94a"
 dependencies = [
- "libloading 0.8.9",
+ "libloading 0.7.4",
 ]
 
 [[package]]
@@ -1718,7 +1719,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1852,23 +1853,14 @@ dependencies = [
 
 [[package]]
 name = "float8"
-version = "0.6.0"
-source = "git+https://github.com/mayocream/float8?branch=cuda-dynamic-loading#9353498bb3fcf9b5de6fdb9c79e4e23521496bc1"
-dependencies = [
- "cudarc 0.19.3",
- "half",
- "num-traits",
- "rand 0.9.2",
- "rand_distr",
-]
-
-[[package]]
-name = "float8"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2d1f04709a8ac06e8e8042875a3c466cc4832d3c1a18dbcb9dba3c6e83046bc"
 dependencies = [
  "half",
+ "num-traits",
+ "rand 0.9.2",
+ "rand_distr",
 ]
 
 [[package]]
@@ -4606,7 +4598,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6431,7 +6423,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6490,7 +6482,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7640,7 +7632,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8920,7 +8912,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9910,3 +9902,8 @@ checksum = "410e9ecef634c709e3831c2cfdb8d9c32164fae1c67496d5b68fff728eec37fe"
 dependencies = [
  "zune-core 0.5.1",
 ]
+
+[[patch.unused]]
+name = "float8"
+version = "0.6.0"
+source = "git+https://github.com/mayocream/float8?branch=cuda-dynamic-loading#9353498bb3fcf9b5de6fdb9c79e4e23521496bc1"
