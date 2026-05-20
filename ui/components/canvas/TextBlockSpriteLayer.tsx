@@ -72,7 +72,7 @@ function TextBlockSprite({
     }
   }, [sprite])
 
-  if (!src) return null
+  if (block.visible === false || !src) return null
 
   return (
     <img
@@ -89,6 +89,7 @@ function TextBlockSprite({
         transform: `rotate(${block.rotationDeg ?? 0}deg)`,
         userSelect: 'none',
         pointerEvents: 'none',
+        opacity: block.style?.opacity ?? 1.0,
       }}
     />
   )

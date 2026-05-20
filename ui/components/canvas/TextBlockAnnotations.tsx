@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Rnd, type RndResizeCallback, type RndDragCallback } from 'react-rnd'
 import { useHotkeys } from 'react-hotkeys-hook'
+import { Lock } from 'lucide-react'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { TextBlock } from '@/types'
 import { useTextBlocks } from '@/hooks/useTextBlocks'
@@ -29,6 +30,10 @@ export function TextBlockAnnotations({
       const target = event.target as HTMLElement | null
       const isEditable = target?.closest('input, textarea, [contenteditable]')
       if (isEditable) return
+
+      const block = textBlocks[selectedIndex]
+      if (block?.locked) return
+
       event.preventDefault()
       void removeBlock(selectedIndex)
     },
@@ -37,7 +42,7 @@ export function TextBlockAnnotations({
       preventDefault: true,
       enableOnFormTags: false,
     },
-    [interactive, removeBlock, selectedIndex],
+    [interactive, removeBlock, selectedIndex, textBlocks],
   )
 
   const activeXLine = useEditorUiStore((state) => state.activeXLine)
@@ -56,14 +61,14 @@ export function TextBlockAnnotations({
       {/* Smart Guide vertical line */}
       {activeXLine !== null && (
         <div
-          className="absolute top-0 bottom-0 border-l border-dashed border-[#e91e63] z-50 opacity-90"
+          className='absolute top-0 bottom-0 z-50 border-l border-dashed border-[#e91e63] opacity-90'
           style={{ left: activeXLine, width: '1px' }}
         />
       )}
       {/* Smart Guide horizontal line */}
       {activeYLine !== null && (
         <div
-          className="absolute left-0 right-0 border-t border-dashed border-[#e91e63] z-50 opacity-90"
+          className='absolute right-0 left-0 z-50 border-t border-dashed border-[#e91e63] opacity-90'
           style={{ top: activeYLine, height: '1px' }}
         />
       )}
@@ -105,6 +110,8 @@ function TextBlockAnnotation({
   const showHud = useEditorUiStore((state) => state.showHud)
   const copiedStyle = useEditorUiStore((state) => state.copiedStyle)
   const setCopiedStyle = useEditorUiStore((state) => state.setCopiedStyle)
+  const setActiveGuides = useEditorUiStore((state) => state.setActiveGuides)
+  const { textBlocks } = useTextBlocks()
 
   const scaledSize = {
     width: Math.max(0, block.width * scaleRatio),
@@ -123,12 +130,17 @@ function TextBlockAnnotation({
   useHotkeys(
     'up,down,left,right,shift+up,shift+down,shift+left,shift+right',
     (event) => {
-      if (!interactive || !selected) return
+      if (!interactive || !selected || block.locked) return
       const target = event.target as HTMLElement | null
       const isEditable = target?.closest('input, textarea, [contenteditable]')
       if (isEditable) return
 
       event.preventDefault()
+
+      const store = useEditorUiStore.getState()
+      if (!store.isBatchingHistory) {
+        store.startBatchHistory()
+      }
 
       const step = event.shiftKey ? 10 : 1
       let dx = 0
@@ -147,101 +159,134 @@ function TextBlockAnnotation({
       showHud(`X: ${block.x + dx}px  Y: ${block.y + dy}px`)
     },
     {
-      enabled: selected && interactive,
+      enabled: selected && interactive && !block.locked,
       preventDefault: true,
       enableOnFormTags: false,
     },
-    [selected, interactive, block.x, block.y, onUpdate]
+    [selected, interactive, block.x, block.y, block.locked, onUpdate],
   )
 
   // Keyboard adjust font size ([ and ])
   useHotkeys(
     '[,],shift+[,shift+]',
     (event) => {
-      if (!interactive || !selected) return
+      if (!interactive || !selected || block.locked) return
       const target = event.target as HTMLElement | null
       const isEditable = target?.closest('input, textarea, [contenteditable]')
       if (isEditable) return
 
       event.preventDefault()
 
+      const store = useEditorUiStore.getState()
+      if (!store.isBatchingHistory) {
+        store.startBatchHistory()
+      }
+
       const step = event.shiftKey ? 5 : 1
-      const currentStyle = block.style || { fontFamilies: [] }
-      const currentSize = currentStyle.fontSize ?? block.detectedFontSizePx ?? 16
+      const currentStyle = block.style
+      const currentSize =
+        currentStyle?.fontSize ?? block.detectedFontSizePx ?? 16
       const delta = event.key === ']' ? step : -step
       const nextSize = Math.max(6, Math.min(300, currentSize + delta))
 
       onUpdate({
         style: {
+          fontFamilies: currentStyle?.fontFamilies ?? [],
+          color: currentStyle?.color ?? [0, 0, 0, 255],
           ...currentStyle,
-          fontSize: nextSize
-        }
+          fontSize: nextSize,
+        },
       })
       showHud(`Font Size: ${nextSize}px`)
     },
     {
-      enabled: selected && interactive,
+      enabled: selected && interactive && !block.locked,
       preventDefault: true,
       enableOnFormTags: false,
     },
-    [selected, interactive, block.style, block.detectedFontSizePx, onUpdate]
+    [
+      selected,
+      interactive,
+      block.style,
+      block.detectedFontSizePx,
+      block.locked,
+      onUpdate,
+    ],
   )
 
   // Keyboard adjust typography settings (Alt + Arrows for Leading/Tracking)
   useHotkeys(
     'alt+up,alt+down,alt+left,alt+right',
     (event) => {
-      if (!interactive || !selected) return
+      if (!interactive || !selected || block.locked) return
       const target = event.target as HTMLElement | null
       const isEditable = target?.closest('input, textarea, [contenteditable]')
       if (isEditable) return
 
       event.preventDefault()
 
-      const currentStyle = block.style || { fontFamilies: [] }
+      const store = useEditorUiStore.getState()
+      if (!store.isBatchingHistory) {
+        store.startBatchHistory()
+      }
+
+      const currentStyle = block.style
 
       if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-        const currentLineHeight = currentStyle.lineHeight ?? 1.0
+        const currentLineHeight = currentStyle?.lineHeight ?? 1.0
         const delta = event.key === 'ArrowDown' ? 0.05 : -0.05
-        const nextVal = Number(Math.max(0.8, Math.min(2.0, currentLineHeight + delta)).toFixed(2))
+        const nextVal = Number(
+          Math.max(0.8, Math.min(2.0, currentLineHeight + delta)).toFixed(2),
+        )
         onUpdate({
           style: {
+            fontFamilies: currentStyle?.fontFamilies ?? [],
+            color: currentStyle?.color ?? [0, 0, 0, 255],
             ...currentStyle,
-            lineHeight: nextVal
-          }
+            lineHeight: nextVal,
+          },
         })
         showHud(`Line Height: ${nextVal}`)
       } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-        const currentLetterSpacing = currentStyle.letterSpacingPx ?? 0
+        const currentLetterSpacing = currentStyle?.letterSpacingPx ?? 0
         const delta = event.key === 'ArrowRight' ? 0.5 : -0.5
-        const nextVal = Number(Math.max(-2, Math.min(8, currentLetterSpacing + delta)).toFixed(1))
+        const nextVal = Number(
+          Math.max(-2, Math.min(8, currentLetterSpacing + delta)).toFixed(1),
+        )
         onUpdate({
           style: {
+            fontFamilies: currentStyle?.fontFamilies ?? [],
+            color: currentStyle?.color ?? [0, 0, 0, 255],
             ...currentStyle,
-            letterSpacingPx: nextVal
-          }
+            letterSpacingPx: nextVal,
+          },
         })
         showHud(`Letter Spacing: ${nextVal}px`)
       }
     },
     {
-      enabled: selected && interactive,
+      enabled: selected && interactive && !block.locked,
       preventDefault: true,
       enableOnFormTags: false,
     },
-    [selected, interactive, block.style, onUpdate]
+    [selected, interactive, block.style, block.locked, onUpdate],
   )
 
   // Keyboard adjust rotation (Alt + [ and ])
   useHotkeys(
     'alt+[,alt+],alt+shift+[,alt+shift+]',
     (event) => {
-      if (!interactive || !selected) return
+      if (!interactive || !selected || block.locked) return
       const target = event.target as HTMLElement | null
       const isEditable = target?.closest('input, textarea, [contenteditable]')
       if (isEditable) return
 
       event.preventDefault()
+
+      const store = useEditorUiStore.getState()
+      if (!store.isBatchingHistory) {
+        store.startBatchHistory()
+      }
 
       const step = event.shiftKey ? 15 : 1
       const currentRotation = block.rotationDeg ?? 0
@@ -251,16 +296,16 @@ function TextBlockAnnotation({
       if (nextRotation < -180) nextRotation += 360
 
       onUpdate({
-        rotationDeg: nextRotation
+        rotationDeg: nextRotation,
       })
       showHud(`Angle: ${nextRotation}°`)
     },
     {
-      enabled: selected && interactive,
+      enabled: selected && interactive && !block.locked,
       preventDefault: true,
       enableOnFormTags: false,
     },
-    [selected, interactive, block.rotationDeg, onUpdate]
+    [selected, interactive, block.rotationDeg, block.locked, onUpdate],
   )
 
   // Keyboard copy-paste style
@@ -281,20 +326,20 @@ function TextBlockAnnotation({
       preventDefault: true,
       enableOnFormTags: false,
     },
-    [selected, interactive, block.style, setCopiedStyle, showHud]
+    [selected, interactive, block.style, setCopiedStyle, showHud],
   )
 
   useHotkeys(
     'ctrl+alt+v,ctrl+shift+v',
     (event) => {
-      if (!interactive || !selected) return
+      if (!interactive || !selected || block.locked) return
       event.preventDefault()
       if (copiedStyle) {
         onUpdate({
           style: {
             ...block.style,
-            ...copiedStyle
-          }
+            ...copiedStyle,
+          },
         })
         showHud('Pasted Style')
       } else {
@@ -302,20 +347,57 @@ function TextBlockAnnotation({
       }
     },
     {
-      enabled: selected && interactive,
+      enabled: selected && interactive && !block.locked,
       preventDefault: true,
       enableOnFormTags: false,
+      enableOnContentEditable: false,
     },
-    [selected, interactive, block.style, copiedStyle, onUpdate, showHud]
+    [
+      selected,
+      interactive,
+      block.style,
+      block.locked,
+      copiedStyle,
+      onUpdate,
+      showHud,
+    ],
   )
+
+  useEffect(() => {
+    if (!selected || !interactive || block.locked) return
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      const store = useEditorUiStore.getState()
+      if (store.isBatchingHistory) {
+        const currentBlocks = store.historyPast.length > 0 ? textBlocks : []
+        if (
+          ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)
+        ) {
+          if (e.altKey) {
+            store.endBatchHistory('Change Typography', currentBlocks)
+          } else {
+            store.endBatchHistory('Move Block', currentBlocks)
+          }
+        } else if (['[', ']'].includes(e.key)) {
+          if (e.altKey) {
+            store.endBatchHistory('Rotate Block', currentBlocks)
+          } else {
+            store.endBatchHistory('Change Font Size', currentBlocks)
+          }
+        }
+      }
+    }
+
+    window.addEventListener('keyup', handleKeyUp)
+    return () => {
+      window.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [selected, interactive, block.locked, textBlocks])
 
   useEffect(() => {
     setSize(scaledSize)
     setPosition(scaledPosition)
   }, [scaledPosition.x, scaledPosition.y, scaledSize.width, scaledSize.height])
-
-  const setActiveGuides = useEditorUiStore((state) => state.setActiveGuides)
-  const { textBlocks } = useTextBlocks()
 
   const handleDrag: RndDragCallback = (_, data) => {
     if (!interactive) return
@@ -392,7 +474,7 @@ function TextBlockAnnotation({
 
   const handleDragStop: RndDragCallback = (_, data) => {
     if (!interactive) return
-    
+
     const threshold = 6
     let snapX = data.x
     let snapY = data.y
@@ -482,14 +564,16 @@ function TextBlockAnnotation({
     })
   }
 
+  if (block.visible === false) return null
+
   return (
     <Rnd
       size={size}
       position={position}
       bounds='parent'
-      disableDragging={!interactive}
+      disableDragging={!interactive || !!block.locked}
       enableResizing={
-        selected && interactive
+        selected && interactive && !block.locked
           ? {
               bottom: true,
               bottomLeft: true,
@@ -503,13 +587,13 @@ function TextBlockAnnotation({
           : false
       }
       onDragStart={() => {
-        if (!interactive) return
+        if (!interactive || block.locked) return
         onSelect(index)
       }}
       onDrag={handleDrag}
       onDragStop={handleDragStop}
       onResizeStart={() => {
-        if (!interactive) return
+        if (!interactive || block.locked) return
         onSelect(index)
       }}
       onResize={handleResize}
@@ -532,16 +616,16 @@ function TextBlockAnnotation({
       }}
       className='absolute'
     >
-      <div 
+      <div
         className='relative h-full w-full select-none'
         onDoubleClick={(event) => {
-          if (!interactive) return
+          if (!interactive || block.locked) return
           event.stopPropagation()
           onSelect(index)
-          
+
           setTimeout(() => {
             const el = window.document.querySelector(
-              `[data-testid="textblock-translation-${index}"]`
+              `[data-testid="textblock-translation-${index}"]`,
             ) as HTMLTextAreaElement | null
             if (el) {
               el.focus()
@@ -564,6 +648,11 @@ function TextBlockAnnotation({
         >
           {index + 1}
         </div>
+        {block.locked && (
+          <div className='absolute -top-1.5 -right-1.5 z-30 flex h-4 w-4 items-center justify-center rounded-full border border-slate-600 bg-slate-800 text-white shadow'>
+            <Lock className='size-2.5 text-white' />
+          </div>
+        )}
       </div>
     </Rnd>
   )

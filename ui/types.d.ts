@@ -58,6 +58,8 @@ export type TextStyle = {
   baselineShiftPx?: number
   /** Horizontal scale of the glyphs (e.g. 1.0 is default, 0.9 compresses, 1.1 expands). */
   horizontalScale?: number
+  /** Layer opacity (0.0 to 1.0) */
+  opacity?: number
 }
 
 export type TextBlock = {
@@ -66,7 +68,12 @@ export type TextBlock = {
   width: number
   height: number
   confidence: number
-  linePolygons?: [[number, number], [number, number], [number, number], [number, number]][]
+  linePolygons?: [
+    [number, number],
+    [number, number],
+    [number, number],
+    [number, number],
+  ][]
   sourceDirection?: TextDirection
   sourceLanguage?: string
   rotationDeg?: number
@@ -77,6 +84,9 @@ export type TextBlock = {
   style?: TextStyle
   fontPrediction?: FontPrediction
   rendered?: Uint8Array
+  locked?: boolean
+  name?: string
+  visible?: boolean
 }
 
 export type ToolMode = 'select' | 'block' | 'brush' | 'repairBrush' | 'eraser'
@@ -101,4 +111,3 @@ export type Document = {
   brushLayer?: Uint8Array
   rendered?: Uint8Array
 }
-

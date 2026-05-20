@@ -11,7 +11,12 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
 import { useTranslation } from 'react-i18next'
-import { listen, getHttpUrl, subscribeCollabSync, publishCollab } from '@/lib/backend'
+import {
+  listen,
+  getHttpUrl,
+  subscribeCollabSync,
+  publishCollab,
+} from '@/lib/backend'
 import { Image } from '@/components/Image'
 import { useCollabStore } from '@/lib/stores/collabStore'
 import { CollaboratorsList } from '@/components/canvas/CollaboratorsList'
@@ -19,6 +24,7 @@ import { CollaboratorCursors } from '@/components/canvas/CollaboratorCursors'
 import {
   setCanvasViewport,
   fitCanvasToViewport,
+  resetCanvasScale,
 } from '@/components/canvas/canvasViewport'
 import { ToolRail } from '@/components/canvas/ToolRail'
 import { CanvasToolbar } from '@/components/canvas/CanvasToolbar'
@@ -46,8 +52,12 @@ const BRUSH_CURSOR =
 export function Workspace() {
   const undo = useEditorUiStore((state) => state.undo)
   const redo = useEditorUiStore((state) => state.redo)
-  const showShortcutsCheatSheet = useEditorUiStore((state) => state.showShortcutsCheatSheet)
-  const setShowShortcutsCheatSheet = useEditorUiStore((state) => state.setShowShortcutsCheatSheet)
+  const showShortcutsCheatSheet = useEditorUiStore(
+    (state) => state.showShortcutsCheatSheet,
+  )
+  const setShowShortcutsCheatSheet = useEditorUiStore(
+    (state) => state.setShowShortcutsCheatSheet,
+  )
   const { updateTextBlocks } = useTextBlockMutations()
   const scale = useEditorUiStore((state) => state.scale)
   const hudMessage = useEditorUiStore((state) => state.hudMessage)
@@ -237,7 +247,7 @@ export function Workspace() {
         return
       }
 
-      // Ctrl + Z (Undo) / Ctrl + Y (Redo)
+      // Ctrl + Z (Undo) / Ctrl + Y (Redo) / Ctrl + 0 (Fit) / Ctrl + 1 (100%)
       if (e.ctrlKey || e.metaKey) {
         if (e.key.toLowerCase() === 'z') {
           e.preventDefault()
@@ -245,6 +255,12 @@ export function Workspace() {
         } else if (e.key.toLowerCase() === 'y') {
           e.preventDefault()
           redo(updateTextBlocks)
+        } else if (e.key === '0') {
+          e.preventDefault()
+          fitCanvasToViewport()
+        } else if (e.key === '1') {
+          e.preventDefault()
+          resetCanvasScale()
         }
       }
     }
@@ -253,7 +269,13 @@ export function Workspace() {
     return () => {
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [undo, redo, showShortcutsCheatSheet, setShowShortcutsCheatSheet, updateTextBlocks])
+  }, [
+    undo,
+    redo,
+    showShortcutsCheatSheet,
+    setShowShortcutsCheatSheet,
+    updateTextBlocks,
+  ])
 
   useGesture(
     {
@@ -390,7 +412,9 @@ export function Workspace() {
   const myName = useCollabStore((state) => state.userName)
   const updateCollaborator = useCollabStore((state) => state.updateCollaborator)
   const removeCollaborator = useCollabStore((state) => state.removeCollaborator)
-  const clearExpiredCollaborators = useCollabStore((state) => state.clearExpiredCollaborators)
+  const clearExpiredCollaborators = useCollabStore(
+    (state) => state.clearExpiredCollaborators,
+  )
 
   useEffect(() => {
     const unsubscribe = subscribeCollabSync((event) => {
@@ -425,7 +449,12 @@ export function Workspace() {
         payload: {},
       }).catch(() => {})
     }
-  }, [mySessionId, updateCollaborator, removeCollaborator, clearExpiredCollaborators])
+  }, [
+    mySessionId,
+    updateCollaborator,
+    removeCollaborator,
+    clearExpiredCollaborators,
+  ])
 
   useEffect(() => {
     if (currentDocumentIndex === undefined) return
@@ -520,7 +549,9 @@ export function Workspace() {
                     >
                       <div className='absolute inset-0'>
                         <Image
-                          src={getHttpUrl(`/api/image/${currentDocumentIndex}/base?v=${documentsVersion}`)}
+                          src={getHttpUrl(
+                            `/api/image/${currentDocumentIndex}/base?v=${documentsVersion}`,
+                          )}
                           dataKey={`${currentDocument.id}-base`}
                           transition={false}
                         />
@@ -540,7 +571,9 @@ export function Workspace() {
                         {currentDocument?.inpainted && (
                           <Image
                             data-testid='workspace-inpainted-image'
-                            src={getHttpUrl(`/api/image/${currentDocumentIndex}/inpainted?v=${documentsVersion}`)}
+                            src={getHttpUrl(
+                              `/api/image/${currentDocumentIndex}/inpainted?v=${documentsVersion}`,
+                            )}
                             visible={showInpaintedImage}
                             transition={false}
                           />
@@ -585,7 +618,9 @@ export function Workspace() {
                         {currentDocument.rendered && showRenderedImage && (
                           <Image
                             data-testid='workspace-rendered-image'
-                            src={getHttpUrl(`/api/image/${currentDocumentIndex}/rendered?v=${documentsVersion}`)}
+                            src={getHttpUrl(
+                              `/api/image/${currentDocumentIndex}/rendered?v=${documentsVersion}`,
+                            )}
                             transition={false}
                             style={{ zIndex: 35 }}
                           />
@@ -647,7 +682,7 @@ export function Workspace() {
           </ScrollAreaPrimitive.Scrollbar>
         </ScrollAreaPrimitive.Root>
         {hudMessage && (
-          <div className='pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-1.5 rounded bg-[#2c2c2c]/95 border border-[#3e3e3e] px-3 py-1.5 text-[11px] font-mono text-zinc-100 shadow-lg select-none transition-opacity duration-150 animate-in fade-in slide-in-from-bottom-2'>
+          <div className='animate-in fade-in slide-in-from-bottom-2 pointer-events-none absolute bottom-4 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-1.5 rounded border border-[#3e3e3e] bg-[#2c2c2c]/95 px-3 py-1.5 font-mono text-[11px] text-zinc-100 shadow-lg transition-opacity duration-150 select-none'>
             {hudMessage}
           </div>
         )}
