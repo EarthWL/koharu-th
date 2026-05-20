@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type HistoryState } from '@/lib/api'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
@@ -95,14 +95,36 @@ export function useSessionHistory() {
     }
   }, [currentDocumentIndex])
 
+  // Debounce the post-history render: holding Ctrl+Z walks the stack
+  // fast, and a full-page render RPC per step would storm the backend.
+  // The block data (panel + outline) updates immediately via
+  // invalidateDocument in onSuccess; only the composite catch-up is
+  // debounced (~180ms after the last undo/redo).
+  const renderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scheduleReRender = useCallback(() => {
+    if (renderTimerRef.current) clearTimeout(renderTimerRef.current)
+    renderTimerRef.current = setTimeout(() => {
+      renderTimerRef.current = null
+      void reRenderAfterHistory().then(() => invalidateDocument())
+    }, 180)
+  }, [reRenderAfterHistory, invalidateDocument])
+  useEffect(
+    () => () => {
+      if (renderTimerRef.current) clearTimeout(renderTimerRef.current)
+    },
+    [],
+  )
+
   const showError = useUiErrorStore((s) => s.showError)
 
   const undoMutation = useMutation({
     mutationFn: () => api.sessionUndo(currentDocumentIndex),
     onSuccess: async (state) => {
       queryClient.setQueryData(historyKey(currentDocumentIndex), state)
-      await reRenderAfterHistory()
+      // Block data updates now; composite catches up on a debounced
+      // render so rapid undo/redo doesn't storm the renderer.
       await invalidateDocument()
+      scheduleReRender()
     },
     onError: (err) => {
       // Backend rejects when the session was built for a
@@ -119,8 +141,10 @@ export function useSessionHistory() {
     mutationFn: () => api.sessionRedo(currentDocumentIndex),
     onSuccess: async (state) => {
       queryClient.setQueryData(historyKey(currentDocumentIndex), state)
-      await reRenderAfterHistory()
+      // Block data updates now; composite catches up on a debounced
+      // render so rapid undo/redo doesn't storm the renderer.
       await invalidateDocument()
+      scheduleReRender()
     },
     onError: (err) => {
       showError(`Redo failed: ${String(err)}`)
