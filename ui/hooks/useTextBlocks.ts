@@ -8,6 +8,7 @@ import {
   useTextBlockMutations,
 } from '@/lib/query/mutations'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
+import { useTextStylePresetsStore } from '@/lib/stores/textStylePresetsStore'
 import { TextBlock } from '@/types'
 import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query/keys'
@@ -151,7 +152,15 @@ export function useTextBlocks() {
 
   const appendBlock = async (block: TextBlock) => {
     const currentBlocks = document?.textBlocks ?? []
-    const nextBlocks = [...currentBlocks, block]
+    // Inherit the user's default style preset (if set) when the new
+    // block doesn't already carry a style. Lets the translator pick a
+    // house style once and have every block they draw match it.
+    const defaultStyle = useTextStylePresetsStore.getState().getDefaultStyle()
+    const seeded =
+      block.style || !defaultStyle
+        ? block
+        : { ...block, style: { ...defaultStyle } }
+    const nextBlocks = [...currentBlocks, seeded]
     await updateTextBlocks(nextBlocks)
     setSelectedBlockIndex(nextBlocks.length - 1)
   }

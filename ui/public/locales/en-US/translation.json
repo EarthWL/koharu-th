@@ -165,7 +165,17 @@
     "ariaFontSize": "Font size",
     "ariaLineHeight": "Line height",
     "ariaLetterSpacing": "Letter spacing",
-    "ariaMinFontSize": "Min font size for auto-fit"
+    "ariaMinFontSize": "Min font size for auto-fit",
+    "presetsHeader": "Style presets",
+    "presets": "Presets",
+    "savePreset": "Save current style as a preset",
+    "applyToAll": "Apply current style to all blocks",
+    "presetNamePrompt": "Name this style preset:",
+    "presetsEmpty": "No saved presets yet. Set up a style, then “Save”.",
+    "presetApply": "Apply this preset",
+    "presetSetDefault": "Use for new blocks",
+    "presetDelete": "Delete preset",
+    "presetDefaultBadge": "new-block default"
   },
   "textBlocks": {
     "emptyPrompt": "Open an image to see text blocks.",

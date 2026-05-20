@@ -16,11 +16,15 @@ import {
   ArrowDownToLineIcon,
   ArrowUpToLineIcon,
   BoldIcon,
+  BookmarkIcon,
+  CopyIcon,
   ItalicIcon,
   LanguagesIcon,
   MinusIcon,
   PlusIcon,
   SquareIcon,
+  StarIcon,
+  Trash2Icon,
 } from 'lucide-react'
 import { useTextBlocks } from '@/hooks/useTextBlocks'
 import {
@@ -39,11 +43,17 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import {
   SearchableSelect,
   type SearchableSelectOption,
 } from '@/components/ui/searchable-select'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
+import { useTextStylePresetsStore } from '@/lib/stores/textStylePresetsStore'
 import { useFontsQuery } from '@/lib/query/hooks'
 import {
   useDocumentMutations,
@@ -312,6 +322,60 @@ export function RenderControlsPanel() {
     scheduleRender()
   }
 
+  // ── Style presets + apply-to-all ──────────────────────────────────
+  const presets = useTextStylePresetsStore((s) => s.presets)
+  const defaultPresetId = useTextStylePresetsStore((s) => s.defaultPresetId)
+  const addPreset = useTextStylePresetsStore((s) => s.addPreset)
+  const removePreset = useTextStylePresetsStore((s) => s.removePreset)
+  const setDefaultPreset = useTextStylePresetsStore((s) => s.setDefault)
+
+  // The full style currently in effect: the selected block's saved
+  // style if a block is selected, otherwise a snapshot assembled from
+  // the panel's live values (global mode).
+  const captureCurrentStyle = (): TextStyle =>
+    selectedBlock?.style
+      ? { ...selectedBlock.style }
+      : {
+          fontFamilies: currentFont ? [currentFont] : [],
+          fontSize: currentFontSize,
+          color: currentColor,
+          effect: currentEffect,
+          stroke: currentStroke,
+          textAlign: currentTextAlign,
+          lineHeight: currentLineHeight,
+          letterSpacingPx: currentLetterSpacing,
+          minFontSize: currentMinFontSize,
+          verticalAlign: currentVerticalAlign,
+        }
+
+  // Overwrite every block's style wholesale (presets / "apply to all"
+  // replace, not merge — the user wants one consistent house style).
+  const writeStyleToAllBlocks = (style: TextStyle) => {
+    if (!hasBlocks) return
+    const nextBlocks = textBlocks.map((block) => ({
+      ...block,
+      style: { ...style },
+    }))
+    void updateTextBlocks(nextBlocks)
+    scheduleRender()
+  }
+
+  // Apply a style to the selected block, or to all blocks if none is
+  // selected. Used by preset clicks.
+  const applyWholeStyle = (style: TextStyle) => {
+    if (selectedBlockIndex !== undefined) {
+      void replaceBlock(selectedBlockIndex, { style: { ...style } })
+    } else {
+      writeStyleToAllBlocks(style)
+    }
+  }
+
+  const handleSavePreset = () => {
+    const name = window.prompt(t('render.presetNamePrompt'))?.trim()
+    if (!name) return
+    addPreset(name, captureCurrentStyle())
+  }
+
   const mergeFontFamilies = (
     nextFont: string,
     current: string[] | undefined,
@@ -357,7 +421,136 @@ export function RenderControlsPanel() {
 
   return (
     <div className='flex w-full min-w-0 flex-col gap-1.5'>
-      <div className='flex items-center justify-end'>
+      <div className='flex items-center justify-between gap-1'>
+        <div className='flex items-center gap-1'>
+          {/* Presets popover (#2) */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant='outline'
+                size='xs'
+                className='h-7 gap-1 px-2 text-[10px]'
+                data-testid='render-presets-trigger'
+              >
+                <BookmarkIcon className='size-3' />
+                {t('render.presets')}
+                {presets.length > 0 && (
+                  <span className='text-muted-foreground'>
+                    ({presets.length})
+                  </span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              align='start'
+              className='w-64 p-1.5'
+              data-testid='render-presets-popover'
+            >
+              <div className='text-muted-foreground px-1 pb-1 text-[10px] font-medium tracking-wide uppercase'>
+                {t('render.presetsHeader')}
+              </div>
+              {presets.length === 0 ? (
+                <p className='text-muted-foreground px-1 py-2 text-[11px]'>
+                  {t('render.presetsEmpty')}
+                </p>
+              ) : (
+                <ul className='flex max-h-60 flex-col gap-0.5 overflow-y-auto'>
+                  {presets.map((preset) => {
+                    const isDefault = preset.id === defaultPresetId
+                    return (
+                      <li
+                        key={preset.id}
+                        className='hover:bg-accent flex items-center gap-1 rounded px-1 py-0.5'
+                      >
+                        <button
+                          type='button'
+                          className='min-w-0 flex-1 truncate text-left text-[11px]'
+                          title={t('render.presetApply')}
+                          data-testid='render-preset-apply'
+                          onClick={() => applyWholeStyle(preset.style)}
+                        >
+                          {preset.name}
+                          {isDefault && (
+                            <span className='text-primary ml-1 text-[9px]'>
+                              · {t('render.presetDefaultBadge')}
+                            </span>
+                          )}
+                        </button>
+                        <Button
+                          variant='ghost'
+                          size='icon-sm'
+                          aria-label={t('render.presetSetDefault')}
+                          title={t('render.presetSetDefault')}
+                          className='size-6 shrink-0'
+                          onClick={() =>
+                            setDefaultPreset(isDefault ? null : preset.id)
+                          }
+                        >
+                          <StarIcon
+                            className={cn(
+                              'size-3',
+                              isDefault && 'fill-primary text-primary',
+                            )}
+                          />
+                        </Button>
+                        <Button
+                          variant='ghost'
+                          size='icon-sm'
+                          aria-label={t('render.presetDelete')}
+                          title={t('render.presetDelete')}
+                          className='text-muted-foreground hover:text-destructive size-6 shrink-0'
+                          onClick={() => removePreset(preset.id)}
+                        >
+                          <Trash2Icon className='size-3' />
+                        </Button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </PopoverContent>
+          </Popover>
+
+          {/* Save current style as a preset (#2) */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant='outline'
+                size='icon-sm'
+                className='size-7'
+                aria-label={t('render.savePreset')}
+                data-testid='render-preset-save'
+                onClick={handleSavePreset}
+              >
+                <PlusIcon className='size-3.5' />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side='bottom' sideOffset={4}>
+              {t('render.savePreset')}
+            </TooltipContent>
+          </Tooltip>
+
+          {/* Apply current style to ALL blocks (#1) */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant='outline'
+                size='icon-sm'
+                className='size-7'
+                disabled={!hasBlocks}
+                aria-label={t('render.applyToAll')}
+                data-testid='render-apply-all'
+                onClick={() => writeStyleToAllBlocks(captureCurrentStyle())}
+              >
+                <CopyIcon className='size-3.5' />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side='bottom' sideOffset={4}>
+              {t('render.applyToAll')}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+
         <span
           data-testid='render-scope-indicator'
           className={cn(

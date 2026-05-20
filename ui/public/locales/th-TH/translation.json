@@ -192,7 +192,17 @@
     "ariaFontSize": "ขนาดฟอนต์",
     "ariaLineHeight": "ระยะบรรทัด",
     "ariaLetterSpacing": "ระยะระหว่างอักขระ",
-    "ariaMinFontSize": "ขนาดฟอนต์ต่ำสุดสำหรับ auto-fit"
+    "ariaMinFontSize": "ขนาดฟอนต์ต่ำสุดสำหรับ auto-fit",
+    "presetsHeader": "พรีเซ็ตสไตล์",
+    "presets": "พรีเซ็ต",
+    "savePreset": "บันทึกสไตล์ปัจจุบันเป็นพรีเซ็ต",
+    "applyToAll": "ใช้สไตล์ปัจจุบันกับทุกกล่อง",
+    "presetNamePrompt": "ตั้งชื่อพรีเซ็ตสไตล์นี้:",
+    "presetsEmpty": "ยังไม่มีพรีเซ็ต ตั้งค่าสไตล์แล้วกด “บันทึก”",
+    "presetApply": "ใช้พรีเซ็ตนี้",
+    "presetSetDefault": "ใช้กับกล่องใหม่",
+    "presetDelete": "ลบพรีเซ็ต",
+    "presetDefaultBadge": "ค่าเริ่มต้นกล่องใหม่"
   },
   "textBlocks": {
     "emptyPrompt": "เปิดภาพเพื่อดู text blocks",
