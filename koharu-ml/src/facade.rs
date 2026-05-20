@@ -105,6 +105,78 @@ impl Model {
         })
     }
 
+    /// Warm up all AI models by performing dummy inference passes.
+    /// This compiles GPU/CPU kernels and pre-allocates memory buffers,
+    /// eliminating the "first-use" lag.
+    pub async fn warmup(&self) -> Result<()> {
+        tracing::info!("Starting background AI model warmup...");
+
+        let dummy_128 = DynamicImage::ImageRgb8(image::RgbImage::new(128, 128));
+        let dummy_ocr = DynamicImage::ImageRgb8(image::RgbImage::new(128, 48));
+        let dummy_mask = DynamicImage::ImageLuma8(image::GrayImage::new(128, 128));
+        let dummy_font = DynamicImage::ImageRgb8(image::RgbImage::new(64, 64));
+
+        // 1. Warm up ComicTextDetector
+        if let Err(e) = self.dialog_detector.inference(&dummy_128) {
+            tracing::warn!("Warmup: ComicTextDetector inference failed: {e:#}");
+        } else {
+            tracing::debug!("Warmup: ComicTextDetector warmed up.");
+        }
+
+        // 2. Warm up Mit48pxOcr
+        if let Err(e) = self.ocr_mit48px.inference_regions(&[dummy_ocr.clone()]) {
+            tracing::warn!("Warmup: Mit48pxOcr inference failed: {e:#}");
+        } else {
+            tracing::debug!("Warmup: Mit48pxOcr warmed up.");
+        }
+
+        // 3. Warm up Lama
+        if let Err(e) = self.lama.inference_model(&dummy_128, &dummy_mask) {
+            tracing::warn!("Warmup: Lama inference failed: {e:#}");
+        } else {
+            tracing::debug!("Warmup: Lama warmed up.");
+        }
+
+        // 4. Warm up FontDetector
+        if let Err(e) = self.font_detector.inference(&[dummy_font], 1) {
+            tracing::warn!("Warmup: FontDetector inference failed: {e:#}");
+        } else {
+            tracing::debug!("Warmup: FontDetector warmed up.");
+        }
+
+        // 5. Pre-load and warm up optional/lazy models in background
+        tracing::info!("Pre-loading and warming up optional Japanese MangaOCR model...");
+        match self.manga_ocr().await {
+            Ok(ocr) => {
+                if let Err(e) = ocr.inference(&[dummy_ocr.clone()]) {
+                    tracing::warn!("Warmup: MangaOcr inference failed: {e:#}");
+                } else {
+                    tracing::debug!("Warmup: MangaOcr warmed up.");
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Warmup: Failed to load optional MangaOcr: {e:#}");
+            }
+        }
+
+        tracing::info!("Pre-loading and warming up AnimeTextYolo (N variant)...");
+        match self.anime_text_detector(AnimeTextYoloVariant::N).await {
+            Ok(yolo) => {
+                if let Err(e) = yolo.inference_with_thresholds(&dummy_128, 0.25, 0.45) {
+                    tracing::warn!("Warmup: AnimeTextDetector inference failed: {e:#}");
+                } else {
+                    tracing::debug!("Warmup: AnimeTextDetector warmed up.");
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Warmup: Failed to load AnimeTextDetector: {e:#}");
+            }
+        }
+
+        tracing::info!("AI model warmup completed successfully.");
+        Ok(())
+    }
+
     async fn manga_ocr(&self) -> Result<&MangaOcr> {
         self.ocr_manga
             .get_or_try_init(|| MangaOcr::load(self.use_cpu))

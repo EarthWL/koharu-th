@@ -547,6 +547,14 @@ async fn build_resources_inner(cpu: bool, file: Option<PathBuf>) -> Result<AppRe
             .await
             .context("Failed to initialize ML model")?,
     );
+    let ml_for_warmup = ml.clone();
+    tokio::spawn(async move {
+        if let Err(err) = ml_for_warmup.warmup().await {
+            tracing::warn!("Failed to warm up ML models in background: {err:#}");
+        } else {
+            tracing::info!("ML models warmed up successfully in background!");
+        }
+    });
     let llm = Arc::new(koharu_ml::llm::facade::Model::new(cpu));
     // Make sure the bundled-fonts directory exists so the user can drop
     // .ttf / .otf files in (e.g. Noto Sans Thai) without manually
