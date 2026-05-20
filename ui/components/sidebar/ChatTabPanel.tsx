@@ -159,6 +159,12 @@ export function ChatTabPanel() {
     setShowSlash(false)
     setSlashIndex(0)
   }
+  // Group tool-noise rows once per history change (not per streaming
+  // delta) so the per-group summary work isn't recomputed on every token.
+  const chatRows = useMemo(
+    () => groupChatRows(history.data ?? []),
+    [history.data],
+  )
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>(
     [],
   )
@@ -402,7 +408,7 @@ export function ChatTabPanel() {
           {!history.data?.length ? (
             <EmptyState />
           ) : (
-            groupChatRows(history.data).map((g) =>
+            chatRows.map((g) =>
               g.type === 'message' ? (
                 <MessageRow
                   key={g.message.id}
@@ -743,8 +749,13 @@ function ToolActivityGroup({
         />
         <WrenchIcon className='size-2.5 shrink-0' />
         <span className='shrink-0'>
-          tools · {callCount} call{callCount === 1 ? '' : 's'}
-          {resultCount > 0 ? ` · ${resultCount} result${resultCount === 1 ? '' : 's'}` : ''}
+          tools
+          {callCount > 0
+            ? ` · ${callCount} call${callCount === 1 ? '' : 's'}`
+            : ''}
+          {resultCount > 0
+            ? ` · ${resultCount} result${resultCount === 1 ? '' : 's'}`
+            : ''}
         </span>
         {!open && summary && (
           <span className='min-w-0 truncate opacity-70'>· {summary}</span>
