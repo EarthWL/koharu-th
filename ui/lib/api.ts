@@ -145,8 +145,14 @@ export const api = {
     })
   },
 
-  async inpaint(index: number): Promise<void> {
-    await invoke('inpaint', { index })
+  async inpaint(
+    index: number,
+    options?: {
+      inpaintEngine?: 'lama' | 'stable_diffusion' | 'cloud_flux'
+      inpaintMaxSide?: number
+    },
+  ): Promise<void> {
+    await invoke('inpaint', { index, ...options })
   },
 
   async updateInpaintMask(
@@ -293,6 +299,9 @@ export const api = {
     /** Inpaint maximum side length (px) for crop passed to LaMa.
      *  Defaults to backend default if omitted. */
     inpaintMaxSide?: number
+    /** Inpainting engine for the inpainting pipeline step. Backend defaults to
+     *  lama if omitted. */
+    inpaintEngine?: 'lama' | 'stable_diffusion' | 'cloud_flux'
   }): Promise<void> {
     await invoke('process', options)
   },

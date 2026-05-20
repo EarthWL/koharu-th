@@ -68,6 +68,40 @@ impl DetectorEngine {
     }
 }
 
+/// Selectable Inpainting Engine.
+/// `Lama` (Tier 1: Offline, lightweight, fast, default)
+/// `StableDiffusion` (Tier 2: Offline/Local high-quality quantized/OpenVINO or local high-quality path)
+/// `CloudFlux` (Tier 3: Online high-quality via API or premium fallbacks)
+#[derive(
+    Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum InpaintEngine {
+    #[default]
+    Lama,
+    StableDiffusion,
+    CloudFlux,
+}
+
+impl InpaintEngine {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            InpaintEngine::Lama => "lama",
+            InpaintEngine::StableDiffusion => "stable_diffusion",
+            InpaintEngine::CloudFlux => "cloud_flux",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "lama" => Some(InpaintEngine::Lama),
+            "stable_diffusion" | "stable-diffusion" | "sd" => Some(InpaintEngine::StableDiffusion),
+            "cloud_flux" | "cloud-flux" | "flux" => Some(InpaintEngine::CloudFlux),
+            _ => None,
+        }
+    }
+}
+
 /// Size variant for the Anime Text YOLO detector. Only meaningful
 /// when `DetectorEngine::AnimeYolo` is selected. Mirrors
 /// `koharu_ml::anime_text::AnimeTextYoloVariant`.

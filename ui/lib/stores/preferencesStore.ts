@@ -19,6 +19,7 @@ export type CloudProvider = 'none' | 'openai' | 'openrouter' | 'gemini' | 'anthr
  * + chat calls — the cost dashboard sees them.
  */
 export type OcrEngine = 'mit48px' | 'manga' | 'cloud' | 'auto'
+export type InpaintEngine = 'lama' | 'stable_diffusion' | 'cloud_flux'
 export type AutoUpdateMode = 'auto' | 'notify' | 'manual'
 /** ความละเอียดสูงสุด (px) ของ crop ที่ส่ง LaMa — fast=256 / balanced=512 / quality=768 */
 export type InpaintQuality = 256 | 512 | 768
@@ -157,6 +158,10 @@ type PreferencesState = {
   inpaintMaxSide: InpaintQuality
   setInpaintMaxSide: (side: InpaintQuality) => void
 
+  /** Inpainting engine variant. */
+  inpaintEngine: InpaintEngine
+  setInpaintEngine: (engine: InpaintEngine) => void
+
   /** เปิด Thai post-processing หลัง LLM แปล:
    *  - แปลง straight quotes " " → curly \u201c \u201d
    *  - ลบ space เกินระหว่างตัวอักษรไทย */
@@ -194,6 +199,7 @@ const initialPreferences = {
   thaiPostProcessEnabled: true,
   autoUpdateMode: 'notify' as AutoUpdateMode,
   inpaintMaxSide: 512 as InpaintQuality,
+  inpaintEngine: 'lama' as InpaintEngine,
   thaiPostProcess: true,
   llmFailoverEnabled: false,
   llmFailoverPriority: [] as number[],
@@ -291,6 +297,7 @@ export const usePreferencesStore = create<PreferencesState>()(
         set({ thaiPostProcessEnabled: enabled }),
       setAutoUpdateMode: (mode) => set({ autoUpdateMode: mode }),
       setInpaintMaxSide: (side) => set({ inpaintMaxSide: side }),
+      setInpaintEngine: (engine) => set({ inpaintEngine: engine }),
       setThaiPostProcess: (enabled) => set({ thaiPostProcess: enabled }),
       setLlmFailoverEnabled: (enabled) => set({ llmFailoverEnabled: enabled }),
       setLlmFailoverPriority: (priority) => set({ llmFailoverPriority: priority }),

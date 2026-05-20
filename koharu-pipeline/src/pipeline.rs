@@ -186,7 +186,12 @@ async fn run_pipeline_inner(
                     if req.skip_inpaint.unwrap_or(false) {
                         // ผู้ใช้ต้องการ re-translate โดยใช้ผลลัพธ์ inpaint เดิม ข้ามขั้นตอนนี้เพื่อประหยัดเวลา
                     } else {
-                        res.ml.inpaint(&mut snapshot, req.inpaint_max_side).await?
+                        res.ml.inpaint_with(
+                            &mut snapshot,
+                            req.inpaint_engine.unwrap_or_default(),
+                            req.inpaint_max_side,
+                        )
+                        .await?
                     }
                 }
                 PipelineStep::LlmGenerate => {

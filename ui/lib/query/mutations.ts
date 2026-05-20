@@ -260,6 +260,7 @@ export const useMaskMutations = () => {
 export const useDocumentMutations = () => {
   const queryClient = useQueryClient()
   const { setProgress, clearProgress } = useProgressActions()
+  const { updateTextBlocks } = useTextBlockMutations()
 
   const refreshDocuments = useCallback(async () => {
     await queryClient.invalidateQueries({
@@ -534,7 +535,8 @@ export const useDocumentMutations = () => {
       try {
         await flushTextBlockSync()
         await flushMaskSyncQueue()
-        await api.inpaint(resolvedIndex)
+        const { inpaintEngine, inpaintMaxSide } = usePreferencesStore.getState()
+        await api.inpaint(resolvedIndex, { inpaintEngine, inpaintMaxSide })
         await invalidateCurrentDocument(queryClient, resolvedIndex)
         await invalidateThumbnailAtIndex(queryClient, resolvedIndex)
         useEditorUiStore.getState().setShowInpaintedImage(true)
@@ -599,6 +601,7 @@ export const useDocumentMutations = () => {
         animeYoloVariant,
         animeYoloConfidence,
         inpaintMaxSide,
+        inpaintEngine,
       } = usePreferencesStore.getState()
       const { startOperation, finishOperation } = useOperationStore.getState()
       startOperation({
@@ -654,6 +657,7 @@ export const useDocumentMutations = () => {
             skipDetect: true,
             skipOcr: true,
             inpaintMaxSide,
+            inpaintEngine,
           })
         } else {
           await api.process({
@@ -668,6 +672,7 @@ export const useDocumentMutations = () => {
             animeYoloVariant,
             animeYoloConfidence,
             inpaintMaxSide,
+            inpaintEngine,
           })
         }
       } catch (error) {
@@ -701,7 +706,7 @@ export const useDocumentMutations = () => {
       total: totalPages,
     })
     try {
-      const { detectorEngine, animeYoloVariant, animeYoloConfidence } =
+      const { detectorEngine, animeYoloVariant, animeYoloConfidence, inpaintEngine, inpaintMaxSide } =
         usePreferencesStore.getState()
       await api.process({
         llmModelId: selectedModel,
@@ -713,6 +718,8 @@ export const useDocumentMutations = () => {
         detectorEngine,
         animeYoloVariant,
         animeYoloConfidence,
+        inpaintEngine,
+        inpaintMaxSide,
       })
     } catch (error) {
       console.error('Failed to start processing:', error)

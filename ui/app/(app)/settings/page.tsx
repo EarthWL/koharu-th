@@ -90,6 +90,8 @@ export default function SettingsPage() {
   const setAutoUpdateMode = usePreferencesStore((s) => s.setAutoUpdateMode)
   const inpaintMaxSide = usePreferencesStore((s) => s.inpaintMaxSide)
   const setInpaintMaxSide = usePreferencesStore((s) => s.setInpaintMaxSide)
+  const inpaintEngine = usePreferencesStore((s) => s.inpaintEngine)
+  const setInpaintEngine = usePreferencesStore((s) => s.setInpaintEngine)
   const thaiPostProcess = usePreferencesStore((s) => s.thaiPostProcess)
   const setThaiPostProcess = usePreferencesStore((s) => s.setThaiPostProcess)
   const projectInfo = useProjectStore((s) => s.info)
@@ -375,7 +377,7 @@ export default function SettingsPage() {
               </div>
 
               {/* OCR sub-card */}
-              <div className='bg-card border-border rounded-lg border p-4'>
+              <div className='bg-card border-border mb-3 rounded-lg border p-4'>
                 <h3 className='text-foreground mb-3 text-xs font-semibold uppercase tracking-wide'>
                   {t('settings.engineOcr', 'OCR')}
                 </h3>
@@ -501,6 +503,56 @@ export default function SettingsPage() {
                       then come back here.
                     </p>
                   )}
+              </div>
+
+              {/* Inpaint sub-card */}
+              <div className='bg-card border-border rounded-lg border p-4'>
+                <h3 className='text-foreground mb-3 text-xs font-semibold uppercase tracking-wide'>
+                  {t('settings.engineInpaint', 'Inpaint Engine')}
+                </h3>
+                <div className='grid grid-cols-[max-content_1fr] items-center gap-x-6 gap-y-3 text-sm'>
+                  <label className='text-muted-foreground'>
+                    {t('settings.engineInpaintEngine', 'Engine')}
+                  </label>
+                  <Select
+                    value={inpaintEngine}
+                    onValueChange={(v) =>
+                      setInpaintEngine(v as 'lama' | 'stable_diffusion' | 'cloud_flux')
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='lama'>
+                        Lama (Tier 1 · Offline, fast, lightweight)
+                      </SelectItem>
+                      <SelectItem value='stable_diffusion'>
+                        Stable Diffusion (Tier 2 · Offline, high-quality, local)
+                      </SelectItem>
+                      <SelectItem value='cloud_flux'>
+                        Cloud FLUX.1 (Tier 3 · Online, state-of-the-art cloud API)
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <p className='text-muted-foreground/70 mt-4 border-t border-border/60 pt-3 text-xs leading-relaxed'>
+                  {inpaintEngine === 'lama'
+                    ? t(
+                        'settings.engineInpaintLamaHint',
+                        'Lama (Tier 1) เป็นค่าเริ่มต้นแบบออฟไลน์ที่เบาและเร็วมาก เหมาะสำหรับการลบอักษรทั่วไปที่ไม่ต้องการทรัพยากรเครื่องสูง',
+                      )
+                    : inpaintEngine === 'stable_diffusion'
+                    ? t(
+                        'settings.engineInpaintStableDiffusionHint',
+                        'Stable Diffusion (Tier 2) ประมวลผลแบบออฟไลน์ในเครื่องเพื่อให้ได้ผลลัพธ์การลบอักษรคุณภาพสูงขึ้น โดยใช้โมเดลวาดต่อประสิทธิภาพสูง เหมาะกับภาพที่มีรายละเอียดพื้นหลังซับซ้อน',
+                      )
+                    : t(
+                        'settings.engineInpaintCloudFluxHint',
+                        'Cloud FLUX.1 (Tier 3) ใช้โมเดลระดับแนวหน้าของวงการผ่าน API บนระบบ Cloud เพื่อการสร้างพื้นหลังทดแทนที่เนียนตาที่สุด ใช้งานได้รวดเร็วแม้สเปกเครื่องไม่สูง',
+                      )}
+                </p>
               </div>
             </section>
 

@@ -1,5 +1,5 @@
 use koharu_types::{
-    AnimeYoloVariant, DetectorEngine, OcrEngine, TextBlock, TextShaderEffect, TextStrokeStyle,
+    AnimeYoloVariant, DetectorEngine, InpaintEngine, OcrEngine, TextBlock, TextShaderEffect, TextStrokeStyle,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -143,12 +143,21 @@ pub struct ProcessRequest {
     /// module default (0.25). Clamped backend-side to [0.05, 0.95].
     /// Only honoured when `detector_engine == Some(AnimeYolo)`.
     pub anime_yolo_confidence: Option<f32>,
-    /// ข้ามขั้นตอน inpaint — ใช้เมื่อ re-translate โดยไม่เปลี่ยน text regions
-    pub skip_inpaint: Option<bool>,
     /// ความละเอียด inpaint: ขนาดด้านยาวสูงสุด (px) สำหรับ crop ที่ส่ง LaMa.
     /// None ⇒ ใช้ค่า backend default. 256 = เร็ว / 512 = สมดุล / 768 = คุณภาพสูง
     pub inpaint_max_side: Option<u32>,
+    /// เครื่องยนต์ลบอักษร AI: Lama (Tier 1), StableDiffusion (Tier 2), CloudFlux (Tier 3)
+    pub inpaint_engine: Option<InpaintEngine>,
 }
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InpaintPayload {
+    pub index: usize,
+    pub inpaint_engine: Option<InpaintEngine>,
+    pub inpaint_max_side: Option<u32>,
+}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
