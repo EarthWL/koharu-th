@@ -64,11 +64,43 @@ export function applyThaiPostProcess(text: string): string {
     // 2. Non-breaking space before high punctuation marks: ? ! ; :
     out = out.replace(/\s*([?!;:])($|[\s)\]}])/g, '\u00a0$1$2')
     out = out.replace(/\s*:\s*/g, '\u00a0:\u00a0')
+  } else if (targetLang === 'german') {
+    // German Typography:
+    // 1. Double quotes → lower-opening „..." (U+201E open / U+201C close)
+    out = out.replace(/(^|[\s([{<])"/g, '$1\u201e')
+    out = out.replace(/"/g, '\u201c')
+
+    // 2. Single quotes → ‚...' (U+201A open / U+2018 close)
+    out = out.replace(/(^|[\s([{<])'/g, '$1\u201a')
+    out = out.replace(/'/g, '\u2018')
   } else if (targetLang === 'spanish') {
     // Spanish Typography:
     // 1. Guillemets « » without extra spaces
     out = out.replace(/(^|[\s([{<])"/g, '$1«')
     out = out.replace(/"/g, '»')
+  } else if (targetLang === 'portuguese') {
+    // Portuguese Typography:
+    // Standard curly double quotes "..." — used in both Brazilian and
+    // European Portuguese manga translations (not guillemets).
+    out = out.replace(/(^|[\s([{<])"/g, '$1\u201c')
+    out = out.replace(/"/g, '\u201d')
+
+    // Single quotes / apostrophes
+    out = out.replace(/(^|[\s([{<])'/g, '$1\u2018')
+    out = out.replace(/'/g, '\u2019')
+  } else if (targetLang === 'korean') {
+    // Korean Typography:
+    // 1. Collapse inter-Hangul whitespace.
+    //    LLMs sometimes emit "나 는" instead of "나는" — same problem as Thai.
+    //    Hangul syllables U+AC00–U+D7A3, Jamo U+1100–U+11FF / U+3130–U+318F.
+    const HANGUL = '\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F'
+    const HANGUL_SPACE_RE = new RegExp(`([${HANGUL}]) ([${HANGUL}])`, 'g')
+    let prevKo = ''
+    while (prevKo !== out) { prevKo = out; out = out.replace(HANGUL_SPACE_RE, '$1$2') }
+
+    // 2. Standard curly double quotes (Korean uses same convention as English)
+    out = out.replace(/(^|[\s([{<])"/g, '$1\u201c')
+    out = out.replace(/"/g, '\u201d')
   } else {
     // Standard English / General typography: Curly quotes
     out = out.replace(/(^|[\s([{<])"/g, '$1“')

@@ -485,6 +485,10 @@ function LlmStatusPopover() {
                     <SelectItem value='Japanese'>Japanese</SelectItem>
                     <SelectItem value='Chinese'>Chinese</SelectItem>
                     <SelectItem value='Korean'>Korean</SelectItem>
+                    <SelectItem value='French'>French</SelectItem>
+                    <SelectItem value='German'>German</SelectItem>
+                    <SelectItem value='Spanish'>Spanish</SelectItem>
+                    <SelectItem value='Portuguese'>Portuguese</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
