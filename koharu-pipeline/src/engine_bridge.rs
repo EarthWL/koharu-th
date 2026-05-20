@@ -426,6 +426,18 @@ async fn apply_engine_result_dual(
         return Ok(());
     };
     for op in batch.scene_ops {
+        // The rendered composite is a DERIVED view (text painted onto
+        // the page from the current blocks), not a content edit — it
+        // must never be its own undo step. Recording it meant every
+        // "edit then auto-render" produced two history entries, so the
+        // first Ctrl+Z reverted only the composite, leaving the block's
+        // geometry/translation unchanged (the "undo reverts the picture
+        // but not the box / panel text" bug). Apply it to the Document
+        // (done in the loop above) but keep it out of history; the
+        // composite is recomputed by a re-render after undo/redo.
+        if matches!(op, Op::SetRenderedImage { .. }) {
+            continue;
+        }
         if let Err(e) = session.apply(op) {
             // Don't propagate — Document path already succeeded.
             // RPCs that read history will see the truncated

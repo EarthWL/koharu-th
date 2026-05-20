@@ -4,6 +4,7 @@ import { useCallback, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type HistoryState } from '@/lib/api'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
+import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { useUiErrorStore } from '@/lib/stores/uiErrorStore'
 import { queryKeys } from '@/lib/query/keys'
 
@@ -73,12 +74,34 @@ export function useSessionHistory() {
     })
   }, [currentDocumentIndex, queryClient])
 
+  // The rendered composite is a derived view and is intentionally NOT
+  // an undo step (see engine_bridge::apply_engine_result_dual). After an
+  // undo/redo reverts the blocks, recompute the composite so the canvas
+  // matches the restored geometry/translation. Best-effort: undo may go
+  // back past the point where any translation exists, where the renderer
+  // bails with "nothing to render" — that's fine, the blocks are still
+  // correct and the next render catches up.
+  const reRenderAfterHistory = useCallback(async () => {
+    try {
+      const { renderEffect, renderStroke } = useEditorUiStore.getState()
+      const { fontFamily } = usePreferencesStore.getState()
+      await api.render(currentDocumentIndex, {
+        shaderEffect: renderEffect,
+        shaderStroke: renderStroke,
+        fontFamily,
+      })
+    } catch (e) {
+      console.warn('[useSessionHistory] post-history re-render skipped', e)
+    }
+  }, [currentDocumentIndex])
+
   const showError = useUiErrorStore((s) => s.showError)
 
   const undoMutation = useMutation({
     mutationFn: () => api.sessionUndo(currentDocumentIndex),
     onSuccess: async (state) => {
       queryClient.setQueryData(historyKey(currentDocumentIndex), state)
+      await reRenderAfterHistory()
       await invalidateDocument()
     },
     onError: (err) => {
@@ -96,6 +119,7 @@ export function useSessionHistory() {
     mutationFn: () => api.sessionRedo(currentDocumentIndex),
     onSuccess: async (state) => {
       queryClient.setQueryData(historyKey(currentDocumentIndex), state)
+      await reRenderAfterHistory()
       await invalidateDocument()
     },
     onError: (err) => {
