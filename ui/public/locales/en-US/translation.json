@@ -9,6 +9,12 @@
         "help": "Which saved provider profile to call for OCR. 'Active' uses whichever translation profile is currently active. Only vision-capable profiles (e.g. gpt-4o, claude-3.5-sonnet, gemini-2.0-flash) are listed."
       }
     },
+    "cloudLlm": {
+      "profile": {
+        "label": "Provider profile",
+        "help": "Which saved provider profile translates the page. This is the app-wide active cloud LLM — changing it here also changes the profile AI Chat and other cloud features use. Manage profiles in Sidebar → Profiles."
+      }
+    },
     "animeYolo": {
       "variant": {
         "label": "Model size (variant)",

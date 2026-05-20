@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
@@ -22,12 +22,66 @@ import {
 import { cn } from '@/lib/utils'
 import { EngineSettingsForm } from '@/components/sidebar/EngineSettingsForm'
 import { useEngineProfile } from '@/lib/hooks/useEngineProfile'
+import {
+  applyProviderProfile,
+  clearProviderProfile,
+} from '@/lib/services/profileHelpers'
+
+/// Cloud LLM translate is a pseudo-engine (cloud_llm_translate); the real
+/// cloud-vs-local + profile state lives in the shared cloudProvider /
+/// activeProfileId prefs (used by translate AND chat/embeddings, and by the
+/// canvas toolbar's profile dropdown). This keeps the Engines-tab Translation
+/// selection in sync with that shared state without rewiring the translate
+/// dispatch: when the user changes the Translation engine / profile in the
+/// tab, mirror the choice into the prefs the dispatch already reads.
+const CLOUD_LLM_TRANSLATE_ID = 'cloud_llm_translate'
+
+/// One-way sync: Engines-tab Translation choice → shared cloud prefs.
+/// Skips the first run so a persisted toolbar/cloud state isn't clobbered
+/// on mount; only user-initiated tab changes propagate.
+function useTranslateProfileSync() {
+  const { activeEngine, getSetting } = useEngineProfile()
+  const profilesQuery = useQuery({
+    queryKey: ['project', 'profiles'],
+    queryFn: () => api.providerProfilesList(),
+    staleTime: 30_000,
+  })
+  const active = activeEngine('translation')
+  const profileSetting = getSetting(CLOUD_LLM_TRANSLATE_ID, 'translate_profile')
+  const firstRun = useRef(true)
+
+  useEffect(() => {
+    if (firstRun.current) {
+      firstRun.current = false
+      return
+    }
+    if (active === CLOUD_LLM_TRANSLATE_ID) {
+      const raw = profileSetting
+      const id =
+        typeof raw === 'number'
+          ? raw
+          : typeof raw === 'string' && raw !== 'active' && raw !== ''
+            ? Number(raw)
+            : null
+      const list = profilesQuery.data ?? []
+      const chosen =
+        id != null ? list.find((p) => p.id === id) : undefined
+      // A specific profile → make it the active cloud profile. 'active'
+      // (or unresolved) → leave the current cloud profile as-is.
+      if (chosen) void applyProviderProfile(chosen)
+    } else if (active && active !== CLOUD_LLM_TRANSLATE_ID) {
+      // Local translate engine selected → drop the cloud profile.
+      clearProviderProfile()
+    }
+  }, [active, profileSetting, profilesQuery.data])
+}
 
 /// Phase 4.7 sidebar tab — read-only list of registered engines +
 /// detected hardware summary. Phase 4.7b/c will add settings forms
 /// + active-engine save + compatibility chips per engine.
 export function EnginesTabPanel() {
   const { t } = useTranslation()
+  useTranslateProfileSync()
 
   const engines = useQuery({
     queryKey: ['engines', 'list'],

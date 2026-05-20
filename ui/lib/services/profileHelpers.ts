@@ -14,7 +14,8 @@
  * if direct `profile.provider` reads suffice.
  */
 
-import type { ProviderProfileDto } from '@/lib/api'
+import { api, type ProviderProfileDto } from '@/lib/api'
+import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 
 export type ProviderKind = 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'local'
 
@@ -156,6 +157,35 @@ export function effectiveDbProvider(profile: ProfileLike): string {
  * the SearchableSelect's `disabled` prop agree — if they drift, the
  * UI shows "loading…" while the query never fires.
  */
+/**
+ * Make a saved profile the app-wide active cloud LLM (cloudProvider /
+ * activeProfileId / model / key). Shared by the canvas toolbar's profile
+ * dropdown and the Engines-tab Translation group so both stay in sync on
+ * the same preferencesStore state. Fetches the API key from the OS keyring
+ * (best-effort). Note: this is the cloud LLM used by translate AND chat /
+ * embeddings — it's not translate-only.
+ */
+export async function applyProviderProfile(p: ProviderProfileDto): Promise<void> {
+  const s = usePreferencesStore.getState()
+  s.setCloudProvider(effectiveDbProvider(p) as never)
+  s.setCloudModelName(p.modelName)
+  s.setActiveProfileId(p.id)
+  if (p.apiUrl) s.setCloudApiUrl(p.apiUrl)
+  try {
+    const { apiKey } = await api.providerProfileSecretGet(p.id)
+    if (apiKey) s.setCloudApiKey(apiKey)
+  } catch (err) {
+    console.warn('[applyProviderProfile] secret fetch failed', err)
+  }
+}
+
+/// Switch back to the local LLM (no active cloud profile).
+export function clearProviderProfile(): void {
+  const s = usePreferencesStore.getState()
+  s.setCloudProvider('none' as never)
+  s.setActiveProfileId(null)
+}
+
 export function canLoadModels(args: {
   kind: ProviderKind
   apiKey: string

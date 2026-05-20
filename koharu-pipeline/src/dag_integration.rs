@@ -80,12 +80,13 @@ fn multi_artifact_from_same_engine_dedupes() {
 #[test]
 fn transitive_deps_walked_in_topological_order() {
     // Translation → OcrText → DetectionBoxes → SourceImage chain.
-    // OcrText (mit48px vs manga) AND DetectionBoxes (comic_text vs
-    // anime_yolo) both have multiple producers; pass `prefer` to
-    // disambiguate both.
+    // Translation (local vs cloud_llm), OcrText (mit48px vs manga vs
+    // cloud_vision) AND DetectionBoxes (comic_text vs anime_yolo) all
+    // have multiple producers; pass `prefer` to disambiguate each.
     let plan = resolve_plan(PlanRequest {
         targets: vec![ArtifactKind::Translation],
         prefer: [
+            (ArtifactKind::Translation, "local_llm_translate"),
             (ArtifactKind::OcrText, "mit48px_ocr"),
             (ArtifactKind::DetectionBoxes, "comic_text_detector"),
         ]
@@ -210,6 +211,7 @@ fn multiple_targets_share_upstream_engine() {
     let plan = resolve_plan(PlanRequest {
         targets: vec![ArtifactKind::Translation, ArtifactKind::InpaintedImage],
         prefer: [
+            (ArtifactKind::Translation, "local_llm_translate"),
             (ArtifactKind::OcrText, "manga_ocr"),
             (ArtifactKind::DetectionBoxes, "comic_text_detector"),
             (ArtifactKind::SegmentationMask, "comic_text_detector"),

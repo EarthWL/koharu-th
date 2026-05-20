@@ -21,6 +21,7 @@
 //! The final binary links koharu-pipeline so the chain holds.
 
 pub mod anime_yolo_detector;
+pub mod cloud_llm_translate;
 pub mod cloud_vision_ocr;
 pub mod comic_text_detector;
 pub mod lama_inpaint;
@@ -34,6 +35,7 @@ pub mod text_renderer;
 // the binary's link unit and stops `inventory::submit!` from being
 // dead-stripped on Windows MSVC.
 pub use anime_yolo_detector::ENGINE_ID as ANIME_YOLO_DETECTOR_ID;
+pub use cloud_llm_translate::ENGINE_ID as CLOUD_LLM_TRANSLATE_ID;
 pub use cloud_vision_ocr::ENGINE_ID as CLOUD_VISION_OCR_ID;
 pub use comic_text_detector::ENGINE_ID as COMIC_TEXT_DETECTOR_ID;
 pub use lama_inpaint::ENGINE_ID as LAMA_INPAINT_ID;

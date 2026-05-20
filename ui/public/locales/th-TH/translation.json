@@ -9,6 +9,12 @@
         "help": "เลือกโปรไฟล์ provider ที่จะเรียกใช้ทำ OCR — 'active' = ใช้โปรไฟล์แปลที่กำลังใช้อยู่ แสดงเฉพาะโปรไฟล์ที่อ่านภาพได้ (เช่น gpt-4o, claude-3.5-sonnet, gemini-2.0-flash)"
       }
     },
+    "cloudLlm": {
+      "profile": {
+        "label": "โปรไฟล์ provider",
+        "help": "เลือกโปรไฟล์ provider ที่ใช้แปลหน้านี้ — เป็น cloud LLM ที่ active ทั้งแอป เปลี่ยนตรงนี้จะเปลี่ยนโปรไฟล์ที่ AI Chat และฟีเจอร์ cloud อื่นใช้ด้วย จัดการโปรไฟล์ได้ที่ Sidebar → Profiles"
+      }
+    },
     "animeYolo": {
       "variant": {
         "label": "ขนาดโมเดล (variant)",
