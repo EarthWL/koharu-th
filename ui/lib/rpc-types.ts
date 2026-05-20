@@ -69,6 +69,7 @@ export type RpcMethodMap = {
     void,
   ]
   update_text_blocks: [{ index: number; textBlocks: TextBlock[] }, void]
+  reorder_text_blocks: [{ index: number; readingOrder: 'rtl' | 'ltr' | 'custom' }, void]
   list_font_families: [void, string[]]
   llm_list: [{ language?: string }, LlmModelInfo[]]
   llm_load: [{ id: string }, void]

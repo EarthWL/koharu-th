@@ -197,6 +197,13 @@ export const api = {
     await invoke('update_text_blocks', { index, textBlocks })
   },
 
+  async reorderTextBlocks(
+    index: number,
+    readingOrder: 'rtl' | 'ltr' | 'custom',
+  ): Promise<void> {
+    await invoke('reorder_text_blocks', { index, readingOrder })
+  },
+
   /** Expand a text block's bbox to fit the bubble it sits in. Uses a
    *  flood-fill of high-luminance pixels on the original image as a
    *  heuristic for "inside the bubble". Useful when comic-text-detector

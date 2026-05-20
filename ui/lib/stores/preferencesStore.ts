@@ -177,6 +177,9 @@ type PreferencesState = {
   installedAddons: string[]
   setInstalledAddons: (addons: string[]) => void
 
+  favoriteFonts: string[]
+  toggleFavoriteFont: (font: string) => void
+
   resetPreferences: () => void
 }
 
@@ -204,6 +207,7 @@ const initialPreferences = {
   llmFailoverEnabled: false,
   llmFailoverPriority: [] as number[],
   installedAddons: [] as string[],
+  favoriteFonts: [] as string[],
 }
 
 /**
@@ -302,6 +306,14 @@ export const usePreferencesStore = create<PreferencesState>()(
       setLlmFailoverEnabled: (enabled) => set({ llmFailoverEnabled: enabled }),
       setLlmFailoverPriority: (priority) => set({ llmFailoverPriority: priority }),
       setInstalledAddons: (addons) => set({ installedAddons: addons }),
+      toggleFavoriteFont: (font) =>
+        set((state) => {
+          const exists = (state.favoriteFonts || []).includes(font)
+          const favoriteFonts = exists
+            ? (state.favoriteFonts || []).filter((f) => f !== font)
+            : [...(state.favoriteFonts || []), font]
+          return { favoriteFonts }
+        }),
       resetPreferences: () => set({ ...initialPreferences }),
     }),
     {

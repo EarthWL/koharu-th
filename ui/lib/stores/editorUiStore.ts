@@ -18,6 +18,7 @@ type EditorUiState = {
   autoFitEnabled: boolean
   renderEffect: RenderEffect
   renderStroke: RenderStroke
+  readingOrder: 'rtl' | 'ltr' | 'custom'
   setTotalPages: (count: number) => void
   setCurrentDocumentIndex: (index: number) => void
   setScale: (scale: number) => void
@@ -31,6 +32,7 @@ type EditorUiState = {
   setAutoFitEnabled: (enabled: boolean) => void
   setRenderEffect: (effect: RenderEffect) => void
   setRenderStroke: (stroke: RenderStroke) => void
+  setReadingOrder: (order: 'rtl' | 'ltr' | 'custom') => void
   resetUiState: () => void
 }
 
@@ -58,6 +60,7 @@ const initialState = {
     color: [255, 255, 255, 255],
     widthPx: undefined,
   } as RenderStroke,
+  readingOrder: 'rtl' as const,
 }
 
 export const useEditorUiStore = create<EditorUiState>((set, get) => ({
@@ -121,6 +124,7 @@ export const useEditorUiStore = create<EditorUiState>((set, get) => ({
   setAutoFitEnabled: (enabled) => set({ autoFitEnabled: enabled }),
   setRenderEffect: (effect) => set({ renderEffect: effect }),
   setRenderStroke: (stroke) => set({ renderStroke: stroke }),
+  setReadingOrder: (order) => set({ readingOrder: order }),
   resetUiState: () =>
     set(() => ({
       ...initialState,
