@@ -164,6 +164,10 @@ export function RenderControlsPanel() {
   const setRenderStroke = useEditorUiStore((state) => state.setRenderStroke)
   const showHud = useEditorUiStore((state) => state.showHud)
   const hideHud = useEditorUiStore((state) => state.hideHud)
+  const startBatchHistory = useEditorUiStore((state) => state.startBatchHistory)
+  const endBatchHistory = useEditorUiStore((state) => state.endBatchHistory)
+  const currentDocumentIndex = useEditorUiStore((state) => state.currentDocumentIndex)
+  const queryClient = useQueryClient()
   const { updateTextBlocks } = useTextBlockMutations()
   const { retranslateImage } = useDocumentMutations()
   const { data: availableFonts = [] } = useFontsQuery()
@@ -403,7 +407,12 @@ export function RenderControlsPanel() {
                   (font): SearchableSelectOption => ({
                     value: font,
                     label: (
-                      <span style={{ fontFamily: font }}>{font}</span>
+                      <div className="flex items-center justify-between w-full pr-1">
+                        <span style={{ fontFamily: font }} className="truncate font-medium">{font}</span>
+                        <span style={{ fontFamily: font }} className="text-[10px] text-muted-foreground/60 shrink-0 select-none ml-4">
+                          Sample ไทย
+                        </span>
+                      </div>
                     ),
                     searchText: font,
                   }),
@@ -707,6 +716,7 @@ export function RenderControlsPanel() {
           onMouseDown={(e) => {
             if (!hasBlocks) return
             e.preventDefault()
+            startBatchHistory()
             const startX = e.clientX
             const startVal = currentFontSize ?? 16
             const handleMouseMove = (moveEvent: MouseEvent) => {
@@ -719,6 +729,10 @@ export function RenderControlsPanel() {
               window.removeEventListener('mousemove', handleMouseMove)
               window.removeEventListener('mouseup', handleMouseUp)
               hideHud()
+              const currentDoc = queryClient.getQueryData<any>(
+                queryKeys.documents.current(currentDocumentIndex),
+              )
+              endBatchHistory('Change Font Size', currentDoc?.textBlocks ?? textBlocks)
             }
             window.addEventListener('mousemove', handleMouseMove)
             window.addEventListener('mouseup', handleMouseUp)
@@ -753,6 +767,7 @@ export function RenderControlsPanel() {
           onMouseDown={(e) => {
             if (!hasBlocks) return
             e.preventDefault()
+            startBatchHistory()
             const startX = e.clientX
             const startVal = currentLineHeight
             const handleMouseMove = (moveEvent: MouseEvent) => {
@@ -765,6 +780,10 @@ export function RenderControlsPanel() {
               window.removeEventListener('mousemove', handleMouseMove)
               window.removeEventListener('mouseup', handleMouseUp)
               hideHud()
+              const currentDoc = queryClient.getQueryData<any>(
+                queryKeys.documents.current(currentDocumentIndex),
+              )
+              endBatchHistory('Change Line Height', currentDoc?.textBlocks ?? textBlocks)
             }
             window.addEventListener('mousemove', handleMouseMove)
             window.addEventListener('mouseup', handleMouseUp)
@@ -782,6 +801,7 @@ export function RenderControlsPanel() {
                   onMouseDown={(e) => {
                     if (!hasBlocks) return
                     e.preventDefault()
+                    startBatchHistory()
                     const startX = e.clientX
                     const startVal = currentLineHeight
                     const handleMouseMove = (moveEvent: MouseEvent) => {
@@ -794,6 +814,10 @@ export function RenderControlsPanel() {
                       window.removeEventListener('mousemove', handleMouseMove)
                       window.removeEventListener('mouseup', handleMouseUp)
                       hideHud()
+                      const currentDoc = queryClient.getQueryData<any>(
+                        queryKeys.documents.current(currentDocumentIndex),
+                      )
+                      endBatchHistory('Change Line Height', currentDoc?.textBlocks ?? textBlocks)
                     }
                     window.addEventListener('mousemove', handleMouseMove)
                     window.addEventListener('mouseup', handleMouseUp)
@@ -832,6 +856,7 @@ export function RenderControlsPanel() {
                   onMouseDown={(e) => {
                     if (!hasBlocks) return
                     e.preventDefault()
+                    startBatchHistory()
                     const startX = e.clientX
                     const startVal = currentLetterSpacing
                     const handleMouseMove = (moveEvent: MouseEvent) => {
@@ -844,6 +869,10 @@ export function RenderControlsPanel() {
                       window.removeEventListener('mousemove', handleMouseMove)
                       window.removeEventListener('mouseup', handleMouseUp)
                       hideHud()
+                      const currentDoc = queryClient.getQueryData<any>(
+                        queryKeys.documents.current(currentDocumentIndex),
+                      )
+                      endBatchHistory('Change Letter Spacing', currentDoc?.textBlocks ?? textBlocks)
                     }
                     window.addEventListener('mousemove', handleMouseMove)
                     window.addEventListener('mouseup', handleMouseUp)
@@ -880,6 +909,7 @@ export function RenderControlsPanel() {
           onMouseDown={(e) => {
             if (!hasBlocks) return
             e.preventDefault()
+            startBatchHistory()
             const startX = e.clientX
             const startVal = currentBaselineShift
             const handleMouseMove = (moveEvent: MouseEvent) => {
@@ -892,6 +922,10 @@ export function RenderControlsPanel() {
               window.removeEventListener('mousemove', handleMouseMove)
               window.removeEventListener('mouseup', handleMouseUp)
               hideHud()
+              const currentDoc = queryClient.getQueryData<any>(
+                queryKeys.documents.current(currentDocumentIndex),
+              )
+              endBatchHistory('Change Baseline Shift', currentDoc?.textBlocks ?? textBlocks)
             }
             window.addEventListener('mousemove', handleMouseMove)
             window.addEventListener('mouseup', handleMouseUp)
@@ -909,6 +943,7 @@ export function RenderControlsPanel() {
                   onMouseDown={(e) => {
                     if (!hasBlocks) return
                     e.preventDefault()
+                    startBatchHistory()
                     const startX = e.clientX
                     const startVal = currentBaselineShift
                     const handleMouseMove = (moveEvent: MouseEvent) => {
@@ -921,6 +956,10 @@ export function RenderControlsPanel() {
                       window.removeEventListener('mousemove', handleMouseMove)
                       window.removeEventListener('mouseup', handleMouseUp)
                       hideHud()
+                      const currentDoc = queryClient.getQueryData<any>(
+                        queryKeys.documents.current(currentDocumentIndex),
+                      )
+                      endBatchHistory('Change Baseline Shift', currentDoc?.textBlocks ?? textBlocks)
                     }
                     window.addEventListener('mousemove', handleMouseMove)
                     window.addEventListener('mouseup', handleMouseUp)
@@ -956,6 +995,7 @@ export function RenderControlsPanel() {
                   onMouseDown={(e) => {
                     if (!hasBlocks) return
                     e.preventDefault()
+                    startBatchHistory()
                     const startX = e.clientX
                     const startVal = currentHorizontalScale
                     const handleMouseMove = (moveEvent: MouseEvent) => {
@@ -968,6 +1008,10 @@ export function RenderControlsPanel() {
                       window.removeEventListener('mousemove', handleMouseMove)
                       window.removeEventListener('mouseup', handleMouseUp)
                       hideHud()
+                      const currentDoc = queryClient.getQueryData<any>(
+                        queryKeys.documents.current(currentDocumentIndex),
+                      )
+                      endBatchHistory('Change Horizontal Scale', currentDoc?.textBlocks ?? textBlocks)
                     }
                     window.addEventListener('mousemove', handleMouseMove)
                     window.addEventListener('mouseup', handleMouseUp)

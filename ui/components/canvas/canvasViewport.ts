@@ -11,6 +11,10 @@ export function setCanvasViewport(element: HTMLDivElement | null) {
   canvasViewportRef.current = element
 }
 
+export function getCanvasViewport() {
+  return canvasViewportRef.current
+}
+
 export function fitCanvasToViewport() {
   const { setScale, setAutoFitEnabled, currentDocumentIndex } =
     useEditorUiStore.getState()

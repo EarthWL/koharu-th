@@ -33,6 +33,8 @@ import { useMaskDrawing } from '@/hooks/useMaskDrawing'
 import { useRenderBrushDrawing } from '@/hooks/useRenderBrushDrawing'
 import { useBrushLayerDisplay } from '@/hooks/useBrushLayerDisplay'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
+import { useTextBlockMutations } from '@/lib/query/mutations'
+import { ShortcutsCheatSheetDialog } from '@/components/ShortcutsCheatSheetDialog'
 import {
   resolvePinchMemoScaleRatio,
   resolvePinchNextScaleRatio,
@@ -42,6 +44,11 @@ const BRUSH_CURSOR =
   'url(\'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="16" height="16"%3E%3Ccircle cx="8" cy="8" r="4" stroke="black" stroke-width="1.5" fill="white"/%3E%3C/svg%3E\') 8 8, crosshair'
 
 export function Workspace() {
+  const undo = useEditorUiStore((state) => state.undo)
+  const redo = useEditorUiStore((state) => state.redo)
+  const showShortcutsCheatSheet = useEditorUiStore((state) => state.showShortcutsCheatSheet)
+  const setShowShortcutsCheatSheet = useEditorUiStore((state) => state.setShowShortcutsCheatSheet)
+  const { updateTextBlocks } = useTextBlockMutations()
   const scale = useEditorUiStore((state) => state.scale)
   const hudMessage = useEditorUiStore((state) => state.hudMessage)
   const showSegmentationMask = useEditorUiStore(
@@ -206,6 +213,47 @@ export function Workspace() {
       window.removeEventListener('blur', onBlur)
     }
   }, [])
+
+  // Global Undo / Redo & Help dialog hotkey bindings
+  useEffect(() => {
+    const isTypingInForm = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (!target) return false
+      const tag = target.tagName
+      return (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        target.isContentEditable === true
+      )
+    }
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isTypingInForm(e)) return
+
+      // '?' Hotkey to open keyboard shortcuts dialog
+      if (e.key === '?') {
+        e.preventDefault()
+        setShowShortcutsCheatSheet(!showShortcutsCheatSheet)
+        return
+      }
+
+      // Ctrl + Z (Undo) / Ctrl + Y (Redo)
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key.toLowerCase() === 'z') {
+          e.preventDefault()
+          undo(updateTextBlocks)
+        } else if (e.key.toLowerCase() === 'y') {
+          e.preventDefault()
+          redo(updateTextBlocks)
+        }
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [undo, redo, showShortcutsCheatSheet, setShowShortcutsCheatSheet, updateTextBlocks])
 
   useGesture(
     {
@@ -604,6 +652,7 @@ export function Workspace() {
           </div>
         )}
       </div>
+      <ShortcutsCheatSheetDialog />
     </div>
   )
 }

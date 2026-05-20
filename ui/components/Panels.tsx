@@ -1,7 +1,7 @@
 'use client'
 
 import { useTranslation } from 'react-i18next'
-import { LayersIcon, SlidersHorizontalIcon } from 'lucide-react'
+import { LayersIcon, SlidersHorizontalIcon, HistoryIcon } from 'lucide-react'
 import {
   Group,
   Panel,
@@ -11,6 +11,8 @@ import {
 import { LayersPanel } from '@/components/panels/LayersPanel'
 import { RenderControlsPanel } from '@/components/panels/RenderControlsPanel'
 import { TextBlocksPanel } from '@/components/panels/TextBlocksPanel'
+import { NavigatorWidget } from '@/components/panels/NavigatorWidget'
+import { HistoryPanel } from '@/components/panels/HistoryPanel'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
@@ -25,6 +27,14 @@ export function Panels() {
 
   return (
     <div className='bg-muted/50 flex h-full min-h-0 w-full flex-col border-l'>
+      {/* Photoshop-style Navigator Panel at the very top */}
+      <div className='border-b p-2 shrink-0 bg-background/40'>
+        <div className='flex items-center justify-between px-1 mb-1.5'>
+          <span className='text-[10px] font-bold tracking-wider uppercase text-muted-foreground/80'>Navigator</span>
+        </div>
+        <NavigatorWidget />
+      </div>
+
       <Group
         orientation='vertical'
         id={SUBLAYOUT_ID}
@@ -38,14 +48,14 @@ export function Panels() {
             className='flex h-full min-h-0 flex-col gap-0'
             data-testid='panels-settings-tabs'
           >
-            <TabsList className='bg-muted/70 m-2 mb-0 grid w-[calc(100%-1rem)] grid-cols-2'>
+            <TabsList className='bg-muted/70 m-2 mb-0 grid w-[calc(100%-1rem)] grid-cols-3'>
               <TabsTrigger
                 value='layers'
                 data-testid='panels-tab-layers'
                 className='gap-1'
               >
                 <LayersIcon className='size-3.5' />
-                <span className='text-xs font-semibold tracking-wide uppercase'>
+                <span className='text-[11px] font-semibold tracking-wide uppercase'>
                   {t('layers.title')}
                 </span>
               </TabsTrigger>
@@ -55,8 +65,18 @@ export function Panels() {
                 className='gap-1'
               >
                 <SlidersHorizontalIcon className='size-3.5' />
-                <span className='text-xs font-semibold tracking-wide uppercase'>
+                <span className='text-[11px] font-semibold tracking-wide uppercase'>
                   {t('panels.render')}
+                </span>
+              </TabsTrigger>
+              <TabsTrigger
+                value='history'
+                data-testid='panels-tab-history'
+                className='gap-1'
+              >
+                <HistoryIcon className='size-3.5' />
+                <span className='text-[11px] font-semibold tracking-wide uppercase'>
+                  {t('panels.history', 'History')}
                 </span>
               </TabsTrigger>
             </TabsList>
@@ -79,6 +99,18 @@ export function Panels() {
               <ScrollArea className='h-full' viewportClassName='pr-1'>
                 <div className='pt-1'>
                   <RenderControlsPanel />
+                </div>
+              </ScrollArea>
+            </TabsContent>
+
+            <TabsContent
+              value='history'
+              className='min-h-0 flex-1 px-2 pb-2 data-[state=inactive]:hidden'
+              data-testid='panels-history'
+            >
+              <ScrollArea className='h-full' viewportClassName='pr-1'>
+                <div className='pt-1'>
+                  <HistoryPanel />
                 </div>
               </ScrollArea>
             </TabsContent>

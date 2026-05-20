@@ -40,6 +40,9 @@ export function TextBlockAnnotations({
     [interactive, removeBlock, selectedIndex],
   )
 
+  const activeXLine = useEditorUiStore((state) => state.activeXLine)
+  const activeYLine = useEditorUiStore((state) => state.activeYLine)
+
   return (
     <div
       data-testid='workspace-annotations'
@@ -50,6 +53,21 @@ export function TextBlockAnnotations({
         pointerEvents: 'none',
       }}
     >
+      {/* Smart Guide vertical line */}
+      {activeXLine !== null && (
+        <div
+          className="absolute top-0 bottom-0 border-l border-dashed border-[#e91e63] z-50 opacity-90"
+          style={{ left: activeXLine, width: '1px' }}
+        />
+      )}
+      {/* Smart Guide horizontal line */}
+      {activeYLine !== null && (
+        <div
+          className="absolute left-0 right-0 border-t border-dashed border-[#e91e63] z-50 opacity-90"
+          style={{ top: activeYLine, height: '1px' }}
+        />
+      )}
+
       {textBlocks.map((block, index) => (
         <TextBlockAnnotation
           key={`${block.x}-${block.y}-${index}`}
@@ -296,18 +314,144 @@ function TextBlockAnnotation({
     setPosition(scaledPosition)
   }, [scaledPosition.x, scaledPosition.y, scaledSize.width, scaledSize.height])
 
+  const setActiveGuides = useEditorUiStore((state) => state.setActiveGuides)
+  const { textBlocks } = useTextBlocks()
+
   const handleDrag: RndDragCallback = (_, data) => {
     if (!interactive) return
-    setPosition({ x: data.x, y: data.y })
+
+    const threshold = 6
+    let snapX = data.x
+    let snapY = data.y
+    let activeX: number | null = null
+    let activeY: number | null = null
+
+    const currentLeft = data.x
+    const currentWidth = size.width
+    const currentRight = currentLeft + currentWidth
+    const currentCenterX = currentLeft + currentWidth / 2
+
+    const currentTop = data.y
+    const currentHeight = size.height
+    const currentBottom = currentTop + currentHeight
+    const currentCenterY = currentTop + currentHeight / 2
+
+    for (let i = 0; i < textBlocks.length; i++) {
+      if (i === index) continue
+      const other = textBlocks[i]
+      const otherLeft = other.x * scaleRatio
+      const otherWidth = other.width * scaleRatio
+      const otherRight = otherLeft + otherWidth
+      const otherCenterX = otherLeft + otherWidth / 2
+
+      const otherTop = other.y * scaleRatio
+      const otherHeight = other.height * scaleRatio
+      const otherBottom = otherTop + otherHeight
+      const otherCenterY = otherTop + otherHeight / 2
+
+      // Snapping vertically (X-axis alignment)
+      if (Math.abs(currentLeft - otherLeft) < threshold) {
+        snapX = otherLeft
+        activeX = otherLeft
+      } else if (Math.abs(currentRight - otherRight) < threshold) {
+        snapX = otherRight - currentWidth
+        activeX = otherRight
+      } else if (Math.abs(currentCenterX - otherCenterX) < threshold) {
+        snapX = otherCenterX - currentWidth / 2
+        activeX = otherCenterX
+      } else if (Math.abs(currentLeft - otherRight) < threshold) {
+        snapX = otherRight
+        activeX = otherRight
+      } else if (Math.abs(currentRight - otherLeft) < threshold) {
+        snapX = otherLeft - currentWidth
+        activeX = otherLeft
+      }
+
+      // Snapping horizontally (Y-axis alignment)
+      if (Math.abs(currentTop - otherTop) < threshold) {
+        snapY = otherTop
+        activeY = otherTop
+      } else if (Math.abs(currentBottom - otherBottom) < threshold) {
+        snapY = otherBottom - currentHeight
+        activeY = otherBottom
+      } else if (Math.abs(currentCenterY - otherCenterY) < threshold) {
+        snapY = otherCenterY - currentHeight / 2
+        activeY = otherCenterY
+      } else if (Math.abs(currentTop - otherBottom) < threshold) {
+        snapY = otherBottom
+        activeY = otherBottom
+      } else if (Math.abs(currentBottom - otherTop) < threshold) {
+        snapY = otherTop - currentHeight
+        activeY = otherTop
+      }
+    }
+
+    setPosition({ x: snapX, y: snapY })
+    setActiveGuides(activeX, activeY)
   }
 
   const handleDragStop: RndDragCallback = (_, data) => {
     if (!interactive) return
-    const nextPosition = { x: data.x, y: data.y }
-    setPosition(nextPosition)
+    
+    const threshold = 6
+    let snapX = data.x
+    let snapY = data.y
+
+    const currentLeft = data.x
+    const currentWidth = size.width
+    const currentRight = currentLeft + currentWidth
+    const currentCenterX = currentLeft + currentWidth / 2
+
+    const currentTop = data.y
+    const currentHeight = size.height
+    const currentBottom = currentTop + currentHeight
+    const currentCenterY = currentTop + currentHeight / 2
+
+    for (let i = 0; i < textBlocks.length; i++) {
+      if (i === index) continue
+      const other = textBlocks[i]
+      const otherLeft = other.x * scaleRatio
+      const otherWidth = other.width * scaleRatio
+      const otherRight = otherLeft + otherWidth
+      const otherCenterX = otherLeft + otherWidth / 2
+
+      const otherTop = other.y * scaleRatio
+      const otherHeight = other.height * scaleRatio
+      const otherBottom = otherTop + otherHeight
+      const otherCenterY = otherTop + otherHeight / 2
+
+      if (Math.abs(currentLeft - otherLeft) < threshold) {
+        snapX = otherLeft
+      } else if (Math.abs(currentRight - otherRight) < threshold) {
+        snapX = otherRight - currentWidth
+      } else if (Math.abs(currentCenterX - otherCenterX) < threshold) {
+        snapX = otherCenterX - currentWidth / 2
+      } else if (Math.abs(currentLeft - otherRight) < threshold) {
+        snapX = otherRight
+      } else if (Math.abs(currentRight - otherLeft) < threshold) {
+        snapX = otherLeft - currentWidth
+      }
+
+      if (Math.abs(currentTop - otherTop) < threshold) {
+        snapY = otherTop
+      } else if (Math.abs(currentBottom - otherBottom) < threshold) {
+        snapY = otherBottom - currentHeight
+      } else if (Math.abs(currentCenterY - otherCenterY) < threshold) {
+        snapY = otherCenterY - currentHeight / 2
+      } else if (Math.abs(currentTop - otherBottom) < threshold) {
+        snapY = otherBottom
+      } else if (Math.abs(currentBottom - otherTop) < threshold) {
+        snapY = otherTop - currentHeight
+      }
+    }
+
+    const finalPosition = { x: snapX, y: snapY }
+    setPosition(finalPosition)
+    setActiveGuides(null, null)
+
     onUpdate({
-      x: Math.round(nextPosition.x / scaleRatio),
-      y: Math.round(nextPosition.y / scaleRatio),
+      x: Math.round(finalPosition.x / scaleRatio),
+      y: Math.round(finalPosition.y / scaleRatio),
     })
   }
 

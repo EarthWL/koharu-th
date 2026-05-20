@@ -1,7 +1,13 @@
 'use client'
 
 import { create } from 'zustand'
-import { RenderEffect, RenderStroke, ToolMode, TextStyle } from '@/types'
+import { RenderEffect, RenderStroke, ToolMode, TextStyle, TextBlock } from '@/types'
+
+export type HistoryStep = {
+  id: string
+  name: string
+  blocks: TextBlock[]
+}
 
 type EditorUiState = {
   totalPages: number
@@ -21,6 +27,15 @@ type EditorUiState = {
   readingOrder: 'rtl' | 'ltr' | 'custom'
   copiedStyle?: TextStyle
   hudMessage?: string
+  
+  // Photoshop-style enhancements states
+  historyPast: HistoryStep[]
+  historyFuture: HistoryStep[]
+  isBatchingHistory: boolean
+  activeXLine: number | null
+  activeYLine: number | null
+  showShortcutsCheatSheet: boolean
+
   setTotalPages: (count: number) => void
   setCurrentDocumentIndex: (index: number) => void
   setScale: (scale: number) => void
@@ -39,6 +54,18 @@ type EditorUiState = {
   setHudMessage: (msg?: string) => void
   showHud: (msg: string) => void
   hideHud: () => void
+
+  // Photoshop-style methods
+  initHistory: (blocks: TextBlock[]) => void
+  pushHistory: (name: string, blocks: TextBlock[]) => void
+  undo: (updateBlocksFn: (blocks: TextBlock[]) => Promise<void> | void) => void
+  redo: (updateBlocksFn: (blocks: TextBlock[]) => Promise<void> | void) => void
+  jumpToHistory: (stepId: string, updateBlocksFn: (blocks: TextBlock[]) => Promise<void> | void) => void
+  startBatchHistory: () => void
+  endBatchHistory: (name: string, blocks: TextBlock[]) => void
+  setActiveGuides: (x: number | null, y: number | null) => void
+  setShowShortcutsCheatSheet: (show: boolean) => void
+
   resetUiState: () => void
 }
 
@@ -67,6 +94,12 @@ const initialState = {
     widthPx: undefined,
   } as RenderStroke,
   readingOrder: 'rtl' as const,
+  historyPast: [] as HistoryStep[],
+  historyFuture: [] as HistoryStep[],
+  isBatchingHistory: false,
+  activeXLine: null as number | null,
+  activeYLine: null as number | null,
+  showShortcutsCheatSheet: false,
 }
 
 export const useEditorUiStore = create<EditorUiState>((set, get) => ({
@@ -150,6 +183,99 @@ export const useEditorUiStore = create<EditorUiState>((set, get) => ({
     }
     set({ hudMessage: undefined, hudTimeoutId: undefined } as any)
   },
+
+  // Photoshop-style methods implementation
+  initHistory: (blocks) => {
+    set({
+      historyPast: [{ id: 'initial', name: 'Open Page', blocks: JSON.parse(JSON.stringify(blocks)) }],
+      historyFuture: [],
+    })
+  },
+  pushHistory: (name, blocks) => {
+    const { historyPast, isBatchingHistory } = get()
+    if (isBatchingHistory) return
+
+    // Deep clone to avoid mutating reference blocks in history
+    const clonedBlocks = JSON.parse(JSON.stringify(blocks))
+    const nextPast = [
+      ...historyPast,
+      { id: Math.random().toString(36).substring(2, 9), name, blocks: clonedBlocks }
+    ]
+
+    // Cap history size, but keep the initial state at index 0
+    if (nextPast.length > 50) {
+      const initial = nextPast[0]
+      const remaining = nextPast.slice(nextPast.length - 49)
+      set({
+        historyPast: [initial, ...remaining],
+        historyFuture: [],
+      })
+    } else {
+      set({
+        historyPast: nextPast,
+        historyFuture: [],
+      })
+    }
+  },
+  undo: (updateBlocksFn) => {
+    const { historyPast, historyFuture } = get()
+    if (historyPast.length <= 1) return
+
+    const nextPast = [...historyPast]
+    const popped = nextPast.pop()!
+    const nextFuture = [popped, ...historyFuture]
+    const activeState = nextPast[nextPast.length - 1]
+
+    set({
+      historyPast: nextPast,
+      historyFuture: nextFuture,
+      selectedBlockIndex: undefined,
+    })
+
+    void updateBlocksFn(activeState.blocks)
+  },
+  redo: (updateBlocksFn) => {
+    const { historyPast, historyFuture } = get()
+    if (historyFuture.length === 0) return
+
+    const nextFuture = [...historyFuture]
+    const popped = nextFuture.shift()!
+    const nextPast = [...historyPast, popped]
+
+    set({
+      historyPast: nextPast,
+      historyFuture: nextFuture,
+      selectedBlockIndex: undefined,
+    })
+
+    void updateBlocksFn(popped.blocks)
+  },
+  jumpToHistory: (stepId, updateBlocksFn) => {
+    const { historyPast, historyFuture } = get()
+    const allSteps = [...historyPast, ...historyFuture]
+    const targetIdx = allSteps.findIndex((s) => s.id === stepId)
+    if (targetIdx === -1) return
+
+    const nextPast = allSteps.slice(0, targetIdx + 1)
+    const nextFuture = allSteps.slice(targetIdx + 1)
+
+    set({
+      historyPast: nextPast,
+      historyFuture: nextFuture,
+      selectedBlockIndex: undefined,
+    })
+
+    const activeState = nextPast[nextPast.length - 1]
+    void updateBlocksFn(activeState.blocks)
+  },
+  startBatchHistory: () => set({ isBatchingHistory: true }),
+  endBatchHistory: (name, blocks) => {
+    set({ isBatchingHistory: false })
+    get().pushHistory(name, blocks)
+  },
+  setActiveGuides: (x, y) => set({ activeXLine: x, activeYLine: y }),
+  setShowShortcutsCheatSheet: (show) => set({ showShortcutsCheatSheet: show }),
+
   resetUiState: () =>
     set(() => ({
       ...initialState,
