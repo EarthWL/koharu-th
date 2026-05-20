@@ -206,7 +206,8 @@
     "writingModeLabel": "แนวข้อความ",
     "writingAuto": "อัตโนมัติ (ดูจากภาษา + บับเบิล)",
     "writingHorizontal": "แนวนอน",
-    "writingVertical": "แนวตั้ง (บน→ล่าง)"
+    "writingVertical": "แนวตั้ง (บน→ล่าง)",
+    "autoContrast": "เลือกสีตัวอักษรอัตโนมัติ (ดำ/ขาว ตามพื้นหลัง)"
   },
   "textBlocks": {
     "emptyPrompt": "เปิดภาพเพื่อดู text blocks",

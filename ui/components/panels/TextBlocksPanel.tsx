@@ -31,6 +31,8 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
 import { DraftTextarea } from '@/components/ui/draft-textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Slider } from '@/components/ui/slider'
@@ -401,13 +403,31 @@ function BlockCard({
               />
             </div>
             <div className='flex flex-col gap-1.5 pt-1'>
-              <div className='flex items-center justify-between'>
+              <div className='flex items-center justify-between gap-1'>
                 <span className='text-muted-foreground text-[10px] uppercase'>
                   {t('textBlocks.rotationLabel')}
                 </span>
-                <span className='text-muted-foreground text-[10px] tabular-nums'>
-                  {block.rotationDeg ?? 0}°
-                </span>
+                <div className='flex items-center gap-0.5'>
+                  <Input
+                    type='number'
+                    min={-180}
+                    max={180}
+                    step={1}
+                    value={block.rotationDeg ?? 0}
+                    aria-label={t('textBlocks.rotationLabel')}
+                    data-testid='block-rotation-input'
+                    className='h-6 w-14 [appearance:textfield] px-1 text-center text-[11px] tabular-nums [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
+                    onChange={(e) => {
+                      const parsed = Number.parseFloat(e.target.value)
+                      if (!Number.isFinite(parsed)) return
+                      // Wrap into (-180, 180] so typing 270 lands on -90.
+                      let deg = ((parsed + 180) % 360 + 360) % 360 - 180
+                      if (deg === -180) deg = 180
+                      onChange({ rotationDeg: Math.round(deg) })
+                    }}
+                  />
+                  <span className='text-muted-foreground text-[10px]'>°</span>
+                </div>
               </div>
               <Slider
                 value={[block.rotationDeg ?? 0]}
@@ -417,6 +437,26 @@ function BlockCard({
                 onValueChange={([val]) => onChange({ rotationDeg: val })}
                 className='py-2'
               />
+              {/* Snap-to-quadrant shortcuts (rotation slider is precise but
+                  fiddly for exact 90° turns common with vertical SFX). */}
+              <div className='flex items-center gap-0.5'>
+                {[-90, 0, 90, 180].map((deg) => (
+                  <Button
+                    key={deg}
+                    variant='outline'
+                    size='sm'
+                    data-testid={`block-rotation-snap-${deg}`}
+                    className={cn(
+                      'h-6 flex-1 px-0 text-[10px] tabular-nums',
+                      (block.rotationDeg ?? 0) === deg &&
+                        'bg-primary text-primary-foreground border-primary hover:bg-primary/90',
+                    )}
+                    onClick={() => onChange({ rotationDeg: deg })}
+                  >
+                    {deg}°
+                  </Button>
+                ))}
+              </div>
             </div>
             <Button
               variant='outline'

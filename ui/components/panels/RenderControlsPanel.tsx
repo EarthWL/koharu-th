@@ -19,6 +19,7 @@ import {
   ArrowUpToLineIcon,
   BoldIcon,
   BookmarkIcon,
+  ContrastIcon,
   CopyIcon,
   ItalicIcon,
   LanguagesIcon,
@@ -56,6 +57,7 @@ import {
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { useTextStylePresetsStore } from '@/lib/stores/textStylePresetsStore'
+import { autoContrastColor } from '@/lib/util/autoContrast'
 import { useFontsQuery } from '@/lib/query/hooks'
 import {
   useDocumentMutations,
@@ -203,7 +205,12 @@ export function RenderControlsPanel() {
   )
   const fontFamily = usePreferencesStore((state) => state.fontFamily)
   const setFontFamily = usePreferencesStore((state) => state.setFontFamily)
-  const { textBlocks, selectedBlockIndex, replaceBlock } = useTextBlocks()
+  const {
+    document: currentDocument,
+    textBlocks,
+    selectedBlockIndex,
+    replaceBlock,
+  } = useTextBlocks()
   const { t } = useTranslation()
   const selectedBlock =
     selectedBlockIndex !== undefined
@@ -383,6 +390,34 @@ export function RenderControlsPanel() {
     const name = window.prompt(t('render.presetNamePrompt'))?.trim()
     if (!name) return
     addPreset(name, captureCurrentStyle())
+  }
+
+  // Auto-contrast: sample the background under each block (inpainted
+  // page, or source image as fallback) and set black/white text for
+  // legibility. Selected block only, or every block when none is
+  // selected.
+  const handleAutoContrast = async () => {
+    const sourceHex = currentDocument?.inpainted ?? currentDocument?.image
+    if (!sourceHex || !hasBlocks) return
+    try {
+      if (selectedBlockIndex !== undefined) {
+        const b = textBlocks[selectedBlockIndex]
+        const color = await autoContrastColor(sourceHex, b)
+        applyStyleToSelected({ color })
+        return
+      }
+      const colors = await Promise.all(
+        textBlocks.map((b) => autoContrastColor(sourceHex, b)),
+      )
+      const nextBlocks = textBlocks.map((b, i) => ({
+        ...b,
+        style: buildStyle(b, b.style, { color: colors[i] }),
+      }))
+      void updateTextBlocks(nextBlocks)
+      scheduleRender()
+    } catch (err) {
+      console.warn('[autoContrast] failed', err)
+    }
   }
 
   const mergeFontFamilies = (
@@ -639,6 +674,25 @@ export function RenderControlsPanel() {
             </TooltipTrigger>
             <TooltipContent side='bottom' sideOffset={4}>
               {t('render.fontColorLabel')}
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant='outline'
+                size='icon-sm'
+                className='size-7 shrink-0'
+                disabled={!hasBlocks}
+                aria-label={t('render.autoContrast')}
+                data-testid='render-auto-contrast'
+                onClick={() => void handleAutoContrast()}
+              >
+                <ContrastIcon className='size-3.5' />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side='bottom' sideOffset={4}>
+              {t('render.autoContrast')}
             </TooltipContent>
           </Tooltip>
         </div>

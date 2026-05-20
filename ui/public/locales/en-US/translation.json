@@ -179,7 +179,8 @@
     "writingModeLabel": "Text dir",
     "writingAuto": "Auto (decide by script + bubble)",
     "writingHorizontal": "Horizontal",
-    "writingVertical": "Vertical (top→bottom)"
+    "writingVertical": "Vertical (top→bottom)",
+    "autoContrast": "Auto-contrast text colour (black/white from background)"
   },
   "textBlocks": {
     "emptyPrompt": "Open an image to see text blocks.",
