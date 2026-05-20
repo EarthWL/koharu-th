@@ -112,7 +112,13 @@ impl Manifest {
     pub fn write(&self, path: impl AsRef<Path>) -> Result<()> {
         let path = path.as_ref();
         let bytes = serde_json::to_vec_pretty(self)?;
-        std::fs::write(path, bytes).map_err(|e| Error::io(path, e))
+        
+        // Write to temporary file first (Defensive Programming: Atomic Write Pattern)
+        let tmp_path = path.with_extension("koharuproj.tmp");
+        std::fs::write(&tmp_path, &bytes).map_err(|e| Error::io(&tmp_path, e))?;
+        
+        // Atomically rename temporary file to target path
+        std::fs::rename(&tmp_path, path).map_err(|e| Error::io(path, e))
     }
 }
 

@@ -63,7 +63,13 @@ fn write(store: &Path, entries: &[RecentProject]) -> Result<()> {
         std::fs::create_dir_all(parent).map_err(|e| Error::io(parent, e))?;
     }
     let bytes = serde_json::to_vec_pretty(entries)?;
-    std::fs::write(store, bytes).map_err(|e| Error::io(store, e))
+    
+    // Write to temporary file first (Defensive Programming: Atomic Write Pattern)
+    let tmp_store = store.with_extension("json.tmp");
+    std::fs::write(&tmp_store, &bytes).map_err(|e| Error::io(&tmp_store, e))?;
+    
+    // Atomically rename temporary file to target path
+    std::fs::rename(&tmp_store, store).map_err(|e| Error::io(store, e))
 }
 
 /// Normalise a path for equality: try canonicalize() (resolves
