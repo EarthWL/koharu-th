@@ -76,7 +76,7 @@ export type RpcMethodMap = {
   llm_offload: [void, void]
   llm_ready: [void, boolean]
   llm_generate: [
-    { index: number; textBlockIndex?: number; language?: string },
+    { index: number; textBlockIndex?: number; language?: string; context?: string },
     void,
   ]
   process: [

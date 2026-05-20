@@ -53,6 +53,7 @@ pub async fn llm_ready(state: AppResources) -> anyhow::Result<bool> {
 pub async fn llm_generate(state: AppResources, payload: LlmGeneratePayload) -> anyhow::Result<()> {
     let mut updated = state_tx::read_doc(&state.state, payload.index).await?;
     let target_language = payload.language.as_deref();
+    let context = payload.context.as_deref();
 
     match payload.text_block_index {
         Some(block_index) => {
@@ -60,10 +61,10 @@ pub async fn llm_generate(state: AppResources, payload: LlmGeneratePayload) -> a
                 .text_blocks
                 .get_mut(block_index)
                 .ok_or_else(|| anyhow::anyhow!("Text block not found"))?;
-            state.llm.translate(text_block, target_language).await?;
+            state.llm.translate(text_block, target_language, context).await?;
         }
         None => {
-            state.llm.translate(&mut updated, target_language).await?;
+            state.llm.translate(&mut updated, target_language, context).await?;
         }
     }
 

@@ -263,11 +263,13 @@ export const api = {
     index: number,
     textBlockIndex?: number,
     language?: string,
+    context?: string,
   ): Promise<void> {
     await invoke('llm_generate', {
       index,
       textBlockIndex,
       language,
+      context,
     })
   },
 

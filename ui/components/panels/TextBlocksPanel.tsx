@@ -23,6 +23,7 @@ import { useLlmReadyQuery } from '@/lib/query/hooks'
 import { useLlmMutations } from '@/lib/query/mutations'
 import { flushAllSyncQueues } from '@/lib/services/syncQueues'
 import { useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query/keys'
 import { api } from '@/lib/api'
 import {
   Accordion,
@@ -63,7 +64,7 @@ export function TextBlocksPanel() {
   const { llmGenerate } = useLlmMutations()
   const { data: llmReady = false } = useLlmReadyQuery()
   const { cloudProvider } = usePreferencesStore()
-  const { readingOrder, setReadingOrder } = useEditorUiStore()
+  const { readingOrder, setReadingOrder, currentDocumentIndex } = useEditorUiStore()
   const queryClient = useQueryClient()
   const [generatingIndex, setGeneratingIndex] = useState<number | null>(null)
 
@@ -203,8 +204,8 @@ export function TextBlocksPanel() {
     setReadingOrder(order)
     if ((order === 'rtl' || order === 'ltr') && document) {
       try {
-        await api.reorderTextBlocks(document.index, order)
-        await queryClient.invalidateQueries({ queryKey: ['document', document.index] })
+        await api.reorderTextBlocks(currentDocumentIndex, order)
+        await queryClient.invalidateQueries({ queryKey: queryKeys.documents.current(currentDocumentIndex) })
       } catch (err) {
         console.error('Failed to reorder text blocks:', err)
       }

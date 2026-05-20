@@ -96,6 +96,7 @@ pub struct LlmGeneratePayload {
     pub index: usize,
     pub text_block_index: Option<usize>,
     pub language: Option<String>,
+    pub context: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -110,6 +111,7 @@ pub struct LlmGenerateParams {
     pub index: usize,
     pub text_block_index: Option<usize>,
     pub language: Option<String>,
+    pub context: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

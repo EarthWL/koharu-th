@@ -764,9 +764,11 @@ export const useDocumentMutations = () => {
               '@/lib/services/cloudLlm'
             )
             const language = cloudTargetLanguage || 'Thai'
+            const context = await getTranslationContext(queryClient, resolvedIndex)
             const translatedResult = await generateCloudBatchTranslation(
               blocksToTranslate,
               language,
+              context,
             )
             const nextBlocks = [...blocks]
             for (const result of translatedResult) {
@@ -954,6 +956,56 @@ export const useDocumentMutations = () => {
   }
 }
 
+const getTranslationContext = async (
+  queryClient: QueryClient,
+  resolvedIndex: number,
+  textBlockIndex?: number,
+): Promise<string | undefined> => {
+  const contextParts: string[] = []
+
+  // 1. Gather previous page translations
+  if (resolvedIndex > 0) {
+    const prevKey = queryKeys.documents.current(resolvedIndex - 1)
+    let prevDoc = queryClient.getQueryData<any>(prevKey)
+    if (!prevDoc) {
+      try {
+        prevDoc = await api.getDocument(resolvedIndex - 1)
+      } catch (e) {
+        console.warn('[getTranslationContext] Failed to fetch previous document context', e)
+      }
+    }
+    if (prevDoc?.textBlocks) {
+      const prevTranslations = prevDoc.textBlocks
+        .map((b: any) => b.translation?.trim())
+        .filter((t: any) => t)
+      if (prevTranslations.length > 0) {
+        contextParts.push(`Previous Page Translations:\n` + prevTranslations.join('\n'))
+      }
+    }
+  }
+
+  // 2. Gather current page already-translated blocks (if translating a single block)
+  if (typeof textBlockIndex === 'number') {
+    const currentKey = queryKeys.documents.current(resolvedIndex)
+    const currentDoc = queryClient.getQueryData<any>(currentKey)
+    if (currentDoc?.textBlocks) {
+      const currentTranslations = currentDoc.textBlocks
+        .map((b: any, idx: number) => {
+          if (idx !== textBlockIndex && b.translation?.trim()) {
+            return b.translation.trim()
+          }
+          return null
+        })
+        .filter((t: any) => t)
+      if (currentTranslations.length > 0) {
+        contextParts.push(`Same Page Other Translations:\n` + currentTranslations.join('\n'))
+      }
+    }
+  }
+
+  return contextParts.length > 0 ? contextParts.join('\n\n') : undefined
+}
+
 export const useLlmMutations = () => {
   const queryClient = useQueryClient()
   const { setProgress, clearProgress } = useProgressActions()
@@ -1070,7 +1122,8 @@ export const useLlmMutations = () => {
           const block = currentDocument?.textBlocks?.[textBlockIndex]
           if (block?.text) {
             try {
-              const translation = await generateCloudTranslation(block.text, language, undefined, style)
+              const context = await getTranslationContext(queryClient, resolvedIndex, textBlockIndex)
+              const translation = await generateCloudTranslation(block.text, language, undefined, style, context)
               const nextBlocks = (currentDocument?.textBlocks ?? []).map((b: any, i: number) =>
                  i === textBlockIndex ? { ...b, translation } : b
               )
@@ -1116,7 +1169,8 @@ export const useLlmMutations = () => {
 
             if (blocksToTranslate.length > 0) {
               const { generateCloudBatchTranslation } = await import('@/lib/services/cloudLlm')
-              const translatedResult = await generateCloudBatchTranslation(blocksToTranslate, language)
+              const context = await getTranslationContext(queryClient, resolvedIndex)
+              const translatedResult = await generateCloudBatchTranslation(blocksToTranslate, language, context)
 
               // Map the returned JSON translations back to the blocks array
               for (const result of translatedResult) {
@@ -1177,7 +1231,8 @@ export const useLlmMutations = () => {
 
         if (typeof textBlockIndex === 'number') {
           // Single block — translate only (inpaint per-block is not meaningful)
-          await api.llmGenerate(resolvedIndex, textBlockIndex, language)
+          const context = await getTranslationContext(queryClient, resolvedIndex, textBlockIndex)
+          await api.llmGenerate(resolvedIndex, textBlockIndex, language, context)
         } else {
           // Batch mode: Generate = Inpaint + Translate + Render via Rust pipeline.
           // api.process() with skipDetect+skipOcr runs inpaint then LLM then render

@@ -280,8 +280,9 @@ export async function generateCloudTranslationDetailed(
   onChunk?: StreamHandler,
   override?: ProviderOverride,
   style?: 'standard' | 'shonen' | 'polite',
+  context?: string,
 ): Promise<TranslationDetailed> {
-  return generateCloudTranslationImpl(text, language, onChunk, override, style)
+  return generateCloudTranslationImpl(text, language, onChunk, override, style, context)
 }
 
 /**
@@ -299,8 +300,9 @@ export async function generateCloudTranslation(
   language: string,
   onChunk?: StreamHandler,
   style?: 'standard' | 'shonen' | 'polite',
+  context?: string,
 ): Promise<string> {
-  return (await generateCloudTranslationImpl(text, language, onChunk, undefined, style)).text
+  return (await generateCloudTranslationImpl(text, language, onChunk, undefined, style, context)).text
 }
 
 // Map of profile ID to recovery timestamp (Date.now() + cooldownDuration)
@@ -353,10 +355,8 @@ async function generateCloudTranslationImpl(
   language: string,
   onChunk?: StreamHandler,
   override?: ProviderOverride,
-  // [AI Translation Style Switcher — Issue #25]
-  // style เป็น parameter ที่ใช้ปรับน้ำเสียงของ translation prompt
-  // ถ้าไม่ส่งมา (undefined) → prompt จะเป็นแบบ default ไม่มี style instruction พ่วง
   style?: 'standard' | 'shonen' | 'polite',
+  context?: string,
 ): Promise<TranslationDetailed> {
   const live = usePreferencesStore.getState()
 
@@ -389,6 +389,10 @@ async function generateCloudTranslationImpl(
     `You are a professional manga translator. Translate the following text to ${language}.
 The translation should sound natural, conversational, and appropriate for comic book characters, keeping the original tone and context intact.
 Only return the translation, no extra text:\n\n${text}`
+
+  if (context && context.trim()) {
+    basePrompt = `[Translation Context]\n${context}\n\n[Instructions]\nUse the above context to keep translation consistency if applicable.\n\n[Text to Translate]\n${basePrompt}`
+  }
 
   // [ด่านที่ 3] เติม Style Instruction ท้าย prompt
   // หมายเหตุ: ถ้า projectPrompt มีอยู่ (project mode) style instruction จะ append ต่อท้าย
@@ -715,7 +719,7 @@ export async function extractEntitiesFromText(
     .filter((e) => e.original && e.translation)
 }
 
-export async function generateCloudBatchTranslation(blocks: {index: number, text: string}[], language: string): Promise<{index: number, translation: string}[]> {
+export async function generateCloudBatchTranslation(blocks: {index: number, text: string}[], language: string, context?: string): Promise<{index: number, translation: string}[]> {
   const { cloudProvider, cloudApiUrl, cloudModelName, activeProfileId } = usePreferencesStore.getState()
   
   if (!activeProfileId) {
@@ -728,7 +732,7 @@ export async function generateCloudBatchTranslation(blocks: {index: number, text
   const prompt = `You are an expert manga translator.
 Your task is to translate the 'text' fields in the following JSON array to ${language}.
 The texts are sequential dialogue balloons and sound effects from a manga page. 
-Ensure the translation sounds natural, conversational, and flows logically between the sequential index blocks as characters speaking to each other.
+${context ? `Here is the translation context from previous pages/bubbles to keep consistency:\n${context}\n\n` : ''}Ensure the translation sounds natural, conversational, and flows logically between the sequential index blocks as characters speaking to each other.
 
 Return ONLY a valid JSON array of objects with the exact same 'index' values and your translated strings in the 'translation' fields.
 Do not include any other text, conversational filler, markdown formatting, or code blocks.
