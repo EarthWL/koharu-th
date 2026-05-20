@@ -99,6 +99,10 @@ export type ChatProviderConfig = {
   model: string
   /** Abort the in-flight request when the user clicks Stop. */
   signal?: AbortSignal
+  /** Optional temperature configuration (0.0 to 2.0) */
+  temperature?: number
+  /** Optional max tokens configuration (256 to 4096) */
+  maxTokens?: number
 }
 
 /**
@@ -346,6 +350,8 @@ async function callOpenAiCompat(
     // so we can log it to llm_call_log. OpenAI + OpenRouter both
     // honour this flag.
     stream_options: { include_usage: true },
+    ...(cfg.temperature !== undefined ? { temperature: cfg.temperature } : {}),
+    ...(cfg.maxTokens !== undefined ? { max_tokens: cfg.maxTokens } : {}),
   }
 
   const res = await fetch(url, {
@@ -505,10 +511,11 @@ async function callAnthropic(
 
   const body: any = {
     model: cfg.model,
-    max_tokens: 4096,
+    max_tokens: cfg.maxTokens ?? 4096,
     messages: toAnthropicMessages(messages),
     tools: toAnthropicTools(tools),
     stream: true,
+    ...(cfg.temperature !== undefined ? { temperature: cfg.temperature } : {}),
   }
   if (system) body.system = system
 
@@ -736,6 +743,18 @@ async function callGemini(
   const body: any = {
     contents: toGeminiContents(messages),
     tools: toGeminiTools(tools),
+    ...(cfg.temperature !== undefined || cfg.maxTokens !== undefined
+      ? {
+          generationConfig: {
+            ...(cfg.temperature !== undefined
+              ? { temperature: cfg.temperature }
+              : {}),
+            ...(cfg.maxTokens !== undefined
+              ? { maxOutputTokens: cfg.maxTokens }
+              : {}),
+          },
+        }
+      : {}),
   }
   if (system) body.systemInstruction = { parts: [{ text: system }] }
 

@@ -24,6 +24,7 @@ import {
   RefreshCwIcon,
   SparklesIcon,
   BookOpenIcon,
+  SlidersIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -34,7 +35,12 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { useCurrentDocumentState } from '@/lib/query/hooks'
-import { api, type ChatAttachment, type ChatMessageDto } from '@/lib/api'
+import {
+  api,
+  type ChatAttachment,
+  type ChatMessageDto,
+  type GlossaryDto,
+} from '@/lib/api'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 
 import { useProjectStore } from '@/lib/stores/projectStore'
@@ -164,6 +170,89 @@ export function ChatTabPanel() {
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const currentDocIndex = useEditorUiStore((s) => s.currentDocumentIndex)
+
+  const [temperature, setTemperature] = useState<number>(() => {
+    const saved = localStorage.getItem('koharu_chat_temp')
+    return saved !== null ? parseFloat(saved) : 0.7
+  })
+  const [maxTokens, setMaxTokens] = useState<number>(() => {
+    const saved = localStorage.getItem('koharu_chat_max_tokens')
+    return saved !== null ? parseInt(saved, 10) : 2048
+  })
+  const [enhancing, setEnhancing] = useState(false)
+  const regeneratingUserMsgIdRef = useRef<number | null>(null)
+
+  const handleTempChange = (val: number) => {
+    setTemperature(val)
+    localStorage.setItem('koharu_chat_temp', String(val))
+  }
+  const handleMaxTokensChange = (val: number) => {
+    setMaxTokens(val)
+    localStorage.setItem('koharu_chat_max_tokens', String(val))
+  }
+
+  const glossaryQuery = useQuery({
+    queryKey: ['project', 'glossary'],
+    queryFn: () => api.glossaryList(),
+    enabled: !!projectInfo,
+  })
+
+  const activeSuggestions = useMemo(() => {
+    if (!input.trim() || !glossaryQuery.data) return []
+    const lowerInput = input.toLowerCase()
+    return glossaryQuery.data
+      .filter((item) => {
+        if (!item.sourceText || item.sourceText.trim().length < 2) return false
+        const words = lowerInput.split(/\s+/)
+        const lastWord = words[words.length - 1]
+        if (lastWord.length < 2) return false
+        return (
+          item.sourceText.toLowerCase().startsWith(lastWord) &&
+          item.sourceText.toLowerCase() !== lastWord
+        )
+      })
+      .slice(0, 5)
+  }, [input, glossaryQuery.data])
+
+  const applyGlossarySuggestion = (item: GlossaryDto) => {
+    const words = input.split(/\s+/)
+    words.pop()
+    words.push(`${item.sourceText} (${item.targetText})`)
+    setInput(words.join(' ') + ' ')
+  }
+
+  const enhancePrompt = async () => {
+    if (!input.trim() || enhancing) return
+    setEnhancing(true)
+    setError(null)
+    try {
+      const enhancePromptText = [
+        'You are an expert manga translation prompt engineer.',
+        'The user has written a simple instruction for translating or refining manga text.',
+        'Please expand this simple instruction into a highly professional, detailed translation instruction in Thai that instructs the LLM to preserve character voice, tone, formatting, and subtext.',
+        'The output must contain ONLY the expanded instruction, ready to be sent to the LLM. Do NOT include any explanations, greetings, or backticks.',
+        '',
+        '--- SIMPLE INSTRUCTION ---',
+        input,
+      ].join('\n')
+
+      const { callCloudOnce } = await import('@/lib/services/cloudLlm')
+      const enhanced = await callCloudOnce({
+        prompt: enhancePromptText,
+        provider,
+        apiKey,
+        apiUrl,
+        model,
+        useCase: 'enhance_prompt',
+      })
+
+      setInput(enhanced.trim())
+    } catch (err: any) {
+      setError(`การขยายคำสั่งล้มเหลว: ${err?.message ?? String(err)}`)
+    } finally {
+      setEnhancing(false)
+    }
+  }
 
   // Context-Aware Selection
   const { currentDocument } = useCurrentDocumentState()
@@ -418,7 +507,15 @@ export function ChatTabPanel() {
 
     try {
       await runChatTurn(
-        { provider, apiKey, apiUrl, model, signal: controller.signal },
+        {
+          provider,
+          apiKey,
+          apiUrl,
+          model,
+          signal: controller.signal,
+          temperature,
+          maxTokens,
+        },
         allMessages,
         async (e) => {
           if (e.kind === 'text-delta') {
@@ -446,6 +543,7 @@ export function ChatTabPanel() {
             // also dump base64 image bytes into SQLite).
             const before = allMessages.length
             const tail = e.finalMessages.slice(before)
+            let lastAssistantMsg: ChatMessage | null = null
             for (const m of tail) {
               if (m._synthetic) continue
               await api.chatMessageAdd({
@@ -455,6 +553,34 @@ export function ChatTabPanel() {
                 toolCallId: m.toolCallId ?? null,
                 model: `${provider}:${model}`,
               })
+              if (m.role === 'assistant') {
+                lastAssistantMsg = m
+              }
+            }
+
+            // Save to virtual branch if we are regenerating
+            if (
+              regeneratingUserMsgIdRef.current !== null &&
+              lastAssistantMsg &&
+              projectInfo
+            ) {
+              const userMsgId = regeneratingUserMsgIdRef.current
+              const key = `koharu_chat_branches_${projectInfo.id}_${userMsgId}`
+              const currentBranches = JSON.parse(
+                localStorage.getItem(key) || '[]',
+              )
+
+              currentBranches.push({
+                content: lastAssistantMsg.content,
+                model: `${provider}:${model}`,
+                toolCalls: lastAssistantMsg.toolCalls
+                  ? JSON.stringify(lastAssistantMsg.toolCalls)
+                  : null,
+                toolCallId: lastAssistantMsg.toolCallId ?? null,
+              })
+
+              localStorage.setItem(key, JSON.stringify(currentBranches))
+              regeneratingUserMsgIdRef.current = null
             }
           }
         },
@@ -639,6 +765,8 @@ export function ChatTabPanel() {
               (p.provider === 'openai' ? 'https://api.openai.com/v1' : ''),
             model: p.modelName,
             signal: controller.signal,
+            temperature,
+            maxTokens,
           },
           allMessages,
           async (e) => {
@@ -812,6 +940,45 @@ export function ChatTabPanel() {
     await triggerChatCompletion(sendContent, turnAttachments)
   }
 
+  const switchMessageVersion = async (
+    assistantMsgId: number,
+    userMsgId: number,
+    targetIdx: number,
+  ) => {
+    if (sending || clearing || revoking || !projectInfo) return
+    setSending(true)
+    setError(null)
+    try {
+      const key = `koharu_chat_branches_${projectInfo.id}_${userMsgId}`
+      const branches = JSON.parse(localStorage.getItem(key) || '[]')
+      if (targetIdx < 0 || targetIdx >= branches.length) return
+
+      const targetBranch = branches[targetIdx]
+      // Delete assistant message and everything after it from the DB
+      await api.chatMessagesDeleteFrom(assistantMsgId)
+
+      // Add the chosen branch message to the SQLite DB
+      await api.chatMessageAdd({
+        role: 'assistant',
+        content: targetBranch.content,
+        toolCalls: targetBranch.toolCalls ?? null,
+        toolCallId: targetBranch.toolCallId ?? null,
+        model: targetBranch.model ?? null,
+      })
+
+      // Update active branch index
+      localStorage.setItem(
+        `koharu_chat_active_branch_${projectInfo.id}_${userMsgId}`,
+        String(targetIdx),
+      )
+      await history.refetch()
+    } catch (err: any) {
+      setError(`ไม่สามารถสลับกิ่งการตอบกลับได้: ${err?.message ?? String(err)}`)
+    } finally {
+      setSending(false)
+    }
+  }
+
   const regenerateFromMessage = async (assistantMsg: ChatMessageDto) => {
     if (
       !projectInfo ||
@@ -844,7 +1011,34 @@ export function ChatTabPanel() {
     setRedoStack([])
 
     try {
-      // Delete assistant message and everything after it
+      // 1. Load branches for this user message
+      const key = `koharu_chat_branches_${projectInfo.id}_${userMsg.id}`
+      const currentBranches = JSON.parse(localStorage.getItem(key) || '[]')
+
+      // If empty, initialize branch 0 with the current assistantMsg
+      if (currentBranches.length === 0) {
+        currentBranches.push({
+          content: assistantMsg.content,
+          model: assistantMsg.model,
+          toolCalls: assistantMsg.toolCalls,
+          toolCallId: assistantMsg.toolCallId,
+        })
+      }
+
+      // Save key branches back
+      localStorage.setItem(key, JSON.stringify(currentBranches))
+
+      // 2. Set the target index for the new branch we are about to generate
+      const newBranchIdx = currentBranches.length
+      localStorage.setItem(
+        `koharu_chat_active_branch_${projectInfo.id}_${userMsg.id}`,
+        String(newBranchIdx),
+      )
+
+      // 3. Keep track of the preceding user message id
+      regeneratingUserMsgIdRef.current = userMsg.id
+
+      // 4. Delete assistant message and everything after it
       await api.chatMessagesDeleteFrom(assistantMsg.id)
       await history.refetch()
 
@@ -853,6 +1047,7 @@ export function ChatTabPanel() {
     } catch (err: any) {
       setError(err?.message ?? String(err))
       setSending(false)
+      regeneratingUserMsgIdRef.current = null
     }
   }
 
@@ -1126,19 +1321,42 @@ export function ChatTabPanel() {
             {!history.data?.length ? (
               <EmptyState />
             ) : (
-              history.data.map((m) => (
-                <MessageRow
-                  key={m.id}
-                  message={m}
-                  onDelete={() => void deleteMessage(m.id)}
-                  onUndoFromHere={() => void revokeFromMessage(m)}
-                  onRegenerate={
-                    m.role === 'assistant'
-                      ? () => void regenerateFromMessage(m)
-                      : undefined
+              history.data.map((m, idx) => {
+                let precedingUserMsgId: number | undefined
+                if (m.role === 'assistant' && history.data) {
+                  for (let i = idx - 1; i >= 0; i--) {
+                    if (history.data[i].role === 'user') {
+                      precedingUserMsgId = history.data[i].id
+                      break
+                    }
                   }
-                />
-              ))
+                }
+                return (
+                  <MessageRow
+                    key={m.id}
+                    message={m}
+                    projectId={projectInfo?.id}
+                    precedingUserMsgId={precedingUserMsgId}
+                    glossaryList={glossaryQuery.data ?? []}
+                    onDelete={() => void deleteMessage(m.id)}
+                    onUndoFromHere={() => void revokeFromMessage(m)}
+                    onRegenerate={
+                      m.role === 'assistant'
+                        ? () => void regenerateFromMessage(m)
+                        : undefined
+                    }
+                    onSwitchBranch={(newIdx) => {
+                      if (precedingUserMsgId !== undefined) {
+                        void switchMessageVersion(
+                          m.id,
+                          precedingUserMsgId,
+                          newIdx,
+                        )
+                      }
+                    }}
+                  />
+                )
+              })
             )}
             {sending && !arenaActive && (
               <StreamingBubble streamingText={streamingText} onStop={stop} />
@@ -1535,6 +1753,29 @@ export function ChatTabPanel() {
             ))}
           </div>
         )}
+
+        {/* Glossary live suggestions */}
+        {activeSuggestions.length > 0 && (
+          <div className='animate-in fade-in slide-in-from-bottom-1 mb-1.5 flex flex-wrap gap-1 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-1.5 text-[9px] duration-150'>
+            <span className='mr-1 flex items-center gap-1 py-0.5 font-semibold text-emerald-600 dark:text-emerald-400'>
+              <BookOpenIcon className='size-2.5' />
+              แนะนำคำศัพท์:
+            </span>
+            {activeSuggestions.map((item) => (
+              <button
+                key={item.id}
+                type='button'
+                onClick={() => applyGlossarySuggestion(item)}
+                className='flex items-center gap-1 rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 font-medium text-emerald-700 transition hover:bg-emerald-500/25 dark:text-emerald-400'
+                title={`คลิกเพื่อเติม: ${item.sourceText} → ${item.targetText}`}
+              >
+                <span>{item.sourceText}</span>
+                <span className='opacity-60'>→</span>
+                <span>{item.targetText}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <Textarea
           value={input}
           onChange={(e) => {
@@ -1721,6 +1962,87 @@ export function ChatTabPanel() {
                           {t.label}
                         </button>
                       ))}
+                    </div>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {/* Creative Parameter Tuning Popover */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant='ghost'
+                  size='icon-xs'
+                  className='hover:bg-accent hover:text-accent-foreground text-primary size-6'
+                  title='ปรับแต่งค่าโมเดล (LLM Parameters)'
+                >
+                  <SlidersIcon className='size-3 text-sky-500' />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align='start'
+                side='top'
+                className='bg-background/95 border-border/80 z-[100] w-64 rounded-lg p-3 shadow-lg backdrop-blur-md'
+              >
+                <div className='border-border/60 mb-2 border-b px-1 pb-1'>
+                  <span className='text-foreground flex items-center gap-1 text-[10px] font-bold tracking-wider uppercase'>
+                    <SlidersIcon className='size-2.5 text-sky-500' />
+                    ปรับแต่งโมเดล (Creative Tuning)
+                  </span>
+                </div>
+                <div className='space-y-4 font-sans text-xs'>
+                  {/* Temperature Slider */}
+                  <div className='space-y-1.5'>
+                    <div className='flex items-center justify-between'>
+                      <span className='text-muted-foreground text-[10px] font-medium'>
+                        อุณหภูมิสร้างสรรค์ (Temperature)
+                      </span>
+                      <span className='rounded bg-sky-500/10 px-1 font-mono text-[10px] font-semibold text-sky-600 dark:text-sky-400'>
+                        {temperature.toFixed(1)}
+                      </span>
+                    </div>
+                    <input
+                      type='range'
+                      min='0.0'
+                      max='2.0'
+                      step='0.1'
+                      value={temperature}
+                      onChange={(e) =>
+                        handleTempChange(parseFloat(e.target.value))
+                      }
+                      className='bg-muted h-1 w-full cursor-pointer appearance-none rounded-lg accent-sky-500'
+                    />
+                    <div className='text-muted-foreground flex justify-between text-[8px]'>
+                      <span>0.0 (คงเส้นคงวา)</span>
+                      <span>2.0 (สร้างสรรค์สูงสุด)</span>
+                    </div>
+                  </div>
+
+                  {/* Max Tokens Slider */}
+                  <div className='space-y-1.5'>
+                    <div className='flex items-center justify-between'>
+                      <span className='text-muted-foreground text-[10px] font-medium'>
+                        ความยาวสูงสุด (Max Tokens)
+                      </span>
+                      <span className='rounded bg-sky-500/10 px-1 font-mono text-[10px] font-semibold text-sky-600 dark:text-sky-400'>
+                        {maxTokens}
+                      </span>
+                    </div>
+                    <input
+                      type='range'
+                      min='256'
+                      max='4096'
+                      step='128'
+                      value={maxTokens}
+                      onChange={(e) =>
+                        handleMaxTokensChange(parseInt(e.target.value, 10))
+                      }
+                      className='bg-muted h-1 w-full cursor-pointer appearance-none rounded-lg accent-sky-500'
+                    />
+                    <div className='text-muted-foreground flex justify-between text-[8px]'>
+                      <span>256</span>
+                      <span>4096</span>
                     </div>
                   </div>
                 </div>
@@ -1928,9 +2250,26 @@ export function ChatTabPanel() {
               </button>
             </div>
           </div>
+          {input.trim() && (
+            <Button
+              size='sm'
+              variant='outline'
+              className='h-6 shrink-0 gap-1 border-amber-500/25 bg-amber-500/10 px-2 text-[10px] text-amber-600 hover:bg-amber-500/20 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300'
+              disabled={enhancing || sending}
+              onClick={enhancePrompt}
+              title='ขยายคำสั่งด้วย AI (Enhance Prompt with AI)'
+            >
+              {enhancing ? (
+                <Loader2Icon className='size-3 animate-spin' />
+              ) : (
+                <SparklesIcon className='size-3 animate-pulse text-amber-500' />
+              )}
+              ขยายคำสั่ง
+            </Button>
+          )}
           <Button
             size='sm'
-            className='h-6 px-2 text-[10px]'
+            className='h-6 shrink-0 px-2 text-[10px]'
             disabled={
               (!input.trim() && pendingAttachments.length === 0) ||
               sending ||
@@ -2020,11 +2359,19 @@ function MessageRow({
   onDelete,
   onUndoFromHere,
   onRegenerate,
+  projectId,
+  precedingUserMsgId,
+  glossaryList,
+  onSwitchBranch,
 }: {
   message: ChatMessageDto
   onDelete: () => void
   onUndoFromHere?: () => void
   onRegenerate?: () => void
+  projectId?: string
+  precedingUserMsgId?: number
+  glossaryList?: GlossaryDto[]
+  onSwitchBranch?: (newIdx: number) => void
 }) {
   const [copied, setCopied] = useState(false)
   const handleCopy = async () => {
@@ -2037,6 +2384,36 @@ function MessageRow({
       console.warn('Failed to copy text', err)
     }
   }
+
+  const branches = useMemo(() => {
+    if (!projectId || !precedingUserMsgId) return []
+    const key = `koharu_chat_branches_${projectId}_${precedingUserMsgId}`
+    try {
+      return JSON.parse(localStorage.getItem(key) || '[]')
+    } catch {
+      return []
+    }
+  }, [projectId, precedingUserMsgId])
+
+  const activeBranchIndex = useMemo(() => {
+    if (!projectId || !precedingUserMsgId) return 0
+    const key = `koharu_chat_active_branch_${projectId}_${precedingUserMsgId}`
+    try {
+      const saved = localStorage.getItem(key)
+      return saved !== null ? parseInt(saved, 10) : 0
+    } catch {
+      return 0
+    }
+  }, [projectId, precedingUserMsgId])
+
+  const matchedGlossary = useMemo(() => {
+    if (m.role !== 'assistant' || !m.content || !glossaryList) return []
+    const contentLower = m.content.toLowerCase()
+    return glossaryList.filter((item) => {
+      if (!item.sourceText || item.sourceText.trim().length < 2) return false
+      return contentLower.includes(item.sourceText.toLowerCase())
+    })
+  }, [m.role, m.content, glossaryList])
 
   if (m.role === 'tool') {
     return (
@@ -2063,6 +2440,32 @@ function MessageRow({
           <BotIcon className='size-3' />
         )}
         <span>{m.role}</span>
+
+        {!isUser && branches.length > 1 && (
+          <div className='bg-primary/5 border-primary/20 text-muted-foreground/80 hover:text-foreground animate-in fade-in zoom-in-95 ml-2 inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-bold shadow-sm transition duration-155 select-none'>
+            <button
+              type='button'
+              onClick={() => onSwitchBranch?.(activeBranchIndex - 1)}
+              disabled={activeBranchIndex === 0}
+              className='disabled:hover:text-muted-foreground px-0.5 transition-colors hover:text-amber-500 disabled:opacity-30'
+              title='ย้อนกลับไปคำตอบก่อนหน้า'
+            >
+              &lt;
+            </button>
+            <span className='px-0.5 font-mono'>
+              {activeBranchIndex + 1} / {branches.length}
+            </span>
+            <button
+              type='button'
+              onClick={() => onSwitchBranch?.(activeBranchIndex + 1)}
+              disabled={activeBranchIndex === branches.length - 1}
+              className='disabled:hover:text-muted-foreground px-0.5 transition-colors hover:text-amber-500 disabled:opacity-30'
+              title='สลับไปคำตอบถัดไป'
+            >
+              &gt;
+            </button>
+          </div>
+        )}
 
         {/* Actions container pushed to the right */}
         <div className='ml-auto flex items-center gap-1.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100'>
@@ -2135,7 +2538,30 @@ function MessageRow({
                 {m.content}
               </div>
             ) : (
-              <ChatMarkdown>{m.content}</ChatMarkdown>
+              <>
+                <ChatMarkdown>{m.content}</ChatMarkdown>
+                {matchedGlossary.length > 0 && (
+                  <div className='animate-in fade-in mt-2 flex flex-wrap gap-1.5 border-t border-emerald-500/10 pt-1.5 duration-200'>
+                    {matchedGlossary.map((item) => (
+                      <div
+                        key={item.id}
+                        className='flex items-center gap-1 rounded-md border border-emerald-500/15 bg-emerald-500/5 px-1.5 py-0.5 font-sans text-[9px] text-emerald-700 shadow-sm transition-colors duration-150 hover:bg-emerald-500/10 dark:text-emerald-400'
+                        title={item.contextNote || 'คำศัพท์จากพจนานุกรมโครงการ'}
+                      >
+                        <BookOpenIcon className='size-2.5 text-emerald-500' />
+                        <span className='font-semibold'>{item.sourceText}</span>
+                        <span className='font-mono opacity-50'>→</span>
+                        <span className='font-medium'>{item.targetText}</span>
+                        {item.category && (
+                          <span className='rounded-sm bg-emerald-500/10 px-1 text-[8px] opacity-40'>
+                            {item.category}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             )
           ) : (
             <span className='text-muted-foreground italic'>
