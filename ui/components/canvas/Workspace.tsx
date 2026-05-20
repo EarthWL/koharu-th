@@ -11,8 +11,11 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
 import { useTranslation } from 'react-i18next'
-import { listen, getHttpUrl } from '@/lib/backend'
+import { listen, getHttpUrl, subscribeCollabSync, publishCollab } from '@/lib/backend'
 import { Image } from '@/components/Image'
+import { useCollabStore } from '@/lib/stores/collabStore'
+import { CollaboratorsList } from '@/components/canvas/CollaboratorsList'
+import { CollaboratorCursors } from '@/components/canvas/CollaboratorCursors'
 import {
   setCanvasViewport,
   fitCanvasToViewport,
@@ -333,6 +336,86 @@ export function Workspace() {
     handleContextMenu(event)
   }
 
+  // --- Real-time Collaboration Engine Sync ---
+  const mySessionId = useCollabStore((state) => state.sessionId)
+  const myName = useCollabStore((state) => state.userName)
+  const updateCollaborator = useCollabStore((state) => state.updateCollaborator)
+  const removeCollaborator = useCollabStore((state) => state.removeCollaborator)
+  const clearExpiredCollaborators = useCollabStore((state) => state.clearExpiredCollaborators)
+
+  useEffect(() => {
+    const unsubscribe = subscribeCollabSync((event) => {
+      if (event.session_id === mySessionId) return
+
+      if (event.event_type === 'cursor_move') {
+        updateCollaborator(event.session_id, {
+          name: event.payload.name,
+          cursor: { x: event.payload.x, y: event.payload.y },
+          activePage: event.payload.activePage,
+        })
+      } else if (event.event_type === 'page_change') {
+        updateCollaborator(event.session_id, {
+          name: event.payload.name,
+          activePage: event.payload.activePage,
+        })
+      } else if (event.event_type === 'disconnect') {
+        removeCollaborator(event.session_id)
+      }
+    })
+
+    const expiryInterval = setInterval(() => {
+      clearExpiredCollaborators()
+    }, 5000)
+
+    return () => {
+      unsubscribe()
+      clearInterval(expiryInterval)
+      publishCollab({
+        session_id: mySessionId,
+        event_type: 'disconnect',
+        payload: {},
+      }).catch(() => {})
+    }
+  }, [mySessionId, updateCollaborator, removeCollaborator, clearExpiredCollaborators])
+
+  useEffect(() => {
+    if (currentDocumentIndex === undefined) return
+    publishCollab({
+      session_id: mySessionId,
+      event_type: 'page_change',
+      payload: {
+        name: myName,
+        activePage: currentDocumentIndex,
+      },
+    }).catch(() => {})
+  }, [currentDocumentIndex, mySessionId, myName])
+
+  const lastPublishRef = useRef<number>(0)
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!currentDocument || !canvasRef.current) return
+
+    const now = Date.now()
+    if (now - lastPublishRef.current < 60) return
+    lastPublishRef.current = now
+
+    const rect = canvasRef.current.getBoundingClientRect()
+    const x = (e.clientX - rect.left) / scaleRatio / currentDocument.width
+    const y = (e.clientY - rect.top) / scaleRatio / currentDocument.height
+
+    if (x >= -0.1 && x <= 1.1 && y >= -0.1 && y <= 1.1) {
+      publishCollab({
+        session_id: mySessionId,
+        event_type: 'cursor_move',
+        payload: {
+          name: myName,
+          x,
+          y,
+          activePage: currentDocumentIndex,
+        },
+      }).catch(() => {})
+    }
+  }
+
   // Space-pan affordance takes priority — even brush mode shows the
   // grab cursor while Space is held so the user knows the gesture is
   // armed before they click.
@@ -356,6 +439,7 @@ export function Workspace() {
       <ToolRail />
       <div className='relative flex min-h-0 min-w-0 flex-1 flex-col'>
         <CanvasToolbar />
+        <CollaboratorsList />
         <ScrollAreaPrimitive.Root className='flex min-h-0 min-w-0 flex-1'>
           <ScrollAreaPrimitive.Viewport
             ref={(el) => {
@@ -382,6 +466,7 @@ export function Workspace() {
                       style={{ ...canvasDimensions, cursor: canvasCursor }}
                       onPointerDownCapture={handleCanvasPointerDownCapture}
                       onContextMenuCapture={handleCanvasContextMenu}
+                      onPointerMove={handlePointerMove}
                       {...blockDraftBindings}
                     >
                       <div className='absolute inset-0'>
@@ -463,6 +548,12 @@ export function Workspace() {
                             style={{ zIndex: 40 }}
                           />
                         )}
+                        <CollaboratorCursors
+                          scaleRatio={scaleRatio}
+                          width={currentDocument.width}
+                          height={currentDocument.height}
+                          currentPageIndex={currentDocumentIndex}
+                        />
                       </div>
                       {draftBlock && (
                         <div
