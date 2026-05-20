@@ -22,12 +22,21 @@ import {
   CopyIcon,
   CheckIcon,
   RefreshCwIcon,
+  SparklesIcon,
+  BookOpenIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import { useCurrentDocumentState } from '@/lib/query/hooks'
 import { api, type ChatAttachment, type ChatMessageDto } from '@/lib/api'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
+
 import { useProjectStore } from '@/lib/stores/projectStore'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { runChatTurn, type ChatMessage } from '@/lib/services/chatWithTools'
@@ -155,6 +164,54 @@ export function ChatTabPanel() {
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const currentDocIndex = useEditorUiStore((s) => s.currentDocumentIndex)
+
+  // Context-Aware Selection
+  const { currentDocument } = useCurrentDocumentState()
+  const selectedBlockIndex = useEditorUiStore((s) => s.selectedBlockIndex)
+  const selectedBlock = useMemo(() => {
+    if (selectedBlockIndex === undefined || !currentDocument?.textBlocks)
+      return null
+    return currentDocument.textBlocks[selectedBlockIndex] ?? null
+  }, [selectedBlockIndex, currentDocument])
+
+  // Multi-Model Arena Compare
+  const [arenaMode, setArenaMode] = useState(false)
+  const [arenaActive, setArenaActive] = useState(false)
+  const [arenaProfiles, setArenaProfiles] = useState<any[]>([])
+  const [selectedArenaProfileIds, setSelectedArenaProfileIds] = useState<
+    number[]
+  >([])
+  const [arenaStreams, setArenaStreams] = useState<
+    Record<
+      number,
+      {
+        text: string
+        sending: boolean
+        error: string | null
+        profileName: string
+        provider: string
+        modelName: string
+      }
+    >
+  >({})
+  const arenaAbortControllersRef = useRef<Record<number, AbortController>>({})
+
+  const activeProfileId = usePreferencesStore((s) => s.activeProfileId)
+
+  useEffect(() => {
+    if (
+      profilesQuery.data &&
+      profilesQuery.data.length > 0 &&
+      selectedArenaProfileIds.length === 0
+    ) {
+      const activeId = activeProfileId || profilesQuery.data[0].id
+      const others = profilesQuery.data
+        .filter((p) => p.id !== activeId)
+        .slice(0, 2)
+        .map((p) => p.id)
+      setSelectedArenaProfileIds([activeId, ...others])
+    }
+  }, [profilesQuery.data, activeProfileId, selectedArenaProfileIds.length])
 
   // Snooze config (ESET-style):
   const [snoozeType, setSnoozeType] = useState<'restart' | 'messages' | null>(
@@ -416,11 +473,286 @@ export function ChatTabPanel() {
     }
   }
 
+  const cancelArena = () => {
+    Object.values(arenaAbortControllersRef.current).forEach((c) => c.abort())
+    arenaAbortControllersRef.current = {}
+    setArenaActive(false)
+    setSending(false)
+    setArenaStreams({})
+    refresh()
+  }
+
+  const selectArenaResponse = async (p: any) => {
+    const stream = arenaStreams[p.id]
+    if (!stream || !stream.text) return
+
+    setSending(true)
+    setError(null)
+
+    try {
+      Object.entries(arenaAbortControllersRef.current).forEach(([id, c]) => {
+        if (id !== p.id) c.abort()
+      })
+      arenaAbortControllersRef.current = {}
+
+      await api.chatMessageAdd({
+        role: 'assistant',
+        content: stream.text,
+        model: `${p.provider}:${p.modelName}`,
+      })
+
+      setArenaActive(false)
+      setArenaStreams({})
+      setArenaMode(false)
+      await history.refetch()
+    } catch (err: any) {
+      setError(err?.message ?? String(err))
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const sendArena = async () => {
+    if (selectedArenaProfileIds.length === 0 || !profilesQuery.data) return
+
+    setSending(true)
+    setError(null)
+    setRedoStack([])
+
+    const slash = expandSlash(input)
+    const displayContent = slash ? slash.display : input
+    const sendContent = slash ? slash.prompt : input
+    const turnAttachments = pendingAttachments
+
+    try {
+      await api.chatMessageAdd({
+        role: 'user',
+        content: displayContent,
+        attachments: turnAttachments.length
+          ? JSON.stringify(turnAttachments)
+          : null,
+      })
+    } catch (err: any) {
+      setError(err?.message ?? String(err))
+      setSending(false)
+      return
+    }
+
+    setInput('')
+    setPendingAttachments([])
+    await history.refetch()
+
+    setArenaActive(true)
+    const targetProfiles = profilesQuery.data.filter((p) =>
+      selectedArenaProfileIds.includes(p.id),
+    )
+    setArenaProfiles(targetProfiles)
+
+    const initialStreams: Record<
+      number,
+      {
+        text: string
+        sending: boolean
+        error: string | null
+        profileName: string
+        provider: string
+        modelName: string
+      }
+    > = {}
+    targetProfiles.forEach((p) => {
+      initialStreams[p.id] = {
+        text: '',
+        sending: true,
+        error: null,
+        profileName: p.name,
+        provider: p.provider,
+        modelName: p.modelName,
+      }
+    })
+    setArenaStreams(initialStreams)
+
+    let systemContent = ''
+    try {
+      systemContent = await buildSystemPrompt()
+    } catch {
+      systemContent = 'You are an AI assistant for manga translation.'
+    }
+
+    const priorRows = (history.data ?? [])
+      .filter((r) => r.role !== 'system')
+      .map(rowToChatMessage)
+
+    if (
+      priorRows.length > 0 &&
+      priorRows[priorRows.length - 1].role === 'user'
+    ) {
+      priorRows.pop()
+    }
+
+    const ROLLING_WINDOW_LIMIT = 12
+    const rollingPriorRows =
+      priorRows.length > ROLLING_WINDOW_LIMIT
+        ? priorRows.slice(priorRows.length - ROLLING_WINDOW_LIMIT)
+        : priorRows
+
+    const lastUser: ChatMessage = {
+      role: 'user',
+      content: sendContent,
+      attachments: turnAttachments.length ? turnAttachments : undefined,
+    }
+
+    const allMessages: ChatMessage[] = [
+      { role: 'system', content: systemContent },
+      ...rollingPriorRows,
+      lastUser,
+    ]
+
+    const promises = targetProfiles.map(async (p) => {
+      const controller = new AbortController()
+      arenaAbortControllersRef.current[p.id] = controller
+
+      try {
+        let key = ''
+        if (p.provider !== 'local') {
+          try {
+            const secret = await api.providerProfileSecretGet(p.id)
+            key = secret.apiKey ?? ''
+          } catch (err: any) {
+            throw new Error(
+              `ไม่สามารถดึง API Key สำหรับโปรไฟล์ "${p.name}" ได้: ${err.message}`,
+            )
+          }
+        }
+
+        const isLocal =
+          p.provider === 'local' || (p.apiUrl && p.apiUrl.includes('localhost'))
+        if (!isLocal && !key) {
+          throw new Error(`โปรไฟล์ "${p.name}" ยังไม่มีการเซ็ตอัป API Key`)
+        }
+
+        await runChatTurn(
+          {
+            provider: p.provider,
+            apiKey: key,
+            apiUrl:
+              p.apiUrl ??
+              (p.provider === 'openai' ? 'https://api.openai.com/v1' : ''),
+            model: p.modelName,
+            signal: controller.signal,
+          },
+          allMessages,
+          async (e) => {
+            if (e.kind === 'text-delta') {
+              setArenaStreams((prev) => {
+                const existing = prev[p.id]
+                if (!existing) return prev
+                return {
+                  ...prev,
+                  [p.id]: {
+                    ...existing,
+                    text: existing.text + e.delta,
+                  },
+                }
+              })
+            } else if (e.kind === 'tool-call') {
+              setArenaStreams((prev) => {
+                const existing = prev[p.id]
+                if (!existing) return prev
+                const sep = existing.text ? '\n\n' : ''
+                return {
+                  ...prev,
+                  [p.id]: {
+                    ...existing,
+                    text: `${existing.text}${sep}🔧 calling ${e.call.name}…`,
+                  },
+                }
+              })
+            } else if (e.kind === 'tool-result') {
+              const result = e.result as { error?: string } | unknown
+              const failed =
+                result &&
+                typeof result === 'object' &&
+                'error' in (result as any)
+              setArenaStreams((prev) => {
+                const existing = prev[p.id]
+                if (!existing) return prev
+                return {
+                  ...prev,
+                  [p.id]: {
+                    ...existing,
+                    text: existing.text + (failed ? ' ✗' : ' ✓'),
+                  },
+                }
+              })
+            }
+          },
+        )
+
+        setArenaStreams((prev) => {
+          const existing = prev[p.id]
+          if (!existing) return prev
+          return {
+            ...prev,
+            [p.id]: {
+              ...existing,
+              sending: false,
+            },
+          }
+        })
+      } catch (err: any) {
+        if (err?.name === 'AbortError') {
+          setArenaStreams((prev) => {
+            const existing = prev[p.id]
+            if (!existing) return prev
+            return {
+              ...prev,
+              [p.id]: {
+                ...existing,
+                sending: false,
+                error: 'ยกเลิกการประมวลผลแล้ว',
+              },
+            }
+          })
+        } else {
+          setArenaStreams((prev) => {
+            const existing = prev[p.id]
+            if (!existing) return prev
+            return {
+              ...prev,
+              [p.id]: {
+                ...existing,
+                sending: false,
+                error: err?.message ?? String(err),
+              },
+            }
+          })
+        }
+      } finally {
+        delete arenaAbortControllersRef.current[p.id]
+      }
+    })
+
+    Promise.all(promises).finally(() => {
+      setSending(false)
+    })
+  }
+
   const send = async () => {
     // Allow attachment-only turns through — image-only QA ("what does
     // this bubble say?") is a legitimate flow and the Send button
-    // (see disabled prop below) already enables itself for that case.
-    if ((!input.trim() && pendingAttachments.length === 0) || sending) return
+    // (see disabled prop below) enables itself for that case.
+    if (
+      (!input.trim() && pendingAttachments.length === 0) ||
+      sending ||
+      arenaActive
+    )
+      return
+
+    if (arenaMode) {
+      await sendArena()
+      return
+    }
+
     if (provider === 'none') {
       setError(
         'Cloud LLM not selected — pick a profile from the LLM badge or Profiles tab.',
@@ -808,8 +1140,98 @@ export function ChatTabPanel() {
                 />
               ))
             )}
-            {sending && (
+            {sending && !arenaActive && (
               <StreamingBubble streamingText={streamingText} onStop={stop} />
+            )}
+            {arenaActive && (
+              <div className='mt-4 space-y-3 border-t border-dashed border-amber-500/20 pt-4'>
+                <div className='flex items-center justify-between px-1'>
+                  <div className='flex items-center gap-1.5 text-[10px] font-bold tracking-wider text-amber-600 uppercase dark:text-amber-400'>
+                    <ZapIcon className='size-3.5 animate-pulse text-amber-500' />
+                    โหมดประชันค่ายกำลังประมวลผล...
+                  </div>
+                  <Button
+                    variant='destructive'
+                    size='sm'
+                    onClick={cancelArena}
+                    className='h-6 px-2 text-[9px]'
+                  >
+                    ยกเลิกทั้งหมด (Cancel)
+                  </Button>
+                </div>
+                <div className='grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3'>
+                  {arenaProfiles.map((p) => {
+                    const stream = arenaStreams[p.id]
+                    if (!stream) return null
+                    return (
+                      <div
+                        key={p.id}
+                        className={`bg-card flex flex-col overflow-hidden rounded-lg border text-xs shadow-sm transition-all duration-300 ${
+                          stream.sending
+                            ? 'border-amber-500/50 bg-amber-500/[0.01] shadow-md shadow-amber-500/5'
+                            : stream.error
+                              ? 'border-destructive/40 bg-destructive/[0.01]'
+                              : 'border-emerald-500/40 bg-emerald-500/[0.01]'
+                        }`}
+                      >
+                        <div
+                          className={`flex items-center justify-between border-b px-2.5 py-1.5 text-[10px] font-semibold ${
+                            stream.sending
+                              ? 'border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                              : stream.error
+                                ? 'bg-destructive/10 text-destructive border-destructive/20'
+                                : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                          }`}
+                        >
+                          <div className='flex max-w-[70%] items-center gap-1 truncate'>
+                            <BotIcon className='size-3 shrink-0' />
+                            <span className='truncate'>{p.name}</span>
+                          </div>
+                          <div className='flex shrink-0 items-center gap-1'>
+                            {stream.sending ? (
+                              <Loader2Icon className='size-2.5 animate-spin' />
+                            ) : stream.error ? (
+                              <TriangleAlertIcon className='size-2.5' />
+                            ) : (
+                              <CheckIcon className='size-2.5' />
+                            )}
+                            <span className='max-w-[60px] truncate font-mono text-[8px] tracking-tighter'>
+                              {p.modelName}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className='max-h-72 flex-1 overflow-y-auto p-2.5 select-text'>
+                          {stream.error ? (
+                            <div className='text-destructive font-sans text-[10px] leading-relaxed font-medium'>
+                              เกิดข้อผิดพลาด: {stream.error}
+                            </div>
+                          ) : stream.text ? (
+                            <div className='min-w-0 font-sans text-[11px] leading-relaxed break-words whitespace-pre-wrap select-text'>
+                              <ChatMarkdown>{stream.text}</ChatMarkdown>
+                            </div>
+                          ) : (
+                            <div className='text-muted-foreground flex animate-pulse items-center gap-1 font-sans text-[10px] italic'>
+                              กำลังรอการตอบกลับ...
+                            </div>
+                          )}
+                        </div>
+
+                        {!stream.sending && !stream.error && stream.text && (
+                          <div className='bg-muted/30 border-border flex items-center justify-between gap-1 border-t p-2'>
+                            <Button
+                              onClick={() => void selectArenaResponse(p)}
+                              className='h-6 w-full bg-emerald-600 px-2 text-[10px] font-medium text-white shadow-sm transition hover:bg-emerald-700'
+                            >
+                              เลือกคำตอบนี้ (Keep)
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
             )}
             {error && (
               <div className='border-destructive/30 text-destructive bg-destructive/5 space-y-1.5 rounded-md border p-2 text-[10px]'>
@@ -940,6 +1362,152 @@ export function ChatTabPanel() {
           />
         )}
 
+        {/* Selected Block Context Panel */}
+        {selectedBlock && (
+          <div className='bg-muted/65 border-border animate-in fade-in slide-in-from-bottom-2 mb-2 flex flex-col gap-1.5 rounded-lg border p-2 text-xs shadow-sm backdrop-blur-sm'>
+            <div className='flex items-center justify-between'>
+              <span className='text-muted-foreground flex items-center gap-1 text-[10px] font-bold tracking-wider uppercase'>
+                <ScanLineIcon className='text-primary size-3' />
+                กรอบข้อความที่เลือก (Selected Block)
+              </span>
+              <Button
+                variant='ghost'
+                size='icon-xs'
+                className='h-4 w-4 opacity-60 hover:opacity-100'
+                onClick={() => {
+                  useEditorUiStore.getState().setSelectedBlockIndex(undefined)
+                }}
+                title='ปิด (Close)'
+              >
+                <XIcon className='size-3' />
+              </Button>
+            </div>
+            <div className='flex flex-col gap-1 rounded bg-black/5 p-1.5 dark:bg-white/5'>
+              {selectedBlock.text && (
+                <div className='flex items-start gap-1'>
+                  <span className='bg-primary/10 text-primary border-primary/20 shrink-0 rounded border px-1 text-[8px] font-semibold uppercase'>
+                    JP
+                  </span>
+                  <p className='truncate text-[10px] italic select-text'>
+                    {selectedBlock.text}
+                  </p>
+                </div>
+              )}
+              {selectedBlock.translation && (
+                <div className='flex items-start gap-1'>
+                  <span className='shrink-0 rounded border border-emerald-500/20 bg-emerald-500/10 px-1 text-[8px] font-semibold text-emerald-600 uppercase dark:text-emerald-400'>
+                    TH
+                  </span>
+                  <p className='truncate text-[10px] font-medium select-text'>
+                    {selectedBlock.translation}
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className='flex gap-1'>
+              {selectedBlock.text && (
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={() =>
+                    setInput(
+                      (prev) => prev + (prev ? ' ' : '') + selectedBlock.text,
+                    )
+                  }
+                  className='h-5.5 px-2 text-[9px]'
+                >
+                  วางข้อความดิบ
+                </Button>
+              )}
+              {selectedBlock.translation && (
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={() =>
+                    setInput(
+                      (prev) =>
+                        prev + (prev ? ' ' : '') + selectedBlock.translation,
+                    )
+                  }
+                  className='h-5.5 px-2 text-[9px]'
+                >
+                  วางคำแปล
+                </Button>
+              )}
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={async () => {
+                  const queryText = `ช่วยอธิบายความหมายและเกลาประโยคของข้อความนี้ที:\nต้นฉบับญี่ปุ่น: "${selectedBlock.text ?? ''}"\nคำแปลปัจจุบัน: "${selectedBlock.translation ?? ''}"`
+                  setInput('')
+                  setSending(true)
+                  setError(null)
+                  setRedoStack([])
+                  try {
+                    await api.chatMessageAdd({
+                      role: 'user',
+                      content: `ขอคำแปล/เกลาคำ สำหรับกรอบข้อความที่เลือก`,
+                    })
+                    await history.refetch()
+                    await triggerChatCompletion(queryText, [])
+                  } catch (err: any) {
+                    setError(err?.message ?? String(err))
+                    setSending(false)
+                  }
+                }}
+                className='bg-primary/5 border-primary/20 text-primary hover:bg-primary/10 h-5.5 px-2 text-[9px]'
+              >
+                <SparklesIcon className='mr-0.5 size-2.5' />
+                ขอเกลาแปล (Ask AI)
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Arena Mode Setup Profile Selector */}
+        {arenaMode && !arenaActive && profilesQuery.data && (
+          <div className='border-border/60 animate-in fade-in slide-in-from-bottom-1 mb-2 rounded-lg border bg-amber-500/5 p-2 text-[10px] shadow-sm duration-200'>
+            <div className='mb-1 flex items-center justify-between font-semibold text-amber-600 dark:text-amber-400'>
+              <span className='flex items-center gap-1'>
+                <ZapIcon className='size-3 text-amber-500' />
+                เลือกโปรไฟล์ประชันค่าย (เลือกได้สูงสุด 3 ค่าย)
+              </span>
+              <span className='text-muted-foreground text-[9px] font-normal'>
+                * จะทำการส่งแบบขนานไปยังทุกโมเดลที่เลือก
+              </span>
+            </div>
+            <div className='mt-1 flex flex-wrap gap-1.5'>
+              {profilesQuery.data.map((p) => {
+                const isSelected = selectedArenaProfileIds.includes(p.id)
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => {
+                      setSelectedArenaProfileIds((prev) => {
+                        if (isSelected) {
+                          if (prev.length <= 1) return prev
+                          return prev.filter((id) => id !== p.id)
+                        } else {
+                          if (prev.length >= 3) return prev
+                          return [...prev, p.id]
+                        }
+                      })
+                    }}
+                    className={`flex h-5.5 items-center gap-1 rounded border px-2 py-0.5 font-medium transition ${
+                      isSelected
+                        ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                        : 'bg-muted/40 text-muted-foreground border-border/40 hover:bg-muted/70'
+                    }`}
+                  >
+                    {isSelected && <CheckIcon className='size-2.5' />}
+                    {p.name}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Pending attachments row */}
         {pendingAttachments.length > 0 && (
           <div className='mb-1.5 flex flex-wrap gap-1.5'>
@@ -1029,19 +1597,344 @@ export function ChatTabPanel() {
               hidden
               onChange={(e) => void attachFromFile(e.target.files)}
             />
+
+            {/* Quick Prompts Popover */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant='ghost'
+                  size='icon-xs'
+                  className='hover:bg-accent hover:text-accent-foreground text-primary size-6'
+                  title='เทมเพลตคำสั่งด่วน (Quick Prompts)'
+                >
+                  <SparklesIcon className='size-3 animate-pulse text-amber-500' />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align='start'
+                side='top'
+                className='bg-background/95 border-border/80 z-[100] w-64 rounded-lg p-2 shadow-lg backdrop-blur-md'
+              >
+                <div className='border-border/60 mb-1.5 border-b px-1 pb-1'>
+                  <span className='text-foreground flex items-center gap-1 text-[10px] font-bold tracking-wider uppercase'>
+                    <SparklesIcon className='size-2.5 text-amber-500' />
+                    เทมเพลตคำสั่งด่วน
+                  </span>
+                </div>
+                <div className='max-h-60 space-y-2 overflow-auto font-sans text-xs'>
+                  {/* Tones */}
+                  <div>
+                    <div className='text-muted-foreground mb-1 px-1 text-[9px] font-semibold tracking-wider uppercase'>
+                      🎭 ปรับโทนเสียง (Tone)
+                    </div>
+                    <div className='grid grid-cols-1 gap-1'>
+                      {[
+                        {
+                          label: 'เป็นกันเองวัยรุ่น 🧑‍🎤',
+                          prompt:
+                            'ปรับคำแปลนี้ให้ใช้โทนเสียงเป็นกันเอง สไตล์วัยรุ่นพูดคุยกัน: ',
+                        },
+                        {
+                          label: 'ทางการสุภาพ 🤵',
+                          prompt:
+                            'ปรับคำแปลนี้ให้ใช้โทนเสียงสุภาพ เป็นทางการ และเป็นผู้ใหญ่ขึ้น: ',
+                        },
+                        {
+                          label: 'กวนๆ สไตล์ตัวร้าย 😈',
+                          prompt:
+                            'ปรับคำแปลนี้ให้เป็นโทนเสียงกวนๆ เจ้าเล่ห์ สมกับเป็นสไตล์ตัวร้ายในมังงะ: ',
+                        },
+                      ].map((t) => (
+                        <button
+                          key={t.label}
+                          onClick={() => {
+                            setInput(
+                              (prev) => prev + (prev ? ' ' : '') + t.prompt,
+                            )
+                          }}
+                          className='hover:bg-accent w-full rounded px-1.5 py-1 text-left text-[10px] transition'
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Refine */}
+                  <div>
+                    <div className='text-muted-foreground mb-1 px-1 text-[9px] font-semibold tracking-wider uppercase'>
+                      🪄 เกลาภาษา (Refine)
+                    </div>
+                    <div className='grid grid-cols-1 gap-1'>
+                      {[
+                        {
+                          label: 'เกลาให้อ่านลื่นสไตล์ไทย 🍃',
+                          prompt:
+                            'ช่วยเกลาคำแปลนี้ให้ลื่นไหล เป็นธรรมชาติ สมบูรณ์แบบตามสำนวนภาษาไทยดั้งเดิม: ',
+                        },
+                        {
+                          label: 'ทำให้กระชับเข้ากรอบ 📦',
+                          prompt:
+                            'คำแปลนี้ยาวเกินไปสำหรับกรอบข้อความมังงะ ช่วยย่อและเกลาให้กระชับแต่ความหมายยังครบถ้วนที: ',
+                        },
+                      ].map((t) => (
+                        <button
+                          key={t.label}
+                          onClick={() => {
+                            setInput(
+                              (prev) => prev + (prev ? ' ' : '') + t.prompt,
+                            )
+                          }}
+                          className='hover:bg-accent w-full rounded px-1.5 py-1 text-left text-[10px] transition'
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Context */}
+                  <div>
+                    <div className='text-muted-foreground mb-1 px-1 text-[9px] font-semibold tracking-wider uppercase'>
+                      📖 ตรวจสอบบริบท (Context)
+                    </div>
+                    <div className='grid grid-cols-1 gap-1'>
+                      {[
+                        {
+                          label: 'ตรวจสอบมุกตลก/วัฒนธรรม 🏮',
+                          prompt:
+                            'ช่วยวิเคราะห์วัฒนธรรม ธรรมเนียม หรือมุกตลกญี่ปุ่นในประโยคนี้ และแนะแนวทางแปลให้คนไทยเข้าใจที: ',
+                        },
+                        {
+                          label: 'วิเคราะห์ความหมายแฝง 🔍',
+                          prompt:
+                            'ประโยคนี้มีความหมายแฝง คติพจน์ หรือคำสแลงญี่ปุ่นอะไรที่ซ่อนอยู่ไหม? อธิบายที: ',
+                        },
+                      ].map((t) => (
+                        <button
+                          key={t.label}
+                          onClick={() => {
+                            setInput(
+                              (prev) => prev + (prev ? ' ' : '') + t.prompt,
+                            )
+                          }}
+                          className='hover:bg-accent w-full rounded px-1.5 py-1 text-left text-[10px] transition'
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {/* SFX Helper Popover */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant='ghost'
+                  size='icon-xs'
+                  className='hover:bg-accent hover:text-accent-foreground text-primary size-6'
+                  title='พจนานุกรมเสียงเอฟเฟกต์มังงะ (Manga SFX)'
+                >
+                  <BookOpenIcon className='size-3 text-emerald-500' />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align='start'
+                side='top'
+                className='bg-background/95 border-border/80 z-[100] w-80 rounded-lg p-2.5 shadow-lg backdrop-blur-md'
+              >
+                <div className='border-border/60 mb-1.5 flex items-center justify-between border-b px-1 pb-1'>
+                  <span className='text-foreground flex items-center gap-1 text-[10px] font-bold tracking-wider uppercase'>
+                    <BookOpenIcon className='size-3 text-emerald-500' />
+                    คลังคำศัพท์เสียงมังงะ (SFX Dictionary)
+                  </span>
+                </div>
+                <div className='max-h-72 space-y-3 overflow-auto font-sans text-xs'>
+                  {/* Category: Action */}
+                  <div>
+                    <div className='text-muted-foreground mb-1 px-1 text-[9px] font-semibold tracking-wider uppercase'>
+                      💥 แอ็กชัน & การเคลื่อนไหว (Action)
+                    </div>
+                    <div className='grid grid-cols-2 gap-1'>
+                      {[
+                        {
+                          sfx: 'ゴゴゴ',
+                          romaji: 'Gogogo',
+                          desc: 'บรรยากาศกดดัน/คุกคาม',
+                        },
+                        {
+                          sfx: 'ドドド',
+                          romaji: 'Dododo',
+                          desc: 'เสียงฝีเท้ารัว/วิ่งตะลุย',
+                        },
+                        {
+                          sfx: 'バキッ',
+                          romaji: 'Baki',
+                          desc: 'เสียงหัก/กระแทกแรง',
+                        },
+                        {
+                          sfx: 'シュッ',
+                          romaji: 'Shu',
+                          desc: 'เคลื่อนไหวเร็ว/ฟุ่บ',
+                        },
+                      ].map((x) => (
+                        <button
+                          key={x.sfx}
+                          onClick={() => {
+                            const query = `ช่วยอธิบายเสียงเอฟเฟกต์ญี่ปุ่น "${x.sfx}" (${x.romaji}) ในมังงะ ซึ่งมักจะสื่อถึง "${x.desc}" และช่วยแนะนำคำแปลภาษาไทยหรือคำบรรยายที่เข้ากันกับบริบทให้หน่อยที`
+                            setInput((prev) => prev + (prev ? ' ' : '') + query)
+                          }}
+                          className='hover:bg-accent border-border/40 flex w-full flex-col items-start rounded border p-1 text-left transition'
+                        >
+                          <span className='text-primary text-[10px] font-bold'>
+                            {x.sfx} ({x.romaji})
+                          </span>
+                          <span className='text-muted-foreground w-full truncate text-[8px]'>
+                            {x.desc}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Category: Emotion */}
+                  <div>
+                    <div className='text-muted-foreground mb-1 px-1 text-[9px] font-semibold tracking-wider uppercase'>
+                      💖 อารมณ์ & ความรู้สึก (Emotion)
+                    </div>
+                    <div className='grid grid-cols-2 gap-1'>
+                      {[
+                        {
+                          sfx: 'ニコニコ',
+                          romaji: 'Nikoniko',
+                          desc: 'ยิ้มแย้มมีความสุข',
+                        },
+                        {
+                          sfx: 'ドキドキ',
+                          romaji: 'Dokidoki',
+                          desc: 'ใจเต้นตึกตัก (ตื่นเต้น)',
+                        },
+                        {
+                          sfx: 'イライラ',
+                          romaji: 'Iraira',
+                          desc: 'หงุดหงิด/โมโห',
+                        },
+                        {
+                          sfx: 'เดเระเดเระ',
+                          romaji: 'Deredere',
+                          desc: 'เขินอาย/หลงเสน่ห์',
+                        },
+                      ].map((x) => (
+                        <button
+                          key={x.sfx}
+                          onClick={() => {
+                            const query = `ช่วยอธิบายเสียงเอฟเฟกต์ญี่ปุ่น "${x.sfx}" (${x.romaji}) ในมังงะ ซึ่งมักจะสื่อถึง "${x.desc}" และช่วยแนะนำคำแปลภาษาไทยหรือคำบรรยายที่เข้ากันกับบริบทให้หน่อยที`
+                            setInput((prev) => prev + (prev ? ' ' : '') + query)
+                          }}
+                          className='hover:bg-accent border-border/40 flex w-full flex-col items-start rounded border p-1 text-left transition'
+                        >
+                          <span className='text-[10px] font-bold text-emerald-600 dark:text-emerald-400'>
+                            {x.sfx} ({x.romaji})
+                          </span>
+                          <span className='text-muted-foreground w-full truncate text-[8px]'>
+                            {x.desc}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Category: Nature */}
+                  <div>
+                    <div className='text-muted-foreground mb-1 px-1 text-[9px] font-semibold tracking-wider uppercase'>
+                      🍃 ธรรมชาติ & สิ่งแวดล้อม (Nature)
+                    </div>
+                    <div className='grid grid-cols-2 gap-1'>
+                      {[
+                        {
+                          sfx: 'ざわざわ',
+                          romaji: 'Zawazawa',
+                          desc: 'เสียงซุบซิบ/บรรยากาศไม่ดี',
+                        },
+                        {
+                          sfx: 'しーん',
+                          romaji: 'Shiin',
+                          desc: 'ความเงียบสงัด/เดดแอร์',
+                        },
+                        {
+                          sfx: 'ザーザー',
+                          romaji: 'Zaazaa',
+                          desc: 'ฝนตกหนัก/ซู่ๆ',
+                        },
+                        {
+                          sfx: 'パチパチ',
+                          romaji: 'Pachipachi',
+                          desc: 'เสียงไฟเปรี๊ยะ/ปรบมือ',
+                        },
+                      ].map((x) => (
+                        <button
+                          key={x.sfx}
+                          onClick={() => {
+                            const query = `ช่วยอธิบายเสียงเอฟเฟกต์ญี่ปุ่น "${x.sfx}" (${x.romaji}) ในมังงะ ซึ่งมักจะสื่อถึง "${x.desc}" และช่วยแนะนำคำแปลภาษาไทยหรือคำบรรยายที่เข้ากันกับบริบทให้หน่อยที`
+                            setInput((prev) => prev + (prev ? ' ' : '') + query)
+                          }}
+                          className='hover:bg-accent border-border/40 flex w-full flex-col items-start rounded border p-1 text-left transition'
+                        >
+                          <span className='text-[10px] font-bold text-amber-600 dark:text-amber-400'>
+                            {x.sfx} ({x.romaji})
+                          </span>
+                          <span className='text-muted-foreground w-full truncate text-[8px]'>
+                            {x.desc}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
-          <span className='text-muted-foreground flex-1 truncate text-[10px]'>
-            {input.startsWith('/') ? (
-              <>type to filter commands · ↵ to send</>
-            ) : (
-              <>↵ send · Shift+↵ newline</>
-            )}
-          </span>
+          <div className='flex min-w-0 flex-1 items-center justify-between truncate'>
+            <span className='text-muted-foreground mr-2 hidden truncate text-[10px] sm:inline'>
+              {input.startsWith('/') ? (
+                <>type to filter commands · ↵ to send</>
+              ) : (
+                <>↵ send · Shift+↵ newline</>
+              )}
+            </span>
+            <div className='mr-2 flex shrink-0 items-center gap-1.5'>
+              <button
+                onClick={() => {
+                  if (
+                    !arenaMode &&
+                    profilesQuery.data &&
+                    profilesQuery.data.length < 2
+                  ) {
+                    setError(
+                      'ต้องมีโปรไฟล์ LLM อย่างน้อย 2 โปรไฟล์ขึ้นไปเพื่อใช้งานโหมดประชันค่าย',
+                    )
+                    return
+                  }
+                  setArenaMode(!arenaMode)
+                }}
+                className={`flex h-5.5 items-center gap-1 rounded-full border px-2 text-[9px] font-semibold transition ${
+                  arenaMode
+                    ? 'border-amber-500/30 bg-amber-500/10 text-amber-500'
+                    : 'bg-muted text-muted-foreground border-border/40 hover:bg-muted/80'
+                }`}
+                title='เปรียบเทียบคำตอบจากหลายโปรไฟล์โมเดลพร้อมกันแบบเคียงข้างกัน'
+              >
+                <ZapIcon className='size-2.5 animate-pulse' />
+                {arenaMode ? 'ประชันค่ายเปิด' : 'ประชันค่าย (Arena)'}
+              </button>
+            </div>
+          </div>
           <Button
             size='sm'
             className='h-6 px-2 text-[10px]'
             disabled={
-              (!input.trim() && pendingAttachments.length === 0) || sending
+              (!input.trim() && pendingAttachments.length === 0) ||
+              sending ||
+              arenaActive
             }
             onClick={() => void send()}
           >
