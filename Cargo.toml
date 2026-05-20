@@ -14,6 +14,9 @@ members = [
     "koharu-rpc",
     "koharu-types",
 ]
+# Vendored cudarc fork (KI-1 patch) is consumed via [patch.crates-io], not as
+# a workspace member — exclude it so cargo treats it as an external package.
+exclude = ["third-party/cudarc"]
 default-members = ["koharu"]
 resolver = "3"
 
@@ -150,6 +153,11 @@ inventory = "0.3"
 tokio-util = { version = "0.7", features = ["rt"] }
 
 [patch.crates-io]
+# KI-1: vendored cudarc 0.19.3 with the cuDNN Drop unwrap softened to a
+# logged no-op (third-party/cudarc/src/cudnn/safe/core.rs). Both our direct
+# dep and candle-core pull cudarc 0.19.x from crates.io, so one patch covers
+# both. Re-sync this fork if cudarc is bumped. See docs/v2-progress.md KI-1.
+cudarc = { path = "third-party/cudarc" }
 candle-transformers = { git = "https://github.com/mayocream/candle", branch = "cuda-dynamic-loading" }
 candle-core = { git = "https://github.com/mayocream/candle", branch = "cuda-dynamic-loading" }
 candle-nn = { git = "https://github.com/mayocream/candle", branch = "cuda-dynamic-loading" }

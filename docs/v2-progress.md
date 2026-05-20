@@ -297,14 +297,38 @@ audit #9 had cuDNN crash (KI-1) and bridge dual-apply correctness
 as P0; making manual edits undoable is high-value polish but
 scope-isolated.
 
-### KI-1: cuDNN TLS panic on Drop — main case mitigated, residual risk
+### KI-1: cuDNN TLS panic on Drop — root cause fixed (vendored cudarc), runtime test owed
 
-**Status: partially fixed.** The LaMa multi-crop path no longer
-spawns scoped threads on CUDA → no per-inpaint TLS handle
-create/destroy → no destructor panic from that path. Other ML
-threads that touch cuDNN (font detection, future engines) still
-carry the latent risk; the real fix is forking cudarc to make
-Drop not unwrap.
+**Status: fixed at the root (2026-05-20), pending on-device runtime
+confirmation.** cudarc 0.19.3 is now vendored at `third-party/cudarc`
+and consumed via `[patch.crates-io]`; the one offending line in
+`<Cudnn as Drop>::drop` (`destroy_handle(handle).unwrap()`) is softened
+to log-and-ignore. Both our direct dep and candle-core pull cudarc
+0.19.x from crates.io, so the single patch covers every cuDNN handle in
+the process — not just the LaMa path. The earlier partial mitigation
+(LaMa multi-crop loops sequentially on CUDA instead of fanning out
+scoped threads) stays in place as defence-in-depth.
+
+**Verification done**: patched cudarc compiles cleanly with the full
+candle feature set (`cargo check` standalone, `Compiling cudarc 0.19.3
+(third-party/cudarc) … Finished`). The full koharu-ml `cuda,cudnn`
+binary build could NOT be completed in the agent shell — the box has VS
+18 (2026) which CUDA 13.1's nvcc rejects (`unsupported Microsoft Visual
+Studio version! Only 2019–2022`). That's a host-toolchain gate on
+candle-kernels, unrelated to the patch. **Owed**: full per-GPU build +
+on-device check that app shutdown after an inpaint no longer aborts
+with `STATUS_STACK_BUFFER_OVERRUN` (needs the RTX 50xx Blackwell box).
+
+**Refinement of the original report**: after the partial mitigation the
+panic was no longer firing ~15s after inpaint — that timing came from
+the scoped worker threads being joined+dropped right after inpaint.
+Post-mitigation the inpaint conv runs on the persistent tokio worker
+that polls the dispatch task ([rpc.rs](../koharu-rpc/src/rpc.rs):303),
+whose TLS only tears down at process exit, so the residual abort was
+shutdown-only. The "text_renderer also triggers it" note was a
+misattribution — the renderer ([facade.rs](../koharu-renderer/src/facade.rs):103)
+is tiny_skia + rayon on CPU and never touches cuDNN. The vendored patch
+makes both moot.
 
 **Symptom**: After a successful LaMa inpaint or text_renderer run, the
 process can die ~15s later with `STATUS_STACK_BUFFER_OVERRUN`
@@ -314,30 +338,29 @@ Result::unwrap() on an Err value: CudnnError(CUDNN_STATUS_INTERNAL_ERROR)`
 followed by `fatal runtime error: thread local panicked on drop,
 aborting`.
 
-**Root cause**: cudarc's `<Cudnn as Drop>::drop` calls
-`cudnnDestroyHandle` and unwraps the Result. When the cuDNN handle
-is stored in thread-local storage (which candle/cudarc do for
-device context caching), Drop runs at thread teardown — and Rust's
-runtime calls `abort()` on a panic-during-TLS-drop. This sits
-ABOVE every `std::panic::catch_unwind` boundary; the audit #9/B3
-bridge guard + the LaMa thread-level guard (commit `c69cd38c`)
-catch panics during inference but NOT during TLS cleanup.
+**Root cause** (verified against source): cudarc's
+`<Cudnn as Drop>::drop` (`cudnn/safe/core.rs:43`) calls
+`destroy_handle` and `.unwrap()`s it. candle caches the handle in a
+`thread_local!` keyed by DeviceId — `candle-core/src/cuda_backend/cudnn.rs:12`,
+populated via `CUDNN.with(...)` on every conv (every model sets
+`cudnn_fwd_algo: None`). So the handle's lifetime is tied to the
+*thread* that first ran a CUDA conv, and Drop runs when that thread's
+TLS is destroyed. If `cudnnDestroy` then returns
+`CUDNN_STATUS_INTERNAL_ERROR` (common when the CUDA primary context is
+already tearing down), the `.unwrap()` panics *inside a destructor
+during TLS teardown* — above every `catch_unwind` frame
+(`catch_cudnn_panic` at lama/mod.rs:188, the audit #9/B3 bridge guard at
+engine_bridge.rs:190) — so Rust calls `abort()` → Windows
+`STATUS_STACK_BUFFER_OVERRUN`.
 
-**Workaround**: restart the app when this happens. The persistent
-project format means no work is lost beyond any in-flight render.
-
-**Real fixes (not yet attempted)**:
-
-- Fork cudarc 0.19.3, patch the unwrap in Drop → `if let Err(e)`.
-  Vendor via `[patch.crates-io]`. ~5-line patch.
-- Upgrade to a newer cudarc release if upstream fixed it.
-- Run inpaint/render in a subprocess so the abort doesn't kill
-  the main Tauri process.
+**Fix applied**: vendored cudarc with the `.unwrap()` → log-and-ignore
+(see status block above). Swallowing the destroy error is safe — the
+driver reclaims the handle on context teardown anyway.
 
 Reproduction is environment-dependent (RTX 50xx Blackwell +
 CUDA 13.1 + cuDNN 9.19) so a deterministic test isn't in the
-suite. The panic_hook log shipped in `bf0ed50d` ensures any
-future occurrence leaves a trace.
+suite. The panic_hook log shipped in `bf0ed50d` stays as a tracer for
+any future cuDNN Drop error (now logged, not aborting).
 
 ## Locked decisions (won't revisit without explicit approval)
 
