@@ -114,6 +114,23 @@ pub enum SettingDescriptor {
         default: &'static str,
         help_i18n_key: Option<&'static str>,
     },
+
+    /// Pick one of the user's saved provider profiles. Options can't be
+    /// `&'static` (profiles are runtime data), so the frontend resolves
+    /// them from the provider-profile list. The stored value is the
+    /// profile id as a string, or the sentinel `"active"` = use whichever
+    /// translation profile is currently active. Used by the cloud engines
+    /// (Cloud Vision OCR, Cloud LLM translate) to centralise the
+    /// "which profile" choice in the Engines tab.
+    ProfileSelect {
+        id: &'static str,
+        label_i18n_key: &'static str,
+        /// Restrict the picker to vision-capable profiles (Cloud OCR).
+        vision_only: bool,
+        /// Default value — almost always `"active"`.
+        default: &'static str,
+        help_i18n_key: Option<&'static str>,
+    },
 }
 
 impl SettingDescriptor {
@@ -124,7 +141,8 @@ impl SettingDescriptor {
             SettingDescriptor::Slider { id, .. }
             | SettingDescriptor::NumberInput { id, .. }
             | SettingDescriptor::Toggle { id, .. }
-            | SettingDescriptor::Select { id, .. } => id,
+            | SettingDescriptor::Select { id, .. }
+            | SettingDescriptor::ProfileSelect { id, .. } => id,
         }
     }
 
@@ -134,7 +152,8 @@ impl SettingDescriptor {
             SettingDescriptor::Slider { label_i18n_key, .. }
             | SettingDescriptor::NumberInput { label_i18n_key, .. }
             | SettingDescriptor::Toggle { label_i18n_key, .. }
-            | SettingDescriptor::Select { label_i18n_key, .. } => label_i18n_key,
+            | SettingDescriptor::Select { label_i18n_key, .. }
+            | SettingDescriptor::ProfileSelect { label_i18n_key, .. } => label_i18n_key,
         }
     }
 }

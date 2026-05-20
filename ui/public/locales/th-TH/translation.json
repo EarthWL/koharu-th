@@ -1,5 +1,14 @@
 {
   "engineSettings": {
+    "cloud": {
+      "profileActive": "(ใช้โปรไฟล์แปลที่กำลัง active)"
+    },
+    "cloudOcr": {
+      "profile": {
+        "label": "โปรไฟล์ Vision",
+        "help": "เลือกโปรไฟล์ provider ที่จะเรียกใช้ทำ OCR — 'active' = ใช้โปรไฟล์แปลที่กำลังใช้อยู่ แสดงเฉพาะโปรไฟล์ที่อ่านภาพได้ (เช่น gpt-4o, claude-3.5-sonnet, gemini-2.0-flash)"
+      }
+    },
     "animeYolo": {
       "variant": {
         "label": "ขนาดโมเดล (variant)",

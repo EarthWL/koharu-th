@@ -1,5 +1,14 @@
 {
   "engineSettings": {
+    "cloud": {
+      "profileActive": "(Use the active translation profile)"
+    },
+    "cloudOcr": {
+      "profile": {
+        "label": "Vision profile",
+        "help": "Which saved provider profile to call for OCR. 'Active' uses whichever translation profile is currently active. Only vision-capable profiles (e.g. gpt-4o, claude-3.5-sonnet, gemini-2.0-flash) are listed."
+      }
+    },
     "animeYolo": {
       "variant": {
         "label": "Model size (variant)",

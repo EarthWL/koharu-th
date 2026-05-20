@@ -33,6 +33,37 @@ const sleep = (ms: number) =>
     setTimeout(resolve, ms)
   })
 
+/// Engine id of the Cloud Vision OCR pseudo-engine (mirrors
+/// koharu-pipeline cloud_vision_ocr::ENGINE_ID). When it's the active
+/// OcrText engine, OCR runs on the frontend (cloudOcr.ts) instead of the
+/// local backend engine.
+const CLOUD_VISION_OCR_ID = 'cloud_vision_ocr'
+
+/// Resolve the cloud-OCR choice from the machine-wide engine profile:
+/// is Cloud Vision the active OCR engine, and which provider profile id
+/// did the user pick in its `vision_profile` setting (`null` = use the
+/// active translation profile). Reads fresh so a just-changed Engines-tab
+/// selection is honoured; falls back to "local" on any error.
+async function readCloudOcrChoice(): Promise<{
+  isCloud: boolean
+  profileId: number | null
+}> {
+  try {
+    const profile = await api.engineProfileGet()
+    const isCloud = profile.active['ocr_text'] === CLOUD_VISION_OCR_ID
+    const raw = profile.settings?.[CLOUD_VISION_OCR_ID]?.['vision_profile']
+    let profileId: number | null = null
+    if (typeof raw === 'number') profileId = raw
+    else if (typeof raw === 'string' && raw !== 'active' && raw !== '') {
+      const n = Number(raw)
+      profileId = Number.isFinite(n) ? n : null
+    }
+    return { isCloud, profileId }
+  } catch {
+    return { isCloud: false, profileId: null }
+  }
+}
+
 const invalidateCurrentDocument = async (
   queryClient: QueryClient,
   index: number,
@@ -433,21 +464,17 @@ export const useDocumentMutations = () => {
         cancellable: true,
       })
       try {
-        const {
-          ocrEngine,
-          ocrCloudProfileId,
-          cloudProvider,
-          cloudModelName,
-          cloudApiKey,
-        } = usePreferencesStore.getState()
-        if (ocrEngine === 'cloud') {
-          // Standalone OCR button → also respect Cloud Vision choice.
+        const { isCloud, profileId } = await readCloudOcrChoice()
+        if (isCloud) {
+          // Cloud Vision OCR is the active OCR engine (Sidebar → Engines).
           // Run detect first if no text_blocks yet (user expectation is
-          // "OCR this page" — they shouldn't have to remember to click
-          // Detect themselves), then dispatch to the cloud profile.
+          // "OCR this page"), then dispatch each bubble to the chosen
+          // vision profile on the frontend.
+          const { cloudProvider, cloudModelName, cloudApiKey } =
+            usePreferencesStore.getState()
           const profiles = await api.providerProfilesList()
           const resolved = await resolveOcrCloudProfile(
-            ocrCloudProfileId,
+            profileId,
             profiles,
             cloudProvider,
             cloudModelName,
@@ -455,7 +482,7 @@ export const useDocumentMutations = () => {
           )
           if (!resolved) {
             throw new Error(
-              'Cloud Vision OCR is selected but no vision-capable profile is available. Configure one in Sidebar → Profiles or change OCR engine in Settings.',
+              'Cloud Vision OCR is selected but no vision-capable profile is available. Pick one in the Engines tab (Cloud Vision OCR → Vision profile) or add a vision-capable profile in Sidebar → Profiles.',
             )
           }
           let doc = await api.getDocument(resolvedIndex)
@@ -598,15 +625,9 @@ export const useDocumentMutations = () => {
         index ?? useEditorUiStore.getState().currentDocumentIndex
       const { selectedModel, selectedLanguage } = useLlmUiStore.getState()
       const { renderEffect, renderStroke } = useEditorUiStore.getState()
-      const {
-        fontFamily,
-        ocrEngine,
-        ocrCloudProfileId,
-        cloudProvider,
-        cloudModelName,
-        cloudApiKey,
-      } = usePreferencesStore.getState()
+      const { fontFamily } = usePreferencesStore.getState()
       const { startOperation, finishOperation } = useOperationStore.getState()
+      const { isCloud, profileId } = await readCloudOcrChoice()
       startOperation({
         type: 'process-current',
         cancellable: true,
@@ -614,13 +635,15 @@ export const useDocumentMutations = () => {
         total: 5,
       })
       try {
-        if (ocrEngine === 'cloud') {
-          // Cloud Vision OCR: detect first ourselves, OCR via cloud,
-          // then ask the Rust pipeline to skip both steps and just
-          // run inpaint + translate + render on the populated blocks.
+        if (isCloud) {
+          // Cloud Vision OCR is the active OCR engine: detect first
+          // ourselves, OCR via the chosen cloud profile, then ask the
+          // Rust pipeline to skip detect+OCR and run the rest.
+          const { cloudProvider, cloudModelName, cloudApiKey } =
+            usePreferencesStore.getState()
           const profiles = await api.providerProfilesList()
           const resolved = await resolveOcrCloudProfile(
-            ocrCloudProfileId,
+            profileId,
             profiles,
             cloudProvider,
             cloudModelName,
@@ -628,7 +651,7 @@ export const useDocumentMutations = () => {
           )
           if (!resolved) {
             throw new Error(
-              'Cloud Vision OCR is selected but no vision-capable profile is available. Configure one in Sidebar → Profiles or change OCR engine in Settings.',
+              'Cloud Vision OCR is selected but no vision-capable profile is available. Pick one in the Engines tab (Cloud Vision OCR → Vision profile) or add a vision-capable profile in Sidebar → Profiles.',
             )
           }
           await api.detect(resolvedIndex, {})
@@ -685,14 +708,15 @@ export const useDocumentMutations = () => {
     const { selectedModel, selectedLanguage } = useLlmUiStore.getState()
     const { renderEffect, renderStroke, totalPages } =
       useEditorUiStore.getState()
-    const { fontFamily, ocrEngine } = usePreferencesStore.getState()
+    const { fontFamily } = usePreferencesStore.getState()
     const { startOperation, finishOperation } = useOperationStore.getState()
     if (!totalPages) return
     // Cloud Vision OCR runs page-by-page from the frontend (no Rust
     // worker support yet — see roadmap Tier B #3) which would burn
     // tokens fast across many pages, so batch uses the engine profile's
     // local OCR engine instead. Let the user know once.
-    if (ocrEngine === 'cloud') {
+    const { isCloud: cloudOcrActive } = await readCloudOcrChoice()
+    if (cloudOcrActive) {
       console.info(
         '[processAll] Cloud Vision OCR is not used for batch — the Engines-tab local OCR engine is used instead. Use Process current for individual pages with Cloud Vision.',
       )

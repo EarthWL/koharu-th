@@ -25,9 +25,6 @@ import type { DeviceInfo } from '@/lib/rpc-types'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type StorageClearTarget, type StorageEntry } from '@/lib/api'
-import { supportsVision } from '@/lib/services/visionSupport'
-import { effectiveDbProvider } from '@/lib/services/profileHelpers'
-import { useProjectStore } from '@/lib/stores/projectStore'
 
 const THEME_OPTIONS = [
   { value: 'light', icon: SunIcon, labelKey: 'settings.themeLight' },
@@ -43,51 +40,6 @@ export default function SettingsPage() {
     [i18n.options.resources],
   )
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo>()
-  const ocrEngine = usePreferencesStore((s) => s.ocrEngine)
-  const setOcrEngine = usePreferencesStore((s) => s.setOcrEngine)
-  const ocrCloudProfileId = usePreferencesStore((s) => s.ocrCloudProfileId)
-  const setOcrCloudProfileId = usePreferencesStore(
-    (s) => s.setOcrCloudProfileId,
-  )
-  const projectInfo = useProjectStore((s) => s.info)
-  const cloudProvider = usePreferencesStore((s) => s.cloudProvider)
-  const cloudModelName = usePreferencesStore((s) => s.cloudModelName)
-  const cloudApiKey = usePreferencesStore((s) => s.cloudApiKey)
-  // Only load the profile list when the user is actually looking at
-  // Engines + has cloud OCR selected. List is cheap (one SQL row per
-  // profile) but no point churning it otherwise.
-  const profiles = useQuery({
-    queryKey: ['project', 'profiles'],
-    queryFn: () => api.providerProfilesList(),
-    enabled: !!projectInfo && ocrEngine === 'cloud',
-    staleTime: 30_000,
-  })
-  // Vision-capability filter for the OCR Cloud Vision profile picker.
-  // Uses the shared `effectiveDbProvider()` helper so legacy OpenRouter
-  // profiles (stored as provider='openai' before backend commit
-  // b3d4c7f3 — slash in modelName is the tell) are routed to the
-  // right vision check. Was duplicated inline here + in
-  // CanvasToolbar + in cloudOcr; now lives in profileHelpers.ts.
-  const visionProfiles = (profiles.data ?? []).filter((p) =>
-    supportsVision(effectiveDbProvider(p), p.modelName).supported,
-  )
-  // Active translation profile counts too — the "(Use the active
-  // translation profile)" option in the dropdown uses it. So the
-  // "no vision profile" warning is only meaningful if NEITHER a
-  // saved profile NOR the live one would work.
-  const activeIsVision =
-    !!cloudApiKey &&
-    !!cloudModelName &&
-    cloudProvider !== 'none' &&
-    supportsVision(
-      // Inline call: we have a synthetic profile shape (no id), so
-      // construct the minimal object effectiveDbProvider needs.
-      effectiveDbProvider({
-        provider: cloudProvider,
-        modelName: cloudModelName,
-      }),
-      cloudModelName,
-    ).supported
 
   useEffect(() => {
     if (!isTauri()) return
@@ -179,89 +131,9 @@ export default function SettingsPage() {
               </Select>
             </section>
 
-            {/* Engines Section — engine choice + per-engine settings now
-                live in the Engines tab of the project sidebar. Only Cloud
-                Vision OCR stays here because it isn't a v2 engine yet. */}
-            <section className='mb-8'>
-              <h2 className='text-foreground mb-1 text-sm font-bold'>
-                {t('settings.engines', 'Engines')}
-              </h2>
-              <p className='text-muted-foreground mb-4 text-sm'>
-                {t(
-                  'settings.enginesConfiguredInTab',
-                  'Detector, OCR, inpaint and render engines — and all their settings — are configured in the Engines tab of the project sidebar. Cloud Vision OCR is the one exception and is toggled here.',
-                )}
-              </p>
-
-              {/* Cloud Vision OCR — frontend-orchestrated, not a v2 engine */}
-              <div className='bg-card border-border rounded-lg border p-4'>
-                <label className='flex cursor-pointer items-start justify-between gap-4 text-sm'>
-                  <div className='min-w-0 flex-1'>
-                    <div className='text-foreground font-medium'>
-                      {t('settings.engineOcrCloud', 'Cloud Vision OCR')}
-                    </div>
-                    <div className='text-muted-foreground/80 mt-1 text-xs leading-relaxed'>
-                      {t(
-                        'settings.engineOcrCloudToggleHint',
-                        'When on, the standalone OCR button and Process current send each detected bubble to a vision-capable LLM instead of the local OCR engine. Best quality, but every page costs tokens. When off, OCR uses the local engine chosen in the Engines tab. Batch never uses Cloud Vision.',
-                      )}
-                    </div>
-                  </div>
-                  <input
-                    type='checkbox'
-                    checked={ocrEngine === 'cloud'}
-                    onChange={(e) =>
-                      setOcrEngine(e.target.checked ? 'cloud' : 'mit48px')
-                    }
-                    className='mt-1 size-4 cursor-pointer accent-primary'
-                  />
-                </label>
-
-                {ocrEngine === 'cloud' && (
-                  <div className='border-border/60 mt-3 grid grid-cols-[max-content_1fr] items-center gap-x-6 gap-y-3 border-t pt-3 text-sm'>
-                    <label className='text-muted-foreground'>
-                      {t('settings.engineOcrCloudProfile', 'Vision profile')}
-                    </label>
-                    <Select
-                      value={
-                        ocrCloudProfileId == null
-                          ? 'active'
-                          : String(ocrCloudProfileId)
-                      }
-                      onValueChange={(v) =>
-                        setOcrCloudProfileId(v === 'active' ? null : Number(v))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value='active'>
-                          (Use the active translation profile)
-                        </SelectItem>
-                        {visionProfiles.map((p) => (
-                          <SelectItem key={p.id} value={String(p.id)}>
-                            {p.name} · {p.provider} · {p.modelName}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-
-                {ocrEngine === 'cloud' &&
-                  profiles.data &&
-                  visionProfiles.length === 0 &&
-                  !activeIsVision && (
-                    <p className='text-amber-600 dark:text-amber-400 mt-2 text-xs leading-relaxed'>
-                      {t(
-                        'settings.engineOcrNoVisionProfile',
-                        '⚠ No vision-capable profile available. Open the Profiles tab in the project sidebar, add an OpenAI / Claude / Gemini / OpenRouter profile with a vision-capable model (e.g. gpt-4o, claude-3.5-sonnet, gemini-2.0-flash), and click Apply. This page will refresh automatically.',
-                      )}
-                    </p>
-                  )}
-              </div>
-            </section>
+            {/* Engine config (detector / OCR / inpaint / render / translate
+                + Cloud Vision OCR) now lives entirely in the Engines tab of
+                the project sidebar — nothing engine-related is set here. */}
 
             {/* Device Section */}
             {deviceInfo && (

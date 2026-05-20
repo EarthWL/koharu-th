@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
   ChevronDownIcon,
@@ -19,8 +20,10 @@ import {
 } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import type { SettingDescriptor, StoredValue } from '@/lib/api'
+import { api, type SettingDescriptor, type StoredValue } from '@/lib/api'
 import { useEngineProfile } from '@/lib/hooks/useEngineProfile'
+import { supportsVision } from '@/lib/services/visionSupport'
+import { effectiveDbProvider } from '@/lib/services/profileHelpers'
 
 /// Phase 4.7b + F4.C — auto-generated settings form for one engine.
 ///
@@ -222,6 +225,22 @@ function SettingControl({
       )
       break
     }
+    case 'profile_select': {
+      const v = typeof value === 'string' ? value : setting.default
+      header = (
+        <FieldHeader label={label} hasOverride={hasOverride}>
+          {resetButton}
+        </FieldHeader>
+      )
+      control = (
+        <ProfileSelectControl
+          value={v}
+          visionOnly={setting.visionOnly}
+          onChange={onChange}
+        />
+      )
+      break
+    }
   }
 
   return (
@@ -230,6 +249,47 @@ function SettingControl({
       {control}
       <HelpText help={help} />
     </div>
+  )
+}
+
+/// Dynamic provider-profile picker for the cloud engines. Options come
+/// from the live provider-profile list (not the &'static schema), with an
+/// "active" sentinel = use whichever translation profile is active. When
+/// `visionOnly`, non-vision-capable profiles are filtered out (Cloud OCR).
+function ProfileSelectControl({
+  value,
+  visionOnly,
+  onChange,
+}: {
+  value: string
+  visionOnly: boolean
+  onChange: (v: string) => void
+}) {
+  const { t } = useTranslation()
+  const profiles = useQuery({
+    queryKey: ['project', 'profiles'],
+    queryFn: () => api.providerProfilesList(),
+    staleTime: 30_000,
+  })
+  const list = (profiles.data ?? []).filter((p) =>
+    visionOnly ? supportsVision(effectiveDbProvider(p), p.modelName).supported : true,
+  )
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger className='h-7 text-xs'>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value='active'>
+          {t('engineSettings.cloud.profileActive', '(Use the active translation profile)')}
+        </SelectItem>
+        {list.map((p) => (
+          <SelectItem key={p.id} value={String(p.id)}>
+            {p.name} · {p.provider} · {p.modelName}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 
@@ -274,6 +334,7 @@ function formatDefault(setting: SettingDescriptor): string {
     case 'toggle':
       return setting.default ? 'on' : 'off'
     case 'select':
+    case 'profile_select':
       return String(setting.default)
   }
 }

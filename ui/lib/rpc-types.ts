@@ -84,6 +84,16 @@ export type SettingDescriptor =
       default: string
       helpI18nKey: string | null
     }
+  | {
+      kind: 'profile_select'
+      id: string
+      labelI18nKey: string
+      // Options resolved at runtime from the provider-profile list, not
+      // baked into the schema. Value = profile id (string) or 'active'.
+      visionOnly: boolean
+      default: string
+      helpI18nKey: string | null
+    }
 
 export type BackendSupport = {
   cuda: boolean
