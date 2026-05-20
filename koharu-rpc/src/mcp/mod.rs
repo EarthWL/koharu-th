@@ -470,17 +470,7 @@ impl KoharuMcp {
                 shader_effect: effect,
                 shader_stroke: None,
                 font_family: p.font_family,
-                // MCP callers use the backend default OCR engine.
-                // Cloud Vision OCR is frontend-orchestrated, no
-                // exposed MCP entry point for it (see roadmap
-                // Tier B #3 for the backend-port plan).
-                ocr_engine: None,
-                skip_ocr: None,
-                skip_detect: None,
-                skip_inpaint: None,
-                detector_engine: None,
-                anime_yolo_variant: None,
-                anime_yolo_confidence: None,
+                ..Default::default()
             },
         )
         .await

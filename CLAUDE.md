@@ -157,6 +157,25 @@ Types: `feat`, `fix`, `perf`, `refactor`, `docs`, `chore`, `ci`, `clean`
 - หากไม่เกี่ยวข้องกันหรือคนละวัตถุประสงค์ (เช่น ตัวฟิวเจอร์ UX บล็อกข้อความ vs การจัด Prettier Formatting ไฟล์อื่น ๆ หรือการแก้บั๊กฐานข้อมูล) ให้**ซอยแยกออกเป็นคนละ Commit**
 - ทำการ stage ไฟล์เฉพาะกลุ่มเพื่อทำ Commit ทีละส่วนอย่างเป็นระบบ
 
+# Fork Structure (Koharu Project Topology)
+
+```
+EarthWL/koharu-th (official)
+        │
+        │ fork + sync fork
+        ▼
+HetCreep/main  <──── Sync fork ────>  EarthWL/main
+        │
+        │ + 100 custom commits
+        ▼
+HetCreep/feat/ux-improvements  ──→  PR #16  ──→  EarthWL/main
+```
+
+- **EarthWL/koharu-th**: official upstream (parent fork from mayocream/koharu)
+- **HetCreep/main**: our fork's main, kept in sync with EarthWL/main
+- **HetCreep/feat/ux-improvements**: working branch with ~100 custom commits, source of PR #16 → EarthWL/main
+- Sync direction: EarthWL/main → HetCreep/main (one-way); PR #16 is the only upstream contribution path
+
 # Pre-Operation Check (MANDATORY)
 
 **Before starting ANY operation** (code fix, audit, feature, etc.), verify local is current with upstream:

@@ -114,7 +114,7 @@ pub struct LlmGenerateParams {
     pub context: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessRequest {
     pub index: Option<usize>,
@@ -1378,6 +1378,7 @@ mod tests {
                 width_px: Some(2.0),
             }),
             font_family: Some("Noto Sans".to_string()),
+            ..Default::default()
         });
         round_trip(&InpaintRegion {
             x: 10,

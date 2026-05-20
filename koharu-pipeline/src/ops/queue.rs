@@ -247,32 +247,7 @@ async fn process_entry(
 
     super::process(
         state.clone(),
-        ProcessRequest {
-            index: None,
-            language: None,
-            llm_model_id: None,
-            shader_effect: None,
-            shader_stroke: None,
-            font_family: None,
-            // Queue worker uses backend default OCR engine — when we
-            // grow per-project engine preferences, read from the
-            // project DB here instead.
-            ocr_engine: None,
-            // Cloud Vision OCR is frontend-orchestrated, so the queue
-            // worker never sets skip_ocr / skip_detect — local OCR
-            // always runs in batch. See roadmap_next_features Tier B
-            // #3 for the backend-port plan that would change this.
-            skip_ocr: None,
-            skip_detect: None,
-            // Queue uses default detector — if user wants AnimeText
-            // YOLO in batch, read it from project prefs here.
-            detector_engine: None,
-            anime_yolo_variant: None,
-            anime_yolo_confidence: None,
-            // Queue uses the default "do everything" pipeline; no
-            // user-driven re-translate flow here, so always inpaint.
-            skip_inpaint: None,
-        },
+        ProcessRequest::default(),
     )
     .await?;
 
