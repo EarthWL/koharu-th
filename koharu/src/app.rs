@@ -241,7 +241,7 @@ async fn build_resources_inner(cpu: bool) -> Result<AppResources> {
     // project instead of living in each project's series.db. Reuses the
     // koharu-project migrations (only `provider_profiles` is used here).
     let profiles_db_path = APP_ROOT.join("provider_profiles.db");
-    let profiles = koharu_project::open_db(&profiles_db_path).map_err(|e| {
+    let profiles = koharu_pipeline::open_profiles_db(&profiles_db_path).map_err(|e| {
         anyhow::anyhow!(
             "opening machine-wide provider profiles db at {}: {e}",
             profiles_db_path.display()
