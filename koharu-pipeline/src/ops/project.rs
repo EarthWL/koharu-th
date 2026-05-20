@@ -2226,17 +2226,34 @@ pub async fn project_backup_restore(
     let db_temp = root.join("series.db.backup_restore_temp");
     let manifest_temp = root.join("series.koharuproj.backup_restore_temp");
 
-    // Create shadow backup copies of critical files
-    let db_backed_up = if db_file.exists() {
-        std::fs::copy(&db_file, &db_temp).is_ok()
-    } else {
-        false
-    };
-    let manifest_backed_up = if manifest_file.exists() {
-        std::fs::copy(&manifest_file, &manifest_temp).is_ok()
-    } else {
-        false
-    };
+    // Create shadow backup copies of critical files (Defensive Programming)
+    let mut db_backed_up = false;
+    if db_file.exists() {
+        if let Err(err) = std::fs::copy(&db_file, &db_temp) {
+            // Reopen project to avoid leaving the app state as None
+            if let Ok(project) = Project::open(&root) {
+                *state.project.write().await = Some(project);
+            }
+            return Err(anyhow::anyhow!("Failed to create temporary backup of series.db: {err}"));
+        }
+        db_backed_up = true;
+    }
+
+    let mut manifest_backed_up = false;
+    if manifest_file.exists() {
+        if let Err(err) = std::fs::copy(&manifest_file, &manifest_temp) {
+            // Clean up db temp backup if it was created
+            if db_backed_up && db_temp.exists() {
+                let _ = std::fs::remove_file(&db_temp);
+            }
+            // Reopen project to avoid leaving the app state as None
+            if let Ok(project) = Project::open(&root) {
+                *state.project.write().await = Some(project);
+            }
+            return Err(anyhow::anyhow!("Failed to create temporary backup of series.koharuproj: {err}"));
+        }
+        manifest_backed_up = true;
+    }
 
     let root2 = root.clone();
     let backup_path2 = backup_path.clone();
@@ -2280,11 +2297,15 @@ pub async fn project_backup_restore(
         _ => {
             // Failed! Rollback critical files from shadow backups
             if db_backed_up && db_temp.exists() {
-                let _ = std::fs::copy(&db_temp, &db_file);
+                if let Err(err) = std::fs::copy(&db_temp, &db_file) {
+                    tracing::error!("CRITICAL: Failed to rollback series.db during restore failure: {err}");
+                }
                 let _ = std::fs::remove_file(&db_temp);
             }
             if manifest_backed_up && manifest_temp.exists() {
-                let _ = std::fs::copy(&manifest_temp, &manifest_file);
+                if let Err(err) = std::fs::copy(&manifest_temp, &manifest_file) {
+                    tracing::error!("CRITICAL: Failed to rollback series.koharuproj during restore failure: {err}");
+                }
                 let _ = std::fs::remove_file(&manifest_temp);
             }
             // Capture the error
@@ -2296,9 +2317,21 @@ pub async fn project_backup_restore(
         }
     }
 
-    // Reopen project
-    let project = Project::open(&root)?;
-    *state.project.write().await = Some(project);
+    // Reopen project and update active AppResources state
+    let reopen_res = Project::open(&root);
+    match reopen_res {
+        Ok(project) => {
+            *state.project.write().await = Some(project);
+        }
+        Err(err) => {
+            tracing::error!("Failed to reopen project after restore: {err}");
+            if let Some(ref ext_err) = final_error {
+                return Err(anyhow::anyhow!("Extraction failed: {ext_err}. Also failed to reopen project: {err}"));
+            } else {
+                return Err(anyhow::anyhow!("Failed to reopen project after successful extraction: {err}"));
+            }
+        }
+    }
 
     if let Some(err) = final_error {
         return Err(err);
