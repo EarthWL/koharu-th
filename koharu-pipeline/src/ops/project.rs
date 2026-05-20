@@ -213,6 +213,77 @@ async fn after_project_open(state: AppResources) {
                 tracing::info!("successfully ran incremental vacuum on project database");
             }
         }
+
+        // 4. Orphan Asset Garbage Collector: Scan physical chapters/ directories and clean unreferenced assets.
+        let active_folders: std::collections::HashSet<String> = if let Ok(conn) = p_cleanup.pool().get() {
+            if let Ok(mut stmt) = conn.prepare("SELECT folder_path FROM chapters WHERE folder_path IS NOT NULL") {
+                if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
+                    rows.filter_map(|r| r.ok()).collect()
+                } else {
+                    std::collections::HashSet::new()
+                }
+            } else {
+                std::collections::HashSet::new()
+            }
+        } else {
+            std::collections::HashSet::new()
+        };
+
+        let chapters_dir = root.join("chapters");
+        if chapters_dir.exists() && chapters_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&chapters_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        if let Ok(rel_path) = path.strip_prefix(root) {
+                            let rel_str = rel_path.to_string_lossy().replace('\\', "/");
+                            
+                            // If the directory is NOT in the database, it's an orphan chapter!
+                            if !active_folders.contains(&rel_str) {
+                                tracing::info!(?path, "Orphan Asset Garbage Collector: Removing orphaned chapter folder...");
+                                if let Err(err) = std::fs::remove_dir_all(&path) {
+                                    tracing::warn!(?path, ?err, "Orphan Asset Garbage Collector: Failed to remove orphaned chapter folder");
+                                } else {
+                                    tracing::info!(?path, "Orphan Asset Garbage Collector: Successfully removed orphaned chapter folder");
+                                }
+                            } else {
+                                // If it is active, scan render/ and clean up render files without a matching source page!
+                                let source_dir = path.join("source");
+                                let render_dir = path.join("render");
+                                if source_dir.exists() && render_dir.exists() {
+                                    if let (Ok(src_entries), Ok(rnd_entries)) = (std::fs::read_dir(&source_dir), std::fs::read_dir(&render_dir)) {
+                                        let source_stems: std::collections::HashSet<String> = src_entries
+                                            .flatten()
+                                            .filter(|e| e.path().is_file())
+                                            .filter_map(|e| {
+                                                e.path().file_stem().map(|s| s.to_string_lossy().into_owned().to_lowercase())
+                                            })
+                                            .collect();
+
+                                        for rnd_entry in rnd_entries.flatten() {
+                                            let rnd_path = rnd_entry.path();
+                                            if rnd_path.is_file() {
+                                                if let Some(rnd_stem) = rnd_path.file_stem() {
+                                                    let rnd_stem_str = rnd_stem.to_string_lossy().to_lowercase();
+                                                    if !source_stems.contains(&rnd_stem_str) {
+                                                        tracing::info!(?rnd_path, "Orphan Asset Garbage Collector: Removing orphaned render file...");
+                                                        if let Err(err) = std::fs::remove_file(&rnd_path) {
+                                                            tracing::warn!(?rnd_path, ?err, "Orphan Asset Garbage Collector: Failed to remove orphaned render file");
+                                                        } else {
+                                                            tracing::info!(?rnd_path, "Orphan Asset Garbage Collector: Successfully removed orphaned render file");
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     });
 }
 

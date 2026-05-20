@@ -104,6 +104,111 @@ struct Cli {
     file: Option<PathBuf>,
 }
 
+static LOG_ROOT: Lazy<PathBuf> = Lazy::new(|| APP_ROOT.join("logs"));
+
+struct RollingFileWriter {
+    log_dir: PathBuf,
+    max_size: u64,
+    inner: std::sync::Mutex<Option<RollingWriterInner>>,
+}
+
+struct RollingWriterInner {
+    file: std::fs::File,
+    current_size: u64,
+}
+
+impl RollingFileWriter {
+    fn new(log_dir: PathBuf, max_size: u64) -> Self {
+        Self {
+            log_dir,
+            max_size,
+            inner: std::sync::Mutex::new(None),
+        }
+    }
+
+    fn write_buf(&self, buf: &[u8]) -> std::io::Result<()> {
+        let mut guard = self.inner.lock().unwrap();
+        
+        // Ensure directories exist and file is open
+        if guard.is_none() {
+            let _ = std::fs::create_dir_all(&self.log_dir);
+            let active_path = self.log_dir.join("koharu.log");
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&active_path)?;
+            let metadata = file.metadata()?;
+            *guard = Some(RollingWriterInner {
+                file,
+                current_size: metadata.len(),
+            });
+        }
+
+        let inner = guard.as_mut().unwrap();
+        
+        // Check size limit (10MB)
+        if inner.current_size + buf.len() as u64 > self.max_size {
+            // Rotate files
+            // 1. Drop the current file to close it
+            guard.take();
+
+            let log_dir = &self.log_dir;
+            let active_path = log_dir.join("koharu.log");
+            let backup_1 = log_dir.join("koharu.1.log");
+            let backup_2 = log_dir.join("koharu.2.log");
+
+            // Delete backup_2, rename backup_1 to backup_2, rename active to backup_1
+            if backup_2.exists() {
+                let _ = std::fs::remove_file(&backup_2);
+            }
+            if backup_1.exists() {
+                let _ = std::fs::rename(&backup_1, &backup_2);
+            }
+            if active_path.exists() {
+                let _ = std::fs::rename(&active_path, &backup_1);
+            }
+
+            // Re-open active file
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true) // Start fresh
+                .open(&active_path)?;
+            
+            *guard = Some(RollingWriterInner {
+                file,
+                current_size: 0,
+            });
+        }
+
+        if let Some(inner) = guard.as_mut() {
+            use std::io::Write;
+            inner.file.write_all(buf)?;
+            let _ = inner.file.flush();
+            inner.current_size += buf.len() as u64;
+        }
+
+        Ok(())
+    }
+}
+
+struct CombinedWriter {
+    file_writer: Arc<RollingFileWriter>,
+}
+
+impl std::io::Write for CombinedWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let _ = std::io::stdout().write(buf);
+        let _ = self.file_writer.write_buf(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        let _ = std::io::stdout().flush();
+        Ok(())
+    }
+}
+
 fn initialize(headless: bool, _debug: bool) -> Result<()> {
     #[cfg(target_os = "windows")]
     {
@@ -118,6 +223,11 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
         crate::windows::enable_ansi_support().ok();
     }
 
+    // Initialize custom rolling file logger capped at 10MB
+    std::fs::create_dir_all(LOG_ROOT.as_path()).ok();
+    let file_writer = Arc::new(RollingFileWriter::new(LOG_ROOT.to_path_buf(), 10 * 1024 * 1024));
+    let file_writer_clone = file_writer.clone();
+
     tracing_subscriber::fmt()
         .with_span_events(FmtSpan::CLOSE)
         .with_env_filter(
@@ -125,6 +235,9 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
                 .with_default_directive(tracing::Level::INFO.into())
                 .from_env_lossy(),
         )
+        .with_writer(move || CombinedWriter {
+            file_writer: file_writer_clone.clone(),
+        })
         .init();
 
     // Migrate legacy Koharu folder → KoharuTH (branding rename). Must run
@@ -199,21 +312,84 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
     // hook model cache dir
     koharu_ml::set_cache_dir(MODEL_ROOT.to_path_buf())?;
 
-    if headless {
-        std::panic::set_hook(Box::new(|info| {
-            eprintln!("panic: {info}");
-        }));
-    } else {
-        std::panic::set_hook(Box::new(|info| {
-            let msg = info.to_string();
+    // 3. Register custom std::panic::set_hook with backtrace and crash dump to APP_ROOT/crashes/
+    std::panic::set_hook(Box::new(move |info| {
+        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
+        let crash_dir = APP_ROOT.join("crashes");
+        let _ = std::fs::create_dir_all(&crash_dir);
+        let crash_path = crash_dir.join(format!("crash_{}.log", timestamp));
+
+        let payload = if let Some(s) = info.payload().downcast_ref::<&str>() {
+            *s
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            s.as_str()
+        } else {
+            "Unknown panic payload"
+        };
+
+        let location = info.location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "Unknown location".to_string());
+        
+        let backtrace = std::backtrace::Backtrace::capture();
+        let cuda_available = koharu_ml::cuda_is_available();
+        let cpu_info = std::env::var("PROCESSOR_IDENTIFIER").unwrap_or_else(|_| "Unknown".to_string());
+
+        let dump_content = format!(
+            "================================================================================\n\
+             KOHARU-TH FATAL CRASH DUMP\n\
+             ================================================================================\n\
+             Timestamp: {}\n\
+             OS: Windows\n\
+             Arch: {}\n\
+             CPU: {}\n\
+             CUDA Available: {}\n\
+             \n\
+             Panic Payload: {}\n\
+             Location: {}\n\
+             \n\
+             Backtrace:\n\
+             {:?}\n\
+             ================================================================================\n",
+            chrono::Utc::now().to_rfc3339(),
+            std::env::consts::ARCH,
+            cpu_info,
+            cuda_available,
+            payload,
+            location,
+            backtrace
+        );
+
+        if let Err(e) = std::fs::write(&crash_path, &dump_content) {
+            eprintln!("Failed to write crash dump to {:?}: {:?}", crash_path, e);
+        }
+
+        let dialog_msg = format!(
+            "A fatal panic occurred (probably GPU CUDA Out Of Memory or model execution error).\n\n\
+             Error: {}\n\
+             Location: {}\n\n\
+             A detailed diagnostic crash dump has been saved to:\n\
+             {:?}\n\n\
+             Please report this issue to the Koharu-TH developers.",
+            payload, location, crash_path
+        );
+
+        if headless {
+            eprintln!("================================================================================");
+            eprintln!("FATAL PANIC AT {}", location);
+            eprintln!("{}", payload);
+            eprintln!("Crash dump saved to {:?}", crash_path);
+            eprintln!("================================================================================");
+        } else {
             MessageDialog::new()
                 .set_level(rfd::MessageLevel::Error)
-                .set_title("Panic")
-                .set_description(&msg)
+                .set_title("Koharu-TH — Fatal Error")
+                .set_description(&dialog_msg)
                 .show();
-            std::process::exit(1);
-        }));
-    }
+        }
+
+        std::process::exit(1);
+    }));
 
     Ok(())
 }
