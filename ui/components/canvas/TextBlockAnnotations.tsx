@@ -98,6 +98,145 @@ function TextBlockAnnotation({
   const [size, setSize] = useState(scaledSize)
   const [position, setPosition] = useState(scaledPosition)
 
+  // Keyboard nudge position (Arrow keys)
+  useHotkeys(
+    'up,down,left,right,shift+up,shift+down,shift+left,shift+right',
+    (event) => {
+      if (!interactive || !selected) return
+      const target = event.target as HTMLElement | null
+      const isEditable = target?.closest('input, textarea, [contenteditable]')
+      if (isEditable) return
+
+      event.preventDefault()
+
+      const step = event.shiftKey ? 10 : 1
+      let dx = 0
+      let dy = 0
+
+      const key = event.key
+      if (key === 'ArrowLeft') dx = -step
+      else if (key === 'ArrowRight') dx = step
+      else if (key === 'ArrowUp') dy = -step
+      else if (key === 'ArrowDown') dy = step
+
+      onUpdate({
+        x: block.x + dx,
+        y: block.y + dy,
+      })
+    },
+    {
+      enabled: selected && interactive,
+      preventDefault: true,
+      enableOnFormTags: false,
+    },
+    [selected, interactive, block.x, block.y, onUpdate]
+  )
+
+  // Keyboard adjust font size ([ and ])
+  useHotkeys(
+    '[,],shift+[,shift+]',
+    (event) => {
+      if (!interactive || !selected) return
+      const target = event.target as HTMLElement | null
+      const isEditable = target?.closest('input, textarea, [contenteditable]')
+      if (isEditable) return
+
+      event.preventDefault()
+
+      const step = event.shiftKey ? 5 : 1
+      const currentStyle = block.style || { fontFamilies: [] }
+      const currentSize = currentStyle.fontSize ?? block.detectedFontSizePx ?? 16
+      const delta = event.key === ']' ? step : -step
+      const nextSize = Math.max(6, Math.min(300, currentSize + delta))
+
+      onUpdate({
+        style: {
+          ...currentStyle,
+          fontSize: nextSize
+        }
+      })
+    },
+    {
+      enabled: selected && interactive,
+      preventDefault: true,
+      enableOnFormTags: false,
+    },
+    [selected, interactive, block.style, block.detectedFontSizePx, onUpdate]
+  )
+
+  // Keyboard adjust typography settings (Alt + Arrows for Leading/Tracking)
+  useHotkeys(
+    'alt+up,alt+down,alt+left,alt+right',
+    (event) => {
+      if (!interactive || !selected) return
+      const target = event.target as HTMLElement | null
+      const isEditable = target?.closest('input, textarea, [contenteditable]')
+      if (isEditable) return
+
+      event.preventDefault()
+
+      const currentStyle = block.style || { fontFamilies: [] }
+
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        const currentLineHeight = currentStyle.lineHeight ?? 1.0
+        const delta = event.key === 'ArrowDown' ? 0.05 : -0.05
+        const nextVal = Number(Math.max(0.8, Math.min(2.0, currentLineHeight + delta)).toFixed(2))
+        onUpdate({
+          style: {
+            ...currentStyle,
+            lineHeight: nextVal
+          }
+        })
+      } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        const currentLetterSpacing = currentStyle.letterSpacingPx ?? 0
+        const delta = event.key === 'ArrowRight' ? 0.5 : -0.5
+        const nextVal = Number(Math.max(-2, Math.min(8, currentLetterSpacing + delta)).toFixed(1))
+        onUpdate({
+          style: {
+            ...currentStyle,
+            letterSpacingPx: nextVal
+          }
+        })
+      }
+    },
+    {
+      enabled: selected && interactive,
+      preventDefault: true,
+      enableOnFormTags: false,
+    },
+    [selected, interactive, block.style, onUpdate]
+  )
+
+  // Keyboard adjust rotation (Alt + [ and ])
+  useHotkeys(
+    'alt+[,alt+],alt+shift+[,alt+shift+]',
+    (event) => {
+      if (!interactive || !selected) return
+      const target = event.target as HTMLElement | null
+      const isEditable = target?.closest('input, textarea, [contenteditable]')
+      if (isEditable) return
+
+      event.preventDefault()
+
+      const step = event.shiftKey ? 15 : 1
+      const currentRotation = block.rotationDeg ?? 0
+      const delta = event.key === ']' ? step : -step
+      let nextRotation = currentRotation + delta
+      if (nextRotation > 180) nextRotation -= 360
+      if (nextRotation < -180) nextRotation += 360
+
+      onUpdate({
+        rotationDeg: nextRotation
+      })
+    },
+    {
+      enabled: selected && interactive,
+      preventDefault: true,
+      enableOnFormTags: false,
+    },
+    [selected, interactive, block.rotationDeg, onUpdate]
+  )
+
   useEffect(() => {
     setSize(scaledSize)
     setPosition(scaledPosition)

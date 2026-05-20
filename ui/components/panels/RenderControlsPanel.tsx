@@ -699,7 +699,27 @@ export function RenderControlsPanel() {
       {/* Layout controls — Thai-friendly text shaping                  */}
       {/* ============================================================ */}
       <div className='grid w-full min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-1.5'>
-        <span className='text-muted-foreground text-[10px] font-medium tracking-wide uppercase'>
+        <span 
+          className='text-muted-foreground text-[10px] font-medium tracking-wide uppercase cursor-ew-resize select-none hover:text-primary transition-colors'
+          title='Drag to adjust size'
+          onMouseDown={(e) => {
+            if (!hasBlocks) return
+            e.preventDefault()
+            const startX = e.clientX
+            const startVal = currentFontSize ?? 16
+            const handleMouseMove = (moveEvent: MouseEvent) => {
+              const deltaX = moveEvent.clientX - startX
+              const nextVal = Math.max(6, Math.min(300, startVal + Math.round(deltaX / 2)))
+              applyStyleToSelected({ fontSize: nextVal }) || applyStyleToAll({ fontSize: nextVal })
+            }
+            const handleMouseUp = () => {
+              window.removeEventListener('mousemove', handleMouseMove)
+              window.removeEventListener('mouseup', handleMouseUp)
+            }
+            window.addEventListener('mousemove', handleMouseMove)
+            window.addEventListener('mouseup', handleMouseUp)
+          }}
+        >
           {t('render.sizeLabel')}
         </span>
         <div className='flex items-center gap-1.5'>
@@ -723,14 +743,54 @@ export function RenderControlsPanel() {
       </div>
 
       <div className='grid w-full min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-1.5'>
-        <span className='text-muted-foreground text-[10px] font-medium tracking-wide uppercase'>
+        <span 
+          className='text-muted-foreground text-[10px] font-medium tracking-wide uppercase cursor-ew-resize select-none hover:text-primary transition-colors'
+          title='Drag to adjust line height'
+          onMouseDown={(e) => {
+            if (!hasBlocks) return
+            e.preventDefault()
+            const startX = e.clientX
+            const startVal = currentLineHeight
+            const handleMouseMove = (moveEvent: MouseEvent) => {
+              const deltaX = moveEvent.clientX - startX
+              const nextVal = Number(Math.max(0.8, Math.min(2.0, startVal + deltaX * 0.005)).toFixed(2))
+              applyStyleToSelected({ lineHeight: nextVal }) || applyStyleToAll({ lineHeight: nextVal })
+            }
+            const handleMouseUp = () => {
+              window.removeEventListener('mousemove', handleMouseMove)
+              window.removeEventListener('mouseup', handleMouseUp)
+            }
+            window.addEventListener('mousemove', handleMouseMove)
+            window.addEventListener('mouseup', handleMouseUp)
+          }}
+        >
           {t('render.lineHeightLabel')}
         </span>
         <div className='flex items-center gap-1.5'>
           <Tooltip>
             <TooltipTrigger asChild>
               <div className='flex items-center gap-1'>
-                <span className='text-muted-foreground/70 bg-muted/40 border-border/60 flex size-7 flex-col items-center justify-center rounded-md border text-[9px] font-bold leading-none shrink-0'>
+                <span 
+                  className='text-muted-foreground/70 bg-muted/40 border-border/60 flex size-7 flex-col items-center justify-center rounded-md border text-[9px] font-bold leading-none shrink-0 cursor-ew-resize select-none hover:bg-accent hover:text-primary transition-colors'
+                  title='Drag to adjust line height'
+                  onMouseDown={(e) => {
+                    if (!hasBlocks) return
+                    e.preventDefault()
+                    const startX = e.clientX
+                    const startVal = currentLineHeight
+                    const handleMouseMove = (moveEvent: MouseEvent) => {
+                      const deltaX = moveEvent.clientX - startX
+                      const nextVal = Number(Math.max(0.8, Math.min(2.0, startVal + deltaX * 0.005)).toFixed(2))
+                      applyStyleToSelected({ lineHeight: nextVal }) || applyStyleToAll({ lineHeight: nextVal })
+                    }
+                    const handleMouseUp = () => {
+                      window.removeEventListener('mousemove', handleMouseMove)
+                      window.removeEventListener('mouseup', handleMouseUp)
+                    }
+                    window.addEventListener('mousemove', handleMouseMove)
+                    window.addEventListener('mouseup', handleMouseUp)
+                  }}
+                >
                   <span className='translate-y-[1px]'>A</span>
                   <span className='border-t border-muted-foreground/30 w-3 my-[1px]'></span>
                   <span className='-translate-y-[1px]'>A</span>
@@ -758,7 +818,27 @@ export function RenderControlsPanel() {
           <Tooltip>
             <TooltipTrigger asChild>
               <div className='flex items-center gap-1'>
-                <span className='text-muted-foreground/70 bg-muted/40 border-border/60 flex size-7 items-center justify-center rounded-md border text-[8px] font-extrabold tracking-tighter shrink-0'>
+                <span 
+                  className='text-muted-foreground/70 bg-muted/40 border-border/60 flex size-7 items-center justify-center rounded-md border text-[8px] font-extrabold tracking-tighter shrink-0 cursor-ew-resize select-none hover:bg-accent hover:text-primary transition-colors'
+                  title='Drag to adjust letter spacing'
+                  onMouseDown={(e) => {
+                    if (!hasBlocks) return
+                    e.preventDefault()
+                    const startX = e.clientX
+                    const startVal = currentLetterSpacing
+                    const handleMouseMove = (moveEvent: MouseEvent) => {
+                      const deltaX = moveEvent.clientX - startX
+                      const nextVal = Number(Math.max(-2, Math.min(8, startVal + deltaX * 0.05)).toFixed(1))
+                      applyStyleToSelected({ letterSpacingPx: nextVal }) || applyStyleToAll({ letterSpacingPx: nextVal })
+                    }
+                    const handleMouseUp = () => {
+                      window.removeEventListener('mousemove', handleMouseMove)
+                      window.removeEventListener('mouseup', handleMouseUp)
+                    }
+                    window.addEventListener('mousemove', handleMouseMove)
+                    window.addEventListener('mouseup', handleMouseUp)
+                  }}
+                >
                   VA
                 </span>
                 <NumericStepper
@@ -784,14 +864,54 @@ export function RenderControlsPanel() {
       </div>
 
       <div className='grid w-full min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-1.5'>
-        <span className='text-muted-foreground text-[10px] font-medium tracking-wide uppercase'>
+        <span 
+          className='text-muted-foreground text-[10px] font-medium tracking-wide uppercase cursor-ew-resize select-none hover:text-primary transition-colors'
+          title='Drag to adjust baseline shift'
+          onMouseDown={(e) => {
+            if (!hasBlocks) return
+            e.preventDefault()
+            const startX = e.clientX
+            const startVal = currentBaselineShift
+            const handleMouseMove = (moveEvent: MouseEvent) => {
+              const deltaX = moveEvent.clientX - startX
+              const nextVal = Math.max(-100, Math.min(100, startVal + Math.round(deltaX / 2)))
+              applyStyleToSelected({ baselineShiftPx: nextVal }) || applyStyleToAll({ baselineShiftPx: nextVal })
+            }
+            const handleMouseUp = () => {
+              window.removeEventListener('mousemove', handleMouseMove)
+              window.removeEventListener('mouseup', handleMouseUp)
+            }
+            window.addEventListener('mousemove', handleMouseMove)
+            window.addEventListener('mouseup', handleMouseUp)
+          }}
+        >
           {t('render.baselineShiftLabel', { defaultValue: 'Shift/Scale' })}
         </span>
         <div className='flex items-center gap-1.5'>
           <Tooltip>
             <TooltipTrigger asChild>
               <div className='flex items-center gap-1'>
-                <span className='text-muted-foreground/70 bg-muted/40 border-border/60 flex size-7 items-center justify-center rounded-md border text-[9px] font-bold shrink-0'>
+                <span 
+                  className='text-muted-foreground/70 bg-muted/40 border-border/60 flex size-7 items-center justify-center rounded-md border text-[9px] font-bold shrink-0 cursor-ew-resize select-none hover:bg-accent hover:text-primary transition-colors'
+                  title='Drag to adjust baseline shift'
+                  onMouseDown={(e) => {
+                    if (!hasBlocks) return
+                    e.preventDefault()
+                    const startX = e.clientX
+                    const startVal = currentBaselineShift
+                    const handleMouseMove = (moveEvent: MouseEvent) => {
+                      const deltaX = moveEvent.clientX - startX
+                      const nextVal = Math.max(-100, Math.min(100, startVal + Math.round(deltaX / 2)))
+                      applyStyleToSelected({ baselineShiftPx: nextVal }) || applyStyleToAll({ baselineShiftPx: nextVal })
+                    }
+                    const handleMouseUp = () => {
+                      window.removeEventListener('mousemove', handleMouseMove)
+                      window.removeEventListener('mouseup', handleMouseUp)
+                    }
+                    window.addEventListener('mousemove', handleMouseMove)
+                    window.addEventListener('mouseup', handleMouseUp)
+                  }}
+                >
                   ΔY
                 </span>
                 <NumericStepper
@@ -816,7 +936,27 @@ export function RenderControlsPanel() {
           <Tooltip>
             <TooltipTrigger asChild>
               <div className='flex items-center gap-1'>
-                <span className='text-muted-foreground/70 bg-muted/40 border-border/60 flex size-7 items-center justify-center rounded-md border text-[9px] font-bold shrink-0'>
+                <span 
+                  className='text-muted-foreground/70 bg-muted/40 border-border/60 flex size-7 items-center justify-center rounded-md border text-[9px] font-bold shrink-0 cursor-ew-resize select-none hover:bg-accent hover:text-primary transition-colors'
+                  title='Drag to adjust horizontal scale'
+                  onMouseDown={(e) => {
+                    if (!hasBlocks) return
+                    e.preventDefault()
+                    const startX = e.clientX
+                    const startVal = currentHorizontalScale
+                    const handleMouseMove = (moveEvent: MouseEvent) => {
+                      const deltaX = moveEvent.clientX - startX
+                      const nextVal = Number(Math.max(0.2, Math.min(3.0, startVal + deltaX * 0.005)).toFixed(2))
+                      applyStyleToSelected({ horizontalScale: nextVal }) || applyStyleToAll({ horizontalScale: nextVal })
+                    }
+                    const handleMouseUp = () => {
+                      window.removeEventListener('mousemove', handleMouseMove)
+                      window.removeEventListener('mouseup', handleMouseUp)
+                    }
+                    window.addEventListener('mousemove', handleMouseMove)
+                    window.addEventListener('mouseup', handleMouseUp)
+                  }}
+                >
                   ↔
                 </span>
                 <NumericStepper

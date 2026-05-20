@@ -520,7 +520,26 @@ function BlockCard({
             </div>
             <div className='flex flex-col gap-1.5 pt-1'>
               <div className='flex items-center justify-between'>
-                <span className='text-muted-foreground text-[10px] uppercase'>
+                <span 
+                  className='text-muted-foreground text-[10px] uppercase cursor-ew-resize select-none hover:text-primary transition-colors'
+                  title='Drag to adjust rotation'
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    const startX = e.clientX
+                    const startVal = block.rotationDeg ?? 0
+                    const handleMouseMove = (moveEvent: MouseEvent) => {
+                      const deltaX = moveEvent.clientX - startX
+                      const nextVal = Math.max(-180, Math.min(180, startVal + deltaX))
+                      onChange({ rotationDeg: nextVal })
+                    }
+                    const handleMouseUp = () => {
+                      window.removeEventListener('mousemove', handleMouseMove)
+                      window.removeEventListener('mouseup', handleMouseUp)
+                    }
+                    window.addEventListener('mousemove', handleMouseMove)
+                    window.addEventListener('mouseup', handleMouseUp)
+                  }}
+                >
                   {t('textBlocks.rotationLabel')}
                 </span>
                 <span className='text-muted-foreground text-[10px] tabular-nums'>
