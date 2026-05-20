@@ -1768,6 +1768,7 @@ async fn do_single_llm_call_with_creds(
     client: &reqwest::Client,
     prompt: &str,
     json_mode: bool,
+    response_schema: Option<&serde_json::Value>,
     payload_api_url: Option<&str>,
     payload_model_name: &str,
 ) -> anyhow::Result<String> {
@@ -1828,11 +1829,15 @@ async fn do_single_llm_call_with_creds(
                     );
                     let mut req = client_clone.post(&url);
                     if json_mode {
+                        let mut generation_config = serde_json::json!({
+                            "responseMimeType": "application/json"
+                        });
+                        if let Some(schema) = response_schema {
+                            generation_config["responseSchema"] = schema.clone();
+                        }
                         req = req.json(&serde_json::json!({
                             "contents": [{ "parts": [{ "text": prompt }] }],
-                            "generationConfig": {
-                                "responseMimeType": "application/json"
-                            }
+                            "generationConfig": generation_config
                         }));
                     } else {
                         req = req.json(&serde_json::json!({
@@ -1998,7 +2003,6 @@ pub async fn cloud_llm_call(
 
     let primary_id = payload.profile_id;
 
-    // 1. Try the primary profile
     let primary_res = do_single_llm_call_with_creds(
         &state,
         primary_id,
@@ -2006,6 +2010,7 @@ pub async fn cloud_llm_call(
         &client,
         &payload.prompt,
         payload.json_mode,
+        payload.response_schema.as_ref(),
         payload.api_url.as_deref(),
         &payload.model_name,
     )
@@ -2060,6 +2065,7 @@ pub async fn cloud_llm_call(
                     &client,
                     &payload.prompt,
                     payload.json_mode,
+                    payload.response_schema.as_ref(),
                     profile.api_url.as_deref(),
                     &profile.model_name,
                 )

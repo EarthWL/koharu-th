@@ -1528,6 +1528,7 @@ pub struct CloudLlmCallPayload {
     pub model_name: String,
     pub api_url: Option<String>,
     pub json_mode: bool,
+    pub response_schema: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

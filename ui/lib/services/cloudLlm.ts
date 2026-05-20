@@ -886,12 +886,28 @@ ${blocksJson}`
   let resultJson = ''
   const t0 = performance.now()
   try {
+    const responseSchema =
+      cloudProvider === 'gemini'
+        ? {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                index: { type: 'integer' },
+                translation: { type: 'string' },
+              },
+              required: ['index', 'translation'],
+            },
+          }
+        : undefined
+
     const res = await api.cloudLlmCall({
       profileId: activeProfileId,
       prompt,
       modelName: cloudModelName,
       apiUrl: cloudApiUrl || null,
       jsonMode: true,
+      responseSchema,
     })
     resultJson = res.text
   } catch (err: any) {
@@ -1267,6 +1283,12 @@ async function fetchGemini(
   model: string,
   isJsonMode = false,
   onChunk?: StreamHandler,
+  /** Optional response schema for structured output. When provided
+   *  alongside isJsonMode, Gemini is FORCED to produce JSON matching
+   *  this schema — instruction-following becomes irrelevant. Used by
+   *  the batch translate path to pin `{index, translation}` even
+   *  when Gemini 3.5 wants to echo the input `text` key.  */
+  responseSchema?: object,
 ): Promise<CloudResult> {
   // Gemini exposes a separate :streamGenerateContent endpoint for SSE
   // streaming. We use alt=sse to get the data:-prefixed framing that
@@ -1282,6 +1304,9 @@ async function fetchGemini(
 
   if (isJsonMode) {
     body.generationConfig.responseMimeType = 'application/json'
+    if (responseSchema) {
+      body.generationConfig.responseSchema = responseSchema
+    }
   }
 
   const res = await fetch(endpoint, {

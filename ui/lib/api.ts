@@ -845,6 +845,7 @@ export const api = {
     modelName: string
     apiUrl?: string | null
     jsonMode: boolean
+    responseSchema?: any
   }): Promise<{ text: string }> {
     return invoke('cloud_llm_call', params) as Promise<{ text: string }>
   },
