@@ -243,7 +243,16 @@ export const useChatActivityStore = create<ChatActivityState>((set, get) => ({
               if ((m as any)._synthetic) continue
               await api.chatMessageAdd({
                 role: m.role,
-                content: m.content,
+                // Tool-call-only assistant messages have no text
+                // content (the model dispatched a tool without
+                // narrating). Backend's `content: String` is required
+                // — sending `undefined` here would serialize as
+                // absent and serde would throw
+                // "invalid type: unit value, expected a string"
+                // (which previously aborted /translate-page after
+                // it had already called 13 update_text_block tools
+                // successfully). Default to empty string instead.
+                content: m.content ?? '',
                 toolCalls: m.toolCalls ? JSON.stringify(m.toolCalls) : null,
                 toolCallId: m.toolCallId ?? null,
                 model: `${provider.provider}:${provider.model}`,
