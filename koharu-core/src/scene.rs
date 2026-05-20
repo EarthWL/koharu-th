@@ -52,6 +52,14 @@ pub struct TextBlock {
     pub style: Option<TextStyle>,
     pub source_lang: Option<String>,
     pub font_prediction: Option<FontPrediction>,
+    /// Clockwise rotation in degrees for the rendered text. `None`/0.0
+    /// = upright. Carried across the bridge from the v1 `TextBlock` so
+    /// the renderer (`facade.rs` honours `rotation_deg`) rotates the
+    /// glyph sprite, not just the annotation outline. `#[serde(default)]`
+    /// keeps older session JSON (written before this field existed)
+    /// loadable.
+    #[serde(default)]
+    pub rotation_deg: Option<f32>,
 }
 
 /// Axis-aligned bounding box in source-image pixel coordinates.

@@ -259,7 +259,7 @@ fn build_tmp_document(
             line_polygons: None,
             source_direction: None,
             source_language: block.source_lang.clone(),
-            rotation_deg: None,
+            rotation_deg: block.rotation_deg,
             detected_font_size_px: None,
             detector: None,
             text: block.source_text.clone(),

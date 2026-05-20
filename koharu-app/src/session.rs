@@ -674,6 +674,7 @@ mod tests {
             style: None,
             source_lang: None,
             font_prediction: None,
+            rotation_deg: None,
         }
     }
 

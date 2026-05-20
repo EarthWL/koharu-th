@@ -135,6 +135,7 @@ impl Engine for ComicTextDetectorEngine {
                 style: None,
                 source_lang: v1.source_language.clone(),
                 font_prediction: None,
+                rotation_deg: None,
             };
             scene_ops.push(Op::AddTextBlock {
                 page: ctx.page,

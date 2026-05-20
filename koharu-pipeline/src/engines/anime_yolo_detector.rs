@@ -212,6 +212,7 @@ impl Engine for AnimeYoloDetectorEngine {
                 style: None,
                 source_lang: v1.source_language.clone(),
                 font_prediction: None,
+                rotation_deg: None,
             };
             scene_ops.push(Op::AddTextBlock {
                 page: ctx.page,

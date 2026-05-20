@@ -51,6 +51,9 @@ export function Workspace() {
   const showTextBlocksOverlay = useEditorUiStore(
     (state) => state.showTextBlocksOverlay,
   )
+  const setShowTextBlocksOverlay = useEditorUiStore(
+    (state) => state.setShowTextBlocksOverlay,
+  )
   const mode = useEditorUiStore((state) => state.mode)
   const autoFitEnabled = useEditorUiStore((state) => state.autoFitEnabled)
   const {
@@ -314,6 +317,33 @@ export function Workspace() {
   const handleCanvasPointerDownCapture = (
     event: React.PointerEvent<HTMLDivElement>,
   ) => {
+    // After Render we hide the Text Block overlay (see CanvasToolbar's
+    // handleRender) so the user sees a clean composite. If they then
+    // click on a piece of text to tweak it, bring the overlay back and
+    // select the block they hit — no trip to the LayersPanel toggle.
+    // Hit-test is a plain AABB against each block's bbox (rotation
+    // ignored for picking; close enough for a "grab the text" gesture).
+    if (!showTextBlocksOverlay && mode !== 'block' && currentDocument) {
+      const point = pointerToDocument(event)
+      const blocks = currentDocument.textBlocks ?? []
+      if (point) {
+        // Iterate back-to-front so the topmost (last-painted) block
+        // wins when bboxes overlap.
+        for (let i = blocks.length - 1; i >= 0; i--) {
+          const b = blocks[i]
+          if (
+            point.x >= b.x &&
+            point.x <= b.x + b.width &&
+            point.y >= b.y &&
+            point.y <= b.y + b.height
+          ) {
+            setShowTextBlocksOverlay(true)
+            setSelectedBlockIndex(i)
+            return
+          }
+        }
+      }
+    }
     if (mode !== 'block' && event.target === event.currentTarget) {
       clearSelection()
     }

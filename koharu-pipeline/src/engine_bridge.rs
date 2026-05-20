@@ -328,6 +328,7 @@ fn build_scene_from_document(doc: &Document, blobs: &BlobStore) -> Result<(Scene
                 style: v1.style.as_ref().map(crate::style_convert::scene_style_from_v1),
                 source_lang: v1.source_language.clone(),
                 font_prediction: None, // converted on demand by translate/render engines
+                rotation_deg: v1.rotation_deg,
             },
         );
     }
@@ -872,6 +873,7 @@ mod tests {
             style: None,
             source_lang: Some("ja".into()),
             font_prediction: None,
+            rotation_deg: None,
         };
         apply_op(
             &mut doc,
@@ -897,6 +899,7 @@ mod tests {
             style: None,
             source_lang: None,
             font_prediction: None,
+            rotation_deg: None,
         };
         let ops = Op::Batch(vec![
             Op::AddTextBlock { page: PageId(0), block: block(1) },
@@ -1131,6 +1134,7 @@ mod tests {
             style: None,
             source_lang: None,
             font_prediction: None,
+            rotation_deg: None,
         }
     }
 
