@@ -25,6 +25,12 @@ import {
   SparklesIcon,
   BookOpenIcon,
   SlidersIcon,
+  MicIcon,
+  MicOffIcon,
+  StarIcon,
+  CoinsIcon,
+  FileDiffIcon,
+  PlusIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -116,6 +122,50 @@ async function buildSystemPrompt(): Promise<string> {
     .join('\n')
 }
 
+interface DiffChunk {
+  type: 'added' | 'removed' | 'same'
+  value: string
+}
+
+function computeDiff(oldText: string, newText: string): DiffChunk[] {
+  const oldWords = oldText.split(/(\s+)/)
+  const newWords = newText.split(/(\s+)/)
+
+  const dp: number[][] = Array(oldWords.length + 1)
+    .fill(null)
+    .map(() => Array(newWords.length + 1).fill(0))
+
+  for (let i = 1; i <= oldWords.length; i++) {
+    for (let j = 1; j <= newWords.length; j++) {
+      if (oldWords[i - 1] === newWords[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1])
+      }
+    }
+  }
+
+  const chunks: DiffChunk[] = []
+  let i = oldWords.length
+  let j = newWords.length
+
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && oldWords[i - 1] === newWords[j - 1]) {
+      chunks.push({ type: 'same', value: oldWords[i - 1] })
+      i--
+      j--
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      chunks.push({ type: 'added', value: newWords[j - 1] })
+      j--
+    } else {
+      chunks.push({ type: 'removed', value: oldWords[i - 1] })
+      i--
+    }
+  }
+
+  return chunks.reverse()
+}
+
 function rowToChatMessage(row: ChatMessageDto): ChatMessage {
   let toolCalls
   if (row.toolCalls) {
@@ -182,6 +232,85 @@ export function ChatTabPanel() {
   const [enhancing, setEnhancing] = useState(false)
   const regeneratingUserMsgIdRef = useRef<number | null>(null)
 
+  const [isListening, setIsListening] = useState(false)
+  const [voiceLang, setVoiceLang] = useState('th-TH')
+  const recognitionRef = useRef<any>(null)
+
+  const toggleListening = () => {
+    if (isListening) {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop()
+      }
+      setIsListening(false)
+      return
+    }
+
+    const SpeechRecognition =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      setError('เบราว์เซอร์นี้ไม่รองรับ Speech Recognition (พิมพ์ด้วยเสียง)')
+      return
+    }
+
+    try {
+      const recognition = new SpeechRecognition()
+      recognition.lang = voiceLang
+      recognition.interimResults = false
+      recognition.maxAlternatives = 1
+
+      recognition.onstart = () => {
+        setIsListening(true)
+      }
+
+      recognition.onresult = (event: any) => {
+        const speechResult = event.results[0][0].transcript
+        if (speechResult) {
+          setInput((prev) => (prev ? prev + ' ' + speechResult : speechResult))
+        }
+      }
+
+      recognition.onerror = (e: any) => {
+        console.error('Speech recognition error', e.error)
+        setIsListening(false)
+      }
+
+      recognition.onend = () => {
+        setIsListening(false)
+      }
+
+      recognitionRef.current = recognition
+      recognition.start()
+    } catch (err: any) {
+      console.error(err)
+      setIsListening(false)
+    }
+  }
+
+  const [starredSnippets, setStarredSnippets] = useState<
+    { id: string; title: string; content: string }[]
+  >(() => {
+    try {
+      return JSON.parse(localStorage.getItem('koharu_starred_snippets') || '[]')
+    } catch {
+      return []
+    }
+  })
+
+  const saveStarredSnippet = (title: string, content: string) => {
+    if (!title.trim() || !content.trim()) return
+    const newSnippet = { id: String(Date.now()), title, content }
+    const updated = [...starredSnippets, newSnippet]
+    setStarredSnippets(updated)
+    localStorage.setItem('koharu_starred_snippets', JSON.stringify(updated))
+  }
+
+  const deleteStarredSnippet = (id: string) => {
+    const updated = starredSnippets.filter((s) => s.id !== id)
+    setStarredSnippets(updated)
+    localStorage.setItem('koharu_starred_snippets', JSON.stringify(updated))
+  }
+
   const handleTempChange = (val: number) => {
     setTemperature(val)
     localStorage.setItem('koharu_chat_temp', String(val))
@@ -190,6 +319,44 @@ export function ChatTabPanel() {
     setMaxTokens(val)
     localStorage.setItem('koharu_chat_max_tokens', String(val))
   }
+  const sessionTokenStats = useMemo(() => {
+    const messages = history.data ?? []
+    let estInputTokens = 0
+    let estOutputTokens = 0
+
+    const estimateTokens = (text: string) => {
+      if (!text) return 0
+      const nonAscii = (text.match(/[^\x00-\x7F]/g) || []).length
+      const ascii = text.length - nonAscii
+      return Math.round(ascii * 0.25 + nonAscii * 1.5)
+    }
+
+    messages.forEach((m) => {
+      const text = m.content ?? ''
+      const tokens = estimateTokens(text)
+      if (m.role === 'user') {
+        estInputTokens += tokens
+      } else if (m.role === 'assistant') {
+        estOutputTokens += tokens
+      }
+    })
+
+    if (streamingText) {
+      estOutputTokens += estimateTokens(streamingText)
+    }
+
+    // Blended API rates (approximate GPT-4o / Claude 3.5 Sonnet blends):
+    // Input: $2.50 per 1M tokens ($0.0000025 per token)
+    // Output: $10.00 per 1M tokens ($0.0000100 per token)
+    const costUsd = estInputTokens * 0.0000025 + estOutputTokens * 0.00001
+
+    return {
+      inputTokens: estInputTokens,
+      outputTokens: estOutputTokens,
+      totalTokens: estInputTokens + estOutputTokens,
+      costUsd: costUsd,
+    }
+  }, [history.data, streamingText])
 
   const glossaryQuery = useQuery({
     queryKey: ['project', 'glossary'],
@@ -1338,6 +1505,9 @@ export function ChatTabPanel() {
                     projectId={projectInfo?.id}
                     precedingUserMsgId={precedingUserMsgId}
                     glossaryList={glossaryQuery.data ?? []}
+                    selectedTranslation={
+                      selectedBlock?.translation ?? undefined
+                    }
                     onDelete={() => void deleteMessage(m.id)}
                     onUndoFromHere={() => void revokeFromMessage(m)}
                     onRegenerate={
@@ -1839,6 +2009,127 @@ export function ChatTabPanel() {
               onChange={(e) => void attachFromFile(e.target.files)}
             />
 
+            {/* Voice Dictation Microphone Button */}
+            <Button
+              variant='ghost'
+              size='icon-xs'
+              className={`relative size-6 transition-all duration-300 ${
+                isListening
+                  ? 'bg-red-500/10 text-red-500 hover:bg-red-500/20 hover:text-red-600'
+                  : 'hover:bg-accent text-primary'
+              }`}
+              onClick={toggleListening}
+              title='พิมพ์ด้วยเสียงภาษาไทย (Voice Dictation)'
+            >
+              {isListening ? (
+                <>
+                  <span className='absolute inset-0 animate-ping rounded-full bg-red-500/30' />
+                  <MicOffIcon className='relative z-10 size-3' />
+                </>
+              ) : (
+                <MicIcon className='size-3 text-red-500' />
+              )}
+            </Button>
+
+            {/* Starred Prompts Popover */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant='ghost'
+                  size='icon-xs'
+                  className='hover:bg-accent hover:text-accent-foreground text-primary size-6'
+                  title='คลังคำสั่งโปรด (Starred Prompts)'
+                >
+                  <StarIcon className='size-3 fill-amber-500/30 text-amber-500' />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align='start'
+                side='top'
+                className='bg-background/95 border-border/80 z-[100] w-64 rounded-lg p-2.5 font-sans text-xs shadow-lg backdrop-blur-md'
+              >
+                <div className='border-border/60 mb-2 flex items-center justify-between border-b px-1 pb-1'>
+                  <span className='text-foreground flex items-center gap-1 text-[10px] font-bold tracking-wider uppercase'>
+                    <StarIcon className='size-2.5 text-amber-500' />
+                    คลังคำสั่งโปรด
+                  </span>
+                </div>
+                <div className='max-h-64 space-y-3 overflow-auto'>
+                  {/* Save active input as snippet */}
+                  <div className='bg-primary/5 border-primary/10 space-y-1.5 rounded-md border p-1.5'>
+                    <div className='text-muted-foreground text-[8px] font-bold tracking-wider uppercase'>
+                      บันทึกข้อความปัจจุบัน
+                    </div>
+                    <div className='flex gap-1'>
+                      <input
+                        id='starred-title-input'
+                        placeholder='ชื่อคำสั่ง (เช่น แปลเสียงลุย)'
+                        className='bg-background border-border min-w-0 flex-1 rounded border px-1.5 py-0.5 text-[10px]'
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const inputEl = e.currentTarget
+                            if (inputEl.value.trim() && input.trim()) {
+                              saveStarredSnippet(inputEl.value, input)
+                              inputEl.value = ''
+                            }
+                          }
+                        }}
+                      />
+                      <Button
+                        size='sm'
+                        className='h-5 px-1.5 text-[8px] font-bold'
+                        onClick={() => {
+                          const inputEl = document.getElementById(
+                            'starred-title-input',
+                          ) as HTMLInputElement
+                          if (inputEl && inputEl.value.trim() && input.trim()) {
+                            saveStarredSnippet(inputEl.value, input)
+                            inputEl.value = ''
+                          }
+                        }}
+                      >
+                        บันทึก
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Starred list */}
+                  <div className='space-y-1'>
+                    <div className='text-muted-foreground px-1 text-[8px] font-bold tracking-wider uppercase'>
+                      คำสั่งส่วนตัว ({starredSnippets.length})
+                    </div>
+                    {starredSnippets.length === 0 ? (
+                      <div className='text-muted-foreground px-1.5 py-1 text-[10px] italic'>
+                        ยังไม่มีคำสั่งที่บันทึกไว้
+                      </div>
+                    ) : (
+                      starredSnippets.map((s) => (
+                        <div
+                          key={s.id}
+                          className='hover:bg-accent hover:border-border group flex items-start justify-between gap-1.5 rounded-md border border-transparent p-1.5 transition-colors duration-150'
+                        >
+                          <button
+                            onClick={() => setInput(s.content)}
+                            className='flex-1 truncate text-left text-[10px] leading-tight font-medium'
+                            title={s.content}
+                          >
+                            {s.title}
+                          </button>
+                          <button
+                            onClick={() => deleteStarredSnippet(s.id)}
+                            className='text-muted-foreground hover:text-destructive opacity-0 transition-opacity group-hover:opacity-100'
+                            title='Delete'
+                          >
+                            <XIcon className='size-3' />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+
             {/* Quick Prompts Popover */}
             <Popover>
               <PopoverTrigger asChild>
@@ -2043,6 +2334,40 @@ export function ChatTabPanel() {
                     <div className='text-muted-foreground flex justify-between text-[8px]'>
                       <span>256</span>
                       <span>4096</span>
+                    </div>
+                  </div>
+
+                  {/* Token Tracker & Cost Estimator */}
+                  <div className='animate-in fade-in space-y-2 border-t border-sky-500/10 pt-3 duration-200'>
+                    <div className='flex items-center gap-1 text-[10px] font-bold tracking-wider text-sky-600 uppercase dark:text-sky-400'>
+                      <CoinsIcon className='size-3 text-sky-500' />
+                      ประเมินปริมาณ Token & ค่าบริการสะสม
+                    </div>
+                    <div className='text-muted-foreground space-y-1 rounded-lg border border-sky-500/10 bg-sky-500/5 p-2 text-[9px] dark:bg-sky-500/[0.02]'>
+                      <div className='flex justify-between'>
+                        <span>Tokens ขาเข้า (Input):</span>
+                        <span className='text-foreground font-mono font-semibold'>
+                          {sessionTokenStats.inputTokens.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className='flex justify-between'>
+                        <span>Tokens ขาออก (Output):</span>
+                        <span className='text-foreground font-mono font-semibold'>
+                          {sessionTokenStats.outputTokens.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className='text-foreground my-1 flex justify-between border-t border-sky-500/10 pt-1 text-[10px] font-bold'>
+                        <span>รวมทั้งสิ้น (Total):</span>
+                        <span className='font-mono'>
+                          {sessionTokenStats.totalTokens.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className='flex justify-between text-[10px] font-bold text-amber-600 dark:text-amber-400'>
+                        <span>ค่าบริการประเมิน (USD):</span>
+                        <span className='font-mono'>
+                          ${sessionTokenStats.costUsd.toFixed(5)}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2363,6 +2688,7 @@ function MessageRow({
   precedingUserMsgId,
   glossaryList,
   onSwitchBranch,
+  selectedTranslation,
 }: {
   message: ChatMessageDto
   onDelete: () => void
@@ -2372,8 +2698,10 @@ function MessageRow({
   precedingUserMsgId?: number
   glossaryList?: GlossaryDto[]
   onSwitchBranch?: (newIdx: number) => void
+  selectedTranslation?: string
 }) {
   const [copied, setCopied] = useState(false)
+  const [showDiff, setShowDiff] = useState(false)
   const handleCopy = async () => {
     if (!m.content) return
     try {
@@ -2485,6 +2813,20 @@ function MessageRow({
             </button>
           )}
 
+          {/* Diff Toggle button */}
+          {!isUser && selectedTranslation && m.content && (
+            <button
+              type='button'
+              onClick={() => setShowDiff(!showDiff)}
+              title='เปรียบเทียบการเกลาแปลกับข้อความเดิมบนแคนวาส (Compare with original)'
+              className={`text-muted-foreground transition hover:text-amber-500 ${
+                showDiff ? 'rounded bg-amber-500/10 px-0.5 text-amber-500' : ''
+              }`}
+            >
+              <FileDiffIcon className='size-3' />
+            </button>
+          )}
+
           {/* Regenerate button (only for assistant messages) */}
           {!isUser && onRegenerate && (
             <button
@@ -2540,6 +2882,32 @@ function MessageRow({
             ) : (
               <>
                 <ChatMarkdown>{m.content}</ChatMarkdown>
+                {showDiff && selectedTranslation && (
+                  <div className='bg-muted/40 border-border/50 animate-in fade-in slide-in-from-top-1 mt-2 space-y-1.5 rounded-md border p-2 font-sans text-[11px] leading-relaxed break-words whitespace-pre-wrap duration-200 select-text'>
+                    <div className='text-muted-foreground border-border/30 mb-1 flex items-center gap-1 border-b pb-0.5 text-[8px] font-bold tracking-wider uppercase'>
+                      <FileDiffIcon className='size-2.5 text-amber-500' />
+                      เปรียบเทียบคำแปลเดิม (ชมพู) → คำแปล AI (เขียว)
+                    </div>
+                    <div className='flex flex-wrap gap-x-0.5 gap-y-1'>
+                      {computeDiff(selectedTranslation, m.content ?? '').map(
+                        (c, i) => (
+                          <span
+                            key={i}
+                            className={
+                              c.type === 'added'
+                                ? 'rounded-sm bg-emerald-500/15 px-0.5 font-medium text-emerald-700 dark:text-emerald-400'
+                                : c.type === 'removed'
+                                  ? 'rounded-sm bg-rose-500/15 px-0.5 font-medium text-rose-700 line-through dark:text-rose-400'
+                                  : 'text-foreground'
+                            }
+                          >
+                            {c.value}
+                          </span>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                )}
                 {matchedGlossary.length > 0 && (
                   <div className='animate-in fade-in mt-2 flex flex-wrap gap-1.5 border-t border-emerald-500/10 pt-1.5 duration-200'>
                     {matchedGlossary.map((item) => (
