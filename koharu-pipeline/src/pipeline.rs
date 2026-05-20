@@ -192,9 +192,15 @@ async fn run_pipeline_inner(
                     }
                 }
                 PipelineStep::LlmGenerate => {
-                    res.llm
-                        .translate(&mut snapshot, req.language.as_deref())
-                        .await?;
+                    if req.skip_translate.unwrap_or(false) {
+                        // Frontend already populated text_blocks[].translation
+                        // (Cloud LLM translate done in TS). Skip so we don't
+                        // overwrite it with a local-model translation.
+                    } else {
+                        res.llm
+                            .translate(&mut snapshot, req.language.as_deref())
+                            .await?;
+                    }
                 }
                 PipelineStep::Render => {
                     res.renderer.render(

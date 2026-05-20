@@ -132,6 +132,12 @@ pub struct ProcessRequest {
     /// เช่น re-translate เพื่อลด LLM output หรือเปลี่ยน prompt
     /// โดยไม่ต้องรอ inpaint ซ้ำ (ใช้ผลลัพธ์ inpaint เดิม)
     pub skip_inpaint: Option<bool>,
+    /// Skip the LLM translate step. The frontend sets this when it has
+    /// already translated the blocks itself (Cloud LLM translate runs in
+    /// `cloudLlm.ts`, not the backend) — analogous to `skip_ocr` for Cloud
+    /// Vision OCR. The pipeline then renders the frontend-written
+    /// translations instead of re-translating locally.
+    pub skip_translate: Option<bool>,
     /// Engine to use for the Detect step. `None` ⇒ backend default
     /// (`comic_text_detector`). UI sets this from
     /// `preferencesStore.detectorEngine`.
@@ -1331,6 +1337,7 @@ mod tests {
             skip_ocr: None,
             skip_detect: None,
             skip_inpaint: None,
+            skip_translate: None,
             detector_engine: None,
             anime_yolo_variant: None,
             anime_yolo_confidence: None,

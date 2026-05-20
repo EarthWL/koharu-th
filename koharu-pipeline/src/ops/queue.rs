@@ -272,6 +272,9 @@ async fn process_entry(
             // Queue uses the default "do everything" pipeline; no
             // user-driven re-translate flow here, so always inpaint.
             skip_inpaint: None,
+            // Batch always translates locally (Cloud LLM translate is a
+            // per-page frontend flow, like Cloud Vision OCR).
+            skip_translate: None,
         },
     )
     .await?;

@@ -478,6 +478,7 @@ impl KoharuMcp {
                 skip_ocr: None,
                 skip_detect: None,
                 skip_inpaint: None,
+                skip_translate: None,
                 detector_engine: None,
                 anime_yolo_variant: None,
                 anime_yolo_confidence: None,

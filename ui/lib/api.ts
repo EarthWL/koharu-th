@@ -290,6 +290,10 @@ export const api = {
      *  existing inpainted image (the slowest pipeline step), only
      *  re-run translate + render. Issue #17. */
     skipInpaint?: boolean
+    /** Skip the LLM translate step. Set when the frontend already wrote
+     *  translations itself (Cloud LLM translate runs in cloudLlm.ts), so
+     *  the pipeline renders those instead of translating locally. */
+    skipTranslate?: boolean
     /** Detector engine for the Detect pipeline step. Backend defaults
      *  to `default` (comic_text_detector) if omitted. `anime_yolo`
      *  uses mayocream/anime-text-yolo (YOLO12) — better at SFX +

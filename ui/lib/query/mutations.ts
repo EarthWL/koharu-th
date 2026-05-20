@@ -678,59 +678,14 @@ export const useDocumentMutations = () => {
         total: 5,
       })
       try {
-        if (isCloud) {
-          // Cloud Vision OCR is the active OCR engine: detect first
-          // ourselves, OCR via the chosen cloud profile, then ask the
-          // Rust pipeline to skip detect+OCR and run the rest.
-          const { cloudProvider, cloudModelName, cloudApiKey } =
-            usePreferencesStore.getState()
-          const profiles = await api.providerProfilesList()
-          const resolved = await resolveOcrCloudProfile(
-            profileId,
-            profiles,
-            cloudProvider,
-            cloudModelName,
-            cloudApiKey,
-          )
-          if (!resolved) {
-            throw new Error(
-              'Cloud Vision OCR is selected but no vision-capable profile is available. Pick one in the Engines tab (Cloud Vision OCR → Vision profile) or add a vision-capable profile in Sidebar → Profiles.',
-            )
-          }
-          await api.detect(resolvedIndex, {})
-          const doc = await api.getDocument(resolvedIndex)
-          if (doc.textBlocks.length > 0) {
-            // v2 blob-transport: doc.image is now a hex BlobId.
-            // Fetch the raw bytes for the cloud OCR call. Browser
-            // cache short-circuits the second visit.
-            const imageBytes = await fetchBlobBytes(doc.image)
-            const { texts } = await ocrPageViaCloud(
-              resolved.profile,
-              resolved.apiKey,
-              imageBytes,
-              doc.textBlocks,
-            )
-            const updated = doc.textBlocks.map((b, i) => ({
-              ...b,
-              text: texts[i] ?? b.text,
-            }))
-            await api.updateTextBlocks(resolvedIndex, updated)
-          }
-          await api.process({
-            index: resolvedIndex,
-            llmModelId: selectedModel,
-            language: selectedLanguage,
-            shaderEffect: renderEffect,
-            shaderStroke: renderStroke,
-            fontFamily,
-            skipDetect: true,
-            skipOcr: true,
-          })
-        } else {
-          // Local pipeline: bridge the Engines-tab selection into the
-          // legacy ProcessRequest fields the pipeline reads (it doesn't
-          // consult the engine profile itself).
-          const eng = await readPipelineEngines()
+        const prefs = usePreferencesStore.getState()
+        const cloudTranslate = prefs.cloudProvider !== 'none'
+        const eng = await readPipelineEngines()
+
+        if (!isCloud && !cloudTranslate) {
+          // All-local: one pipeline call. Bridge the Engines-tab selection
+          // into the legacy ProcessRequest fields (the pipeline reads those,
+          // not the engine profile).
           await api.process({
             index: resolvedIndex,
             llmModelId: selectedModel,
@@ -742,6 +697,89 @@ export const useDocumentMutations = () => {
             animeYoloVariant: eng.animeYoloVariant,
             animeYoloConfidence: eng.animeYoloConfidence,
             ocrEngine: eng.ocrEngine,
+          })
+        } else {
+          // Cloud OCR and/or Cloud LLM translate are frontend flows. Run
+          // detect → OCR → (cloud translate) here, then let the pipeline do
+          // only the remaining steps (inpaint + render).
+          // 1. Detect (engine-profile aware via the standalone op).
+          await api.detect(resolvedIndex, {})
+          // 2. OCR — cloud or local.
+          if (isCloud) {
+            const profiles = await api.providerProfilesList()
+            const resolved = await resolveOcrCloudProfile(
+              profileId,
+              profiles,
+              prefs.cloudProvider,
+              prefs.cloudModelName,
+              prefs.cloudApiKey,
+            )
+            if (!resolved) {
+              throw new Error(
+                'Cloud Vision OCR is selected but no vision-capable profile is available. Pick one in the Engines tab (Cloud Vision OCR → Vision profile) or add a vision-capable profile in Sidebar → Profiles.',
+              )
+            }
+            const doc = await api.getDocument(resolvedIndex)
+            if (doc.textBlocks.length > 0) {
+              const imageBytes = await fetchBlobBytes(doc.image)
+              const { texts } = await ocrPageViaCloud(
+                resolved.profile,
+                resolved.apiKey,
+                imageBytes,
+                doc.textBlocks,
+              )
+              const updated = doc.textBlocks.map((b, i) => ({
+                ...b,
+                text: texts[i] ?? b.text,
+              }))
+              await api.updateTextBlocks(resolvedIndex, updated)
+            }
+          } else {
+            // Local OCR through the engine profile (mit48px / manga).
+            await api.ocr(resolvedIndex, {})
+          }
+          // 3. Cloud LLM translate (if it's the active translate path).
+          if (cloudTranslate) {
+            const doc = await api.getDocument(resolvedIndex)
+            const blocks = doc.textBlocks
+            const toTranslate = blocks
+              .map((b, i) => ({ index: i, text: b.text || '' }))
+              .filter((b) => b.text && !blocks[b.index].translation)
+            if (toTranslate.length > 0) {
+              const { generateCloudBatchTranslation } = await import(
+                '@/lib/services/cloudLlm'
+              )
+              const lang =
+                prefs.cloudTargetLanguage || selectedLanguage || 'Thai'
+              const results = await generateCloudBatchTranslation(
+                toTranslate,
+                lang,
+              )
+              const next = [...blocks]
+              for (const r of results) {
+                if (
+                  r &&
+                  typeof r.index === 'number' &&
+                  typeof r.translation === 'string'
+                ) {
+                  const b = next[r.index]
+                  if (b) next[r.index] = { ...b, translation: r.translation }
+                }
+              }
+              await api.updateTextBlocks(resolvedIndex, next)
+            }
+          }
+          // 4. Pipeline runs the steps we didn't do on the frontend.
+          await api.process({
+            index: resolvedIndex,
+            llmModelId: selectedModel,
+            language: selectedLanguage,
+            shaderEffect: renderEffect,
+            shaderStroke: renderStroke,
+            fontFamily,
+            skipDetect: true,
+            skipOcr: true,
+            skipTranslate: cloudTranslate,
           })
         }
       } catch (error) {
