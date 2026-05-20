@@ -331,9 +331,27 @@ export function ChatTabPanel() {
 
   const [input, setInput] = useState('')
   const [showSlash, setShowSlash] = useState(false)
-  const [pendingAttachments, setPendingAttachments] = useState<
-    ChatAttachment[]
-  >([])
+  // Highlighted row in the slash picker (arrow-key navigation).
+  const [slashIndex, setSlashIndex] = useState(0)
+  // The command name being typed (text after `/`, before any space) and
+  // the matching commands. Shared by the picker UI and the Textarea key
+  // handler so ↑/↓/Tab/Enter operate on one source of truth.
+  const slashQuery = input.startsWith('/') ? (input.slice(1).split(' ')[0] ?? '') : ''
+  const slashMatches = useMemo(
+    () =>
+      SLASH_COMMANDS.filter((c) =>
+        c.name.toLowerCase().includes(slashQuery.toLowerCase()),
+      ),
+    [slashQuery],
+  )
+  const completeSlash = (name: string) => {
+    setInput(`/${name} `)
+    setShowSlash(false)
+    setSlashIndex(0)
+  }
+  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>(
+    [],
+  )
   const [attaching, setAttaching] = useState(false)
   // Self-test fix: sending / streamingText / error / abort now live
   // in `useChatActivityStore`. The component used to host these as
@@ -2004,13 +2022,11 @@ export function ChatTabPanel() {
 
       {/* Input */}
       <div className='border-border relative shrink-0 border-t p-2'>
-        {showSlash && (
+        {showSlash && slashMatches.length > 0 && (
           <SlashPicker
-            query={input.slice(1).split(' ')[0] ?? ''}
-            onPick={(name) => {
-              setInput(`/${name} `)
-              setShowSlash(false)
-            }}
+            items={slashMatches}
+            selectedIndex={Math.min(slashIndex, slashMatches.length - 1)}
+            onPick={completeSlash}
             onClose={() => setShowSlash(false)}
           />
         )}
@@ -2294,9 +2310,50 @@ export function ChatTabPanel() {
           onChange={(e) => {
             const v = e.target.value
             setInput(v)
-            setShowSlash(v.startsWith('/') && !v.includes('\n'))
+            // Show the picker only while the user is typing the
+            // command name itself — i.e. starts with `/` and has
+            // no whitespace yet. As soon as a space appears the
+            // user has committed the command and any following
+            // text is argument input, so the picker hides. Pre-
+            // fix the picker reappeared every keystroke after the
+            // space because the predicate only checked
+            // `startsWith('/')` — even "/translate-page extra"
+            // would re-open it.
+            const stillTypingCommand =
+              v.startsWith('/') && !v.includes('\n') && !v.includes(' ')
+            setShowSlash(stillTypingCommand)
+            // Reset the highlight to the top as the query changes.
+            setSlashIndex(0)
           }}
           onKeyDown={(e) => {
+            // Slash picker is open with matches → arrow keys navigate,
+            // Tab/Enter complete the highlighted command, Esc closes —
+            // matching Claude Code's CLI. These intercept before the
+            // normal Enter-to-send below.
+            if (showSlash && slashMatches.length > 0) {
+              const len = slashMatches.length
+              if (e.key === 'ArrowDown') {
+                e.preventDefault()
+                setSlashIndex((i) => (i + 1) % len)
+                return
+              }
+              if (e.key === 'ArrowUp') {
+                e.preventDefault()
+                setSlashIndex((i) => (i - 1 + len) % len)
+                return
+              }
+              if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+                e.preventDefault()
+                const idx = Math.min(slashIndex, len - 1)
+                completeSlash(slashMatches[idx].name)
+                return
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault()
+                setShowSlash(false)
+                return
+              }
+            }
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
               setShowSlash(false)
@@ -3611,50 +3668,58 @@ function ToolResultRow({
 }
 
 function SlashPicker({
-  query,
+  items,
+  selectedIndex,
   onPick,
   onClose,
 }: {
-  query: string
+  items: (typeof SLASH_COMMANDS)[number][]
+  selectedIndex: number
   onPick: (name: string) => void
   onClose: () => void
 }) {
-  const filtered = useMemo(
-    () =>
-      SLASH_COMMANDS.filter((c) =>
-        c.name.toLowerCase().includes(query.toLowerCase()),
-      ),
-    [query],
-  )
-  if (!filtered.length) return null
+  // Keep the highlighted row visible as the user arrows through.
+  const selectedRef = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => {
+    selectedRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [selectedIndex])
+  if (!items.length) return null
   return (
     <div className='border-border bg-card absolute right-2 bottom-full left-2 mb-1 rounded-md border shadow-lg'>
       <div className='max-h-48 overflow-auto p-1'>
-        {filtered.map((c) => (
-          <button
-            key={c.name}
-            onClick={() => onPick(c.name)}
-            className='hover:bg-accent flex w-full flex-col items-start gap-0.5 rounded px-2 py-1 text-left text-xs transition'
-          >
-            <div className='flex items-center gap-1'>
-              <code className='text-primary font-mono'>/{c.name}</code>
-              {c.argsHint && (
-                <span className='text-muted-foreground text-[10px]'>
-                  {c.argsHint}
-                </span>
-              )}
-            </div>
-            <span className='text-muted-foreground text-[10px]'>
-              {c.description}
-            </span>
-          </button>
-        ))}
+        {items.map((c, i) => {
+          const active = i === selectedIndex
+          return (
+            <button
+              key={c.name}
+              ref={active ? selectedRef : undefined}
+              // Mouse hover does not move the keyboard selection — keep
+              // the two independent so a stray hover doesn't fight ↑/↓.
+              onClick={() => onPick(c.name)}
+              className={`flex w-full flex-col items-start gap-0.5 rounded px-2 py-1 text-left text-xs transition ${
+                active ? 'bg-accent' : 'hover:bg-accent'
+              }`}
+            >
+              <div className='flex items-center gap-1'>
+                <code className='text-primary font-mono'>/{c.name}</code>
+                {c.argsHint && (
+                  <span className='text-muted-foreground text-[10px]'>
+                    {c.argsHint}
+                  </span>
+                )}
+              </div>
+              <span className='text-muted-foreground text-[10px]'>
+                {c.description}
+              </span>
+            </button>
+          )
+        })}
       </div>
       <button
         className='text-muted-foreground hover:bg-accent w-full border-t px-2 py-1 text-left text-[10px]'
         onClick={onClose}
       >
-        Esc to close
+        ↑↓ select · Tab/↵ complete · Esc close
       </button>
     </div>
   )
