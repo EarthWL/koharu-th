@@ -19,6 +19,9 @@ import {
   WrenchIcon,
   XIcon,
   ZapIcon,
+  CopyIcon,
+  CheckIcon,
+  RefreshCwIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -130,6 +133,12 @@ export function ChatTabPanel() {
     queryFn: () => api.chatMessagesList({ limit: DISPLAY_LIMIT }),
     enabled: !!projectInfo,
     staleTime: 5_000,
+  })
+
+  const profilesQuery = useQuery({
+    queryKey: ['project', 'profiles'],
+    queryFn: () => api.providerProfilesList(),
+    enabled: !!projectInfo,
   })
 
   const [input, setInput] = useState('')
@@ -298,67 +307,10 @@ export function ChatTabPanel() {
     setPendingAttachments((prev) => prev.filter((_, idx) => idx !== i))
   }
 
-  const send = async () => {
-    // Allow attachment-only turns through — image-only QA ("what does
-    // this bubble say?") is a legitimate flow and the Send button
-    // (see disabled prop below) already enables itself for that case.
-    if ((!input.trim() && pendingAttachments.length === 0) || sending) return
-    if (provider === 'none') {
-      setError(
-        'Cloud LLM not selected — pick a profile from the LLM badge or Profiles tab.',
-      )
-      return
-    }
-    // Detect "local" profiles (Ollama / LM Studio / llama.cpp etc.) by
-    // their apiUrl pointing at localhost. Those servers either accept
-    // any token or none at all, so the API-key gate doesn't apply.
-    // Without this, picking a local profile silently blocks every send
-    // because cloudApiKey is empty by convention.
-    const isLocal =
-      kindOf({ provider: provider as any, modelName: model, apiUrl }) ===
-      'local'
-    if (!isLocal && !apiKey) {
-      // OpenRouter used to be allowed through without a key because the
-      // model picker works key-less for browsing — but chat completion
-      // always requires Authorization. Letting the request through just
-      // produced a confusing 401.
-      // Pull the provider's key URL from the shared KINDS metadata so we
-      // don't have to keep a parallel switch statement in sync.
-      const keyUrl =
-        KINDS.find((k) => k.dbProvider === provider)?.keyUrl ?? 'your provider'
-      setError(
-        `No API key for the active "${provider}" profile. Open the Profiles tab, edit the profile, paste the key from ${keyUrl}, and click Save (which also re-applies it).`,
-      )
-      return
-    }
-    setSending(true)
-    setError(null)
-    setRedoStack([])
-
-    // Slash expansion: user sees the display, LLM gets the expanded prompt
-    const slash = expandSlash(input)
-    const displayContent = slash ? slash.display : input
-    const sendContent = slash ? slash.prompt : input
-    const turnAttachments = pendingAttachments
-
-    // Persist user message (with attachments if any)
-    try {
-      await api.chatMessageAdd({
-        role: 'user',
-        content: displayContent,
-        attachments: turnAttachments.length
-          ? JSON.stringify(turnAttachments)
-          : null,
-      })
-    } catch (err: any) {
-      setError(err?.message ?? String(err))
-      setSending(false)
-      return
-    }
-    setInput('')
-    setPendingAttachments([])
-    await history.refetch()
-
+  const triggerChatCompletion = async (
+    sendContent: string,
+    turnAttachments: ChatAttachment[],
+  ) => {
     // Build the message list sent to the LLM: system + prior turns
     // (from DB, oldest-first) + the just-sent user (use sendContent
     // which contains the expanded slash prompt).
@@ -461,6 +413,156 @@ export function ChatTabPanel() {
       setStreamingText('')
       setSending(false)
       refresh()
+    }
+  }
+
+  const send = async () => {
+    // Allow attachment-only turns through — image-only QA ("what does
+    // this bubble say?") is a legitimate flow and the Send button
+    // (see disabled prop below) already enables itself for that case.
+    if ((!input.trim() && pendingAttachments.length === 0) || sending) return
+    if (provider === 'none') {
+      setError(
+        'Cloud LLM not selected — pick a profile from the LLM badge or Profiles tab.',
+      )
+      return
+    }
+    // Detect "local" profiles (Ollama / LM Studio / llama.cpp etc.) by
+    // their apiUrl pointing at localhost. Those servers either accept
+    // any token or none at all, so the API-key gate doesn't apply.
+    // Without this, picking a local profile silently blocks every send
+    // because cloudApiKey is empty by convention.
+    const isLocal =
+      kindOf({ provider: provider as any, modelName: model, apiUrl }) ===
+      'local'
+    if (!isLocal && !apiKey) {
+      // OpenRouter used to be allowed through without a key because the
+      // model picker works key-less for browsing — but chat completion
+      // always requires Authorization. Letting the request through just
+      // produced a confusing 401.
+      // Pull the provider's key URL from the shared KINDS metadata so we
+      // don't have to keep a parallel switch statement in sync.
+      const keyUrl =
+        KINDS.find((k) => k.dbProvider === provider)?.keyUrl ?? 'your provider'
+      setError(
+        `No API key for the active "${provider}" profile. Open the Profiles tab, edit the profile, paste the key from ${keyUrl}, and click Save (which also re-applies it).`,
+      )
+      return
+    }
+    setSending(true)
+    setError(null)
+    setRedoStack([])
+
+    // Slash expansion: user sees the display, LLM gets the expanded prompt
+    const slash = expandSlash(input)
+    const displayContent = slash ? slash.display : input
+    const sendContent = slash ? slash.prompt : input
+    const turnAttachments = pendingAttachments
+
+    // Persist user message (with attachments if any)
+    try {
+      await api.chatMessageAdd({
+        role: 'user',
+        content: displayContent,
+        attachments: turnAttachments.length
+          ? JSON.stringify(turnAttachments)
+          : null,
+      })
+    } catch (err: any) {
+      setError(err?.message ?? String(err))
+      setSending(false)
+      return
+    }
+    setInput('')
+    setPendingAttachments([])
+    await history.refetch()
+
+    await triggerChatCompletion(sendContent, turnAttachments)
+  }
+
+  const regenerateFromMessage = async (assistantMsg: ChatMessageDto) => {
+    if (
+      !projectInfo ||
+      !history.data ||
+      history.data.length === 0 ||
+      sending ||
+      clearing ||
+      revoking
+    )
+      return
+
+    const targetIdx = history.data.findIndex(
+      (item) => item.id === assistantMsg.id,
+    )
+    if (targetIdx === -1) return
+
+    // Find the nearest preceding user message
+    let userMsgIdx = -1
+    for (let i = targetIdx - 1; i >= 0; i--) {
+      if (history.data[i].role === 'user') {
+        userMsgIdx = i
+        break
+      }
+    }
+    if (userMsgIdx === -1) return
+    const userMsg = history.data[userMsgIdx]
+
+    setSending(true)
+    setError(null)
+    setRedoStack([])
+
+    try {
+      // Delete assistant message and everything after it
+      await api.chatMessagesDeleteFrom(assistantMsg.id)
+      await history.refetch()
+
+      const parsedAttachments = parseAttachments(userMsg.attachments)
+      await triggerChatCompletion(userMsg.content, parsedAttachments)
+    } catch (err: any) {
+      setError(err?.message ?? String(err))
+      setSending(false)
+    }
+  }
+
+  const retryWithProfile = async (p: any) => {
+    setError(null)
+    setSending(true)
+
+    try {
+      let key = ''
+      if (p.provider !== 'local') {
+        const secret = await api.providerProfileSecretGet(p.id)
+        key = secret.apiKey ?? ''
+      }
+
+      usePreferencesStore.setState({
+        activeProfileId: p.id,
+        cloudProvider: p.provider,
+        cloudApiKey: key,
+        cloudApiUrl:
+          p.apiUrl ??
+          (p.provider === 'openai' ? 'https://api.openai.com/v1' : ''),
+        cloudModelName: p.modelName,
+      })
+
+      if (!history.data || history.data.length === 0) {
+        setSending(false)
+        return
+      }
+
+      const lastUser = [...history.data]
+        .reverse()
+        .find((m) => m.role === 'user')
+      if (!lastUser) {
+        setSending(false)
+        return
+      }
+
+      const parsedAttachments = parseAttachments(lastUser.attachments)
+      await triggerChatCompletion(lastUser.content, parsedAttachments)
+    } catch (err: any) {
+      setError(err?.message ?? String(err))
+      setSending(false)
     }
   }
 
@@ -698,6 +800,11 @@ export function ChatTabPanel() {
                   message={m}
                   onDelete={() => void deleteMessage(m.id)}
                   onUndoFromHere={() => void revokeFromMessage(m)}
+                  onRegenerate={
+                    m.role === 'assistant'
+                      ? () => void regenerateFromMessage(m)
+                      : undefined
+                  }
                 />
               ))
             )}
@@ -705,8 +812,37 @@ export function ChatTabPanel() {
               <StreamingBubble streamingText={streamingText} onStop={stop} />
             )}
             {error && (
-              <div className='text-destructive border-destructive/30 rounded border p-2 text-[10px]'>
-                {error}
+              <div className='border-destructive/30 text-destructive bg-destructive/5 space-y-1.5 rounded-md border p-2 text-[10px]'>
+                <div className='flex items-center gap-1.5 font-semibold'>
+                  <TriangleAlertIcon className='size-3 shrink-0' />
+                  ข้อผิดพลาด: {error}
+                </div>
+                {profilesQuery.data && profilesQuery.data.length > 1 && (
+                  <div className='border-destructive/20 space-y-1 border-t pt-1.5'>
+                    <div className='text-muted-foreground text-[9px] font-medium'>
+                      สลับโปรไฟล์ลองอีกครั้ง (Retry with another profile):
+                    </div>
+                    <div className='flex flex-wrap gap-1'>
+                      {profilesQuery.data
+                        .filter(
+                          (p) =>
+                            p.id !==
+                            usePreferencesStore.getState().activeProfileId,
+                        )
+                        .map((p) => (
+                          <Button
+                            key={p.id}
+                            variant='outline'
+                            size='sm'
+                            className='border-destructive/20 hover:bg-destructive/10 text-muted-foreground hover:text-foreground h-5 px-1.5 text-[9px]'
+                            onClick={() => void retryWithProfile(p)}
+                          >
+                            {p.name}
+                          </Button>
+                        ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -990,11 +1126,25 @@ function MessageRow({
   message: m,
   onDelete,
   onUndoFromHere,
+  onRegenerate,
 }: {
   message: ChatMessageDto
   onDelete: () => void
   onUndoFromHere?: () => void
+  onRegenerate?: () => void
 }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = async () => {
+    if (!m.content) return
+    try {
+      await navigator.clipboard.writeText(m.content)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      console.warn('Failed to copy text', err)
+    }
+  }
+
   if (m.role === 'tool') {
     return (
       <ToolResultRow
@@ -1013,41 +1163,68 @@ function MessageRow({
         (isUser ? 'border-primary/30 bg-primary/5' : 'border-border bg-card')
       }
     >
-      <div className='text-muted-foreground mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase'>
+      <div className='text-muted-foreground mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase'>
         {isUser ? (
           <UserIcon className='size-3' />
         ) : (
           <BotIcon className='size-3' />
         )}
-        {m.role}
-        {/* Undo from here button */}
-        {onUndoFromHere && (
+        <span>{m.role}</span>
+
+        {/* Actions container pushed to the right */}
+        <div className='ml-auto flex items-center gap-1.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100'>
+          {/* Copy button */}
+          {m.content && (
+            <button
+              type='button'
+              onClick={handleCopy}
+              title='คัดลอกข้อความ (Copy)'
+              className='text-muted-foreground hover:text-foreground transition'
+            >
+              {copied ? (
+                <CheckIcon className='size-3 text-emerald-500 dark:text-emerald-400' />
+              ) : (
+                <CopyIcon className='size-3' />
+              )}
+            </button>
+          )}
+
+          {/* Regenerate button (only for assistant messages) */}
+          {!isUser && onRegenerate && (
+            <button
+              type='button'
+              onClick={onRegenerate}
+              title='สร้างคำตอบใหม่ (Regenerate)'
+              className='text-muted-foreground transition hover:text-amber-500'
+            >
+              <RefreshCwIcon className='size-3' />
+            </button>
+          )}
+
+          {/* Undo from here button */}
+          {onUndoFromHere && (
+            <button
+              type='button'
+              onClick={onUndoFromHere}
+              aria-label='Undo from this message'
+              title='ลบประวัติตั้งแต่ข้อความนี้ย้อนหลัง (Undo from here)'
+              className='text-muted-foreground transition hover:text-amber-500'
+            >
+              <Undo2Icon className='size-3' />
+            </button>
+          )}
+
+          {/* Delete button */}
           <button
             type='button'
-            onClick={onUndoFromHere}
-            aria-label='Undo from this message'
-            title='ลบประวัติตั้งแต่ข้อความนี้ย้อนหลัง (Undo from here)'
-            className='text-muted-foreground mr-1.5 ml-auto opacity-0 transition group-hover:opacity-100 hover:text-amber-500 focus:opacity-100'
+            onClick={onDelete}
+            aria-label='Delete this message'
+            title='Delete this message'
+            className='text-muted-foreground hover:text-destructive transition'
           >
-            <Undo2Icon className='size-3' />
+            <XIcon className='size-3' />
           </button>
-        )}
-        {/* Per-message delete (#24). Only visible on hover so it
-         *  doesn't clutter the message list, and only on resolved
-         *  rows (rendered ones, not the streaming bubble). */}
-        <button
-          type='button'
-          onClick={onDelete}
-          aria-label='Delete this message'
-          title='Delete this message'
-          className={
-            onUndoFromHere
-              ? 'text-muted-foreground hover:text-destructive opacity-0 transition group-hover:opacity-100 focus:opacity-100'
-              : 'text-muted-foreground hover:text-destructive ml-auto opacity-0 transition group-hover:opacity-100 focus:opacity-100'
-          }
-        >
-          <XIcon className='size-3' />
-        </button>
+        </div>
       </div>
       {/* Don't render an "(empty)" placeholder when the assistant
        *  turn has tool_calls — Claude / Gemini often dispatch a tool
