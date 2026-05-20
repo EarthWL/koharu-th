@@ -190,12 +190,24 @@ function TextBlockAnnotation({
       style={{
         zIndex: selected ? 20 : 10,
         pointerEvents: interactive ? 'auto' : 'none',
-        transform: `rotate(${block.rotationDeg ?? 0}deg)`,
-        transformOrigin: 'center',
       }}
       className='absolute'
     >
-      <div className='relative h-full w-full select-none'>
+      {/*
+        Rotate the inner content (outline + badge), NOT the Rnd wrapper:
+        react-rnd / react-draggable owns the wrapper's `transform`
+        (it writes translate() for positioning), so a rotate() in the
+        wrapper style is silently overwritten. Rotating this inner div
+        — which has no transform of its own — tilts the selection box
+        to match the rotated rendered text.
+      */}
+      <div
+        className='relative h-full w-full select-none'
+        style={{
+          transform: `rotate(${block.rotationDeg ?? 0}deg)`,
+          transformOrigin: 'center',
+        }}
+      >
         <div
           className={`absolute inset-0 rounded ${
             selected

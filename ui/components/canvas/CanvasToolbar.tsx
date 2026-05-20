@@ -265,6 +265,16 @@ function WorkflowButtons() {
   const isRendering =
     operation?.type === 'process-current' && operation?.step === 'render'
 
+  // Pipeline stages must not overlap. Cloud translate runs a seconds-
+  // long fetch on the frontend and only writes back at the end; if the
+  // user fires Inpaint mid-fetch the inpaint mutates session/document
+  // state, and the translate's write then lands on a stale snapshot or
+  // is dropped by the session-drift guard ("translation bounces out").
+  // Gate every stage button on a single `busy` flag so exactly one
+  // pipeline op runs at a time. (`generating` covers translate, which
+  // doesn't register with the operation store.)
+  const busy = generating || isDetecting || isOcr || isInpainting || isRendering
+
   // Explicit Render = "show me the finished page". Hide the Text Block
   // overlay (outlines + handles) so the user sees the clean composite,
   // not the editing scaffolding on top of it. The LayersPanel toggle
@@ -293,7 +303,7 @@ function WorkflowButtons() {
         size='xs'
         onClick={detect}
         data-testid='toolbar-detect'
-        disabled={isDetecting}
+        disabled={busy}
       >
         {isDetecting ? (
           <LoaderCircleIcon className='size-4 animate-spin' />
@@ -310,7 +320,7 @@ function WorkflowButtons() {
         size='xs'
         onClick={ocr}
         data-testid='toolbar-ocr'
-        disabled={isOcr}
+        disabled={busy}
       >
         {isOcr ? (
           <LoaderCircleIcon className='size-4 animate-spin' />
@@ -326,7 +336,7 @@ function WorkflowButtons() {
         variant='ghost'
         size='xs'
         onClick={handleTranslate}
-        disabled={!isLlmAvailable || generating}
+        disabled={!isLlmAvailable || busy}
         data-testid='toolbar-translate'
       >
         {generating ? (
@@ -344,7 +354,7 @@ function WorkflowButtons() {
         size='xs'
         onClick={inpaint}
         data-testid='toolbar-inpaint'
-        disabled={isInpainting}
+        disabled={busy}
       >
         {isInpainting ? (
           <LoaderCircleIcon className='size-4 animate-spin' />
@@ -361,7 +371,7 @@ function WorkflowButtons() {
         size='xs'
         onClick={handleRender}
         data-testid='toolbar-render'
-        disabled={isRendering}
+        disabled={busy}
       >
         {isRendering ? (
           <LoaderCircleIcon className='size-4 animate-spin' />
