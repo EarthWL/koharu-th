@@ -12,13 +12,14 @@ import { Button } from '@/components/ui/button'
 
 export function NavigatorWidget() {
   const { t } = useTranslation()
-  const { currentDocument: doc, currentDocumentIndex } = useCurrentDocumentState()
+  const { currentDocument: doc, currentDocumentIndex } =
+    useCurrentDocumentState()
   const scale = useEditorUiStore((state) => state.scale)
   const setScale = useEditorUiStore((state) => state.setScale)
   const documentsVersion = useEditorUiStore((state) => state.documentsVersion)
 
   const thumbnailRef = useRef<HTMLDivElement | null>(null)
-  
+
   // Re-render when viewport scroll changes
   const [viewportState, setViewportState] = useState({
     scrollLeft: 0,
@@ -92,38 +93,58 @@ export function NavigatorWidget() {
 
   if (!doc) {
     return (
-      <div className="flex flex-col items-center justify-center p-6 border rounded bg-card/40 text-muted-foreground text-xs gap-2">
-        <CompassIcon className="size-5 animate-pulse text-muted-foreground/50" />
+      <div className='bg-card/40 text-muted-foreground flex flex-col items-center justify-center gap-2 rounded border p-6 text-xs'>
+        <CompassIcon className='text-muted-foreground/50 size-5 animate-pulse' />
         <span>No Page Loaded</span>
       </div>
     )
   }
 
   // Width of the red frame
-  const redFrameWidthPct = Math.max(5, Math.min(100, (viewportState.clientWidth / viewportState.scrollWidth) * 100))
-  const redFrameHeightPct = Math.max(5, Math.min(100, (viewportState.clientHeight / viewportState.scrollHeight) * 100))
-  const redFrameLeftPct = Math.max(0, Math.min(95, (viewportState.scrollLeft / viewportState.scrollWidth) * 100))
-  const redFrameTopPct = Math.max(0, Math.min(95, (viewportState.scrollTop / viewportState.scrollHeight) * 100))
+  const redFrameWidthPct = Math.max(
+    5,
+    Math.min(
+      100,
+      (viewportState.clientWidth / viewportState.scrollWidth) * 100,
+    ),
+  )
+  const redFrameHeightPct = Math.max(
+    5,
+    Math.min(
+      100,
+      (viewportState.clientHeight / viewportState.scrollHeight) * 100,
+    ),
+  )
+  const redFrameLeftPct = Math.max(
+    0,
+    Math.min(95, (viewportState.scrollLeft / viewportState.scrollWidth) * 100),
+  )
+  const redFrameTopPct = Math.max(
+    0,
+    Math.min(95, (viewportState.scrollTop / viewportState.scrollHeight) * 100),
+  )
 
-  const imageUrl = getHttpUrl(`/api/image/${currentDocumentIndex}/base?v=${documentsVersion}`)
+  const imageUrl = getHttpUrl(
+    `/api/image/${currentDocumentIndex}/base?v=${documentsVersion}`,
+  )
 
   return (
-    <div className="flex flex-col gap-2 p-2.5 rounded-lg border bg-card/65 shadow-sm backdrop-blur-xs select-none">
+    <div className='bg-card/65 flex flex-col gap-2 rounded-lg border p-2.5 shadow-sm backdrop-blur-xs select-none'>
       {/* Aspect Ratio Box Wrapper */}
-      <div 
+      <div
         ref={thumbnailRef}
         onMouseDown={handleMouseDown}
-        className="relative w-full aspect-square max-h-[140px] bg-muted/30 rounded border border-border/40 overflow-hidden flex items-center justify-center cursor-crosshair group hover:border-primary/20 transition-colors"
+        className='bg-muted/30 border-border/40 group hover:border-primary/20 relative flex aspect-square max-h-[140px] w-full cursor-crosshair items-center justify-center overflow-hidden rounded border transition-colors'
       >
         <img
           src={imageUrl}
-          alt="Navigator Thumbnail"
-          className="max-w-full max-h-full object-contain pointer-events-none"
+          alt='Navigator Thumbnail'
+          className='pointer-events-none max-h-full max-w-full object-contain'
         />
-        
+
         {/* Red Viewport Window Frame */}
         <div
-          className="absolute border-[1.5px] border-rose-500 bg-rose-500/5 shadow-[0_0_8px_rgba(239,68,68,0.25)] pointer-events-none transition-[left,top,width,height] duration-75"
+          className='pointer-events-none absolute border-[1.5px] border-rose-500 bg-rose-500/5 shadow-[0_0_8px_rgba(239,68,68,0.25)] transition-[left,top,width,height] duration-75'
           style={{
             left: `${redFrameLeftPct}%`,
             top: `${redFrameTopPct}%`,
@@ -134,37 +155,37 @@ export function NavigatorWidget() {
       </div>
 
       {/* Zoom Slider and Percentage */}
-      <div className="flex items-center gap-2 mt-1">
+      <div className='mt-1 flex items-center gap-2'>
         <Button
-          variant="ghost"
-          size="icon-sm"
-          className="size-6 text-muted-foreground hover:text-primary transition-colors shrink-0"
+          variant='ghost'
+          size='icon-sm'
+          className='text-muted-foreground hover:text-primary size-6 shrink-0 transition-colors'
           onClick={() => setScale(Math.max(10, scale - 10))}
-          title="Zoom Out"
+          title='Zoom Out'
         >
-          <ZoomOutIcon className="size-3.5" />
+          <ZoomOutIcon className='size-3.5' />
         </Button>
-        
+
         <Slider
           value={[scale]}
           min={10}
           max={300}
           step={5}
           onValueChange={(val) => setScale(val[0])}
-          className="flex-1 cursor-pointer"
+          className='flex-1 cursor-pointer'
         />
 
         <Button
-          variant="ghost"
-          size="icon-sm"
-          className="size-6 text-muted-foreground hover:text-primary transition-colors shrink-0"
+          variant='ghost'
+          size='icon-sm'
+          className='text-muted-foreground hover:text-primary size-6 shrink-0 transition-colors'
           onClick={() => setScale(Math.min(300, scale + 10))}
-          title="Zoom In"
+          title='Zoom In'
         >
-          <ZoomInIcon className="size-3.5" />
+          <ZoomInIcon className='size-3.5' />
         </Button>
 
-        <span className="text-[10px] font-mono font-bold bg-muted/60 border text-muted-foreground px-1.5 py-0.5 rounded min-w-[34px] text-center shrink-0">
+        <span className='bg-muted/60 text-muted-foreground min-w-[34px] shrink-0 rounded border px-1.5 py-0.5 text-center font-mono text-[10px] font-bold'>
           {scale}%
         </span>
       </div>

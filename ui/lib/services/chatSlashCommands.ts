@@ -62,7 +62,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
       prompt: [
         `Help me set up the character "${arg || '(unspecified)'}".`,
         'Call characters_list to check if they already exist.',
-        'If not, propose: translatedName (Thai), aliases, role, speechStyle. Confirm with me, then call character_add (isMain=true if they\'re a main cast member).',
+        "If not, propose: translatedName (Thai), aliases, role, speechStyle. Confirm with me, then call character_add (isMain=true if they're a main cast member).",
       ].join('\n'),
     }),
   },
@@ -87,14 +87,15 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   {
     name: 'summarize-chapter',
     argsHint: '[chapter_id]',
-    description: 'Summarise a chapter and offer to write it into chapters.summary.',
+    description:
+      'Summarise a chapter and offer to write it into chapters.summary.',
     build: (arg) => ({
       display: `/summarize-chapter ${arg}`,
       prompt: [
         arg
           ? `Summarise chapter id ${arg}.`
           : 'Summarise the currently-active chapter.',
-        'Call chapters_list to find it, then read any text blocks I\'ve translated.',
+        "Call chapters_list to find it, then read any text blocks I've translated.",
         'Produce a 2-4 sentence summary in Thai (this feeds the rolling-context for future translations).',
         'On my approval, call chapter_update with `summary` set.',
       ].join('\n'),
@@ -198,7 +199,9 @@ export function expandSlash(input: string): {
   const trimmed = input.trim()
   if (!trimmed.startsWith('/')) return null
   const space = trimmed.indexOf(' ')
-  const name = (space === -1 ? trimmed.slice(1) : trimmed.slice(1, space)).toLowerCase()
+  const name = (
+    space === -1 ? trimmed.slice(1) : trimmed.slice(1, space)
+  ).toLowerCase()
   const args = space === -1 ? '' : trimmed.slice(space + 1).trim()
   const cmd = SLASH_COMMANDS.find((c) => c.name === name)
   if (!cmd) return null

@@ -12,7 +12,11 @@ import {
   Loader2Icon,
   SparklesIcon,
 } from 'lucide-react'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
@@ -45,7 +49,9 @@ type Filter = 'all' | 'untranslated' | 'translated'
  */
 export default function QaPage() {
   const queryClient = useQueryClient()
-  const [pageIdx, setPageIdx] = useState(() => useEditorUiStore.getState().currentDocumentIndex)
+  const [pageIdx, setPageIdx] = useState(
+    () => useEditorUiStore.getState().currentDocumentIndex,
+  )
   const [filter, setFilter] = useState<Filter>('all')
   const { t } = useTranslation()
 
@@ -123,7 +129,9 @@ export default function QaPage() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value='all'>{t('qa.filterAll', 'All blocks')}</SelectItem>
+            <SelectItem value='all'>
+              {t('qa.filterAll', 'All blocks')}
+            </SelectItem>
             <SelectItem value='untranslated'>
               {t('qa.filterUntranslated', 'Untranslated')}
             </SelectItem>
@@ -157,7 +165,9 @@ export default function QaPage() {
               No documents loaded. Open a .khr or images via File menu.
             </p>
           ) : currentDoc.isLoading ? (
-            <p className='text-muted-foreground text-center text-sm'>Loading…</p>
+            <p className='text-muted-foreground text-center text-sm'>
+              Loading…
+            </p>
           ) : blocks.length === 0 ? (
             <p className='text-muted-foreground text-center text-sm'>
               No text blocks on this page. Run Detect / OCR first.
@@ -304,7 +314,9 @@ function QaRow({
 
   return (
     <tr className='border-border border-t'>
-      <td className='text-muted-foreground px-3 py-2 align-top'>{blockIndex + 1}</td>
+      <td className='text-muted-foreground px-3 py-2 align-top'>
+        {blockIndex + 1}
+      </td>
       <td className='px-3 py-2 align-top whitespace-pre-wrap'>
         {block.text ?? <span className='opacity-50'>—</span>}
       </td>
@@ -333,7 +345,7 @@ function QaRow({
           {meta && <ProvenanceBadges meta={meta} />}
         </div>
       </td>
-      <td className='px-3 py-2 align-top text-right'>
+      <td className='px-3 py-2 text-right align-top'>
         <div className='inline-flex'>
           <Button
             variant='ghost'
@@ -384,13 +396,13 @@ function TranslateProfilePicker({
           size='sm'
           disabled={disabled}
           title='Translate with a different saved profile'
-          className='rounded-l-none border-l border-l-border/40 pl-1 pr-1.5'
+          className='border-l-border/40 rounded-l-none border-l pr-1.5 pl-1'
         >
           <ChevronDownIcon className='size-3' />
         </Button>
       </PopoverTrigger>
       <PopoverContent align='end' className='w-56 p-1'>
-        <div className='text-muted-foreground px-2 py-1 text-[10px] font-semibold uppercase tracking-wide'>
+        <div className='text-muted-foreground px-2 py-1 text-[10px] font-semibold tracking-wide uppercase'>
           Translate with…
         </div>
         {list.map((p) => (
@@ -452,7 +464,7 @@ function ProvenanceBadges({ meta }: { meta: TranslationMeta }) {
     badges.push(
       <span
         key='glossary'
-        className='bg-sky-500/15 text-sky-700 dark:text-sky-300 rounded px-1.5 py-0.5 text-[9px]'
+        className='rounded bg-sky-500/15 px-1.5 py-0.5 text-[9px] text-sky-700 dark:text-sky-300'
         title='Glossary entries injected into the prompt'
       >
         📖 {meta.glossaryHitIds.length} glossary
@@ -463,7 +475,7 @@ function ProvenanceBadges({ meta }: { meta: TranslationMeta }) {
     badges.push(
       <span
         key='roll'
-        className='bg-violet-500/15 text-violet-700 dark:text-violet-300 rounded px-1.5 py-0.5 text-[9px]'
+        className='rounded bg-violet-500/15 px-1.5 py-0.5 text-[9px] text-violet-700 dark:text-violet-300'
         title='Prior chapter summaries injected as rolling context'
       >
         📍 chapter ctx
@@ -487,7 +499,5 @@ function ProvenanceBadges({ meta }: { meta: TranslationMeta }) {
     )
   }
   if (badges.length === 0) return null
-  return (
-    <div className='mt-1 flex flex-wrap items-center gap-1'>{badges}</div>
-  )
+  return <div className='mt-1 flex flex-wrap items-center gap-1'>{badges}</div>
 }

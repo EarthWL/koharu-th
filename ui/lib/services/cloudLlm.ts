@@ -134,7 +134,10 @@ const FUZZY_TM_MIN_SIMILARITY = 0.92
 
 type TmHit = { entry: TmEntryDto; similarity: number }
 
-async function tryTmHit(sourceText: string, targetLang: string): Promise<TmHit | null> {
+async function tryTmHit(
+  sourceText: string,
+  targetLang: string,
+): Promise<TmHit | null> {
   if (!useProjectStore.getState().info) return null
   try {
     // Exact-match short-circuit first — fastest path.
@@ -202,7 +205,11 @@ function defaultRetryable(err: unknown): boolean {
   if (msg.includes('429')) return true
   if (/\b5\d{2}\b/.test(msg)) return true
   // Common transient transports: timeouts, resets, etc.
-  if (msg.includes('etimedout') || msg.includes('network') || msg.includes('fetch failed')) {
+  if (
+    msg.includes('etimedout') ||
+    msg.includes('network') ||
+    msg.includes('fetch failed')
+  ) {
     return true
   }
   return false
@@ -282,7 +289,14 @@ export async function generateCloudTranslationDetailed(
   style?: 'standard' | 'shonen' | 'polite',
   context?: string,
 ): Promise<TranslationDetailed> {
-  return generateCloudTranslationImpl(text, language, onChunk, override, style, context)
+  return generateCloudTranslationImpl(
+    text,
+    language,
+    onChunk,
+    override,
+    style,
+    context,
+  )
 }
 
 /**
@@ -302,18 +316,34 @@ export async function generateCloudTranslation(
   style?: 'standard' | 'shonen' | 'polite',
   context?: string,
 ): Promise<string> {
-  return (await generateCloudTranslationImpl(text, language, onChunk, undefined, style, context)).text
+  return (
+    await generateCloudTranslationImpl(
+      text,
+      language,
+      onChunk,
+      undefined,
+      style,
+      context,
+    )
+  ).text
 }
 
 // Map of profile ID to recovery timestamp (Date.now() + cooldownDuration)
 const profileRecoveryTimestamps = new Map<number, number>()
 
-function getCooldownDurationForProvider(provider: string, errorMessage: string): number {
+function getCooldownDurationForProvider(
+  provider: string,
+  errorMessage: string,
+): number {
   const msg = errorMessage.toLowerCase()
 
   if (provider === 'gemini') {
     // Check if it's a daily limit or rate limit
-    if (msg.includes('daily') || msg.includes('quota exceeded') || msg.includes('limit exceeded')) {
+    if (
+      msg.includes('daily') ||
+      msg.includes('quota exceeded') ||
+      msg.includes('limit exceeded')
+    ) {
       return 4 * 60 * 60 * 1000 // 4 hours check back for Gemini daily limits
     }
     return 1 * 60 * 1000 // 1 minute rolling limit (standard RPM)
@@ -321,7 +351,13 @@ function getCooldownDurationForProvider(provider: string, errorMessage: string):
 
   if (provider === 'anthropic') {
     // Anthropic free tier has 5 hours cooldown if token limit is hit
-    if (msg.includes('usage limit') || msg.includes('exceeded') || msg.includes('free tier') || msg.includes('hours') || msg.includes('exhausted')) {
+    if (
+      msg.includes('usage limit') ||
+      msg.includes('exceeded') ||
+      msg.includes('free tier') ||
+      msg.includes('hours') ||
+      msg.includes('exhausted')
+    ) {
       return 5 * 60 * 60 * 1000 // 5 hours
     }
     return 1 * 60 * 1000 // 1 minute rolling RPM limit
@@ -329,7 +365,12 @@ function getCooldownDurationForProvider(provider: string, errorMessage: string):
 
   if (provider === 'openai' || provider === 'openrouter') {
     // OpenAI billing issues, credit exhausted
-    if (msg.includes('billing') || msg.includes('quota') || msg.includes('insufficient') || msg.includes('credit')) {
+    if (
+      msg.includes('billing') ||
+      msg.includes('quota') ||
+      msg.includes('insufficient') ||
+      msg.includes('credit')
+    ) {
       return 2 * 60 * 60 * 1000 // 2 hours check in case user filled it
     }
     return 1 * 60 * 1000 // 1 minute rolling RPM limit
@@ -385,7 +426,8 @@ async function generateCloudTranslationImpl(
   // ถ้าไม่มี project → ใช้ fallback prompt stub ทั่วไปแทน
   const projectPrompt = await tryProjectPrompt(text, language)
   const t0 = performance.now()
-  let basePrompt = projectPrompt?.prompt ??
+  let basePrompt =
+    projectPrompt?.prompt ??
     `You are a professional manga translator. Translate the following text to ${language}.
 The translation should sound natural, conversational, and appropriate for comic book characters, keeping the original tone and context intact.
 Only return the translation, no extra text:\n\n${text}`
@@ -442,16 +484,18 @@ Only return the translation, no extra text:\n\n${text}`
 
       // Filter out candidates that are currently in cooldown unless ALL are in cooldown
       let candidates = sorted
-      const workingCandidates = sorted.filter(p => !isCooldown(p.id))
+      const workingCandidates = sorted.filter((p) => !isCooldown(p.id))
       if (workingCandidates.length > 0) {
         candidates = workingCandidates
       }
 
       const activeId = live.activeProfileId
-      const activeCandidate = candidates.find(c => c.id === activeId)
-      const otherCandidates = candidates.filter(c => c.id !== activeId)
+      const activeCandidate = candidates.find((c) => c.id === activeId)
+      const otherCandidates = candidates.filter((c) => c.id !== activeId)
 
-      const getDetails = async (p: typeof profiles[0]): Promise<ConfigAttempt> => {
+      const getDetails = async (
+        p: (typeof profiles)[0],
+      ): Promise<ConfigAttempt> => {
         let key = ''
         if (p.provider !== 'local') {
           try {
@@ -466,7 +510,9 @@ Only return the translation, no extra text:\n\n${text}`
           name: p.name,
           provider: p.provider,
           apiKey: key,
-          apiUrl: p.apiUrl ?? (p.provider === 'openai' ? 'https://api.openai.com/v1' : ''),
+          apiUrl:
+            p.apiUrl ??
+            (p.provider === 'openai' ? 'https://api.openai.com/v1' : ''),
           modelName: p.modelName,
         }
       }
@@ -513,13 +559,38 @@ Only return the translation, no extra text:\n\n${text}`
       raw = await withRetry(
         () => {
           if (att.provider === 'openai') {
-            return fetchOpenAI(prompt, att.apiKey, att.apiUrl, att.modelName, false, onChunk)
+            return fetchOpenAI(
+              prompt,
+              att.apiKey,
+              att.apiUrl,
+              att.modelName,
+              false,
+              onChunk,
+            )
           } else if (att.provider === 'openrouter') {
-            return fetchOpenRouter(prompt, att.apiKey, att.modelName, false, onChunk)
+            return fetchOpenRouter(
+              prompt,
+              att.apiKey,
+              att.modelName,
+              false,
+              onChunk,
+            )
           } else if (att.provider === 'gemini') {
-            return fetchGemini(prompt, att.apiKey, att.modelName, false, onChunk)
+            return fetchGemini(
+              prompt,
+              att.apiKey,
+              att.modelName,
+              false,
+              onChunk,
+            )
           } else if (att.provider === 'anthropic') {
-            return fetchAnthropic(prompt, att.apiKey, att.modelName, false, onChunk)
+            return fetchAnthropic(
+              prompt,
+              att.apiKey,
+              att.modelName,
+              false,
+              onChunk,
+            )
           } else {
             throw new Error(`Unsupported cloud provider: ${att.provider}`)
           }
@@ -538,7 +609,10 @@ Only return the translation, no extra text:\n\n${text}`
       }
       break
     } catch (err: any) {
-      console.warn(`[cloudLlm] Profile "${att.name}" failed:`, err?.message ?? err)
+      console.warn(
+        `[cloudLlm] Profile "${att.name}" failed:`,
+        err?.message ?? err,
+      )
       lastError = err
 
       if (att.id !== null) {
@@ -561,10 +635,16 @@ Only return the translation, no extra text:\n\n${text}`
     throw lastError || new Error('All translation profiles failed')
   }
 
-  if (live.llmFailoverEnabled && successfulAttempt.id !== live.activeProfileId && successfulAttempt.id !== null) {
+  if (
+    live.llmFailoverEnabled &&
+    successfulAttempt.id !== live.activeProfileId &&
+    successfulAttempt.id !== null
+  ) {
     const origName = attempts[0]?.name ?? 'โปรไฟล์เดิม'
     setTimeout(() => {
-      alert(`⚠️ ระบบสลับผู้ให้บริการสำรองอัตโนมัติทำงาน!\n\nเนื่องจากโปรไฟล์หลัก "${origName}" ขัดข้องหรือโควตาหมด ระบบจึงสลับไปใช้โปรไฟล์สำรอง "${successfulAttempt!.name}" เพื่อแปลข้อความให้ท่านอย่างต่อเนื่องเรียบร้อยครับ`)
+      alert(
+        `⚠️ ระบบสลับผู้ให้บริการสำรองอัตโนมัติทำงาน!\n\nเนื่องจากโปรไฟล์หลัก "${origName}" ขัดข้องหรือโควตาหมด ระบบจึงสลับไปใช้โปรไฟล์สำรอง "${successfulAttempt!.name}" เพื่อแปลข้อความให้ท่านอย่างต่อเนื่องเรียบร้อยครับ`,
+      )
     }, 10)
 
     usePreferencesStore.setState({
@@ -572,7 +652,7 @@ Only return the translation, no extra text:\n\n${text}`
       cloudProvider: successfulAttempt.provider as any,
       cloudApiKey: successfulAttempt.apiKey,
       cloudApiUrl: successfulAttempt.apiUrl,
-      cloudModelName: successfulAttempt.modelName
+      cloudModelName: successfulAttempt.modelName,
     })
   }
 
@@ -664,13 +744,34 @@ export async function extractEntitiesFromText(
   let raw: CloudResult
   try {
     if (cloudProvider === 'openai') {
-      raw = await fetchOpenAI(rendered.prompt, cloudApiKey, cloudApiUrl, cloudModelName, true)
+      raw = await fetchOpenAI(
+        rendered.prompt,
+        cloudApiKey,
+        cloudApiUrl,
+        cloudModelName,
+        true,
+      )
     } else if (cloudProvider === 'openrouter') {
-      raw = await fetchOpenRouter(rendered.prompt, cloudApiKey, cloudModelName, true)
+      raw = await fetchOpenRouter(
+        rendered.prompt,
+        cloudApiKey,
+        cloudModelName,
+        true,
+      )
     } else if (cloudProvider === 'gemini') {
-      raw = await fetchGemini(rendered.prompt, cloudApiKey, cloudModelName, true)
+      raw = await fetchGemini(
+        rendered.prompt,
+        cloudApiKey,
+        cloudModelName,
+        true,
+      )
     } else if (cloudProvider === 'anthropic') {
-      raw = await fetchAnthropic(rendered.prompt, cloudApiKey, cloudModelName, true)
+      raw = await fetchAnthropic(
+        rendered.prompt,
+        cloudApiKey,
+        cloudModelName,
+        true,
+      )
     } else {
       throw new Error(`Unsupported cloud provider: ${cloudProvider}`)
     }
@@ -696,7 +797,9 @@ export async function extractEntitiesFromText(
   const start = trimmed.indexOf('[')
   const end = trimmed.lastIndexOf(']')
   if (start === -1 || end === -1 || end < start) {
-    throw new Error(`Model did not return a JSON array. Raw: ${trimmed.slice(0, 120)}…`)
+    throw new Error(
+      `Model did not return a JSON array. Raw: ${trimmed.slice(0, 120)}…`,
+    )
   }
   const slice = trimmed.slice(start, end + 1)
   const parsed = JSON.parse(slice) as unknown
@@ -719,12 +822,17 @@ export async function extractEntitiesFromText(
     .filter((e) => e.original && e.translation)
 }
 
-export async function generateCloudBatchTranslation(blocks: {index: number, text: string}[], language: string, context?: string): Promise<{index: number, translation: string}[]> {
-  const { cloudProvider, cloudApiUrl, cloudModelName, activeProfileId } = usePreferencesStore.getState()
-  
+export async function generateCloudBatchTranslation(
+  blocks: { index: number; text: string }[],
+  language: string,
+  context?: string,
+): Promise<{ index: number; translation: string }[]> {
+  const { cloudProvider, cloudApiUrl, cloudModelName, activeProfileId } =
+    usePreferencesStore.getState()
+
   if (!activeProfileId) {
     throw new Error(
-      'No LLM profile applied. Open the Profiles sidebar tab and click Apply on a saved profile (or pick one from the LLM badge in the toolbar).'
+      'No LLM profile applied. Open the Profiles sidebar tab and click Apply on a saved profile (or pick one from the LLM badge in the toolbar).',
     )
   }
 
@@ -772,32 +880,41 @@ ${blocksJson}`
   let jsonString = resultJson.trim()
   const arrayStart = jsonString.indexOf('[')
   const arrayEnd = jsonString.lastIndexOf(']')
-  
+
   if (arrayStart !== -1 && arrayEnd !== -1 && arrayEnd > arrayStart) {
     jsonString = jsonString.substring(arrayStart, arrayEnd + 1)
   } else {
     // If no array brackets found, it might be heavily malformed or not JSON at all
-    throw new Error(`AI did not return a JSON array. Raw output: ${resultJson.substring(0, 100)}...`)
+    throw new Error(
+      `AI did not return a JSON array. Raw output: ${resultJson.substring(0, 100)}...`,
+    )
   }
-  
+
   try {
     const parsed = JSON.parse(jsonString)
     if (Array.isArray(parsed)) {
       // Validate that the array actually contains what we need (at least partially)
-      const validItems = parsed.filter(item => typeof item.index === 'number' && typeof item.translation === 'string')
+      const validItems = parsed.filter(
+        (item) =>
+          typeof item.index === 'number' &&
+          typeof item.translation === 'string',
+      )
       if (validItems.length > 0) {
-         return validItems
+        return validItems
       } else {
-         throw new Error('JSON array is missing required "index" and "translation" fields')
+        throw new Error(
+          'JSON array is missing required "index" and "translation" fields',
+        )
       }
     }
     throw new Error('Parsed result is not an array')
   } catch (err: any) {
     console.error('Failed to parse batch translation JSON:', jsonString)
-    throw new Error(`Failed to parse AI response as JSON: ${err.message}. Raw: ${jsonString.substring(0, 100)}...`)
+    throw new Error(
+      `Failed to parse AI response as JSON: ${err.message}. Raw: ${jsonString.substring(0, 100)}...`,
+    )
   }
 }
-
 
 export async function callCloudOnce(args: {
   prompt: string
@@ -809,7 +926,15 @@ export async function callCloudOnce(args: {
   /** Use-case string for cost log. Defaults to "translate". */
   useCase?: string
 }): Promise<string> {
-  const { prompt, provider, apiKey, apiUrl, model, jsonMode = false, useCase = 'translate' } = args
+  const {
+    prompt,
+    provider,
+    apiKey,
+    apiUrl,
+    model,
+    jsonMode = false,
+    useCase = 'translate',
+  } = args
   const t0 = performance.now()
   const { activeProfileId } = usePreferencesStore.getState()
 
@@ -947,7 +1072,7 @@ async function fetchOpenAI(
   const body: any = {
     model: model,
     messages: [{ role: 'user', content: prompt }],
-    temperature: 0.1
+    temperature: 0.1,
   }
 
   if (isJsonMode) {
@@ -971,9 +1096,9 @@ async function fetchOpenAI(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
+      Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
   })
 
   if (!res.ok) {
@@ -1055,7 +1180,7 @@ async function fetchOpenRouter(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
+      Authorization: `Bearer ${apiKey}`,
       'HTTP-Referer': 'https://github.com/EarthWL/koharu-th',
       'X-Title': 'Koharu-TH',
     },
@@ -1097,7 +1222,7 @@ async function fetchGemini(
 
   const body: any = {
     contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.1 }
+    generationConfig: { temperature: 0.1 },
   }
 
   if (isJsonMode) {
@@ -1107,9 +1232,9 @@ async function fetchGemini(
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
   })
 
   if (!res.ok) {
@@ -1175,10 +1300,7 @@ async function fetchAnthropic(
   // model output limits (Haiku tops out around there). Char-to-token
   // ratio of ~3 is a rough mixed-text approximation.
   const estimatedInputTokens = Math.ceil(prompt.length / 3)
-  const maxTokens = Math.min(
-    8192,
-    Math.max(4096, estimatedInputTokens * 2),
-  )
+  const maxTokens = Math.min(8192, Math.max(4096, estimatedInputTokens * 2))
   const body: any = {
     model: model,
     max_tokens: maxTokens,
@@ -1194,7 +1316,7 @@ async function fetchAnthropic(
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true' // Necessary for browser calls
+      'anthropic-dangerous-direct-browser-access': 'true', // Necessary for browser calls
     },
     body: JSON.stringify(body),
   })

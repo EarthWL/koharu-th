@@ -44,10 +44,7 @@ import {
   fetchGeminiModels,
   formatTokenLimit,
 } from '@/lib/services/geminiModels'
-import {
-  fetchLocalModels,
-  formatModelSize,
-} from '@/lib/services/ollamaModels'
+import { fetchLocalModels, formatModelSize } from '@/lib/services/ollamaModels'
 import {
   fetchOpenAiModels,
   isLikelyChatModel,
@@ -67,19 +64,21 @@ export function ProfilesTabPanel() {
   })
   const list = profiles.data ?? []
   const [editing, setEditing] = useState<
-    | { mode: 'add' }
-    | { mode: 'edit'; profile: ProviderProfileDto }
-    | null
+    { mode: 'add' } | { mode: 'edit'; profile: ProviderProfileDto } | null
   >(null)
   const refresh = async () => {
     await profiles.refetch()
   }
   const setPrefs = usePreferencesStore.getState()
-  
+
   const llmFailoverEnabled = usePreferencesStore((s) => s.llmFailoverEnabled)
-  const setLlmFailoverEnabled = usePreferencesStore((s) => s.setLlmFailoverEnabled)
+  const setLlmFailoverEnabled = usePreferencesStore(
+    (s) => s.setLlmFailoverEnabled,
+  )
   const llmFailoverPriority = usePreferencesStore((s) => s.llmFailoverPriority)
-  const setLlmFailoverPriority = usePreferencesStore((s) => s.setLlmFailoverPriority)
+  const setLlmFailoverPriority = usePreferencesStore(
+    (s) => s.setLlmFailoverPriority,
+  )
 
   const sortedList = useMemo(() => {
     const listCopy = [...list]
@@ -152,10 +151,10 @@ export function ProfilesTabPanel() {
       </div>
 
       {list.length > 1 && (
-        <div className='bg-muted/30 border-border border-b px-3 py-2 text-xs flex flex-col gap-1.5 shrink-0'>
+        <div className='bg-muted/30 border-border flex shrink-0 flex-col gap-1.5 border-b px-3 py-2 text-xs'>
           <div className='flex items-center justify-between'>
-            <span className='font-semibold text-foreground flex items-center gap-1'>
-              <ZapIcon className='size-3 text-amber-500 fill-amber-500/10' />
+            <span className='text-foreground flex items-center gap-1 font-semibold'>
+              <ZapIcon className='size-3 fill-amber-500/10 text-amber-500' />
               Auto Switch Failover
             </span>
             <div className='flex items-center gap-2'>
@@ -165,13 +164,13 @@ export function ProfilesTabPanel() {
                 aria-checked={llmFailoverEnabled}
                 onClick={() => setLlmFailoverEnabled(!llmFailoverEnabled)}
                 className={[
-                  'relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  'focus-visible:ring-ring relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors focus-visible:ring-2 focus-visible:outline-none',
                   llmFailoverEnabled ? 'bg-amber-500' : 'bg-input',
                 ].join(' ')}
               >
                 <span
                   className={[
-                    'pointer-events-none inline-block size-3 rounded-full bg-background shadow-lg ring-0 transition-transform',
+                    'bg-background pointer-events-none inline-block size-3 rounded-full shadow-lg ring-0 transition-transform',
                     llmFailoverEnabled ? 'translate-x-3' : 'translate-x-0',
                   ].join(' ')}
                 />
@@ -179,7 +178,7 @@ export function ProfilesTabPanel() {
             </div>
           </div>
           <p className='text-muted-foreground text-[10px] leading-relaxed'>
-            {llmFailoverEnabled 
+            {llmFailoverEnabled
               ? 'ยินยอม: แปลต่ออัตโนมัติหากติดขัด/เครดิตหมด โดยสลับไปโปรไฟล์สำรองตามลำดับตัวเลขด้านล่าง'
               : 'ปิดการสลับโปรไฟล์อัตโนมัติ (แนะนำเพื่อการควบคุมค่าใช้จ่าย)'}
           </p>
@@ -200,8 +199,8 @@ export function ProfilesTabPanel() {
               </p>
               <p className='text-muted-foreground mb-3 text-[10px] leading-relaxed'>
                 Profiles store your cloud LLM credentials so you can switch
-                between OpenAI / Claude / Gemini / OpenRouter (or a local
-                Ollama / LM Studio server) per project.
+                between OpenAI / Claude / Gemini / OpenRouter (or a local Ollama
+                / LM Studio server) per project.
                 <br />
                 <br />
                 บันทึก config ของ LLM provider หลายๆ ตัวเพื่อสลับใช้งานได้
@@ -226,60 +225,60 @@ export function ProfilesTabPanel() {
                 p.modelName === activeModel
               const priorityIndex = sortedList.findIndex((x) => x.id === p.id)
               return (
-              <div
-                key={p.id}
-                className={
-                  'group min-w-0 rounded-md border p-1.5 ' +
-                  (isActive
-                    ? 'border-rose-400/60 bg-rose-400/5'
-                    : 'border-border bg-card')
-                }
-              >
-                <div className='flex items-start gap-1.5'>
-                  {/* แสดงลำดับความสำคัญเมื่อเปิด Failover */}
-                  {llmFailoverEnabled && sortedList.length > 1 && (
-                    <div className='flex flex-col items-center gap-0.5 shrink-0 pr-1.5 border-r border-border/60 mr-0.5'>
-                      <span className='text-[10px] font-bold text-amber-500'>
-                        #{priorityIndex + 1}
-                      </span>
-                      <div className='flex flex-col gap-0.5'>
-                        <button
-                          onClick={() => moveProfile(p.id, 'up')}
-                          disabled={priorityIndex === 0}
-                          className='text-muted-foreground hover:text-foreground disabled:opacity-20 transition'
-                          title='เลื่อนขึ้น'
-                        >
-                          <ArrowUpIcon className='size-2.5' />
-                        </button>
-                        <button
-                          onClick={() => moveProfile(p.id, 'down')}
-                          disabled={priorityIndex === sortedList.length - 1}
-                          className='text-muted-foreground hover:text-foreground disabled:opacity-20 transition'
-                          title='เลื่อนลง'
-                        >
-                          <ArrowDownIcon className='size-2.5' />
-                        </button>
+                <div
+                  key={p.id}
+                  className={
+                    'group min-w-0 rounded-md border p-1.5 ' +
+                    (isActive
+                      ? 'border-rose-400/60 bg-rose-400/5'
+                      : 'border-border bg-card')
+                  }
+                >
+                  <div className='flex items-start gap-1.5'>
+                    {/* แสดงลำดับความสำคัญเมื่อเปิด Failover */}
+                    {llmFailoverEnabled && sortedList.length > 1 && (
+                      <div className='border-border/60 mr-0.5 flex shrink-0 flex-col items-center gap-0.5 border-r pr-1.5'>
+                        <span className='text-[10px] font-bold text-amber-500'>
+                          #{priorityIndex + 1}
+                        </span>
+                        <div className='flex flex-col gap-0.5'>
+                          <button
+                            onClick={() => moveProfile(p.id, 'up')}
+                            disabled={priorityIndex === 0}
+                            className='text-muted-foreground hover:text-foreground transition disabled:opacity-20'
+                            title='เลื่อนขึ้น'
+                          >
+                            <ArrowUpIcon className='size-2.5' />
+                          </button>
+                          <button
+                            onClick={() => moveProfile(p.id, 'down')}
+                            disabled={priorityIndex === sortedList.length - 1}
+                            className='text-muted-foreground hover:text-foreground transition disabled:opacity-20'
+                            title='เลื่อนลง'
+                          >
+                            <ArrowDownIcon className='size-2.5' />
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
 
-                  <button
-                    onClick={() => void toggleDefault(p)}
-                    className='shrink-0 hover:text-amber-500 pt-0.5'
-                    title={
-                      p.isDefault
-                        ? 'Unmark as default'
-                        : 'Mark as default (auto-loaded on project open)'
-                    }
-                  >
-                    <StarIcon
-                      className={
+                    <button
+                      onClick={() => void toggleDefault(p)}
+                      className='shrink-0 pt-0.5 hover:text-amber-500'
+                      title={
                         p.isDefault
-                          ? 'fill-amber-400 size-3 text-amber-400'
-                          : 'text-muted-foreground/50 size-3'
+                          ? 'Unmark as default'
+                          : 'Mark as default (auto-loaded on project open)'
                       }
-                    />
-                  </button>
+                    >
+                      <StarIcon
+                        className={
+                          p.isDefault
+                            ? 'size-3 fill-amber-400 text-amber-400'
+                            : 'text-muted-foreground/50 size-3'
+                        }
+                      />
+                    </button>
                     <div className='min-w-0 flex-1 text-xs'>
                       <div className='truncate font-semibold'>{p.name}</div>
                       <div className='text-muted-foreground truncate text-[10px]'>
@@ -292,7 +291,7 @@ export function ProfilesTabPanel() {
                       className={
                         'h-6 px-2 text-[10px] ' +
                         (isActive
-                          ? 'bg-rose-400 hover:bg-rose-400/90 text-white'
+                          ? 'bg-rose-400 text-white hover:bg-rose-400/90'
                           : '')
                       }
                       onClick={() => void apply(p)}
@@ -434,8 +433,9 @@ function ProfileFormModal({
         return
       }
       try {
-        const { apiKey: existing } =
-          await api.providerProfileSecretGet(initial.id)
+        const { apiKey: existing } = await api.providerProfileSecretGet(
+          initial.id,
+        )
         if (cancelled) return
         if (existing) {
           setApiKey(existing)
@@ -486,7 +486,8 @@ function ProfileFormModal({
 
   // ────────── Model list queries (only one fires at a time) ──────────
   const enabledForKind = (k: ProviderKind) =>
-    kind === k && canLoadModels({ kind, apiKey, apiUrl: debouncedApiUrl, apiKeyLoaded })
+    kind === k &&
+    canLoadModels({ kind, apiKey, apiUrl: debouncedApiUrl, apiKeyLoaded })
 
   const openrouterModels = useQuery({
     queryKey: ['profile-modal', 'openrouter-models', apiKey],
@@ -587,9 +588,7 @@ function ProfileFormModal({
           value: m.id,
           label: m.id,
           searchText: `${m.id} ${m.ownedBy ?? ''}`,
-          trailing: m.ownedBy && m.ownedBy !== 'system'
-            ? m.ownedBy
-            : undefined,
+          trailing: m.ownedBy && m.ownedBy !== 'system' ? m.ownedBy : undefined,
         }))
     }
     if (kind === 'anthropic') {
@@ -626,9 +625,7 @@ function ProfileFormModal({
   const renameCollision =
     !!initial && !!duplicate && duplicate.id !== initial.id
   const valid =
-    trimmedName.length > 0 &&
-    modelName.trim().length > 0 &&
-    !renameCollision
+    trimmedName.length > 0 && modelName.trim().length > 0 && !renameCollision
 
   const save = async () => {
     if (!valid) return
@@ -780,9 +777,7 @@ function ProfileFormModal({
         aria-modal='true'
       >
         <h3 className='text-foreground mb-3 text-sm font-bold'>
-          {initial
-            ? `Edit "${initial.name}" `
-            : 'Add LLM profile'}
+          {initial ? `Edit "${initial.name}" ` : 'Add LLM profile'}
           {initial && (
             <span className='text-muted-foreground/60 font-mono text-[10px] font-normal'>
               · id {initial.id}
@@ -824,14 +819,13 @@ function ProfileFormModal({
               }}
               placeholder='e.g. Gemini work, OpenRouter free, …'
               className={
-                'h-8 text-xs ' +
-                (renameCollision ? 'border-amber-500/60' : '')
+                'h-8 text-xs ' + (renameCollision ? 'border-amber-500/60' : '')
               }
             />
             {renameCollision && (
               <p className='mt-1 text-[10px] text-amber-600 dark:text-amber-400'>
-                Another profile already uses this name. Pick a different
-                name to continue.
+                Another profile already uses this name. Pick a different name to
+                continue.
               </p>
             )}
           </div>
@@ -983,7 +977,7 @@ function ProfileFormModal({
             failures. Auto-clears when the user changes any field
             (next save attempt re-runs and re-sets if still bad). */}
         {formError && (
-          <div className='mt-3 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-[10px] text-destructive'>
+          <div className='border-destructive/40 bg-destructive/10 text-destructive mt-3 flex items-start gap-2 rounded-md border p-2 text-[10px]'>
             <AlertCircleIcon className='mt-0.5 size-3 shrink-0' />
             <span className='whitespace-pre-line'>{formError}</span>
           </div>

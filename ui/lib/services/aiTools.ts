@@ -85,7 +85,8 @@ const TOOLS: ToolDef[] = [
   // ── Project / series meta ─────────────────────────────────────
   {
     name: 'project_current',
-    description: 'Get the currently-open project (id, name, schema version, counts).',
+    description:
+      'Get the currently-open project (id, name, schema version, counts).',
     parameters: empty(),
     handler: () => api.projectCurrent(),
   },
@@ -122,7 +123,8 @@ const TOOLS: ToolDef[] = [
   // ── Chapters ─────────────────────────────────────────────────
   {
     name: 'chapters_list',
-    description: 'List all chapters in the open project (sorted by chapter number).',
+    description:
+      'List all chapters in the open project (sorted by chapter number).',
     parameters: empty(),
     handler: () => api.chaptersList(),
   },
@@ -166,8 +168,14 @@ const TOOLS: ToolDef[] = [
       additionalProperties: false,
       required: ['originalName', 'translatedName'],
       properties: {
-        originalName: { type: 'string', description: 'Source-language name (Japanese / Korean / Chinese).' },
-        translatedName: { type: 'string', description: 'Target-language name (Thai).' },
+        originalName: {
+          type: 'string',
+          description: 'Source-language name (Japanese / Korean / Chinese).',
+        },
+        translatedName: {
+          type: 'string',
+          description: 'Target-language name (Thai).',
+        },
         aliases: {
           type: 'array',
           items: {
@@ -177,10 +185,16 @@ const TOOLS: ToolDef[] = [
             properties: { src: { type: 'string' }, tgt: { type: 'string' } },
           },
         },
-        role: { type: 'string', description: 'protagonist / antagonist / supporting / etc.' },
+        role: {
+          type: 'string',
+          description: 'protagonist / antagonist / supporting / etc.',
+        },
         gender: { type: 'string' },
         age: { type: 'string' },
-        speechStyle: { type: 'string', description: 'How they speak — keigo / casual / boyish / etc.' },
+        speechStyle: {
+          type: 'string',
+          description: 'How they speak — keigo / casual / boyish / etc.',
+        },
         personality: { type: 'string' },
         notes: { type: 'string' },
         isMain: { type: 'boolean' },
@@ -215,7 +229,8 @@ const TOOLS: ToolDef[] = [
   // ── Glossary ─────────────────────────────────────────────────
   {
     name: 'glossary_list',
-    description: 'List all glossary entries (terms / places / skills / honorifics / etc.).',
+    description:
+      'List all glossary entries (terms / places / skills / honorifics / etc.).',
     parameters: empty(),
     handler: () => api.glossaryList(),
   },
@@ -239,7 +254,16 @@ const TOOLS: ToolDef[] = [
               targetText: { type: 'string' },
               category: {
                 type: 'string',
-                enum: ['character', 'place', 'term', 'skill', 'honorific', 'item', 'org', 'sfx'],
+                enum: [
+                  'character',
+                  'place',
+                  'term',
+                  'skill',
+                  'honorific',
+                  'item',
+                  'org',
+                  'sfx',
+                ],
               },
               aliases: { type: 'array', items: { type: 'string' } },
               contextNote: { type: 'string' },
@@ -254,7 +278,8 @@ const TOOLS: ToolDef[] = [
   // ── Prompt templates ─────────────────────────────────────────
   {
     name: 'prompt_templates_list',
-    description: 'List all prompt templates (translate / extract_entities / summarize_chapter).',
+    description:
+      'List all prompt templates (translate / extract_entities / summarize_chapter).',
     parameters: empty(),
     handler: () => api.promptTemplatesList(),
   },
@@ -283,7 +308,8 @@ const TOOLS: ToolDef[] = [
   // ── Translation memory ───────────────────────────────────────
   {
     name: 'tm_lookup',
-    description: 'Exact-match TM lookup — get cached translation for an exact source string.',
+    description:
+      'Exact-match TM lookup — get cached translation for an exact source string.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -487,8 +513,12 @@ async function runSemanticLookup(args: {
 async function runQcConsistency(): Promise<QcReport> {
   const [pageCount, glossary, characters] = await Promise.all([
     api.getDocumentsCount(),
-    api.glossaryList().catch(() => [] as Awaited<ReturnType<typeof api.glossaryList>>),
-    api.charactersList().catch(() => [] as Awaited<ReturnType<typeof api.charactersList>>),
+    api
+      .glossaryList()
+      .catch(() => [] as Awaited<ReturnType<typeof api.glossaryList>>),
+    api
+      .charactersList()
+      .catch(() => [] as Awaited<ReturnType<typeof api.charactersList>>),
   ])
 
   // Flatten into a single (sourceTerm, expectedTarget, category) list.
@@ -577,7 +607,10 @@ export function getTool(name: string): ToolDef | undefined {
 
 /** Dispatch a tool call by name. Returns the JSON-serialisable result
  *  the model will see, or an `{ error: string }` object on failure. */
-export async function dispatchTool(name: string, args: unknown): Promise<unknown> {
+export async function dispatchTool(
+  name: string,
+  args: unknown,
+): Promise<unknown> {
   const tool = getTool(name)
   if (!tool) return { error: `Unknown tool: ${name}` }
   try {

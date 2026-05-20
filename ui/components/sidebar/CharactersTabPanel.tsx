@@ -37,13 +37,7 @@ export function CharactersTabPanel() {
     if (!query.trim()) return all
     const q = query.toLowerCase()
     return all.filter((c) =>
-      (
-        c.originalName +
-        ' ' +
-        c.translatedName +
-        ' ' +
-        (c.role ?? '')
-      )
+      (c.originalName + ' ' + c.translatedName + ' ' + (c.role ?? ''))
         .toLowerCase()
         .includes(q),
     )
@@ -114,25 +108,26 @@ export function CharactersTabPanel() {
         </div>
       </ScrollArea>
 
-      {editing != null && (() => {
-        // Resolve at render time so the modal gets the latest row from
-        // the parent's single query subscription (no more duplicate
-        // ['project','characters'] subscription inside the modal).
-        // Keyed by id so delete-then-readd of the same id remounts.
-        const target = characters.data?.find((c) => c.id === editing)
-        if (!target) return null
-        return (
-          <CharacterEditModal
-            key={target.id}
-            character={target}
-            onClose={() => setEditing(null)}
-            onSaved={() => {
-              setEditing(null)
-              refresh()
-            }}
-          />
-        )
-      })()}
+      {editing != null &&
+        (() => {
+          // Resolve at render time so the modal gets the latest row from
+          // the parent's single query subscription (no more duplicate
+          // ['project','characters'] subscription inside the modal).
+          // Keyed by id so delete-then-readd of the same id remounts.
+          const target = characters.data?.find((c) => c.id === editing)
+          if (!target) return null
+          return (
+            <CharacterEditModal
+              key={target.id}
+              character={target}
+              onClose={() => setEditing(null)}
+              onSaved={() => {
+                setEditing(null)
+                refresh()
+              }}
+            />
+          )
+        })()}
       {adding && (
         <CharacterAddModal
           onClose={() => setAdding(false)}
@@ -207,15 +202,12 @@ function CharacterRow({
           <StarIcon
             className={
               character.isMain
-                ? 'fill-amber-400 size-3 text-amber-400'
+                ? 'size-3 fill-amber-400 text-amber-400'
                 : 'text-muted-foreground/50 size-3'
             }
           />
         </button>
-        <button
-          onClick={onEdit}
-          className='min-w-0 flex-1 text-left text-xs'
-        >
+        <button onClick={onEdit} className='min-w-0 flex-1 text-left text-xs'>
           <div className='truncate font-semibold'>
             {character.originalName} → {character.translatedName}
           </div>
@@ -467,7 +459,9 @@ function CharacterAddModal({
         role='dialog'
         aria-modal='true'
       >
-        <h3 className='text-foreground mb-3 text-sm font-bold'>Add character</h3>
+        <h3 className='text-foreground mb-3 text-sm font-bold'>
+          Add character
+        </h3>
         <div className='space-y-2'>
           <Input
             autoFocus

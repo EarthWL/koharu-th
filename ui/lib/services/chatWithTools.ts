@@ -537,7 +537,10 @@ async function callAnthropic(
   // Usage: message_start carries input_tokens; message_delta carries
   // the final output_tokens.
   let text = ''
-  const blocks: Record<number, { type: string; id?: string; name?: string; partial: string }> = {}
+  const blocks: Record<
+    number,
+    { type: string; id?: string; name?: string; partial: string }
+  > = {}
   let promptTokens: number | null = null
   let completionTokens: number | null = null
 
@@ -697,7 +700,7 @@ function toGeminiContents(msgs: ChatMessage[]) {
 function stripAdditionalProperties(schema: any): any {
   if (typeof schema !== 'object' || schema === null) return schema
   if (Array.isArray(schema)) return schema.map(stripAdditionalProperties)
-  
+
   const out: any = {}
   for (const [k, v] of Object.entries(schema)) {
     if (k === 'additionalProperties') continue

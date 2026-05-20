@@ -315,7 +315,11 @@ function LlmStatusPopover() {
             className={`size-1.5 rounded-full ${
               llmReady || isCloudActive ? 'bg-white' : 'bg-muted-foreground/40'
             }`}
-            animate={llmReady || isCloudActive ? { opacity: [1, 0.5, 1] } : { opacity: 1 }}
+            animate={
+              llmReady || isCloudActive
+                ? { opacity: [1, 0.5, 1] }
+                : { opacity: 1 }
+            }
             transition={
               llmReady || isCloudActive
                 ? { duration: 2, repeat: Infinity, ease: 'easeInOut' }
@@ -375,8 +379,14 @@ function LlmStatusPopover() {
 
           {!isCloudActive ? (
             <>
-              <Select value={llmSelectedModel} onValueChange={llmSetSelectedModel}>
-                <SelectTrigger data-testid='llm-model-select' className='w-full'>
+              <Select
+                value={llmSelectedModel}
+                onValueChange={llmSetSelectedModel}
+              >
+                <SelectTrigger
+                  data-testid='llm-model-select'
+                  className='w-full'
+                >
                   <SelectValue placeholder={t('llm.selectPlaceholder')} />
                 </SelectTrigger>
                 <SelectContent position='popper'>
@@ -427,7 +437,9 @@ function LlmStatusPopover() {
                     if (detected && activeLanguages.includes(detected)) {
                       llmSetSelectedLanguage(detected)
                     } else if (detected) {
-                      alert(`Detected: ${detected}, but model doesn't support it.`)
+                      alert(
+                        `Detected: ${detected}, but model doesn't support it.`,
+                      )
                     } else {
                       alert('Could not detect language.')
                     }
@@ -455,22 +467,26 @@ function LlmStatusPopover() {
               </Button>
             </>
           ) : (
-            <div className="flex flex-col gap-3">
-              <div className="space-y-1">
-                <label className="text-muted-foreground text-[10px] font-semibold uppercase">Target Language</label>
-                <Select value={cloudTargetLanguage} onValueChange={setCloudTargetLanguage}>
+            <div className='flex flex-col gap-3'>
+              <div className='space-y-1'>
+                <label className='text-muted-foreground text-[10px] font-semibold uppercase'>
+                  Target Language
+                </label>
+                <Select
+                  value={cloudTargetLanguage}
+                  onValueChange={setCloudTargetLanguage}
+                >
                   <SelectTrigger className='w-full'>
-                    <SelectValue placeholder="Language" />
+                    <SelectValue placeholder='Language' />
                   </SelectTrigger>
                   <SelectContent position='popper'>
-                    <SelectItem value="Thai">Thai</SelectItem>
-                    <SelectItem value="English">English</SelectItem>
-                    <SelectItem value="Japanese">Japanese</SelectItem>
-                    <SelectItem value="Chinese">Chinese</SelectItem>
-                    <SelectItem value="Korean">Korean</SelectItem>
+                    <SelectItem value='Thai'>Thai</SelectItem>
+                    <SelectItem value='English'>English</SelectItem>
+                    <SelectItem value='Japanese'>Japanese</SelectItem>
+                    <SelectItem value='Chinese'>Chinese</SelectItem>
+                    <SelectItem value='Korean'>Korean</SelectItem>
                   </SelectContent>
                 </Select>
-
               </div>
               <div className='bg-muted text-muted-foreground rounded border p-3 text-center text-xs'>
                 <p className='text-foreground mb-1 font-semibold'>
@@ -489,7 +505,10 @@ function LlmStatusPopover() {
                   )}
                 </p>
                 <p className='text-muted-foreground/70 mt-1 text-[10px]'>
-                  {t('llm.editProfilesHint', 'Edit profiles in the Profiles sidebar tab.')}
+                  {t(
+                    'llm.editProfilesHint',
+                    'Edit profiles in the Profiles sidebar tab.',
+                  )}
                 </p>
               </div>
             </div>

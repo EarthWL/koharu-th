@@ -20,40 +20,46 @@ export function HistoryPanel() {
   const currentIdx = historyPast.length - 1
 
   return (
-    <div className="flex h-full flex-col gap-2 p-1">
+    <div className='flex h-full flex-col gap-2 p-1'>
       {/* Scrollable List of History Steps */}
-      <ScrollArea className="flex-1 border rounded bg-card/45 max-h-[calc(100vh-320px)] min-h-[140px]">
+      <ScrollArea className='bg-card/45 max-h-[calc(100vh-320px)] min-h-[140px] flex-1 rounded border'>
         {allSteps.length === 0 ? (
-          <div className="flex flex-col items-center justify-center p-6 text-muted-foreground text-xs gap-1">
+          <div className='text-muted-foreground flex flex-col items-center justify-center gap-1 p-6 text-xs'>
             <span>No Actions Yet</span>
           </div>
         ) : (
-          <div className="flex flex-col">
+          <div className='flex flex-col'>
             {allSteps.map((step, idx) => {
               const isFuture = idx > currentIdx
               const isActive = idx === currentIdx
-              
+
               return (
                 <button
                   key={step.id}
                   onClick={() => jumpToHistory(step.id, updateTextBlocks)}
-                  className={`flex items-center gap-2.5 px-3 py-2 text-left text-[11px] border-b border-border/30 last:border-b-0 transition-colors w-full ${
+                  className={`border-border/30 flex w-full items-center gap-2.5 border-b px-3 py-2 text-left text-[11px] transition-colors last:border-b-0 ${
                     isActive
-                      ? 'bg-primary/10 border-l-2 border-l-primary font-bold text-foreground'
+                      ? 'bg-primary/10 border-l-primary text-foreground border-l-2 font-bold'
                       : isFuture
-                      ? 'text-muted-foreground/40 line-through decoration-muted-foreground/20 opacity-60 hover:bg-accent/20'
-                      : 'text-foreground hover:bg-accent/40'
+                        ? 'text-muted-foreground/40 decoration-muted-foreground/20 hover:bg-accent/20 line-through opacity-60'
+                        : 'text-foreground hover:bg-accent/40'
                   }`}
                 >
                   {/* Step Icon / Index */}
-                  <span className={`text-[9px] font-mono shrink-0 w-3 text-center ${
-                    isActive ? 'text-primary' : 'text-muted-foreground/50'
-                  }`}>
-                    {idx === 0 ? <RotateCcwIcon className="size-2.5 inline" /> : idx}
+                  <span
+                    className={`w-3 shrink-0 text-center font-mono text-[9px] ${
+                      isActive ? 'text-primary' : 'text-muted-foreground/50'
+                    }`}
+                  >
+                    {idx === 0 ? (
+                      <RotateCcwIcon className='inline size-2.5' />
+                    ) : (
+                      idx
+                    )}
                   </span>
-                  
+
                   {/* Step Description */}
-                  <span className="truncate flex-1">{step.name}</span>
+                  <span className='flex-1 truncate'>{step.name}</span>
                 </button>
               )
             })}
@@ -62,28 +68,28 @@ export function HistoryPanel() {
       </ScrollArea>
 
       {/* Undo / Redo buttons */}
-      <div className="flex gap-2 shrink-0">
+      <div className='flex shrink-0 gap-2'>
         <Button
-          type="button"
-          variant="outline"
-          size="sm"
+          type='button'
+          variant='outline'
+          size='sm'
           disabled={historyPast.length <= 1}
           onClick={() => undo(updateTextBlocks)}
-          className="flex-1 gap-1 h-8 text-[11px]"
+          className='h-8 flex-1 gap-1 text-[11px]'
         >
-          <UndoIcon className="size-3" />
+          <UndoIcon className='size-3' />
           {t('history.undo', 'Undo')}
         </Button>
-        
+
         <Button
-          type="button"
-          variant="outline"
-          size="sm"
+          type='button'
+          variant='outline'
+          size='sm'
           disabled={historyFuture.length === 0}
           onClick={() => redo(updateTextBlocks)}
-          className="flex-1 gap-1 h-8 text-[11px]"
+          className='h-8 flex-1 gap-1 text-[11px]'
         >
-          <RedoIcon className="size-3" />
+          <RedoIcon className='size-3' />
           {t('history.redo', 'Redo')}
         </Button>
       </div>

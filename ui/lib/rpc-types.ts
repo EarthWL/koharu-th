@@ -69,14 +69,22 @@ export type RpcMethodMap = {
     void,
   ]
   update_text_blocks: [{ index: number; textBlocks: TextBlock[] }, void]
-  reorder_text_blocks: [{ index: number; readingOrder: 'rtl' | 'ltr' | 'custom' }, void]
+  reorder_text_blocks: [
+    { index: number; readingOrder: 'rtl' | 'ltr' | 'custom' },
+    void,
+  ]
   list_font_families: [void, string[]]
   llm_list: [{ language?: string }, LlmModelInfo[]]
   llm_load: [{ id: string }, void]
   llm_offload: [void, void]
   llm_ready: [void, boolean]
   llm_generate: [
-    { index: number; textBlockIndex?: number; language?: string; context?: string },
+    {
+      index: number
+      textBlockIndex?: number
+      language?: string
+      context?: string
+    },
     void,
   ]
   process: [
@@ -171,7 +179,7 @@ export type RpcMethodMap = {
       apiUrl?: string | null
       jsonMode: boolean
     },
-    { text: string }
+    { text: string },
   ]
 
   // ── AI Chat ──────────────────────────────────────────────────
@@ -255,4 +263,3 @@ export type BackupDto = {
 export type ProjectDiskSpaceResult = {
   freeBytes: number
 }
-

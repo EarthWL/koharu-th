@@ -19,7 +19,7 @@ export function CollaboratorCursors({
   const collaborators = useCollabStore((state) => state.collaborators)
 
   return (
-    <div className="absolute inset-0 pointer-events-none overflow-hidden z-40">
+    <div className='pointer-events-none absolute inset-0 z-40 overflow-hidden'>
       {Object.entries(collaborators).map(([id, info]) => {
         // Only render cursors on the same page index and having valid coordinate values
         if (
@@ -38,7 +38,7 @@ export function CollaboratorCursors({
         return (
           <div
             key={id}
-            className="absolute transition-all duration-150 ease-out will-change-[transform,left,top]"
+            className='absolute transition-all duration-150 ease-out will-change-[transform,left,top]'
             style={{
               left: posX,
               top: posY,
@@ -46,25 +46,25 @@ export function CollaboratorCursors({
           >
             {/* Figma-style beautiful pointing cursor arrow */}
             <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              className="drop-shadow-md"
+              width='24'
+              height='24'
+              viewBox='0 0 24 24'
+              fill='none'
+              xmlns='http://www.w3.org/2000/svg'
+              className='drop-shadow-md'
             >
               <path
-                d="M5.65376 12.3825L19.3458 4.90771C20.603 4.22171 22.0911 5.34023 21.7583 6.74542L18.1565 21.9566C17.8252 23.3562 15.932 23.7077 15.1169 22.5126L11.5173 17.2346L5.85695 14.5422C4.5714 13.9298 4.45524 13.0366 5.65376 12.3825Z"
+                d='M5.65376 12.3825L19.3458 4.90771C20.603 4.22171 22.0911 5.34023 21.7583 6.74542L18.1565 21.9566C17.8252 23.3562 15.932 23.7077 15.1169 22.5126L11.5173 17.2346L5.85695 14.5422C4.5714 13.9298 4.45524 13.0366 5.65376 12.3825Z'
                 fill={info.color}
-                stroke="white"
-                strokeWidth="2"
-                strokeLinejoin="round"
+                stroke='white'
+                strokeWidth='2'
+                strokeLinejoin='round'
               />
             </svg>
 
             {/* Name bubble tag */}
             <div
-              className="absolute left-4 top-4 rounded-md px-2 py-0.5 text-[10px] font-bold text-white shadow-lg backdrop-blur-md transition-all duration-300 border border-white/20 select-none"
+              className='absolute top-4 left-4 rounded-md border border-white/20 px-2 py-0.5 text-[10px] font-bold text-white shadow-lg backdrop-blur-md transition-all duration-300 select-none'
               style={{
                 backgroundColor: info.color,
               }}

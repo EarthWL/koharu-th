@@ -1,7 +1,13 @@
 'use client'
 
 import { create } from 'zustand'
-import { RenderEffect, RenderStroke, ToolMode, TextStyle, TextBlock } from '@/types'
+import {
+  RenderEffect,
+  RenderStroke,
+  ToolMode,
+  TextStyle,
+  TextBlock,
+} from '@/types'
 
 export type HistoryStep = {
   id: string
@@ -27,7 +33,7 @@ type EditorUiState = {
   readingOrder: 'rtl' | 'ltr' | 'custom'
   copiedStyle?: TextStyle
   hudMessage?: string
-  
+
   // Photoshop-style enhancements states
   historyPast: HistoryStep[]
   historyFuture: HistoryStep[]
@@ -60,7 +66,10 @@ type EditorUiState = {
   pushHistory: (name: string, blocks: TextBlock[]) => void
   undo: (updateBlocksFn: (blocks: TextBlock[]) => Promise<void> | void) => void
   redo: (updateBlocksFn: (blocks: TextBlock[]) => Promise<void> | void) => void
-  jumpToHistory: (stepId: string, updateBlocksFn: (blocks: TextBlock[]) => Promise<void> | void) => void
+  jumpToHistory: (
+    stepId: string,
+    updateBlocksFn: (blocks: TextBlock[]) => Promise<void> | void,
+  ) => void
   startBatchHistory: () => void
   endBatchHistory: (name: string, blocks: TextBlock[]) => void
   setActiveGuides: (x: number | null, y: number | null) => void
@@ -187,7 +196,13 @@ export const useEditorUiStore = create<EditorUiState>((set, get) => ({
   // Photoshop-style methods implementation
   initHistory: (blocks) => {
     set({
-      historyPast: [{ id: 'initial', name: 'Open Page', blocks: JSON.parse(JSON.stringify(blocks)) }],
+      historyPast: [
+        {
+          id: 'initial',
+          name: 'Open Page',
+          blocks: JSON.parse(JSON.stringify(blocks)),
+        },
+      ],
       historyFuture: [],
     })
   },
@@ -199,7 +214,11 @@ export const useEditorUiStore = create<EditorUiState>((set, get) => ({
     const clonedBlocks = JSON.parse(JSON.stringify(blocks))
     const nextPast = [
       ...historyPast,
-      { id: Math.random().toString(36).substring(2, 9), name, blocks: clonedBlocks }
+      {
+        id: Math.random().toString(36).substring(2, 9),
+        name,
+        blocks: clonedBlocks,
+      },
     ]
 
     // Cap history size, but keep the initial state at index 0

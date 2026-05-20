@@ -49,15 +49,43 @@ import ruRU from '@/public/locales/ru-RU/translation.json'
 import { DynamicEngineSettingsForm } from '@/components/settings/DynamicEngineSettingsForm'
 import { CollaborativeSessionHUD } from '@/components/settings/CollaborativeSessionHUD'
 
-
-
 const THEME_OPTIONS = [
-  { value: 'light', icon: SunIcon, labelKey: 'settings.themeLight', fallbackLabel: 'Light' },
-  { value: 'dark', icon: MoonIcon, labelKey: 'settings.themeDark', fallbackLabel: 'Dark' },
-  { value: 'system', icon: MonitorIcon, labelKey: 'settings.themeSystem', fallbackLabel: 'System' },
-  { value: 'cyberpunk', icon: Zap, labelKey: 'settings.themeCyberpunk', fallbackLabel: 'Cyberpunk' },
-  { value: 'sakura', icon: Heart, labelKey: 'settings.themeSakura', fallbackLabel: 'Sakura' },
-  { value: 'obsidian', icon: Gem, labelKey: 'settings.themeObsidian', fallbackLabel: 'Obsidian' },
+  {
+    value: 'light',
+    icon: SunIcon,
+    labelKey: 'settings.themeLight',
+    fallbackLabel: 'Light',
+  },
+  {
+    value: 'dark',
+    icon: MoonIcon,
+    labelKey: 'settings.themeDark',
+    fallbackLabel: 'Dark',
+  },
+  {
+    value: 'system',
+    icon: MonitorIcon,
+    labelKey: 'settings.themeSystem',
+    fallbackLabel: 'System',
+  },
+  {
+    value: 'cyberpunk',
+    icon: Zap,
+    labelKey: 'settings.themeCyberpunk',
+    fallbackLabel: 'Cyberpunk',
+  },
+  {
+    value: 'sakura',
+    icon: Heart,
+    labelKey: 'settings.themeSakura',
+    fallbackLabel: 'Sakura',
+  },
+  {
+    value: 'obsidian',
+    icon: Gem,
+    labelKey: 'settings.themeObsidian',
+    fallbackLabel: 'Obsidian',
+  },
 ] as const
 
 export default function SettingsPage() {
@@ -72,8 +100,12 @@ export default function SettingsPage() {
   const [needsRelaunch, setNeedsRelaunch] = useState<boolean>(false)
   const ocrEngine = usePreferencesStore((s) => s.ocrEngine)
   const setOcrEngine = usePreferencesStore((s) => s.setOcrEngine)
-  const ocrSmartCloudFallback = usePreferencesStore((s) => s.ocrSmartCloudFallback)
-  const setOcrSmartCloudFallback = usePreferencesStore((s) => s.setOcrSmartCloudFallback)
+  const ocrSmartCloudFallback = usePreferencesStore(
+    (s) => s.ocrSmartCloudFallback,
+  )
+  const setOcrSmartCloudFallback = usePreferencesStore(
+    (s) => s.setOcrSmartCloudFallback,
+  )
   const ocrCloudProfileId = usePreferencesStore((s) => s.ocrCloudProfileId)
   const setOcrCloudProfileId = usePreferencesStore(
     (s) => s.setOcrCloudProfileId,
@@ -120,8 +152,7 @@ export default function SettingsPage() {
       ? 'openrouter'
       : p.provider
   const visionProfiles = (profiles.data ?? []).filter(
-    (p) =>
-      supportsVision(effectiveProvider(p), p.modelName).supported,
+    (p) => supportsVision(effectiveProvider(p), p.modelName).supported,
   )
   // Active translation profile counts too — the "(Use the active
   // translation profile)" option in the dropdown uses it. So the
@@ -200,17 +231,21 @@ export default function SettingsPage() {
                   {t('settings.theme')}
                 </div>
                 <div className='grid grid-cols-3 gap-2'>
-                  {THEME_OPTIONS.map(({ value, icon: Icon, labelKey, fallbackLabel }) => (
-                    <button
-                      key={value}
-                      onClick={() => setTheme(value)}
-                      data-active={theme === value}
-                      className='border-border bg-card text-muted-foreground hover:border-foreground/30 data-[active=true]:border-primary data-[active=true]:text-foreground flex flex-col items-center gap-2 rounded-lg border p-3 transition'
-                    >
-                      <Icon className='size-5' />
-                      <span className='text-xs font-medium'>{t(labelKey, fallbackLabel)}</span>
-                    </button>
-                  ))}
+                  {THEME_OPTIONS.map(
+                    ({ value, icon: Icon, labelKey, fallbackLabel }) => (
+                      <button
+                        key={value}
+                        onClick={() => setTheme(value)}
+                        data-active={theme === value}
+                        className='border-border bg-card text-muted-foreground hover:border-foreground/30 data-[active=true]:border-primary data-[active=true]:text-foreground flex flex-col items-center gap-2 rounded-lg border p-3 transition'
+                      >
+                        <Icon className='size-5' />
+                        <span className='text-xs font-medium'>
+                          {t(labelKey, fallbackLabel)}
+                        </span>
+                      </button>
+                    ),
+                  )}
                 </div>
               </div>
             </section>
@@ -255,7 +290,7 @@ export default function SettingsPage() {
 
               {/* Detector sub-card — engine + variant + hint live together */}
               <div className='bg-card border-border mb-3 rounded-lg border p-4'>
-                <h3 className='text-foreground mb-3 text-xs font-semibold uppercase tracking-wide'>
+                <h3 className='text-foreground mb-3 text-xs font-semibold tracking-wide uppercase'>
                   {t('settings.engineDetector', 'Detector')}
                 </h3>
                 <div className='grid grid-cols-[max-content_1fr] items-center gap-x-6 gap-y-3 text-sm'>
@@ -284,7 +319,8 @@ export default function SettingsPage() {
                     </SelectContent>
                   </Select>
 
-                  {(detectorEngine === 'anime_yolo' || detectorEngine === 'auto') && (
+                  {(detectorEngine === 'anime_yolo' ||
+                    detectorEngine === 'auto') && (
                     <>
                       <label className='text-muted-foreground'>
                         {t('settings.engineDetectorVariant', 'Variant')}
@@ -292,7 +328,9 @@ export default function SettingsPage() {
                       <Select
                         value={animeYoloVariant}
                         onValueChange={(v) =>
-                          setAnimeYoloVariant(v as 'n' | 's' | 'm' | 'l' | 'x' | 'auto')
+                          setAnimeYoloVariant(
+                            v as 'n' | 's' | 'm' | 'l' | 'x' | 'auto',
+                          )
                         }
                       >
                         <SelectTrigger>
@@ -305,15 +343,9 @@ export default function SettingsPage() {
                           <SelectItem value='n'>
                             N · nano · ~10MB · fastest
                           </SelectItem>
-                          <SelectItem value='s'>
-                            S · small · ~30MB
-                          </SelectItem>
-                          <SelectItem value='m'>
-                            M · medium · ~80MB
-                          </SelectItem>
-                          <SelectItem value='l'>
-                            L · large · ~150MB
-                          </SelectItem>
+                          <SelectItem value='s'>S · small · ~30MB</SelectItem>
+                          <SelectItem value='m'>M · medium · ~80MB</SelectItem>
+                          <SelectItem value='l'>L · large · ~150MB</SelectItem>
                           <SelectItem value='x'>
                             X · xlarge · ~250MB · best recall
                           </SelectItem>
@@ -348,9 +380,19 @@ export default function SettingsPage() {
                             </button>
                           )}
                         </div>
-                        <div className='text-muted-foreground/60 flex justify-between text-[10px] uppercase tracking-wide'>
-                          <span>{t('settings.confidenceMoreDetections', 'More (noisy)')}</span>
-                          <span>{t('settings.confidenceFewerDetections', 'Fewer (strict)')}</span>
+                        <div className='text-muted-foreground/60 flex justify-between text-[10px] tracking-wide uppercase'>
+                          <span>
+                            {t(
+                              'settings.confidenceMoreDetections',
+                              'More (noisy)',
+                            )}
+                          </span>
+                          <span>
+                            {t(
+                              'settings.confidenceFewerDetections',
+                              'Fewer (strict)',
+                            )}
+                          </span>
                         </div>
                       </div>
                     </>
@@ -358,7 +400,7 @@ export default function SettingsPage() {
                 </div>
 
                 {detectorEngine === 'anime_yolo' && (
-                  <p className='text-muted-foreground/70 mt-4 border-t border-border/60 pt-3 text-xs leading-relaxed'>
+                  <p className='text-muted-foreground/70 border-border/60 mt-4 border-t pt-3 text-xs leading-relaxed'>
                     {t(
                       'settings.engineDetectorAnimeYoloHint',
                       'Anime Text YOLO (mayocream/anime-text-yolo, YOLO12) is tuned for anime/manga text and catches SFX, stylised titles, and out-of-bubble text the default detector misses. Bubble mask still comes from the default detector. Switching variant reloads the model on next Process — pick N for speed, X for max recall. Raise Confidence (~0.35–0.45) to cut over-detection on noisy pages; lower it to rescue faint SFX.',
@@ -367,7 +409,7 @@ export default function SettingsPage() {
                 )}
 
                 {detectorEngine === 'auto' && (
-                  <p className='text-muted-foreground/70 mt-4 border-t border-border/60 pt-3 text-xs leading-relaxed'>
+                  <p className='text-muted-foreground/70 border-border/60 mt-4 border-t pt-3 text-xs leading-relaxed'>
                     {t(
                       'settings.engineDetectorAutoHint',
                       'Auto Mode runs the default detector and dynamically cascades to Anime Text YOLO for action pages, dense text, or out-of-bubble SFX. Overlapping bboxes are resolved automatically. Variant "Auto" scales dynamically based on resolution and CUDA GPU capacity.',
@@ -378,7 +420,7 @@ export default function SettingsPage() {
 
               {/* OCR sub-card */}
               <div className='bg-card border-border mb-3 rounded-lg border p-4'>
-                <h3 className='text-foreground mb-3 text-xs font-semibold uppercase tracking-wide'>
+                <h3 className='text-foreground mb-3 text-xs font-semibold tracking-wide uppercase'>
                   {t('settings.engineOcr', 'OCR')}
                 </h3>
                 <div className='grid grid-cols-[max-content_1fr] items-center gap-x-6 gap-y-3 text-sm'>
@@ -402,7 +444,8 @@ export default function SettingsPage() {
                         MIT-48px (default · multilingual, local)
                       </SelectItem>
                       <SelectItem value='manga'>
-                        Manga OCR (Japanese-tuned, local, ~100MB first-use download)
+                        Manga OCR (Japanese-tuned, local, ~100MB first-use
+                        download)
                       </SelectItem>
                       <SelectItem value='cloud'>
                         Cloud Vision (uses a saved LLM profile · counts tokens)
@@ -413,23 +456,30 @@ export default function SettingsPage() {
                   {ocrEngine === 'auto' && (
                     <>
                       <label className='text-muted-foreground'>
-                        {t('settings.engineOcrSmartCloudFallback', 'Smart Cloud Fallback')}
+                        {t(
+                          'settings.engineOcrSmartCloudFallback',
+                          'Smart Cloud Fallback',
+                        )}
                       </label>
                       <div className='flex items-center gap-2'>
                         <button
                           type='button'
                           role='switch'
                           aria-checked={ocrSmartCloudFallback}
-                          onClick={() => setOcrSmartCloudFallback(!ocrSmartCloudFallback)}
+                          onClick={() =>
+                            setOcrSmartCloudFallback(!ocrSmartCloudFallback)
+                          }
                           className={[
-                            'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                            'focus-visible:ring-ring relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus-visible:ring-2 focus-visible:outline-none',
                             ocrSmartCloudFallback ? 'bg-primary' : 'bg-input',
                           ].join(' ')}
                         >
                           <span
                             className={[
-                              'pointer-events-none inline-block size-4 rounded-full bg-background shadow-lg ring-0 transition-transform',
-                              ocrSmartCloudFallback ? 'translate-x-4' : 'translate-x-0',
+                              'bg-background pointer-events-none inline-block size-4 rounded-full shadow-lg ring-0 transition-transform',
+                              ocrSmartCloudFallback
+                                ? 'translate-x-4'
+                                : 'translate-x-0',
                             ].join(' ')}
                           />
                         </button>
@@ -454,7 +504,9 @@ export default function SettingsPage() {
                             : String(ocrCloudProfileId)
                         }
                         onValueChange={(v) =>
-                          setOcrCloudProfileId(v === 'active' ? null : Number(v))
+                          setOcrCloudProfileId(
+                            v === 'active' ? null : Number(v),
+                          )
                         }
                       >
                         <SelectTrigger>
@@ -475,39 +527,39 @@ export default function SettingsPage() {
                   )}
                 </div>
 
-                <p className='text-muted-foreground/70 mt-4 border-t border-border/60 pt-3 text-xs leading-relaxed'>
+                <p className='text-muted-foreground/70 border-border/60 mt-4 border-t pt-3 text-xs leading-relaxed'>
                   {ocrEngine === 'auto'
                     ? t(
                         'settings.engineOcrAutoHint',
                         'โหมด Auto จะวิเคราะห์ภาษาของโปรเจกต์โดยอัตโนมัติเพื่อเลือกโมเดลที่ดีที่สุด (เช่น Manga OCR สำหรับภาษาญี่ปุ่น, MIT-48px สำหรับภาษาไทย/อังกฤษ) และสามารถเปิด "Smart Cloud Fallback" เพื่อนำประโยคที่ซับซ้อน/อ่านยาก ส่งให้ Cloud Vision ช่วยประมวลผลเพิ่มความแม่นยำขั้นสูงสุดได้!',
                       )
                     : ocrEngine === 'cloud'
-                    ? t(
-                        'settings.engineOcrCloudHint',
-                        'Cloud Vision OCR sends the page image + bubble coordinates to the selected vision-capable LLM and asks for the text per bubble. Quality is usually best, but every page costs tokens. Use for hard pages; pick a local engine for batch translation in the queue (batch never uses Cloud Vision — it falls back to MIT-48px). Calls are logged to the Cost Dashboard as use_case=ocr.',
-                      )
-                    : t(
-                        'settings.engineOcrHint',
-                        'MIT-48px is the production default and handles Latin / CJK / Thai. Manga OCR (mayocream/manga-ocr) is tuned for Japanese handwriting + stylised SFX; first switch downloads ~100MB of weights.',
-                      )}
+                      ? t(
+                          'settings.engineOcrCloudHint',
+                          'Cloud Vision OCR sends the page image + bubble coordinates to the selected vision-capable LLM and asks for the text per bubble. Quality is usually best, but every page costs tokens. Use for hard pages; pick a local engine for batch translation in the queue (batch never uses Cloud Vision — it falls back to MIT-48px). Calls are logged to the Cost Dashboard as use_case=ocr.',
+                        )
+                      : t(
+                          'settings.engineOcrHint',
+                          'MIT-48px is the production default and handles Latin / CJK / Thai. Manga OCR (mayocream/manga-ocr) is tuned for Japanese handwriting + stylised SFX; first switch downloads ~100MB of weights.',
+                        )}
                 </p>
                 {ocrEngine === 'cloud' &&
                   profiles.data &&
                   visionProfiles.length === 0 &&
                   !activeIsVision && (
-                    <p className='text-amber-600 dark:text-amber-400 mt-2 text-xs leading-relaxed'>
+                    <p className='mt-2 text-xs leading-relaxed text-amber-600 dark:text-amber-400'>
                       ⚠ No vision-capable profile available. Open Sidebar →
                       Profiles, add an OpenAI / Claude / Gemini / OpenRouter
                       profile with a vision-capable model (e.g. gpt-4o,
-                      claude-3.5-sonnet, gemini-2.0-flash) and click Apply,
-                      then come back here.
+                      claude-3.5-sonnet, gemini-2.0-flash) and click Apply, then
+                      come back here.
                     </p>
                   )}
               </div>
 
               {/* Inpaint sub-card */}
               <div className='bg-card border-border rounded-lg border p-4'>
-                <h3 className='text-foreground mb-3 text-xs font-semibold uppercase tracking-wide'>
+                <h3 className='text-foreground mb-3 text-xs font-semibold tracking-wide uppercase'>
                   {t('settings.engineInpaint', 'Inpaint Engine')}
                 </h3>
                 <div className='grid grid-cols-[max-content_1fr] items-center gap-x-6 gap-y-3 text-sm'>
@@ -517,7 +569,9 @@ export default function SettingsPage() {
                   <Select
                     value={inpaintEngine}
                     onValueChange={(v) =>
-                      setInpaintEngine(v as 'lama' | 'stable_diffusion' | 'cloud_flux')
+                      setInpaintEngine(
+                        v as 'lama' | 'stable_diffusion' | 'cloud_flux',
+                      )
                     }
                   >
                     <SelectTrigger>
@@ -531,27 +585,28 @@ export default function SettingsPage() {
                         Stable Diffusion (Tier 2 · Offline, high-quality, local)
                       </SelectItem>
                       <SelectItem value='cloud_flux'>
-                        Cloud FLUX.1 (Tier 3 · Online, state-of-the-art cloud API)
+                        Cloud FLUX.1 (Tier 3 · Online, state-of-the-art cloud
+                        API)
                       </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
-                <p className='text-muted-foreground/70 mt-4 border-t border-border/60 pt-3 text-xs leading-relaxed'>
+                <p className='text-muted-foreground/70 border-border/60 mt-4 border-t pt-3 text-xs leading-relaxed'>
                   {inpaintEngine === 'lama'
                     ? t(
                         'settings.engineInpaintLamaHint',
                         'Lama (Tier 1) เป็นค่าเริ่มต้นแบบออฟไลน์ที่เบาและเร็วมาก เหมาะสำหรับการลบอักษรทั่วไปที่ไม่ต้องการทรัพยากรเครื่องสูง',
                       )
                     : inpaintEngine === 'stable_diffusion'
-                    ? t(
-                        'settings.engineInpaintStableDiffusionHint',
-                        'Stable Diffusion (Tier 2) ประมวลผลแบบออฟไลน์ในเครื่องเพื่อให้ได้ผลลัพธ์การลบอักษรคุณภาพสูงขึ้น โดยใช้โมเดลวาดต่อประสิทธิภาพสูง เหมาะกับภาพที่มีรายละเอียดพื้นหลังซับซ้อน',
-                      )
-                    : t(
-                        'settings.engineInpaintCloudFluxHint',
-                        'Cloud FLUX.1 (Tier 3) ใช้โมเดลระดับแนวหน้าของวงการผ่าน API บนระบบ Cloud เพื่อการสร้างพื้นหลังทดแทนที่เนียนตาที่สุด ใช้งานได้รวดเร็วแม้สเปกเครื่องไม่สูง',
-                      )}
+                      ? t(
+                          'settings.engineInpaintStableDiffusionHint',
+                          'Stable Diffusion (Tier 2) ประมวลผลแบบออฟไลน์ในเครื่องเพื่อให้ได้ผลลัพธ์การลบอักษรคุณภาพสูงขึ้น โดยใช้โมเดลวาดต่อประสิทธิภาพสูง เหมาะกับภาพที่มีรายละเอียดพื้นหลังซับซ้อน',
+                        )
+                      : t(
+                          'settings.engineInpaintCloudFluxHint',
+                          'Cloud FLUX.1 (Tier 3) ใช้โมเดลระดับแนวหน้าของวงการผ่าน API บนระบบ Cloud เพื่อการสร้างพื้นหลังทดแทนที่เนียนตาที่สุด ใช้งานได้รวดเร็วแม้สเปกเครื่องไม่สูง',
+                        )}
                 </p>
               </div>
             </section>
@@ -570,7 +625,7 @@ export default function SettingsPage() {
 
               {/* Inpaint quality sub-card */}
               <div className='bg-card border-border mb-3 rounded-lg border p-4'>
-                <h3 className='text-foreground mb-3 text-xs font-semibold uppercase tracking-wide'>
+                <h3 className='text-foreground mb-3 text-xs font-semibold tracking-wide uppercase'>
                   {t('settings.inpaintQuality', 'Inpaint quality')}
                 </h3>
                 <div className='grid grid-cols-[max-content_1fr] items-center gap-x-6 gap-y-3 text-sm'>
@@ -595,12 +650,13 @@ export default function SettingsPage() {
                         — {t('settings.inpaintDefault', 'default')}
                       </SelectItem>
                       <SelectItem value='768'>
-                        ✨ {t('settings.inpaintQualityHigh', 'Quality')} (768 px)
+                        ✨ {t('settings.inpaintQualityHigh', 'Quality')} (768
+                        px)
                       </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                <p className='text-muted-foreground/70 mt-4 border-t border-border/60 pt-3 text-xs leading-relaxed'>
+                <p className='text-muted-foreground/70 border-border/60 mt-4 border-t pt-3 text-xs leading-relaxed'>
                   {t(
                     'settings.inpaintQualityHint',
                     'Controls the maximum crop size sent to LaMa. Larger = sharper inpaint but slower (quadratic). Balanced (512 px) is recommended for most pages.',
@@ -610,13 +666,16 @@ export default function SettingsPage() {
 
               {/* Thai post-processing sub-card */}
               <div className='bg-card border-border rounded-lg border p-4'>
-                <h3 className='text-foreground mb-3 text-xs font-semibold uppercase tracking-wide'>
+                <h3 className='text-foreground mb-3 text-xs font-semibold tracking-wide uppercase'>
                   {t('settings.thaiPostProcess', 'Thai post-processing')}
                 </h3>
                 <div className='flex items-center justify-between gap-4'>
                   <div className='min-w-0'>
                     <p className='text-foreground text-sm'>
-                      {t('settings.thaiPostProcessLabel', 'Normalize quotes & spaces')}
+                      {t(
+                        'settings.thaiPostProcessLabel',
+                        'Normalize quotes & spaces',
+                      )}
                     </p>
                     <p className='text-muted-foreground mt-0.5 text-xs'>
                       {t(
@@ -632,13 +691,13 @@ export default function SettingsPage() {
                     data-testid='settings-thai-post-process'
                     onClick={() => setThaiPostProcess(!thaiPostProcess)}
                     className={[
-                      'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      'focus-visible:ring-ring relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus-visible:ring-2 focus-visible:outline-none',
                       thaiPostProcess ? 'bg-primary' : 'bg-input',
                     ].join(' ')}
                   >
                     <span
                       className={[
-                        'pointer-events-none inline-block size-4 rounded-full bg-background shadow-lg ring-0 transition-transform',
+                        'bg-background pointer-events-none inline-block size-4 rounded-full shadow-lg ring-0 transition-transform',
                         thaiPostProcess ? 'translate-x-4' : 'translate-x-0',
                       ].join(' ')}
                     />
@@ -659,7 +718,7 @@ export default function SettingsPage() {
 
                 <div className='bg-card border-border rounded-lg border p-4'>
                   <div className='space-y-4 text-sm'>
-                    <div className='flex items-center justify-between border-b border-border pb-3'>
+                    <div className='border-border flex items-center justify-between border-b pb-3'>
                       <span className='text-muted-foreground'>
                         {t('settings.deviceMl')}
                       </span>
@@ -674,7 +733,10 @@ export default function SettingsPage() {
                           {t('settings.mlComputeMode', 'ML Compute Mode')}
                         </span>
                         <span className='text-muted-foreground text-xs'>
-                          {t('settings.mlComputeModeDesc', 'Select device or force CPU')}
+                          {t(
+                            'settings.mlComputeModeDesc',
+                            'Select device or force CPU',
+                          )}
                         </span>
                       </div>
                       <Select
@@ -682,7 +744,9 @@ export default function SettingsPage() {
                         onValueChange={async (v) => {
                           setMlDeviceSelection(v)
                           try {
-                            await invoke('set_ml_device_config', { selection: v })
+                            await invoke('set_ml_device_config', {
+                              selection: v,
+                            })
                             setNeedsRelaunch(true)
                           } catch (err) {
                             console.error(err)
@@ -731,7 +795,10 @@ export default function SettingsPage() {
                 {t('settings.updaterTitle', 'Auto-updater preferences')}
               </h2>
               <p className='text-muted-foreground mb-4 text-sm'>
-                {t('settings.updaterDescription', 'Choose how Koharu handles software updates.')}
+                {t(
+                  'settings.updaterDescription',
+                  'Choose how Koharu handles software updates.',
+                )}
               </p>
 
               <div className='bg-card border-border rounded-lg border p-4'>
@@ -765,7 +832,7 @@ export default function SettingsPage() {
                     </Select>
                   </div>
 
-                  <p className='text-muted-foreground/70 border-t border-border/60 pt-3 text-xs leading-relaxed'>
+                  <p className='text-muted-foreground/70 border-border/60 border-t pt-3 text-xs leading-relaxed'>
                     {autoUpdateMode === 'auto' &&
                       t(
                         'settings.updaterAutoHint',
@@ -820,7 +887,10 @@ export default function SettingsPage() {
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)))
+  const i = Math.min(
+    units.length - 1,
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+  )
   const value = bytes / Math.pow(1024, i)
   return `${value.toFixed(value >= 10 || i === 0 ? 0 : 1)} ${units[i]}`
 }
@@ -937,7 +1007,7 @@ function StorageSection() {
       <p className='text-muted-foreground mb-4 text-sm'>
         {t(
           'settings.storageDescription',
-          "On-disk data koharu manages outside your project folders. Project files (.khr / chapter pages / SQLite) are never touched by anything here.",
+          'On-disk data koharu manages outside your project folders. Project files (.khr / chapter pages / SQLite) are never touched by anything here.',
         )}
       </p>
 
@@ -955,7 +1025,7 @@ function StorageSection() {
                   <div className='text-foreground font-medium'>
                     {spec.label}
                     {spec.destructive && (
-                      <span className='ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400'>
+                      <span className='ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-amber-700 uppercase dark:text-amber-400'>
                         user data
                       </span>
                     )}
@@ -971,15 +1041,13 @@ function StorageSection() {
                 </div>
                 <div className='flex shrink-0 flex-col items-end gap-1'>
                   <span className='text-foreground font-mono text-xs tabular-nums'>
-                    {entry?.exists
-                      ? formatBytes(entry.sizeBytes)
-                      : '—'}
+                    {entry?.exists ? formatBytes(entry.sizeBytes) : '—'}
                   </span>
                   <button
                     type='button'
                     disabled={!entry?.exists || isBusy}
                     onClick={() => clear(spec.target, spec)}
-                    className='text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:hover:text-muted-foreground text-xs underline-offset-2 hover:underline disabled:no-underline'
+                    className='text-muted-foreground hover:text-foreground disabled:hover:text-muted-foreground text-xs underline-offset-2 hover:underline disabled:no-underline disabled:opacity-40'
                   >
                     {isBusy ? 'Clearing…' : 'Clear'}
                   </button>
@@ -994,12 +1062,14 @@ function StorageSection() {
             <div className='min-w-0 flex-1'>
               <div className='text-foreground font-medium'>
                 Preferences
-                <span className='ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400'>
+                <span className='ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-amber-700 uppercase dark:text-amber-400'>
                   user data
                 </span>
               </div>
               <div className='text-muted-foreground/80 mt-0.5 text-xs leading-relaxed'>
-                Cloud API keys, OCR / detector choices, theme, language, brush, and other UI prefs. Stored in browser localStorage; project files unaffected.
+                Cloud API keys, OCR / detector choices, theme, language, brush,
+                and other UI prefs. Stored in browser localStorage; project
+                files unaffected.
               </div>
             </div>
             <div className='flex shrink-0 flex-col items-end gap-1'>
@@ -1007,7 +1077,7 @@ function StorageSection() {
                 type='button'
                 disabled={busy === 'prefs'}
                 onClick={resetPrefs}
-                className='text-muted-foreground hover:text-foreground disabled:opacity-40 text-xs underline-offset-2 hover:underline'
+                className='text-muted-foreground hover:text-foreground text-xs underline-offset-2 hover:underline disabled:opacity-40'
               >
                 {busy === 'prefs' ? 'Resetting…' : 'Reset to defaults'}
               </button>
@@ -1016,12 +1086,12 @@ function StorageSection() {
         </div>
 
         {lastResult && (
-          <p className='text-muted-foreground mt-3 border-t border-border/60 pt-3 text-xs'>
+          <p className='text-muted-foreground border-border/60 mt-3 border-t pt-3 text-xs'>
             {lastResult}
           </p>
         )}
         {stats.isError && (
-          <p className='text-amber-600 dark:text-amber-400 mt-3 text-xs'>
+          <p className='mt-3 text-xs text-amber-600 dark:text-amber-400'>
             Could not read storage stats — backend may not be ready yet.
           </p>
         )}
@@ -1055,71 +1125,81 @@ const AVAILABLE_ADDONS: AddonItem[] = [
     name: 'French Language Pack Addon',
     code: 'fr-FR',
     label: 'Français (French)',
-    descEn: 'Enables French UI (EN/FR) and configures dynamic translation post-processing for French spacing and guillemets.',
-    descTh: 'เปิดใช้งานหน้า UI ภาษาฝรั่งเศส (EN/FR) และระบบ Dynamic Post-Processor สำหรับเครื่องหมายวรรคตอนและการตัดคำภาษาฝรั่งเศส',
+    descEn:
+      'Enables French UI (EN/FR) and configures dynamic translation post-processing for French spacing and guillemets.',
+    descTh:
+      'เปิดใช้งานหน้า UI ภาษาฝรั่งเศส (EN/FR) และระบบ Dynamic Post-Processor สำหรับเครื่องหมายวรรคตอนและการตัดคำภาษาฝรั่งเศส',
     targetLanguage: 'French',
     author: 'HetCreep',
     version: '1.0.0',
     badgeEn: 'French Spacing & Guillemets',
     badgeTh: 'วรรณยุกต์และเครื่องหมายฝรั่งเศส',
-    resources: frFR
+    resources: frFR,
   },
   {
     id: 'addon-es',
     name: 'Spanish Language Pack Addon',
     code: 'es-ES',
     label: 'Español (Spanish)',
-    descEn: 'Enables Spanish UI (EN/ES) and adapts the translation pipeline for Spanish quotation metrics.',
-    descTh: 'เปิดใช้งานหน้า UI ภาษาสเปน (EN/ES) และปรับท่อประมวลผลคำแปลเพื่อรอบรับโควตเครื่องหมายคำพูดภาษาสเปน',
+    descEn:
+      'Enables Spanish UI (EN/ES) and adapts the translation pipeline for Spanish quotation metrics.',
+    descTh:
+      'เปิดใช้งานหน้า UI ภาษาสเปน (EN/ES) และปรับท่อประมวลผลคำแปลเพื่อรอบรับโควตเครื่องหมายคำพูดภาษาสเปน',
     targetLanguage: 'Spanish',
     author: 'HetCreep',
     version: '1.0.0',
     badgeEn: 'Spanish Quotes & Spacing',
     badgeTh: 'เครื่องหมายโควตภาษาสเปน',
-    resources: esES
+    resources: esES,
   },
   {
     id: 'addon-pt',
     name: 'Portuguese Language Pack Addon',
     code: 'pt-PT',
     label: 'Português (Portuguese)',
-    descEn: 'Enables Portuguese UI (EN/PT) and optimizes dynamic bubble capacity rules for Portuguese translation.',
-    descTh: 'เปิดใช้งานหน้า UI ภาษาโปรตุเกส (EN/PT) และปรับระดับพื้นที่ฟองคำพูดคำแปลของภาษาโปรตุเกสให้พอดีแม่นยำ',
+    descEn:
+      'Enables Portuguese UI (EN/PT) and optimizes dynamic bubble capacity rules for Portuguese translation.',
+    descTh:
+      'เปิดใช้งานหน้า UI ภาษาโปรตุเกส (EN/PT) และปรับระดับพื้นที่ฟองคำพูดคำแปลของภาษาโปรตุเกสให้พอดีแม่นยำ',
     targetLanguage: 'Portuguese',
     author: 'HetCreep',
     version: '1.0.0',
     badgeEn: 'Portuguese Dynamic Adjuster',
     badgeTh: 'ความจุข้อความโปรตุเกส',
-    resources: ptPT
+    resources: ptPT,
   },
   {
     id: 'addon-cn',
     name: 'Mandarin Chinese Language Addon',
     code: 'zh-CN',
     label: '简体中文 (Chinese)',
-    descEn: 'Enables Mandarin Chinese UI (EN/CN) and activates CJK vertical writing layouts in tall speech bubbles.',
-    descTh: 'เปิดใช้งานหน้า UI ภาษาจีนกลาง (EN/CN) และเปิดใช้ระบบประมวลผลข้อความ CJK แนวตั้งในกล่องฟองคำพูดทรงสูง',
+    descEn:
+      'Enables Mandarin Chinese UI (EN/CN) and activates CJK vertical writing layouts in tall speech bubbles.',
+    descTh:
+      'เปิดใช้งานหน้า UI ภาษาจีนกลาง (EN/CN) และเปิดใช้ระบบประมวลผลข้อความ CJK แนวตั้งในกล่องฟองคำพูดทรงสูง',
     targetLanguage: 'Chinese',
     author: 'HetCreep',
     version: '1.0.0',
     badgeEn: 'CJK Vertical Writing & UI',
     badgeTh: 'ข้อความภาษาจีนแนวตั้ง & UI',
-    resources: zhCN
+    resources: zhCN,
   },
   {
     id: 'addon-ru',
     name: 'Russian Language Pack Addon',
     code: 'ru-RU',
     label: 'Русский (Russian)',
-    descEn: 'Enables Russian UI (EN/RU) and adds full Cyrillic font fallbacks across the layout renderer.',
-    descTh: 'เปิดใช้งานหน้า UI ภาษารัสเซีย (EN/RU) และปรับแต่งระบบฟอนต์ฟอลแบ็กแบบซีริลลิก (Cyrillic Fonts) สำหรับความจุคำแปลรัสเซีย',
+    descEn:
+      'Enables Russian UI (EN/RU) and adds full Cyrillic font fallbacks across the layout renderer.',
+    descTh:
+      'เปิดใช้งานหน้า UI ภาษารัสเซีย (EN/RU) และปรับแต่งระบบฟอนต์ฟอลแบ็กแบบซีริลลิก (Cyrillic Fonts) สำหรับความจุคำแปลรัสเซีย',
     targetLanguage: 'Russian',
     author: 'HetCreep',
     version: '1.0.0',
     badgeEn: 'Cyrillic Fonts & Spacing',
     badgeTh: 'ระบบฟอนต์ซีริลลิก & UI',
-    resources: ruRU
-  }
+    resources: ruRU,
+  },
 ]
 
 function AddonStoreSection() {
@@ -1127,7 +1207,9 @@ function AddonStoreSection() {
   const installedAddons = usePreferencesStore((s) => s.installedAddons)
   const setInstalledAddons = usePreferencesStore((s) => s.setInstalledAddons)
   const cloudTargetLanguage = usePreferencesStore((s) => s.cloudTargetLanguage)
-  const setCloudTargetLanguage = usePreferencesStore((s) => s.setCloudTargetLanguage)
+  const setCloudTargetLanguage = usePreferencesStore(
+    (s) => s.setCloudTargetLanguage,
+  )
 
   const [installingId, setInstallingId] = useState<string | null>(null)
   const [installProgress, setInstallProgress] = useState<number>(0)
@@ -1143,38 +1225,47 @@ function AddonStoreSection() {
       setInstallProgress(30)
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 3000)
-      
+
       let resources = addon.resources
       try {
         const res = await fetch(
           `https://cdn.jsdelivr.net/gh/EarthWL/koharu-th-addons@main/langs/${addon.code}.json`,
-          { signal: controller.signal }
+          { signal: controller.signal },
         )
         clearTimeout(timeoutId)
         if (res.ok) {
           resources = await res.json()
         }
       } catch (err) {
-        console.warn(`CDN fetch failed, falling back to bundled resources:`, err)
+        console.warn(
+          `CDN fetch failed, falling back to bundled resources:`,
+          err,
+        )
       }
 
       setInstallProgress(60)
       await new Promise((resolve) => setTimeout(resolve, 300))
-      
+
       setInstallProgress(90)
       // 1. Inject resource bundle dynamically
       i18n.addResourceBundle(addon.code, 'translation', resources, true, true)
-      
+
       // 2. Add language labels dynamically
       const activeLanguages = Object.keys(i18n.options.resources || {})
       activeLanguages.forEach((lang) => {
-        i18n.addResourceBundle(lang, 'translation', {
-          menu: {
-            languages: {
-              [addon.code]: addon.label
-            }
-          }
-        }, true, true)
+        i18n.addResourceBundle(
+          lang,
+          'translation',
+          {
+            menu: {
+              languages: {
+                [addon.code]: addon.label,
+              },
+            },
+          },
+          true,
+          true,
+        )
       })
 
       // 3. Update store state
@@ -1192,7 +1283,7 @@ function AddonStoreSection() {
   const handleUninstall = (addon: AddonItem) => {
     // Remove addon from installed list
     setInstalledAddons(installedAddons.filter((id) => id !== addon.id))
-    
+
     // Fall back target language to Thai if current was uninstalled
     if (cloudTargetLanguage === addon.targetLanguage) {
       setCloudTargetLanguage('Thai')
@@ -1211,8 +1302,8 @@ function AddonStoreSection() {
         {isTh ? 'จัดการ Addon เสริมภาษา' : 'Addons & Language Store'}
       </h2>
       <p className='text-muted-foreground mb-4 text-sm leading-relaxed'>
-        {isTh 
-          ? 'ติดตั้ง Addon เสริมสําหรับแต่ละภาษา เพื่อปรับเปลี่ยนหน้าตาเมนูโปรแกรม ตลอดจนลอจิกวิเคราะห์ขนาดกรอบคำพูดและเครื่องหมายวรรคตอนสำหรับภาษานั้นๆ แบบอัตโนมัติ' 
+        {isTh
+          ? 'ติดตั้ง Addon เสริมสําหรับแต่ละภาษา เพื่อปรับเปลี่ยนหน้าตาเมนูโปรแกรม ตลอดจนลอจิกวิเคราะห์ขนาดกรอบคำพูดและเครื่องหมายวรรคตอนสำหรับภาษานั้นๆ แบบอัตโนมัติ'
           : 'Install language addons to dynamically customize the user interface, typography rules, speech bubble measurements, and punctuation cleanup pipelines for specific languages.'}
       </p>
 
@@ -1223,43 +1314,48 @@ function AddonStoreSection() {
           const isActive = cloudTargetLanguage === addon.targetLanguage
 
           return (
-            <div 
-              key={addon.id} 
-              className='bg-card border-border relative overflow-hidden rounded-lg border p-4 transition-all duration-300 hover:border-primary/30'
+            <div
+              key={addon.id}
+              className='bg-card border-border hover:border-primary/30 relative overflow-hidden rounded-lg border p-4 transition-all duration-300'
             >
               {/* Active language border glow */}
               {isActive && (
-                <div className='bg-primary/80 absolute top-0 left-0 bottom-0 w-1' />
+                <div className='bg-primary/80 absolute top-0 bottom-0 left-0 w-1' />
               )}
 
               <div className='flex items-start justify-between gap-4'>
                 <div className='min-w-0 flex-1'>
-                  <div className='flex items-center gap-2 flex-wrap'>
+                  <div className='flex flex-wrap items-center gap-2'>
                     <h3 className='text-foreground text-sm font-semibold'>
                       {addon.name}
                     </h3>
-                    <span className='bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[10px] font-mono'>
+                    <span className='bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[10px]'>
                       v{addon.version}
                     </span>
                     <span className='border-primary/20 bg-primary/5 text-primary rounded-full border px-2 py-0.5 text-[9px] font-medium tracking-wide uppercase'>
                       {isTh ? addon.badgeTh : addon.badgeEn}
                     </span>
                     {isActive && (
-                      <span className='bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide'>
+                      <span className='flex items-center gap-0.5 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-emerald-600 uppercase dark:text-emerald-400'>
                         <Check className='size-2.5' />
                         {isTh ? 'กำลังใช้งาน' : 'Active Target'}
                       </span>
                     )}
                   </div>
-                  
+
                   <p className='text-muted-foreground/90 mt-1.5 text-xs leading-relaxed'>
                     {isTh ? addon.descTh : addon.descEn}
                   </p>
 
-                  <div className='text-muted-foreground/60 mt-2 flex items-center gap-3 text-[10px] uppercase tracking-wide'>
-                    <span>{isTh ? 'ผู้พัฒนา' : 'Developer'}: {addon.author}</span>
+                  <div className='text-muted-foreground/60 mt-2 flex items-center gap-3 text-[10px] tracking-wide uppercase'>
+                    <span>
+                      {isTh ? 'ผู้พัฒนา' : 'Developer'}: {addon.author}
+                    </span>
                     <span>•</span>
-                    <span>{isTh ? 'ภาษาปลายทาง' : 'Target Lang'}: {addon.targetLanguage}</span>
+                    <span>
+                      {isTh ? 'ภาษาปลายทาง' : 'Target Lang'}:{' '}
+                      {addon.targetLanguage}
+                    </span>
                   </div>
                 </div>
 
@@ -1294,9 +1390,9 @@ function AddonStoreSection() {
 
               {/* Progress bar overlay during installation */}
               {isInstalling && (
-                <div className='bg-muted absolute bottom-0 left-0 right-0 h-1'>
-                  <div 
-                    className='bg-primary h-full transition-all duration-150' 
+                <div className='bg-muted absolute right-0 bottom-0 left-0 h-1'>
+                  <div
+                    className='bg-primary h-full transition-all duration-150'
                     style={{ width: `${installProgress}%` }}
                   />
                 </div>
@@ -1307,36 +1403,36 @@ function AddonStoreSection() {
       </div>
 
       {relaunchAddon && (
-        <div className='fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200'>
-          <div className='bg-card border-border max-w-sm w-full border rounded-xl p-6 shadow-2xl relative flex flex-col gap-4 animate-in zoom-in-95 duration-200'>
-            <div className='flex items-center gap-3 border-b border-border pb-3'>
+        <div className='bg-background/80 animate-in fade-in fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm duration-200'>
+          <div className='bg-card border-border animate-in zoom-in-95 relative flex w-full max-w-sm flex-col gap-4 rounded-xl border p-6 shadow-2xl duration-200'>
+            <div className='border-border flex items-center gap-3 border-b pb-3'>
               <Puzzle className='text-primary size-5 animate-pulse' />
               <h3 className='text-foreground text-base font-bold'>
                 {isTh ? '🧩 ติดตั้ง Addon สำเร็จ!' : '🧩 Addon Installed!'}
               </h3>
             </div>
-            
+
             <p className='text-muted-foreground text-sm leading-relaxed'>
-              {isTh 
+              {isTh
                 ? `ติดตั้งภาษา ${relaunchAddon.label} เรียบร้อยแล้ว! เพื่อสลับการแสดงผลหน้า UI หลักทั้งหมดของตัวโปรแกรมเป็นภาษาใหม่ทันที กรุณากดปุ่มรีสตาร์ทแอป หรือเลือกทำภายหลัง`
                 : `Language pack ${relaunchAddon.label} has been successfully installed! To switch the main user interface language immediately, please restart the application, or select switch later.`}
             </p>
 
-            <div className='flex gap-3 mt-2'>
+            <div className='mt-2 flex gap-3'>
               <button
                 type='button'
                 onClick={() => {
                   i18n.changeLanguage(relaunchAddon.code)
                   invoke('relaunch_app')
                 }}
-                className='bg-primary text-primary-foreground hover:bg-primary/95 flex-1 h-9 rounded-md text-xs font-semibold shadow-sm transition'
+                className='bg-primary text-primary-foreground hover:bg-primary/95 h-9 flex-1 rounded-md text-xs font-semibold shadow-sm transition'
               >
                 {isTh ? 'รีสตาร์ททันที' : 'Restart Now'}
               </button>
               <button
                 type='button'
                 onClick={() => setRelaunchAddon(null)}
-                className='border border-input hover:bg-accent hover:text-accent-foreground flex-1 h-9 rounded-md text-xs font-semibold transition'
+                className='border-input hover:bg-accent hover:text-accent-foreground h-9 flex-1 rounded-md border text-xs font-semibold transition'
               >
                 {isTh ? 'สลับภายหลัง' : 'Switch Later'}
               </button>
@@ -1351,17 +1447,17 @@ function AddonStoreSection() {
 function NextGenStudioSection() {
   const { i18n, t } = useTranslation()
   const isTh = i18n.language === 'th' || i18n.language === 'th-TH'
-  const [benchmarking, setBenchmarking] = useState(false);
-  const [syncEnabled, setSyncEnabled] = useState(false);
-  const [modelManagerOpen, setModelManagerOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'models' | 'dynamicForm'>('models');
-  
+  const [benchmarking, setBenchmarking] = useState(false)
+  const [syncEnabled, setSyncEnabled] = useState(false)
+  const [modelManagerOpen, setModelManagerOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<'models' | 'dynamicForm'>('models')
+
   // Backups state
-  const [backupManagerOpen, setBackupManagerOpen] = useState(false);
-  const [backups, setBackups] = useState<BackupDto[]>([]);
-  const [autoBackupEnabled, setAutoBackupEnabled] = useState(true);
-  const [creatingBackup, setCreatingBackup] = useState(false);
-  const [restoring, setRestoring] = useState(false);
+  const [backupManagerOpen, setBackupManagerOpen] = useState(false)
+  const [backups, setBackups] = useState<BackupDto[]>([])
+  const [autoBackupEnabled, setAutoBackupEnabled] = useState(true)
+  const [creatingBackup, setCreatingBackup] = useState(false)
+  const [restoring, setRestoring] = useState(false)
 
   // Model Cache / Downloads state
   const downloads = useDownloadStore((s) => s.downloads)
@@ -1409,23 +1505,29 @@ function NextGenStudioSection() {
   useEffect(() => {
     if (backupManagerOpen) {
       loadBackups()
-      const enabled = localStorage.getItem('koharu_auto_backup_enabled') !== 'false'
+      const enabled =
+        localStorage.getItem('koharu_auto_backup_enabled') !== 'false'
       setAutoBackupEnabled(enabled)
     }
   }, [backupManagerOpen])
 
   const handleClearCache = async () => {
-    if (!confirm(isTh 
-      ? 'คุณแน่ใจหรือไม่ว่าต้องการล้างแคชโมเดล AI? โมเดลจะถูกดาวน์โหลดใหม่โดยอัตโนมัติเมื่อมีการใช้งานครั้งแรก' 
-      : 'Are you sure you want to wipe AI Model cache? Models will be automatically re-downloaded on first inference.'
-    )) return;
-    
+    if (
+      !confirm(
+        isTh
+          ? 'คุณแน่ใจหรือไม่ว่าต้องการล้างแคชโมเดล AI? โมเดลจะถูกดาวน์โหลดใหม่โดยอัตโนมัติเมื่อมีการใช้งานครั้งแรก'
+          : 'Are you sure you want to wipe AI Model cache? Models will be automatically re-downloaded on first inference.',
+      )
+    )
+      return
+
     setClearingCache(true)
     try {
       const res = await api.appStorageClear(['modelsHf'])
-      alert(isTh 
-        ? `ล้างแคชเรียบร้อยแล้ว! คืนพื้นที่ว่างในเครื่อง: ${formatBytes(res.freedBytes)}`
-        : `Successfully cleared cache! Freed ${formatBytes(res.freedBytes)}.`
+      alert(
+        isTh
+          ? `ล้างแคชเรียบร้อยแล้ว! คืนพื้นที่ว่างในเครื่อง: ${formatBytes(res.freedBytes)}`
+          : `Successfully cleared cache! Freed ${formatBytes(res.freedBytes)}.`,
       )
       loadCacheSize()
     } catch (err: any) {
@@ -1440,23 +1542,23 @@ function NextGenStudioSection() {
       const diskSpace = await api.projectCheckDiskSpace()
       const safetyMargin = 100 * 1024 * 1024 // 100MB safety margin
       const neededBytes = totalSize + safetyMargin
-      
+
       if (diskSpace.freeBytes < neededBytes) {
         const freeMb = Math.round(diskSpace.freeBytes / (1024 * 1024))
         const neededMb = Math.round(neededBytes / (1024 * 1024))
         alert(
-          isTh 
+          isTh
             ? `⚠️ พื้นที่ฮาร์ดดิสก์ไม่เพียงพอสำหรับการดาวน์โหลด!\nต้องการอย่างน้อย: ${neededMb} MB\nพื้นที่ว่างปัจจุบันของคุณ: ${freeMb} MB\nกรุณาเคลียร์พื้นที่ในเครื่องก่อนดาวน์โหลดโมเดล`
-            : `⚠️ Insufficient disk space for download!\nRequires at least: ${neededMb} MB\nYour current free space: ${freeMb} MB\nPlease free up some disk space before installing.`
+            : `⚠️ Insufficient disk space for download!\nRequires at least: ${neededMb} MB\nYour current free space: ${freeMb} MB\nPlease free up some disk space before installing.`,
         )
         return
       }
     } catch (err: any) {
-      console.warn("Failed to check disk space:", err)
+      console.warn('Failed to check disk space:', err)
     }
 
     let downloaded = 0
-    
+
     // Initial started state
     const nextStarted = new Map(useDownloadStore.getState().downloads)
     nextStarted.set(filename, {
@@ -1464,7 +1566,7 @@ function NextGenStudioSection() {
       downloaded: 0,
       total: totalSize,
       status: 'started',
-      percent: 0
+      percent: 0,
     })
     useDownloadStore.setState({ downloads: nextStarted })
 
@@ -1473,7 +1575,7 @@ function NextGenStudioSection() {
       if (downloaded >= totalSize) {
         downloaded = totalSize
         clearInterval(interval)
-        
+
         // Completed state
         const nextCompleted = new Map(useDownloadStore.getState().downloads)
         nextCompleted.set(filename, {
@@ -1481,10 +1583,10 @@ function NextGenStudioSection() {
           downloaded,
           total: totalSize,
           status: 'completed',
-          percent: 100
+          percent: 100,
         })
         useDownloadStore.setState({ downloads: nextCompleted })
-        
+
         // Auto-remove after 3 seconds
         setTimeout(() => {
           const current = useDownloadStore.getState().downloads
@@ -1503,7 +1605,7 @@ function NextGenStudioSection() {
           downloaded,
           total: totalSize,
           status: 'downloading',
-          percent: Math.round((downloaded / totalSize) * 100)
+          percent: Math.round((downloaded / totalSize) * 100),
         })
         useDownloadStore.setState({ downloads: nextDownloading })
       }
@@ -1523,15 +1625,19 @@ function NextGenStudioSection() {
   }
 
   const handleRestoreBackup = async (name: string) => {
-    const msg = isTh 
+    const msg = isTh
       ? `คุณแน่ใจหรือไม่ว่าต้องการย้อนกลับ (Restore) โปรเจกต์เป็นเวอร์ชัน "${name}"?\nงานที่ยังไม่ได้เซฟทั้งหมดในเซสชันปัจจุบันจะถูกเขียนทับ`
-      : `Are you sure you want to restore snapshot "${name}"?\nAll unsaved work in the current session will be overwritten.`;
-    
-    if (!confirm(msg)) return;
+      : `Are you sure you want to restore snapshot "${name}"?\nAll unsaved work in the current session will be overwritten.`
+
+    if (!confirm(msg)) return
     setRestoring(true)
     try {
       await api.projectBackupRestore(name)
-      alert(isTh ? 'กู้คืนข้อมูลโปรเจกต์สำเร็จแล้ว! กำลังโหลดหน้าใหม่...' : 'Project restored successfully! Reloading studio...')
+      alert(
+        isTh
+          ? 'กู้คืนข้อมูลโปรเจกต์สำเร็จแล้ว! กำลังโหลดหน้าใหม่...'
+          : 'Project restored successfully! Reloading studio...',
+      )
       window.location.reload()
     } catch (err: any) {
       alert(`Failed to restore project: ${err?.message || err}`)
@@ -1541,82 +1647,128 @@ function NextGenStudioSection() {
   }
 
   return (
-    <section className='mb-8 relative overflow-hidden rounded-xl border border-primary/30 bg-primary/5 p-1 shadow-lg shadow-primary/5'>
-      <div className='absolute -right-4 -top-4 size-24 bg-primary/20 blur-2xl rounded-full pointer-events-none' />
-      <div className='absolute -left-4 -bottom-4 size-24 bg-accent/20 blur-2xl rounded-full pointer-events-none' />
-      
-      <div className='bg-card/50 backdrop-blur-md rounded-lg p-5 relative z-10'>
-        <div className='flex items-center justify-between mb-2'>
+    <section className='border-primary/30 bg-primary/5 shadow-primary/5 relative mb-8 overflow-hidden rounded-xl border p-1 shadow-lg'>
+      <div className='bg-primary/20 pointer-events-none absolute -top-4 -right-4 size-24 rounded-full blur-2xl' />
+      <div className='bg-accent/20 pointer-events-none absolute -bottom-4 -left-4 size-24 rounded-full blur-2xl' />
+
+      <div className='bg-card/50 relative z-10 rounded-lg p-5 backdrop-blur-md'>
+        <div className='mb-2 flex items-center justify-between'>
           <div className='flex items-center gap-2'>
             <Zap className='text-primary size-5 animate-pulse' />
-            <h2 className='text-foreground text-sm font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent'>
-              {isTh ? 'ส่วนเสริมNext-Gen Studio' : 'Next-Gen Studio Enhancements'}
+            <h2 className='text-foreground from-primary to-accent bg-gradient-to-r bg-clip-text text-sm font-bold text-transparent'>
+              {isTh
+                ? 'ส่วนเสริมNext-Gen Studio'
+                : 'Next-Gen Studio Enhancements'}
             </h2>
           </div>
-          <span className='px-2 py-0.5 bg-primary/20 text-primary rounded text-[9px] font-bold tracking-widest uppercase'>Premium</span>
+          <span className='bg-primary/20 text-primary rounded px-2 py-0.5 text-[9px] font-bold tracking-widest uppercase'>
+            Premium
+          </span>
         </div>
         <p className='text-muted-foreground mb-5 text-sm'>
-          {isTh ? 'ฟีเจอร์ระดับพรีเมียมเฉพาะของ Koharu-TH (เปิดใช้งานแล้ว)' : 'Premium features exclusive to Koharu-TH (activated)'}
+          {isTh
+            ? 'ฟีเจอร์ระดับพรีเมียมเฉพาะของ Koharu-TH (เปิดใช้งานแล้ว)'
+            : 'Premium features exclusive to Koharu-TH (activated)'}
         </p>
 
         <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-3'>
           {/* 1. Dynamic Theme */}
-          <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2 shadow-sm'>
+          <div className='bg-background/80 border-border/50 flex flex-col gap-2 rounded-lg border p-4 shadow-sm'>
             <div className='flex items-center gap-2'>
-              <Heart className='text-rose-400 size-4' />
-              <h3 className='text-xs font-bold'>{isTh ? 'ระบบปรับแต่งสี Dynamic Theme' : 'Dynamic Theme Customizer'}</h3>
+              <Heart className='size-4 text-rose-400' />
+              <h3 className='text-xs font-bold'>
+                {isTh
+                  ? 'ระบบปรับแต่งสี Dynamic Theme'
+                  : 'Dynamic Theme Customizer'}
+              </h3>
             </div>
             <p className='text-muted-foreground text-[10px] leading-relaxed'>
-              {isTh ? 'ปลดล็อกธีมกระจกโปร่งแสง (Cyberpunk, Sakura, Obsidian) ในแถบเมนูแสดงผล' : 'Unlock premium glassmorphism themes (Cyberpunk, Sakura, Obsidian) inside Appearance tab'}
+              {isTh
+                ? 'ปลดล็อกธีมกระจกโปร่งแสง (Cyberpunk, Sakura, Obsidian) ในแถบเมนูแสดงผล'
+                : 'Unlock premium glassmorphism themes (Cyberpunk, Sakura, Obsidian) inside Appearance tab'}
             </p>
             <div className='mt-auto flex justify-end'>
-              <span className='text-[10px] text-primary font-semibold px-2 py-1 bg-primary/10 rounded-full'>
+              <span className='text-primary bg-primary/10 rounded-full px-2 py-1 text-[10px] font-semibold'>
                 ✨ {isTh ? 'เปิดใช้งานอยู่' : 'Activated'}
               </span>
             </div>
           </div>
 
           {/* 2. Model Manager & Dynamic Spec */}
-          <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2 shadow-sm'>
+          <div className='bg-background/80 border-border/50 flex flex-col gap-2 rounded-lg border p-4 shadow-sm'>
             <div className='flex items-center gap-2'>
-              <Download className='text-blue-400 size-4' />
-              <h3 className='text-xs font-bold'>{isTh ? 'ระบบจัดการโมเดล AI Model & Engine' : 'AI Model & Engine Manager'}</h3>
+              <Download className='size-4 text-blue-400' />
+              <h3 className='text-xs font-bold'>
+                {isTh
+                  ? 'ระบบจัดการโมเดล AI Model & Engine'
+                  : 'AI Model & Engine Manager'}
+              </h3>
             </div>
             <p className='text-muted-foreground text-[10px] leading-relaxed'>
-              {isTh ? 'จัดการดาวน์โหลดสลับโมเดล เช็กพื้นที่ และทดลองใช้งานระบบสร้างฟอร์มตั้งค่าตามสเปก (Phase 4)' : 'Manage AI model downloads, inspect disk sizes, and test dynamic form generation builder'}
+              {isTh
+                ? 'จัดการดาวน์โหลดสลับโมเดล เช็กพื้นที่ และทดลองใช้งานระบบสร้างฟอร์มตั้งค่าตามสเปก (Phase 4)'
+                : 'Manage AI model downloads, inspect disk sizes, and test dynamic form generation builder'}
             </p>
-            <Button size='sm' variant='secondary' className='mt-auto h-7 text-[10px] bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20' onClick={() => setModelManagerOpen(true)}>
+            <Button
+              size='sm'
+              variant='secondary'
+              className='mt-auto h-7 border border-blue-500/20 bg-blue-500/10 text-[10px] text-blue-400 hover:bg-blue-500/20'
+              onClick={() => setModelManagerOpen(true)}
+            >
               {isTh ? 'เปิดหน้าจัดการโมเดล AI' : 'Open AI Model Manager'}
             </Button>
           </div>
 
           {/* 3. Real-time Sync */}
-          <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2 shadow-sm'>
+          <div className='bg-background/80 border-border/50 flex flex-col gap-2 rounded-lg border p-4 shadow-sm'>
             <div className='flex items-center gap-2'>
-              <MonitorIcon className='text-green-400 size-4' />
-              <h3 className='text-xs font-bold'>{isTh ? 'ระบบซิงก์ทำงานร่วมกัน P2P Sync (Phase 5)' : 'Collaborative Sync (Phase 5 Spec)'}</h3>
+              <MonitorIcon className='size-4 text-green-400' />
+              <h3 className='text-xs font-bold'>
+                {isTh
+                  ? 'ระบบซิงก์ทำงานร่วมกัน P2P Sync (Phase 5)'
+                  : 'Collaborative Sync (Phase 5 Spec)'}
+              </h3>
             </div>
             <p className='text-muted-foreground text-[10px] leading-relaxed'>
-              {isTh ? 'เชื่อม P2P / Cloud เพื่อแชร์ประวัติแก้ไขและคำศัพท์แปลให้ทีมแบบเรียลไทม์' : 'Connect via P2P/Cloud rooms to share translate events, text bubbles, and dictionary with team live'}
+              {isTh
+                ? 'เชื่อม P2P / Cloud เพื่อแชร์ประวัติแก้ไขและคำศัพท์แปลให้ทีมแบบเรียลไทม์'
+                : 'Connect via P2P/Cloud rooms to share translate events, text bubbles, and dictionary with team live'}
             </p>
-            <Button size='sm' variant={syncEnabled ? 'default' : 'outline'} className={`mt-auto h-7 text-[10px] transition-all duration-300 ${syncEnabled ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-0' : 'bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/20'}`} onClick={() => setSyncEnabled(!syncEnabled)}>
-              {syncEnabled ? (isTh ? 'เชื่อมต่อห้อง #8472 สำเร็จ' : 'Connected to Room #8472') : (isTh ? 'เชื่อมต่อห้องแปลทีม' : 'Connect Studio Room')}
+            <Button
+              size='sm'
+              variant={syncEnabled ? 'default' : 'outline'}
+              className={`mt-auto h-7 text-[10px] transition-all duration-300 ${syncEnabled ? 'border-0 bg-emerald-600 text-white hover:bg-emerald-700' : 'border border-green-500/20 bg-green-500/10 text-green-400 hover:bg-green-500/20'}`}
+              onClick={() => setSyncEnabled(!syncEnabled)}
+            >
+              {syncEnabled
+                ? isTh
+                  ? 'เชื่อมต่อห้อง #8472 สำเร็จ'
+                  : 'Connected to Room #8472'
+                : isTh
+                  ? 'เชื่อมต่อห้องแปลทีม'
+                  : 'Connect Studio Room'}
             </Button>
           </div>
 
           {/* 4. Hardware Fallback */}
-          <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2 shadow-sm'>
+          <div className='bg-background/80 border-border/50 flex flex-col gap-2 rounded-lg border p-4 shadow-sm'>
             <div className='flex items-center gap-2'>
-              <Gem className='text-purple-400 size-4' />
-              <h3 className='text-xs font-bold'>{isTh ? 'ระบบทดสอบความเร็ว Hardware Fallback' : 'Hardware Fallback'}</h3>
+              <Gem className='size-4 text-purple-400' />
+              <h3 className='text-xs font-bold'>
+                {isTh
+                  ? 'ระบบทดสอบความเร็ว Hardware Fallback'
+                  : 'Hardware Fallback'}
+              </h3>
             </div>
             <p className='text-muted-foreground text-[10px] leading-relaxed'>
-              {isTh ? 'รัน Benchmark สแกนหาตัวเร่งที่ดีที่สุดสำหรับฮาร์ดแวร์ปัจจุบัน' : 'Run micro-benchmarks to scan for the best ML accelerator matching current graphics/CPU specs'}
+              {isTh
+                ? 'รัน Benchmark สแกนหาตัวเร่งที่ดีที่สุดสำหรับฮาร์ดแวร์ปัจจุบัน'
+                : 'Run micro-benchmarks to scan for the best ML accelerator matching current graphics/CPU specs'}
             </p>
-            <Button 
-              size='sm' 
-              variant='secondary' 
-              className='mt-auto h-7 text-[10px] bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20'
+            <Button
+              size='sm'
+              variant='secondary'
+              className='mt-auto h-7 border border-purple-500/20 bg-purple-500/10 text-[10px] text-purple-400 hover:bg-purple-500/20'
               disabled={benchmarking}
               onClick={() => {
                 setBenchmarking(true)
@@ -1625,21 +1777,40 @@ function NextGenStudioSection() {
                 }, 2000)
               }}
             >
-              {benchmarking ? <Loader2 className='size-3 animate-spin mr-1' /> : null}
-              {benchmarking ? (isTh ? 'กำลังแสกน...' : 'Scanning...') : (isTh ? 'รัน Benchmark' : 'Run Benchmark')}
+              {benchmarking ? (
+                <Loader2 className='mr-1 size-3 animate-spin' />
+              ) : null}
+              {benchmarking
+                ? isTh
+                  ? 'กำลังแสกน...'
+                  : 'Scanning...'
+                : isTh
+                  ? 'รัน Benchmark'
+                  : 'Run Benchmark'}
             </Button>
           </div>
 
           {/* 5. Version History & Backups */}
-          <div className='bg-background/80 border border-border/50 rounded-lg p-4 flex flex-col gap-2 shadow-sm sm:col-span-2 lg:col-span-1'>
+          <div className='bg-background/80 border-border/50 flex flex-col gap-2 rounded-lg border p-4 shadow-sm sm:col-span-2 lg:col-span-1'>
             <div className='flex items-center gap-2'>
-              <History className='text-rose-400 size-4' />
-              <h3 className='text-xs font-bold'>{isTh ? 'ประวัติเวอร์ชันและแบ็กอัปย้อนหลัง' : 'Version History & Backups'}</h3>
+              <History className='size-4 text-rose-400' />
+              <h3 className='text-xs font-bold'>
+                {isTh
+                  ? 'ประวัติเวอร์ชันและแบ็กอัปย้อนหลัง'
+                  : 'Version History & Backups'}
+              </h3>
             </div>
             <p className='text-muted-foreground text-[10px] leading-relaxed'>
-              {isTh ? 'กู้คืนโปรเจกต์ย้อนหลังจากระบบเซฟอัตโนมัติ (ทุก 15 นาที) หรือเซฟเวอร์ชันความคืบหน้าปัจจุบัน' : 'Restore project snapshots from automatic saving checkpoints or create manual database snapshots'}
+              {isTh
+                ? 'กู้คืนโปรเจกต์ย้อนหลังจากระบบเซฟอัตโนมัติ (ทุก 15 นาที) หรือเซฟเวอร์ชันความคืบหน้าปัจจุบัน'
+                : 'Restore project snapshots from automatic saving checkpoints or create manual database snapshots'}
             </p>
-            <Button size='sm' variant='secondary' className='mt-auto h-7 text-[10px] bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20' onClick={() => setBackupManagerOpen(true)}>
+            <Button
+              size='sm'
+              variant='secondary'
+              className='mt-auto h-7 border border-rose-500/20 bg-rose-500/10 text-[10px] text-rose-400 hover:bg-rose-500/20'
+              onClick={() => setBackupManagerOpen(true)}
+            >
               {isTh ? 'เปิดประวัติเวอร์ชันโปรเจกต์' : 'Open Version History'}
             </Button>
           </div>
@@ -1647,7 +1818,7 @@ function NextGenStudioSection() {
 
         {/* Slide down Collaborative Sync HUD if enabled */}
         {syncEnabled && (
-          <div className='mt-5 border-t border-border/50 pt-5 animate-in slide-in-from-top duration-300'>
+          <div className='border-border/50 animate-in slide-in-from-top mt-5 border-t pt-5 duration-300'>
             <CollaborativeSessionHUD />
           </div>
         )}
@@ -1655,73 +1826,112 @@ function NextGenStudioSection() {
 
       {/* Model Manager Modal (Dynamic Sizes & Active Zustand Store Monitoring!) */}
       {modelManagerOpen && (
-        <div className='fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200'>
-          <div className='bg-card border-border max-w-md w-full border rounded-xl p-6 shadow-2xl relative flex flex-col gap-4 animate-in zoom-in-95 duration-200'>
-            <div className='flex items-center justify-between border-b border-border pb-3'>
+        <div className='bg-background/80 animate-in fade-in fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm duration-200'>
+          <div className='bg-card border-border animate-in zoom-in-95 relative flex w-full max-w-md flex-col gap-4 rounded-xl border p-6 shadow-2xl duration-200'>
+            <div className='border-border flex items-center justify-between border-b pb-3'>
               <div className='flex items-center gap-3'>
                 <Download className='text-primary size-5' />
                 <h3 className='text-foreground text-base font-bold'>
-                  {isTh ? 'จัดการสเปกและดาวน์โหลดโมเดล AI' : 'AI Model & Engine Settings'}
+                  {isTh
+                    ? 'จัดการสเปกและดาวน์โหลดโมเดล AI'
+                    : 'AI Model & Engine Settings'}
                 </h3>
               </div>
-              <button onClick={() => setModelManagerOpen(false)} className='text-muted-foreground hover:text-foreground text-sm font-semibold p-1 hover:bg-muted rounded-full transition'>✕</button>
+              <button
+                onClick={() => setModelManagerOpen(false)}
+                className='text-muted-foreground hover:text-foreground hover:bg-muted rounded-full p-1 text-sm font-semibold transition'
+              >
+                ✕
+              </button>
             </div>
 
             {/* Premium Tab Switcher */}
-            <div className='flex border-b border-border/50 p-0.5 bg-background/50 rounded-lg'>
+            <div className='border-border/50 bg-background/50 flex rounded-lg border-b p-0.5'>
               <button
                 onClick={() => setActiveTab('models')}
-                className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all duration-200 ${
-                  activeTab === 'models' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                className={`flex-1 rounded-md py-1.5 text-xs font-semibold transition-all duration-200 ${
+                  activeTab === 'models'
+                    ? 'bg-card text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 {isTh ? 'คลังโมเดล AI' : 'Model Packages'}
               </button>
               <button
                 onClick={() => setActiveTab('dynamicForm')}
-                className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all duration-200 ${
-                  activeTab === 'dynamicForm' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                className={`flex-1 rounded-md py-1.5 text-xs font-semibold transition-all duration-200 ${
+                  activeTab === 'dynamicForm'
+                    ? 'bg-card text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                {isTh ? 'ตัวปรับแต่งสเปก Dynamic Spec (V2)' : 'Profile Dynamic Spec (V2)'}
+                {isTh
+                  ? 'ตัวปรับแต่งสเปก Dynamic Spec (V2)'
+                  : 'Profile Dynamic Spec (V2)'}
               </button>
             </div>
-            
-            <div className='flex flex-col gap-3 max-h-[60vh] overflow-y-auto pr-1 py-1'>
+
+            <div className='flex max-h-[60vh] flex-col gap-3 overflow-y-auto py-1 pr-1'>
               {activeTab === 'models' ? (
                 <>
                   {/* Cache disk stats */}
-                  <div className='flex items-center justify-between p-3 border border-border bg-background/50 rounded-lg'>
+                  <div className='border-border bg-background/50 flex items-center justify-between rounded-lg border p-3'>
                     <div className='flex flex-col gap-0.5'>
-                      <span className='text-[11px] font-bold text-foreground'>{isTh ? 'พื้นที่แคชโมเดล AI บนดิสก์' : 'AI Model Disk Cache'}</span>
-                      <span className='text-[9px] text-muted-foreground'>{isTh ? 'ขนาดพื้นที่ดาวน์โหลดทั้งหมด' : 'Total size used by AI models'}: <span className='text-primary font-bold'>{cacheSize}</span></span>
+                      <span className='text-foreground text-[11px] font-bold'>
+                        {isTh
+                          ? 'พื้นที่แคชโมเดล AI บนดิสก์'
+                          : 'AI Model Disk Cache'}
+                      </span>
+                      <span className='text-muted-foreground text-[9px]'>
+                        {isTh
+                          ? 'ขนาดพื้นที่ดาวน์โหลดทั้งหมด'
+                          : 'Total size used by AI models'}
+                        :{' '}
+                        <span className='text-primary font-bold'>
+                          {cacheSize}
+                        </span>
+                      </span>
                     </div>
                     <Button
                       size='sm'
                       variant='outline'
                       disabled={clearingCache}
-                      className='h-6 text-[9px] border-red-500/30 text-red-400 hover:bg-red-500/10'
+                      className='h-6 border-red-500/30 text-[9px] text-red-400 hover:bg-red-500/10'
                       onClick={handleClearCache}
                     >
-                      {clearingCache ? 'Clearing...' : (isTh ? 'ล้างแคช' : 'Wipe Cache')}
+                      {clearingCache
+                        ? 'Clearing...'
+                        : isTh
+                          ? 'ล้างแคช'
+                          : 'Wipe Cache'}
                     </Button>
                   </div>
 
                   {/* Active Downloads Progress Area */}
                   {activeDownloads.length > 0 && (
-                    <div className='p-3 border border-primary/20 bg-primary/5 rounded-lg flex flex-col gap-2 animate-in fade-in duration-200'>
-                      <span className='text-[10px] font-bold text-primary flex items-center gap-1.5'>
+                    <div className='border-primary/20 bg-primary/5 animate-in fade-in flex flex-col gap-2 rounded-lg border p-3 duration-200'>
+                      <span className='text-primary flex items-center gap-1.5 text-[10px] font-bold'>
                         <Loader2 className='size-3 animate-spin' />
-                        {isTh ? `กำลังดาวน์โหลดแพ็กเกจ (${activeDownloads.length})` : `Downloading Packages (${activeDownloads.length})`}
+                        {isTh
+                          ? `กำลังดาวน์โหลดแพ็กเกจ (${activeDownloads.length})`
+                          : `Downloading Packages (${activeDownloads.length})`}
                       </span>
                       {activeDownloads.map((d) => (
                         <div key={d.filename} className='flex flex-col gap-1'>
                           <div className='flex justify-between text-[9px] font-medium'>
-                            <span className='text-foreground truncate max-w-[150px]'>{d.filename}</span>
-                            <span className='text-muted-foreground'>{d.percent}% ({formatBytes(d.downloaded)} / {d.total ? formatBytes(d.total) : '?'})</span>
+                            <span className='text-foreground max-w-[150px] truncate'>
+                              {d.filename}
+                            </span>
+                            <span className='text-muted-foreground'>
+                              {d.percent}% ({formatBytes(d.downloaded)} /{' '}
+                              {d.total ? formatBytes(d.total) : '?'})
+                            </span>
                           </div>
-                          <div className='w-full bg-muted h-1 rounded-full overflow-hidden'>
-                            <div className='bg-primary h-full transition-[width] duration-300' style={{ width: `${d.percent ?? 0}%` }} />
+                          <div className='bg-muted h-1 w-full overflow-hidden rounded-full'>
+                            <div
+                              className='bg-primary h-full transition-[width] duration-300'
+                              style={{ width: `${d.percent ?? 0}%` }}
+                            />
                           </div>
                         </div>
                       ))}
@@ -1729,50 +1939,98 @@ function NextGenStudioSection() {
                   )}
 
                   {/* YOLO */}
-                  <div className='flex items-center justify-between p-3 border border-border rounded-lg bg-background/30 hover:border-primary/20 transition'>
+                  <div className='border-border bg-background/30 hover:border-primary/20 flex items-center justify-between rounded-lg border p-3 transition'>
                     <div className='min-w-0 pr-3'>
-                      <h4 className='text-xs font-bold text-foreground'>Anime YOLOv12x (Next-Gen)</h4>
-                      <p className='text-[9px] text-muted-foreground/80 mt-0.5'>{isTh ? 'ขนาด: 250MB (โมเดลที่ดีที่สุด วาดตรวจจับภาพข้อความและ SFX เกินกรอบ)' : 'Size: 250MB (Accurate variant, targets stylized SFX & bubbles)'}</p>
+                      <h4 className='text-foreground text-xs font-bold'>
+                        Anime YOLOv12x (Next-Gen)
+                      </h4>
+                      <p className='text-muted-foreground/80 mt-0.5 text-[9px]'>
+                        {isTh
+                          ? 'ขนาด: 250MB (โมเดลที่ดีที่สุด วาดตรวจจับภาพข้อความและ SFX เกินกรอบ)'
+                          : 'Size: 250MB (Accurate variant, targets stylized SFX & bubbles)'}
+                      </p>
                     </div>
-                    {downloads.get('anime-text-yolo-v12x.onnx')?.status === 'completed' || cacheSize.includes('MB') ? (
-                      <span className='text-[9px] text-primary font-bold px-2 py-0.5 bg-primary/10 rounded-full border border-primary/10'>{isTh ? 'ติดตั้งแล้ว' : 'Installed'}</span>
+                    {downloads.get('anime-text-yolo-v12x.onnx')?.status ===
+                      'completed' || cacheSize.includes('MB') ? (
+                      <span className='text-primary bg-primary/10 border-primary/10 rounded-full border px-2 py-0.5 text-[9px] font-bold'>
+                        {isTh ? 'ติดตั้งแล้ว' : 'Installed'}
+                      </span>
                     ) : (
                       <Button
                         size='sm'
                         variant='outline'
                         className='h-6 text-[9px]'
                         disabled={downloads.has('anime-text-yolo-v12x.onnx')}
-                        onClick={() => simulateDownload('anime-text-yolo-v12x.onnx', 250_000_000)}
+                        onClick={() =>
+                          simulateDownload(
+                            'anime-text-yolo-v12x.onnx',
+                            250_000_000,
+                          )
+                        }
                       >
-                        {downloads.has('anime-text-yolo-v12x.onnx') ? (isTh ? 'กำลังโหลด...' : 'Installing...') : (isTh ? 'ติดตั้ง' : 'Install')}
+                        {downloads.has('anime-text-yolo-v12x.onnx')
+                          ? isTh
+                            ? 'กำลังโหลด...'
+                            : 'Installing...'
+                          : isTh
+                            ? 'ติดตั้ง'
+                            : 'Install'}
                       </Button>
                     )}
                   </div>
-                  <div className='flex items-center justify-between p-3 border border-primary/30 rounded-lg bg-primary/5 hover:border-primary/50 transition'>
+                  <div className='border-primary/30 bg-primary/5 hover:border-primary/50 flex items-center justify-between rounded-lg border p-3 transition'>
                     <div>
-                      <h4 className='text-xs font-bold text-foreground'>Anime YOLOv12s (Stable)</h4>
-                      <p className='text-[9px] text-muted-foreground/80 mt-0.5'>{isTh ? 'ขนาด: 30MB (สมดุล/กำลังใช้งานอยู่)' : 'Size: 30MB (Balanced variant / Active)'}</p>
+                      <h4 className='text-foreground text-xs font-bold'>
+                        Anime YOLOv12s (Stable)
+                      </h4>
+                      <p className='text-muted-foreground/80 mt-0.5 text-[9px]'>
+                        {isTh
+                          ? 'ขนาด: 30MB (สมดุล/กำลังใช้งานอยู่)'
+                          : 'Size: 30MB (Balanced variant / Active)'}
+                      </p>
                     </div>
-                    <span className='text-[9px] text-primary font-bold px-2 py-0.5 bg-primary/10 rounded-full border border-primary/10'>{isTh ? 'ติดตั้งอยู่' : 'Installed'}</span>
+                    <span className='text-primary bg-primary/10 border-primary/10 rounded-full border px-2 py-0.5 text-[9px] font-bold'>
+                      {isTh ? 'ติดตั้งอยู่' : 'Installed'}
+                    </span>
                   </div>
-                  
+
                   {/* LaMa */}
-                  <div className='flex items-center justify-between p-3 border border-border rounded-lg bg-background/30 hover:border-primary/20 transition mt-1'>
+                  <div className='border-border bg-background/30 hover:border-primary/20 mt-1 flex items-center justify-between rounded-lg border p-3 transition'>
                     <div className='min-w-0 pr-3'>
-                      <h4 className='text-xs font-bold text-foreground'>LaMa Inpainting (High-Res)</h4>
-                      <p className='text-[9px] text-muted-foreground/80 mt-0.5'>{isTh ? 'ขนาด: 350MB (ลบภาพความละเอียดสูง ลบอักษรรูปภาพวาดใหม่เนียนเรียบ)' : 'Size: 350MB (High-Res smart clean inpainter for empty pages)'}</p>
+                      <h4 className='text-foreground text-xs font-bold'>
+                        LaMa Inpainting (High-Res)
+                      </h4>
+                      <p className='text-muted-foreground/80 mt-0.5 text-[9px]'>
+                        {isTh
+                          ? 'ขนาด: 350MB (ลบภาพความละเอียดสูง ลบอักษรรูปภาพวาดใหม่เนียนเรียบ)'
+                          : 'Size: 350MB (High-Res smart clean inpainter for empty pages)'}
+                      </p>
                     </div>
-                    {downloads.get('lama-inpainting-highres.onnx')?.status === 'completed' ? (
-                      <span className='text-[9px] text-primary font-bold px-2 py-0.5 bg-primary/10 rounded-full border border-primary/10'>{isTh ? 'ติดตั้งแล้ว' : 'Installed'}</span>
+                    {downloads.get('lama-inpainting-highres.onnx')?.status ===
+                    'completed' ? (
+                      <span className='text-primary bg-primary/10 border-primary/10 rounded-full border px-2 py-0.5 text-[9px] font-bold'>
+                        {isTh ? 'ติดตั้งแล้ว' : 'Installed'}
+                      </span>
                     ) : (
                       <Button
                         size='sm'
                         variant='outline'
                         className='h-6 text-[9px]'
                         disabled={downloads.has('lama-inpainting-highres.onnx')}
-                        onClick={() => simulateDownload('lama-inpainting-highres.onnx', 350_000_000)}
+                        onClick={() =>
+                          simulateDownload(
+                            'lama-inpainting-highres.onnx',
+                            350_000_000,
+                          )
+                        }
                       >
-                        {downloads.has('lama-inpainting-highres.onnx') ? (isTh ? 'กำลังโหลด...' : 'Installing...') : (isTh ? 'ติดตั้ง' : 'Install')}
+                        {downloads.has('lama-inpainting-highres.onnx')
+                          ? isTh
+                            ? 'กำลังโหลด...'
+                            : 'Installing...'
+                          : isTh
+                            ? 'ติดตั้ง'
+                            : 'Install'}
                       </Button>
                     )}
                   </div>
@@ -1789,72 +2047,109 @@ function NextGenStudioSection() {
 
       {/* Version History & Backup Manager Modal */}
       {backupManagerOpen && (
-        <div className='fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200'>
-          <div className='bg-card border-border max-w-md w-full border rounded-xl p-6 shadow-2xl relative flex flex-col gap-4 animate-in zoom-in-95 duration-200'>
-            <div className='flex items-center justify-between border-b border-border pb-3'>
+        <div className='bg-background/80 animate-in fade-in fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm duration-200'>
+          <div className='bg-card border-border animate-in zoom-in-95 relative flex w-full max-w-md flex-col gap-4 rounded-xl border p-6 shadow-2xl duration-200'>
+            <div className='border-border flex items-center justify-between border-b pb-3'>
               <div className='flex items-center gap-3'>
-                <History className='text-rose-400 size-5 animate-spin-once' />
+                <History className='animate-spin-once size-5 text-rose-400' />
                 <h3 className='text-foreground text-base font-bold'>
                   {isTh ? 'ประวัติเวอร์ชันโปรเจกต์' : 'Project Version History'}
                 </h3>
               </div>
-              <button onClick={() => setBackupManagerOpen(false)} className='text-muted-foreground hover:text-foreground text-sm font-semibold p-1 hover:bg-muted rounded-full transition'>✕</button>
+              <button
+                onClick={() => setBackupManagerOpen(false)}
+                className='text-muted-foreground hover:text-foreground hover:bg-muted rounded-full p-1 text-sm font-semibold transition'
+              >
+                ✕
+              </button>
             </div>
 
             {/* Auto Backup Toggle & Manual Snapshot */}
-            <div className='flex items-center justify-between p-3 bg-background/50 rounded-lg border border-border/50'>
+            <div className='bg-background/50 border-border/50 flex items-center justify-between rounded-lg border p-3'>
               <div className='flex flex-col gap-0.5'>
-                <span className='text-xs font-bold text-foreground'>{isTh ? 'บันทึกอัตโนมัติ (ทุก 15 นาที)' : 'Auto-Backup (Every 15 mins)'}</span>
-                <span className='text-[9px] text-muted-foreground'>{isTh ? 'สำรองข้อมูลโปรเจกต์เงียบๆ ในเบื้องหลัง' : 'Silent background backup checkpoints'}</span>
+                <span className='text-foreground text-xs font-bold'>
+                  {isTh
+                    ? 'บันทึกอัตโนมัติ (ทุก 15 นาที)'
+                    : 'Auto-Backup (Every 15 mins)'}
+                </span>
+                <span className='text-muted-foreground text-[9px]'>
+                  {isTh
+                    ? 'สำรองข้อมูลโปรเจกต์เงียบๆ ในเบื้องหลัง'
+                    : 'Silent background backup checkpoints'}
+                </span>
               </div>
               <button
                 onClick={() => {
                   const next = !autoBackupEnabled
                   setAutoBackupEnabled(next)
-                  localStorage.setItem('koharu_auto_backup_enabled', String(next))
+                  localStorage.setItem(
+                    'koharu_auto_backup_enabled',
+                    String(next),
+                  )
                 }}
                 className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${autoBackupEnabled ? 'bg-primary' : 'bg-muted'}`}
               >
-                <span className={`pointer-events-none inline-block size-4 transform rounded-full bg-background shadow-lg ring-0 transition duration-200 ease-in-out ${autoBackupEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                <span
+                  className={`bg-background pointer-events-none inline-block size-4 transform rounded-full shadow-lg ring-0 transition duration-200 ease-in-out ${autoBackupEnabled ? 'translate-x-4' : 'translate-x-0'}`}
+                />
               </button>
             </div>
 
             {/* List of snapshots */}
-            <div className='flex flex-col gap-2 max-h-[40vh] overflow-y-auto pr-1 py-1'>
-              <div className='flex justify-between items-center mb-1'>
-                <span className='text-[10px] font-bold text-muted-foreground uppercase tracking-wider'>{isTh ? `รายการเวอร์ชันแบ็กอัป (${backups.length})` : `Available Snapshots (${backups.length})`}</span>
+            <div className='flex max-h-[40vh] flex-col gap-2 overflow-y-auto py-1 pr-1'>
+              <div className='mb-1 flex items-center justify-between'>
+                <span className='text-muted-foreground text-[10px] font-bold tracking-wider uppercase'>
+                  {isTh
+                    ? `รายการเวอร์ชันแบ็กอัป (${backups.length})`
+                    : `Available Snapshots (${backups.length})`}
+                </span>
                 <Button
                   size='sm'
                   onClick={handleCreateBackup}
                   disabled={creatingBackup}
-                  className='h-6 text-[9px] bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 flex items-center gap-1'
+                  className='bg-primary/10 hover:bg-primary/20 text-primary border-primary/20 flex h-6 items-center gap-1 border text-[9px]'
                 >
-                  {creatingBackup ? <Loader2 className='size-2.5 animate-spin mr-1' /> : null}
+                  {creatingBackup ? (
+                    <Loader2 className='mr-1 size-2.5 animate-spin' />
+                  ) : null}
                   {isTh ? 'สร้าง Snapshot' : 'Create Snapshot'}
                 </Button>
               </div>
 
               {backups.length === 0 ? (
-                <div className='text-center py-6 text-xs text-muted-foreground border border-dashed border-border rounded-lg'>
-                  {isTh ? 'ไม่มีไฟล์แบ็กอัป กดสร้าง Snapshot เพื่อเซฟเวอร์ชันแรก!' : 'No snapshots available. Create one manually to start!'}
+                <div className='text-muted-foreground border-border rounded-lg border border-dashed py-6 text-center text-xs'>
+                  {isTh
+                    ? 'ไม่มีไฟล์แบ็กอัป กดสร้าง Snapshot เพื่อเซฟเวอร์ชันแรก!'
+                    : 'No snapshots available. Create one manually to start!'}
                 </div>
               ) : (
                 backups.map((b) => (
-                  <div key={b.name} className='flex items-center justify-between p-3 border border-border rounded-lg bg-background/30 hover:border-primary/20 transition'>
-                    <div className='flex flex-col gap-0.5 min-w-0 flex-1 pr-3'>
-                      <h4 className='text-xs font-bold text-foreground truncate'>{b.name}</h4>
-                      <p className='text-[9px] text-muted-foreground/80'>
-                        {isTh ? 'ขนาด' : 'Size'}: {formatBytes(b.sizeBytes)} · {isTh ? 'บันทึกเมื่อ' : 'Saved'}: {new Date(b.createdAt).toLocaleString(isTh ? 'th-TH' : 'en-US')}
+                  <div
+                    key={b.name}
+                    className='border-border bg-background/30 hover:border-primary/20 flex items-center justify-between rounded-lg border p-3 transition'
+                  >
+                    <div className='flex min-w-0 flex-1 flex-col gap-0.5 pr-3'>
+                      <h4 className='text-foreground truncate text-xs font-bold'>
+                        {b.name}
+                      </h4>
+                      <p className='text-muted-foreground/80 text-[9px]'>
+                        {isTh ? 'ขนาด' : 'Size'}: {formatBytes(b.sizeBytes)} ·{' '}
+                        {isTh ? 'บันทึกเมื่อ' : 'Saved'}:{' '}
+                        {new Date(b.createdAt).toLocaleString(
+                          isTh ? 'th-TH' : 'en-US',
+                        )}
                       </p>
                     </div>
                     <Button
                       size='sm'
                       variant='outline'
-                      className='h-6 text-[9px] border-rose-500/30 hover:bg-rose-500/10 hover:text-rose-400'
+                      className='h-6 border-rose-500/30 text-[9px] hover:bg-rose-500/10 hover:text-rose-400'
                       onClick={() => handleRestoreBackup(b.name)}
                       disabled={restoring}
                     >
-                      {restoring ? <Loader2 className='size-2.5 animate-spin mr-1' /> : null}
+                      {restoring ? (
+                        <Loader2 className='mr-1 size-2.5 animate-spin' />
+                      ) : null}
                       {isTh ? 'ย้อนกลับ' : 'Restore'}
                     </Button>
                   </div>

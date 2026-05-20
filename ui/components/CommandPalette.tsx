@@ -143,7 +143,7 @@ export function CommandPalette() {
               ? t('palette.placeholderProject')
               : t('palette.placeholderNoProject')
           }
-          className='bg-transparent text-foreground border-border w-full border-b px-4 py-3 text-sm outline-none'
+          className='text-foreground border-border w-full border-b bg-transparent px-4 py-3 text-sm outline-none'
         />
         <Command.List
           aria-live='polite'
@@ -244,7 +244,9 @@ export function CommandPalette() {
                   key={`cbz-${c.id}`}
                   onSelect={() => void exportCbz(c)}
                   icon={<ArchiveIcon className='size-3.5' />}
-                  label={t('palette.exportChapter', { number: c.chapterNumber })}
+                  label={t('palette.exportChapter', {
+                    number: c.chapterNumber,
+                  })}
                   sub={c.title ?? t('palette.untitledChapter')}
                 />
               ))}

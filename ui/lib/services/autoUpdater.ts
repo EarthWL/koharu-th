@@ -37,19 +37,27 @@ export const useUpdateStore = create<UpdateState>((set) => ({
   startChecking: () => set({ isChecking: true, error: undefined }),
   stopChecking: () => set({ isChecking: false }),
   setUpdateAvailable: (version, notes) =>
-    set({ isOpen: true, latestVersion: version, releaseNotes: notes, error: undefined }),
-  startDownloading: () => set({ isDownloading: true, progress: 0, downloadedSize: 0 }),
+    set({
+      isOpen: true,
+      latestVersion: version,
+      releaseNotes: notes,
+      error: undefined,
+    }),
+  startDownloading: () =>
+    set({ isDownloading: true, progress: 0, downloadedSize: 0 }),
   setProgress: (downloaded, total) =>
     set((state) => {
       const totalBytes = total ?? state.totalSize ?? 0
-      const pct = totalBytes > 0 ? Math.round((downloaded / totalBytes) * 100) : 0
+      const pct =
+        totalBytes > 0 ? Math.round((downloaded / totalBytes) * 100) : 0
       return {
         downloadedSize: downloaded,
         totalSize: totalBytes,
         progress: pct,
       }
     }),
-  setError: (err) => set({ error: err, isChecking: false, isDownloading: false }),
+  setError: (err) =>
+    set({ error: err, isChecking: false, isDownloading: false }),
   reset: () =>
     set({
       isOpen: false,
@@ -85,7 +93,9 @@ export async function triggerUpdateCheck(manual: boolean = false) {
 
     if (!update) {
       if (manual) {
-        alert('คุณใช้งานเวอร์ชันล่าสุดอยู่แล้ว! (You are on the latest version)')
+        alert(
+          'คุณใช้งานเวอร์ชันล่าสุดอยู่แล้ว! (You are on the latest version)',
+        )
       }
       return
     }
@@ -155,7 +165,7 @@ export async function startAutoDownload(silent: boolean = false) {
     // Relaunch the app
     if (silent) {
       const confirmRestart = confirm(
-        'การอัปเดต Koharu-TH เสร็จสมบูรณ์แล้ว!\n\nต้องการรีสตาร์ทโปรแกรมเพื่อเริ่มใช้งานเวอร์ชันใหม่ทันทีหรือไม่?'
+        'การอัปเดต Koharu-TH เสร็จสมบูรณ์แล้ว!\n\nต้องการรีสตาร์ทโปรแกรมเพื่อเริ่มใช้งานเวอร์ชันใหม่ทันทีหรือไม่?',
       )
       if (confirmRestart) {
         await invoke('relaunch_app')

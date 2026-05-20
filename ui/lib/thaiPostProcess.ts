@@ -46,12 +46,17 @@ export function detectDominantLanguage(texts: string[]): string | null {
 
   for (const ch of combined) {
     const cp = ch.codePointAt(0) ?? 0
-    if (cp >= 0x3040 && cp <= 0x309f) counts['ja']! += 2 // Hiragana (jp strong signal)
-    else if (cp >= 0x30a0 && cp <= 0x30ff) counts['ja']! += 2 // Katakana
-    else if (cp >= 0x4e00 && cp <= 0x9fff) counts['ja']! += 1  // CJK shared
-    else if (cp >= 0xac00 && cp <= 0xd7ff) counts['ko']! += 3  // Hangul syllables
-    else if (cp >= 0x0e00 && cp <= 0x0e7f) counts['th']! += 3  // Thai
-    else if (cp >= 0x0600 && cp <= 0x06ff) counts['ar']! += 3  // Arabic
+    if (cp >= 0x3040 && cp <= 0x309f)
+      counts['ja']! += 2 // Hiragana (jp strong signal)
+    else if (cp >= 0x30a0 && cp <= 0x30ff)
+      counts['ja']! += 2 // Katakana
+    else if (cp >= 0x4e00 && cp <= 0x9fff)
+      counts['ja']! += 1 // CJK shared
+    else if (cp >= 0xac00 && cp <= 0xd7ff)
+      counts['ko']! += 3 // Hangul syllables
+    else if (cp >= 0x0e00 && cp <= 0x0e7f)
+      counts['th']! += 3 // Thai
+    else if (cp >= 0x0600 && cp <= 0x06ff) counts['ar']! += 3 // Arabic
   }
 
   // ถ้า CJK แต่ไม่มี kana → likely Chinese

@@ -20,9 +20,14 @@ export function AutoBackupManager() {
       if (!enabled) return
 
       try {
-        console.log('[AutoBackupManager] Triggering silent background auto-backup...')
+        console.log(
+          '[AutoBackupManager] Triggering silent background auto-backup...',
+        )
         const res = await api.projectBackupSilent()
-        console.log('[AutoBackupManager] Auto-backup completed successfully:', res)
+        console.log(
+          '[AutoBackupManager] Auto-backup completed successfully:',
+          res,
+        )
       } catch (err) {
         console.error('[AutoBackupManager] Auto-backup failed:', err)
       }

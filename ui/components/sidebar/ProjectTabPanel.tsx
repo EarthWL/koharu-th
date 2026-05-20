@@ -74,7 +74,9 @@ export function ProjectTabPanel() {
     setSaveOk(false)
     try {
       await api.seriesMetaUpdate(draft)
-      await queryClient.invalidateQueries({ queryKey: ['project', 'series-meta'] })
+      await queryClient.invalidateQueries({
+        queryKey: ['project', 'series-meta'],
+      })
       setDirty(false)
       setSaveOk(true)
       window.setTimeout(() => setSaveOk(false), 2500)
@@ -227,7 +229,7 @@ export function ProjectTabPanel() {
                     </Button>
                   </div>
                   {detectError && (
-                    <p className='text-amber-600 dark:text-amber-400 mt-1 text-[10px] leading-relaxed'>
+                    <p className='mt-1 text-[10px] leading-relaxed text-amber-600 dark:text-amber-400'>
                       {detectError}
                     </p>
                   )}
@@ -275,9 +277,7 @@ export function ProjectTabPanel() {
                 className='h-7 w-full text-xs'
               >
                 {saving && <Loader2Icon className='size-3 animate-spin' />}
-                {saveOk && !saving && !dirty
-                  ? '✓ Saved'
-                  : 'Save changes'}
+                {saveOk && !saving && !dirty ? '✓ Saved' : 'Save changes'}
               </Button>
               {saveError && (
                 <p className='text-destructive mt-1 text-[10px] leading-relaxed'>
@@ -430,7 +430,7 @@ function Field({
 }) {
   return (
     <div className='flex flex-col gap-1'>
-      <label className='text-muted-foreground text-[10px] font-semibold uppercase tracking-wide'>
+      <label className='text-muted-foreground text-[10px] font-semibold tracking-wide uppercase'>
         {label}
       </label>
       {children}

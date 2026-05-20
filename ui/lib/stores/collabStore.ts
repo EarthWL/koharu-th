@@ -14,7 +14,10 @@ type CollabState = {
   sessionId: string
   userName: string
   collaborators: Record<string, Collaborator>
-  updateCollaborator: (id: string, data: Partial<Collaborator> & { name?: string }) => void
+  updateCollaborator: (
+    id: string,
+    data: Partial<Collaborator> & { name?: string },
+  ) => void
   removeCollaborator: (id: string) => void
   setUserName: (name: string) => void
   clearExpiredCollaborators: () => void
@@ -33,7 +36,10 @@ function getStableColor(str: string): string {
 
 // Defensive helper to generate a random 8-character session ID
 function generateSessionId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+  if (
+    typeof crypto !== 'undefined' &&
+    typeof crypto.randomUUID === 'function'
+  ) {
     return crypto.randomUUID().slice(0, 8)
   }
   return Math.random().toString(36).substring(2, 10)
@@ -41,14 +47,26 @@ function generateSessionId(): string {
 
 // Pick a default fun artist/collaborator name
 const defaultNames = [
-  'Kira', 'Hana', 'Ren', 'Yuki', 'Aoi', 
-  'Haru', 'Momo', 'Sora', 'Kaito', 'Sakura'
+  'Kira',
+  'Hana',
+  'Ren',
+  'Yuki',
+  'Aoi',
+  'Haru',
+  'Momo',
+  'Sora',
+  'Kaito',
+  'Sakura',
 ]
-const randomDefaultName = defaultNames[Math.floor(Math.random() * defaultNames.length)]
+const randomDefaultName =
+  defaultNames[Math.floor(Math.random() * defaultNames.length)]
 
 export const useCollabStore = create<CollabState>((set) => ({
   sessionId: generateSessionId(),
-  userName: typeof window !== 'undefined' ? (localStorage.getItem('collab_username') || randomDefaultName) : randomDefaultName,
+  userName:
+    typeof window !== 'undefined'
+      ? localStorage.getItem('collab_username') || randomDefaultName
+      : randomDefaultName,
   collaborators: {},
 
   updateCollaborator: (id, data) =>
@@ -58,7 +76,10 @@ export const useCollabStore = create<CollabState>((set) => ({
         name: data.name || existing?.name || `User-${id}`,
         color: existing?.color || getStableColor(id),
         cursor: data.cursor !== undefined ? data.cursor : existing?.cursor,
-        activePage: data.activePage !== undefined ? data.activePage : existing?.activePage,
+        activePage:
+          data.activePage !== undefined
+            ? data.activePage
+            : existing?.activePage,
         lastActive: Date.now(),
       }
       return {

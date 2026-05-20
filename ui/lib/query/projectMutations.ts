@@ -62,8 +62,12 @@ export const useProjectMutations = () => {
         queryClient.removeQueries({ queryKey: ['documents'] })
       } else {
         // Same-project refresh — only the project-meta caches change.
-        void queryClient.invalidateQueries({ queryKey: projectQueryKeys.series })
-        void queryClient.invalidateQueries({ queryKey: projectQueryKeys.chapters })
+        void queryClient.invalidateQueries({
+          queryKey: projectQueryKeys.series,
+        })
+        void queryClient.invalidateQueries({
+          queryKey: projectQueryKeys.chapters,
+        })
       }
     },
     [queryClient],

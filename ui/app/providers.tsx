@@ -118,12 +118,10 @@ export function Providers({ children }: { children: ReactNode }) {
         // 'failed' / 'cancelled' (helper is a no-op when no Thai
         // content exists, so safe to over-call).
         void (async () => {
-          const { applyThaiPostProcessToBlocks } = await import(
-            '@/lib/util/thaiPostProcess'
-          )
-          const { usePreferencesStore } = await import(
-            '@/lib/stores/preferencesStore'
-          )
+          const { applyThaiPostProcessToBlocks } =
+            await import('@/lib/util/thaiPostProcess')
+          const { usePreferencesStore } =
+            await import('@/lib/stores/preferencesStore')
           if (!usePreferencesStore.getState().thaiPostProcessEnabled) return
           try {
             const { api } = await import('@/lib/api')

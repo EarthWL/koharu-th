@@ -27,7 +27,7 @@ export function UpdateDialog() {
 
   return (
     <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm transition-all duration-300'>
-      <div className='border-border/80 bg-background/90 text-foreground relative flex w-full max-w-md flex-col rounded-xl border p-6 shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-200'>
+      <div className='border-border/80 bg-background/90 text-foreground animate-in fade-in zoom-in-95 relative flex w-full max-w-md flex-col rounded-xl border p-6 shadow-2xl backdrop-blur-md duration-200'>
         {/* Header */}
         <div className='mb-4 flex items-center gap-3'>
           <div className='bg-primary/10 text-primary flex size-10 items-center justify-center rounded-full'>
@@ -48,18 +48,22 @@ export function UpdateDialog() {
           <>
             {/* Release notes / info */}
             <div className='border-border/60 bg-muted/50 mb-6 max-h-48 overflow-y-auto rounded-lg border p-3 text-xs leading-relaxed'>
-              <h3 className='mb-1.5 font-semibold text-foreground/90'>
+              <h3 className='text-foreground/90 mb-1.5 font-semibold'>
                 {t('settings.updateReleaseNotes', 'บันทึกการเปลี่ยนแปลง:')}
               </h3>
-              <pre className='whitespace-pre-wrap font-sans text-muted-foreground'>
-                {releaseNotes || t('settings.updateNoNotes', 'ไม่มีรายละเอียดเพิ่มเติมสำหรับเวอร์ชันนี้')}
+              <pre className='text-muted-foreground font-sans whitespace-pre-wrap'>
+                {releaseNotes ||
+                  t(
+                    'settings.updateNoNotes',
+                    'ไม่มีรายละเอียดเพิ่มเติมสำหรับเวอร์ชันนี้',
+                  )}
               </pre>
             </div>
 
             {error && (
               <div className='border-destructive/30 bg-destructive/10 text-destructive mb-6 flex items-start gap-2.5 rounded-lg border p-3 text-xs'>
-                <AlertCircleIcon className='size-4 shrink-0 mt-0.5' />
-                <span className='font-medium leading-normal'>{error}</span>
+                <AlertCircleIcon className='mt-0.5 size-4 shrink-0' />
+                <span className='leading-normal font-medium'>{error}</span>
               </div>
             )}
 
@@ -89,11 +93,14 @@ export function UpdateDialog() {
               {t('settings.updateDownloading', 'กำลังดาวน์โหลดและติดตั้ง...')}
             </h3>
             <p className='text-muted-foreground mb-4 text-xs leading-relaxed'>
-              {t('settings.updateDontClose', 'กรุณาอย่าปิดโปรแกรม ระบบจะเปิดขึ้นใหม่เมื่อเสร็จสิ้น')}
+              {t(
+                'settings.updateDontClose',
+                'กรุณาอย่าปิดโปรแกรม ระบบจะเปิดขึ้นใหม่เมื่อเสร็จสิ้น',
+              )}
             </p>
 
             {/* Progress bar container */}
-            <div className='bg-muted/70 border-border/40 relative h-3 w-full rounded-full border overflow-hidden'>
+            <div className='bg-muted/70 border-border/40 relative h-3 w-full overflow-hidden rounded-full border'>
               <div
                 style={{ width: `${progress}%` }}
                 className='bg-primary h-full rounded-full transition-all duration-300 ease-out'
@@ -101,7 +108,7 @@ export function UpdateDialog() {
             </div>
 
             {/* Bytes indicator */}
-            <div className='text-muted-foreground/75 mt-2 flex justify-between w-full text-[10px] font-mono'>
+            <div className='text-muted-foreground/75 mt-2 flex w-full justify-between font-mono text-[10px]'>
               <span>{progress}%</span>
               <span>
                 {formatSize(downloadedSize)} / {formatSize(totalSize)}

@@ -52,9 +52,7 @@ export default function AboutPage() {
             // version still matches and we treat that as "latest"
             // (there's no newer published release to upgrade to).
             const normalize = (v: string) =>
-              v
-                .replace(/^v/, '')
-                .replace(/-\d+-g[0-9a-f]+(?:-dirty)?$/, '')
+              v.replace(/^v/, '').replace(/-\d+-g[0-9a-f]+(?:-dirty)?$/, '')
 
             const compareVersions = (v1: string, v2: string) => {
               const p1 = v1.split('.').map(Number)
@@ -129,7 +127,7 @@ export default function AboutPage() {
                   onClick={() =>
                     openExternal(`https://github.com/${UPSTREAM_REPO}`)
                   }
-                  className='underline hover:text-foreground'
+                  className='hover:text-foreground underline'
                 >
                   mayocream/koharu
                 </button>{' '}
@@ -161,7 +159,9 @@ export default function AboutPage() {
                       <button
                         onClick={() => {
                           if (isTauri()) {
-                            const { triggerUpdateCheck } = require('@/lib/services/autoUpdater')
+                            const {
+                              triggerUpdateCheck,
+                            } = require('@/lib/services/autoUpdater')
                             void triggerUpdateCheck(true)
                           } else {
                             openExternal(

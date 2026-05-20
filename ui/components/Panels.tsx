@@ -28,9 +28,11 @@ export function Panels() {
   return (
     <div className='bg-muted/50 flex h-full min-h-0 w-full flex-col border-l'>
       {/* Photoshop-style Navigator Panel at the very top */}
-      <div className='border-b p-2 shrink-0 bg-background/40'>
-        <div className='flex items-center justify-between px-1 mb-1.5'>
-          <span className='text-[10px] font-bold tracking-wider uppercase text-muted-foreground/80'>Navigator</span>
+      <div className='bg-background/40 shrink-0 border-b p-2'>
+        <div className='mb-1.5 flex items-center justify-between px-1'>
+          <span className='text-muted-foreground/80 text-[10px] font-bold tracking-wider uppercase'>
+            Navigator
+          </span>
         </div>
         <NavigatorWidget />
       </div>

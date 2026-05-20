@@ -7,7 +7,8 @@
  * "models/" prefix because that's what `generateContent` accepts.
  */
 
-const GEMINI_MODELS_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
+const GEMINI_MODELS_URL =
+  'https://generativelanguage.googleapis.com/v1beta/models'
 
 export type GeminiModel = {
   /** Bare id without the "models/" prefix. What the user pastes into modelName. */
@@ -28,7 +29,9 @@ type RawGeminiModel = {
   supportedGenerationMethods?: string[]
 }
 
-export async function fetchGeminiModels(apiKey: string): Promise<GeminiModel[]> {
+export async function fetchGeminiModels(
+  apiKey: string,
+): Promise<GeminiModel[]> {
   if (!apiKey) {
     throw new Error('Gemini API key required to list models.')
   }
@@ -42,7 +45,9 @@ export async function fetchGeminiModels(apiKey: string): Promise<GeminiModel[]> 
   })
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    throw new Error(`Gemini models fetch failed (${res.status}): ${body.slice(0, 200)}`)
+    throw new Error(
+      `Gemini models fetch failed (${res.status}): ${body.slice(0, 200)}`,
+    )
   }
   const data = (await res.json()) as { models?: RawGeminiModel[] }
   const items = data.models ?? []
@@ -55,11 +60,15 @@ export async function fetchGeminiModels(apiKey: string): Promise<GeminiModel[]> 
       // Only surface models we can actually use for translation.
       if (!supportedActions.includes('generateContent')) return null
       const lower = id.toLowerCase()
-      if (lower.includes('tts') || lower.includes('embedding') || lower.includes('audio')) {
+      if (
+        lower.includes('tts') ||
+        lower.includes('embedding') ||
+        lower.includes('audio')
+      ) {
         // We only want text/multimodal chat models, not pure audio/TTS/embedding endpoints.
         return null
       }
-      
+
       return {
         id,
         name: raw.displayName || id,

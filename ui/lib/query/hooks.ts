@@ -1,7 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query/keys'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
@@ -58,10 +62,14 @@ export const useCurrentDocumentState = () => {
       const baseUrl = getHttpUrl(`/api/image/${idx}/base?v=${documentsVersion}`)
       preloadImage(baseUrl)
 
-      const inpaintedUrl = getHttpUrl(`/api/image/${idx}/inpainted?v=${documentsVersion}`)
+      const inpaintedUrl = getHttpUrl(
+        `/api/image/${idx}/inpainted?v=${documentsVersion}`,
+      )
       preloadImage(inpaintedUrl)
 
-      const renderedUrl = getHttpUrl(`/api/image/${idx}/rendered?v=${documentsVersion}`)
+      const renderedUrl = getHttpUrl(
+        `/api/image/${idx}/rendered?v=${documentsVersion}`,
+      )
       preloadImage(renderedUrl)
 
       // Also prefetch thumbnail

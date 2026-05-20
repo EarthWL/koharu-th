@@ -60,10 +60,7 @@ export function ChaptersTabPanel() {
   })
   const refresh = () => void chapters.refetch()
   const nextNumber =
-    (chapters.data ?? []).reduce(
-      (m, c) => Math.max(m, c.chapterNumber),
-      0,
-    ) + 1
+    (chapters.data ?? []).reduce((m, c) => Math.max(m, c.chapterNumber), 0) + 1
   /** Set when user clicks the ✨ wand button on a chapter row — opens
    *  the extract modal with the chapter already loaded into the editor. */
   const [extractOpen, setExtractOpen] = useState(false)
@@ -81,10 +78,7 @@ export function ChaptersTabPanel() {
         </span>
       </div>
       <div className='border-border border-b p-2'>
-        <NewChapterForm
-          defaultNumber={nextNumber}
-          onCreated={refresh}
-        />
+        <NewChapterForm defaultNumber={nextNumber} onCreated={refresh} />
       </div>
       <ScrollArea className='min-h-0 min-w-0 flex-1'>
         <div className='space-y-1 p-2'>
@@ -362,7 +356,7 @@ function ChapterRow({
         'border-border bg-card hover:bg-accent/40 group rounded-md border p-2 transition ' +
         (isActive ? 'ring-primary/40 ring-1 ' : '') +
         (justAdded !== null
-          ? 'ring-2 ring-emerald-500/60 bg-emerald-500/5'
+          ? 'bg-emerald-500/5 ring-2 ring-emerald-500/60'
           : '')
       }
     >
@@ -467,9 +461,7 @@ function ChapterRow({
           variant='outline'
           size='sm'
           className='h-6 px-1.5 text-[10px]'
-          disabled={
-            enqueue.isPending || chapter.pageCount === 0 || isQueued
-          }
+          disabled={enqueue.isPending || chapter.pageCount === 0 || isQueued}
           onClick={() => enqueue.mutate(chapter.id)}
           title={
             chapter.pageCount === 0

@@ -8,7 +8,12 @@ import {
   type ProcessProgress,
   type DownloadProgress,
 } from '@/lib/backend'
-import type { DeviceInfo, QueueEntryDto, BackupDto, ProjectDiskSpaceResult } from '@/lib/rpc-types'
+import type {
+  DeviceInfo,
+  QueueEntryDto,
+  BackupDto,
+  ProjectDiskSpaceResult,
+} from '@/lib/rpc-types'
 import {
   Document,
   InpaintRegion,
@@ -327,7 +332,9 @@ export const api = {
   },
 
   async projectCreatePicker(name: string): Promise<ProjectInfo | null> {
-    return invoke('project_create_picker', { name }) as Promise<ProjectInfo | null>
+    return invoke('project_create_picker', {
+      name,
+    }) as Promise<ProjectInfo | null>
   },
 
   async projectOpen(path: string): Promise<ProjectInfo> {
@@ -378,7 +385,6 @@ export const api = {
     return invoke('project_check_disk_space') as Promise<ProjectDiskSpaceResult>
   },
 
-
   async recentProjectsList(): Promise<RecentProjectDto[]> {
     return invoke('recent_projects_list') as Promise<RecentProjectDto[]>
   },
@@ -397,7 +403,9 @@ export const api = {
   async appStorageClear(
     targets: StorageClearTarget[],
   ): Promise<AppStorageClearResult> {
-    return invoke('app_storage_clear', { targets }) as Promise<AppStorageClearResult>
+    return invoke('app_storage_clear', {
+      targets,
+    }) as Promise<AppStorageClearResult>
   },
 
   // ----------------------------------------------------------------
@@ -407,7 +415,9 @@ export const api = {
     return invoke('series_meta_get') as Promise<SeriesMetaDto>
   },
 
-  async seriesMetaUpdate(patch: Partial<Omit<SeriesMetaDto, 'createdAt' | 'updatedAt'>>): Promise<SeriesMetaDto> {
+  async seriesMetaUpdate(
+    patch: Partial<Omit<SeriesMetaDto, 'createdAt' | 'updatedAt'>>,
+  ): Promise<SeriesMetaDto> {
     return invoke('series_meta_update', patch) as Promise<SeriesMetaDto>
   },
 
@@ -522,7 +532,9 @@ export const api = {
     return invoke('character_add', input) as Promise<CharacterDto>
   },
 
-  async characterUpdate(input: CharacterUpdateInput): Promise<CharacterDto | null> {
+  async characterUpdate(
+    input: CharacterUpdateInput,
+  ): Promise<CharacterDto | null> {
     return invoke('character_update', input) as Promise<CharacterDto | null>
   },
 
@@ -538,7 +550,9 @@ export const api = {
     return invoke('glossary_add', input) as Promise<GlossaryDto>
   },
 
-  async glossaryUpdate(input: GlossaryUpdateInput): Promise<GlossaryDto | null> {
+  async glossaryUpdate(
+    input: GlossaryUpdateInput,
+  ): Promise<GlossaryDto | null> {
     return invoke('glossary_update', input) as Promise<GlossaryDto | null>
   },
 
@@ -584,7 +598,10 @@ export const api = {
     template?: string
     isDefault?: boolean
   }): Promise<PromptTemplateDto | null> {
-    return invoke('prompt_template_update', input) as Promise<PromptTemplateDto | null>
+    return invoke(
+      'prompt_template_update',
+      input,
+    ) as Promise<PromptTemplateDto | null>
   },
 
   async promptTemplateRemove(id: number): Promise<boolean> {
@@ -605,8 +622,14 @@ export const api = {
   // ----------------------------------------------------------------
   // Translation memory (Phase 6)
   // ----------------------------------------------------------------
-  async tmLookup(sourceText: string, targetLang: string): Promise<TmEntryDto | null> {
-    return invoke('tm_lookup', { sourceText, targetLang }) as Promise<TmEntryDto | null>
+  async tmLookup(
+    sourceText: string,
+    targetLang: string,
+  ): Promise<TmEntryDto | null> {
+    return invoke('tm_lookup', {
+      sourceText,
+      targetLang,
+    }) as Promise<TmEntryDto | null>
   },
 
   async tmLookupFuzzy(
@@ -722,7 +745,10 @@ export const api = {
     costInputPer1m?: number | null
     costOutputPer1m?: number | null
   }): Promise<ProviderProfileDto | null> {
-    return invoke('provider_profile_update', input) as Promise<ProviderProfileDto | null>
+    return invoke(
+      'provider_profile_update',
+      input,
+    ) as Promise<ProviderProfileDto | null>
   },
 
   async providerProfileRemove(id: number): Promise<boolean> {
@@ -730,8 +756,12 @@ export const api = {
   },
 
   /** Fetch the plaintext API key for `id` from the OS keyring. */
-  async providerProfileSecretGet(id: number): Promise<{ apiKey: string | null }> {
-    return invoke('provider_profile_secret_get', { id }) as Promise<{ apiKey: string | null }>
+  async providerProfileSecretGet(
+    id: number,
+  ): Promise<{ apiKey: string | null }> {
+    return invoke('provider_profile_secret_get', { id }) as Promise<{
+      apiKey: string | null
+    }>
   },
 
   async llmCallLog(input: {
@@ -759,10 +789,12 @@ export const api = {
   // ----------------------------------------------------------------
   // AI Chat (per-project history + agentic web fetch)
   // ----------------------------------------------------------------
-  async chatMessagesList(input: {
-    limit?: number
-    beforeId?: number | null
-  } = {}): Promise<ChatMessageDto[]> {
+  async chatMessagesList(
+    input: {
+      limit?: number
+      beforeId?: number | null
+    } = {},
+  ): Promise<ChatMessageDto[]> {
     return invoke('chat_messages_list', input) as Promise<ChatMessageDto[]>
   },
 
@@ -790,9 +822,7 @@ export const api = {
   /** "Undo from this point" — delete every message with id >= fromId.
    *  Powers the "remove this turn and everything after" flow when the
    *  user wants to retry a question with different context. */
-  async chatMessagesDeleteFrom(
-    fromId: number,
-  ): Promise<{ removed: number }> {
+  async chatMessagesDeleteFrom(fromId: number): Promise<{ removed: number }> {
     return invoke('chat_messages_delete_from', { fromId }) as Promise<{
       removed: number
     }>
@@ -950,7 +980,10 @@ export type TmEntryDto = {
   createdAt: string
 }
 
-export type PromptUseCase = 'translate' | 'extract_entities' | 'summarize_chapter'
+export type PromptUseCase =
+  | 'translate'
+  | 'extract_entities'
+  | 'summarize_chapter'
 
 export type PromptTemplateDto = {
   id: number

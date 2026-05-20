@@ -3,7 +3,12 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type CloudProvider = 'none' | 'openai' | 'openrouter' | 'gemini' | 'anthropic'
+export type CloudProvider =
+  | 'none'
+  | 'openai'
+  | 'openrouter'
+  | 'gemini'
+  | 'anthropic'
 
 /**
  * OCR engine choice.
@@ -53,10 +58,7 @@ export type ProviderConfig = {
   apiUrl: string
 }
 
-type ProviderConfigs = Record<
-  Exclude<CloudProvider, 'none'>,
-  ProviderConfig
->
+type ProviderConfigs = Record<Exclude<CloudProvider, 'none'>, ProviderConfig>
 
 const DEFAULT_CONFIGS: ProviderConfigs = {
   openai: {
@@ -289,14 +291,17 @@ export const usePreferencesStore = create<PreferencesState>()(
       setCloudTargetLanguage: (language) =>
         set({ cloudTargetLanguage: language }),
       setOcrEngine: (engine) => set({ ocrEngine: engine }),
-      setOcrSmartCloudFallback: (enabled) => set({ ocrSmartCloudFallback: enabled }),
+      setOcrSmartCloudFallback: (enabled) =>
+        set({ ocrSmartCloudFallback: enabled }),
       setOcrCloudProfileId: (id) => set({ ocrCloudProfileId: id }),
       setActiveProfileId: (id) => set({ activeProfileId: id }),
       setDetectorEngine: (engine) => set({ detectorEngine: engine }),
       setAnimeYoloVariant: (variant) => set({ animeYoloVariant: variant }),
       setAnimeYoloConfidence: (confidence) =>
         // Mirror backend clamp so the persisted value stays in range.
-        set({ animeYoloConfidence: Math.min(0.95, Math.max(0.05, confidence)) }),
+        set({
+          animeYoloConfidence: Math.min(0.95, Math.max(0.05, confidence)),
+        }),
       setThaiPostProcessEnabled: (enabled) =>
         set({ thaiPostProcessEnabled: enabled }),
       setAutoUpdateMode: (mode) => set({ autoUpdateMode: mode }),
@@ -304,7 +309,8 @@ export const usePreferencesStore = create<PreferencesState>()(
       setInpaintEngine: (engine) => set({ inpaintEngine: engine }),
       setThaiPostProcess: (enabled) => set({ thaiPostProcess: enabled }),
       setLlmFailoverEnabled: (enabled) => set({ llmFailoverEnabled: enabled }),
-      setLlmFailoverPriority: (priority) => set({ llmFailoverPriority: priority }),
+      setLlmFailoverPriority: (priority) =>
+        set({ llmFailoverPriority: priority }),
       setInstalledAddons: (addons) => set({ installedAddons: addons }),
       toggleFavoriteFont: (font) =>
         set((state) => {
@@ -327,13 +333,16 @@ export const usePreferencesStore = create<PreferencesState>()(
         const next = { ...persisted }
         if (fromVersion < 2) {
           const configs: ProviderConfigs = { ...DEFAULT_CONFIGS }
-          const activeProvider = (persisted.cloudProvider ?? 'none') as CloudProvider
+          const activeProvider = (persisted.cloudProvider ??
+            'none') as CloudProvider
           if (activeProvider !== 'none') {
             configs[activeProvider] = {
               apiKey: persisted.cloudApiKey ?? '',
               modelName:
-                persisted.cloudModelName ?? DEFAULT_CONFIGS[activeProvider].modelName,
-              apiUrl: persisted.cloudApiUrl ?? DEFAULT_CONFIGS[activeProvider].apiUrl,
+                persisted.cloudModelName ??
+                DEFAULT_CONFIGS[activeProvider].modelName,
+              apiUrl:
+                persisted.cloudApiUrl ?? DEFAULT_CONFIGS[activeProvider].apiUrl,
             }
           }
           next.providerConfigs = configs

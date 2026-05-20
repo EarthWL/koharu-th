@@ -51,7 +51,9 @@ const SAMPLE_CSV = `source,target,category,aliases,notes
 
 function normaliseCategory(s: string): GlossaryCategory {
   const v = s.toLowerCase().trim()
-  return (CATEGORIES.includes(v as GlossaryCategory) ? v : 'term') as GlossaryCategory
+  return (
+    CATEGORIES.includes(v as GlossaryCategory) ? v : 'term'
+  ) as GlossaryCategory
 }
 
 /** Split a CSV line respecting quoted commas. Minimal but correct for
@@ -128,8 +130,7 @@ function parseCsv(text: string, t: TFunction): Parsed {
               .map((s) => s.trim())
               .filter(Boolean)
           : [],
-      contextNote:
-        idx.notes >= 0 && cells[idx.notes] ? cells[idx.notes] : null,
+      contextNote: idx.notes >= 0 && cells[idx.notes] ? cells[idx.notes] : null,
       confidence: 'manual',
       approved: true,
     })
@@ -161,7 +162,9 @@ function parseJson(text: string, t: TFunction): Parsed {
     }
     const r = raw as any
     const source = String(r.source ?? r.sourceText ?? '').trim()
-    const target = String(r.target ?? r.targetText ?? r.translation ?? '').trim()
+    const target = String(
+      r.target ?? r.targetText ?? r.translation ?? '',
+    ).trim()
     const category = String(r.category ?? 'term').trim()
     if (!source || !target) {
       skippedIncomplete++
@@ -196,9 +199,10 @@ export function ImportGlossaryModal({
   const [format, setFormat] = useState<Format>('json')
   const [text, setText] = useState('')
   const [importing, setImporting] = useState(false)
-  const [result, setResult] = useState<{ inserted: number; skipped: number } | null>(
-    null,
-  )
+  const [result, setResult] = useState<{
+    inserted: number
+    skipped: number
+  } | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
 
   const parsed = useMemo(() => {
@@ -267,7 +271,10 @@ export function ImportGlossaryModal({
             <span className='text-foreground text-xs font-semibold'>
               {t('glossaryImport.formatLabel')}
             </span>
-            <Select value={format} onValueChange={(v) => setFormat(v as Format)}>
+            <Select
+              value={format}
+              onValueChange={(v) => setFormat(v as Format)}
+            >
               <SelectTrigger className='w-32'>
                 <SelectValue />
               </SelectTrigger>
@@ -279,14 +286,16 @@ export function ImportGlossaryModal({
             <Button
               variant='ghost'
               size='sm'
-              onClick={() => setText(format === 'csv' ? SAMPLE_CSV : SAMPLE_JSON)}
+              onClick={() =>
+                setText(format === 'csv' ? SAMPLE_CSV : SAMPLE_JSON)
+              }
             >
               {t('glossaryImport.insertExample')}
             </Button>
             <Button
               variant='outline'
               size='sm'
-              className='ml-auto bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 flex items-center gap-1.5'
+              className='bg-primary/10 hover:bg-primary/20 text-primary border-primary/20 ml-auto flex items-center gap-1.5 border'
               onClick={() => {
                 const input = document.createElement('input')
                 input.type = 'file'
@@ -340,7 +349,7 @@ export function ImportGlossaryModal({
             </p>
           )}
           {parsed?.ok && skippedIncomplete > 0 && (
-            <div className='border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 rounded-md border p-2 text-xs'>
+            <div className='rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300'>
               ⚠{' '}
               {t('glossaryImport.skippedIncomplete', {
                 count: skippedIncomplete,
@@ -348,7 +357,7 @@ export function ImportGlossaryModal({
             </div>
           )}
           {result && (
-            <div className='border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 rounded-md border p-2 text-xs'>
+            <div className='rounded-md border border-emerald-500/40 bg-emerald-500/10 p-2 text-xs text-emerald-700 dark:text-emerald-300'>
               {t('glossaryImport.resultSuccess', {
                 inserted: result.inserted,
                 skipped: result.skipped,

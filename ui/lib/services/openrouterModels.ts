@@ -40,9 +40,11 @@ function toNumber(v: string | number | undefined): number | undefined {
   return Number.isFinite(n) ? n : undefined
 }
 
-export async function fetchOpenRouterModels(apiKey?: string): Promise<OpenRouterModel[]> {
+export async function fetchOpenRouterModels(
+  apiKey?: string,
+): Promise<OpenRouterModel[]> {
   const headers: Record<string, string> = {
-    'Accept': 'application/json',
+    Accept: 'application/json',
   }
   if (apiKey) {
     headers['Authorization'] = `Bearer ${apiKey}`
@@ -50,27 +52,29 @@ export async function fetchOpenRouterModels(apiKey?: string): Promise<OpenRouter
   const res = await fetch(OPENROUTER_MODELS_URL, { headers })
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    throw new Error(`OpenRouter models fetch failed (${res.status}): ${body.slice(0, 200)}`)
+    throw new Error(
+      `OpenRouter models fetch failed (${res.status}): ${body.slice(0, 200)}`,
+    )
   }
   const data = (await res.json()) as { data?: RawOpenRouterModel[] }
   const items = data.data ?? []
   return items
     .filter((raw) => isLikelyChatModel(raw.id))
     .map((raw) => {
-    const prompt = toNumber(raw.pricing?.prompt)
-    const completion = toNumber(raw.pricing?.completion)
-    return {
-      id: raw.id,
-      name: raw.name || raw.id,
-      description: raw.description,
-      contextLength: raw.context_length,
-      pricing: {
-        promptUsdPerToken: prompt,
-        completionUsdPerToken: completion,
-      },
-      isFree: prompt === 0 && completion === 0,
-    }
-  })
+      const prompt = toNumber(raw.pricing?.prompt)
+      const completion = toNumber(raw.pricing?.completion)
+      return {
+        id: raw.id,
+        name: raw.name || raw.id,
+        description: raw.description,
+        contextLength: raw.context_length,
+        pricing: {
+          promptUsdPerToken: prompt,
+          completionUsdPerToken: completion,
+        },
+        isFree: prompt === 0 && completion === 0,
+      }
+    })
 }
 
 /** Format pricing as $/M tokens, e.g. "$2.50/M". Returns null if unknown. */

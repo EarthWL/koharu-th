@@ -169,10 +169,10 @@ export function useTextBlocks() {
     await queryClient.invalidateQueries({
       queryKey: queryKeys.documents.current(currentDocumentIndex),
     })
-    
+
     // Now get the updated blocks from cache to push as the new history state
     const updatedDoc = queryClient.getQueryData<any>(
-      queryKeys.documents.current(currentDocumentIndex)
+      queryKeys.documents.current(currentDocumentIndex),
     )
     if (updatedDoc?.textBlocks) {
       pushHistory('Fit to Bubble', updatedDoc.textBlocks)

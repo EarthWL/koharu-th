@@ -94,7 +94,11 @@ export function ExtractEntitiesModal({
   const [items, setItems] = useState<Proposed[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [loadingDocs, setLoadingDocs] = useState(false)
-  const [ocrProgress, setOcrProgress] = useState<{ done: number; total: number; label: string } | null>(null)
+  const [ocrProgress, setOcrProgress] = useState<{
+    done: number
+    total: number
+    label: string
+  } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [applying, setApplying] = useState(false)
   const [applyResult, setApplyResult] = useState<ApplyResult | null>(null)
@@ -312,7 +316,7 @@ export function ExtractEntitiesModal({
             onChange={(e) => setText(e.target.value)}
             placeholder={t('extractEntities.placeholder')}
             style={{ fieldSizing: 'fixed' as any }}
-            className='block max-h-48 min-h-32 w-full resize-y overflow-auto text-xs whitespace-pre-wrap break-words'
+            className='block max-h-48 min-h-32 w-full resize-y overflow-auto text-xs break-words whitespace-pre-wrap'
           />
           <div className='flex items-center justify-between gap-2'>
             <div className='flex items-center gap-2'>
@@ -388,7 +392,7 @@ export function ExtractEntitiesModal({
             </div>
           )}
           {applyResult?.kind === 'mixed' && (
-            <div className='border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 rounded-md border p-2 text-xs'>
+            <div className='rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300'>
               {t('extractEntities.applyDoneMixed', {
                 inserted: applyResult.inserted,
                 failed: applyResult.failed,
@@ -407,81 +411,87 @@ export function ExtractEntitiesModal({
           {items && (
             <div className='border-border -mx-4 mt-2 border-t'>
               <table className='w-full text-left text-xs'>
-              <thead className='bg-muted/50 text-muted-foreground'>
-                <tr>
-                  <th className='w-8 px-2 py-1'></th>
-                  <th className='px-2 py-1 font-medium'>{t('extractEntities.thOriginal')}</th>
-                  <th className='px-2 py-1 font-medium'>{t('extractEntities.thTranslation')}</th>
-                  <th className='px-2 py-1 font-medium'>{t('extractEntities.thCategory')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((it, i) => (
-                  <tr
-                    key={i}
-                    className='border-border hover:bg-accent/30 border-t'
-                  >
-                    <td className='px-2 py-1'>
-                      <input
-                        type='checkbox'
-                        checked={it.selected}
-                        onChange={(e) => {
-                          const next = [...items]
-                          next[i] = { ...it, selected: e.target.checked }
-                          setItems(next)
-                        }}
-                      />
-                    </td>
-                    <td className='px-2 py-1'>
-                      <Input
-                        value={it.original}
-                        onChange={(e) => {
-                          const next = [...items]
-                          next[i] = { ...it, original: e.target.value }
-                          setItems(next)
-                        }}
-                        className='h-6 text-xs'
-                      />
-                    </td>
-                    <td className='px-2 py-1'>
-                      <Input
-                        value={it.translation}
-                        onChange={(e) => {
-                          const next = [...items]
-                          next[i] = { ...it, translation: e.target.value }
-                          setItems(next)
-                        }}
-                        className='h-6 text-xs'
-                      />
-                    </td>
-                    <td className='px-2 py-1'>
-                      <Select
-                        value={it.appliedCategory}
-                        onValueChange={(v) => {
-                          const next = [...items]
-                          next[i] = {
-                            ...it,
-                            appliedCategory: v as Proposed['appliedCategory'],
-                          }
-                          setItems(next)
-                        }}
-                      >
-                        <SelectTrigger className='h-6 w-full'>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ALL_CATEGORIES.map((c) => (
-                            <SelectItem key={c} value={c}>
-                              {t(CATEGORY_LABEL_KEY[c])}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </td>
+                <thead className='bg-muted/50 text-muted-foreground'>
+                  <tr>
+                    <th className='w-8 px-2 py-1'></th>
+                    <th className='px-2 py-1 font-medium'>
+                      {t('extractEntities.thOriginal')}
+                    </th>
+                    <th className='px-2 py-1 font-medium'>
+                      {t('extractEntities.thTranslation')}
+                    </th>
+                    <th className='px-2 py-1 font-medium'>
+                      {t('extractEntities.thCategory')}
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {items.map((it, i) => (
+                    <tr
+                      key={i}
+                      className='border-border hover:bg-accent/30 border-t'
+                    >
+                      <td className='px-2 py-1'>
+                        <input
+                          type='checkbox'
+                          checked={it.selected}
+                          onChange={(e) => {
+                            const next = [...items]
+                            next[i] = { ...it, selected: e.target.checked }
+                            setItems(next)
+                          }}
+                        />
+                      </td>
+                      <td className='px-2 py-1'>
+                        <Input
+                          value={it.original}
+                          onChange={(e) => {
+                            const next = [...items]
+                            next[i] = { ...it, original: e.target.value }
+                            setItems(next)
+                          }}
+                          className='h-6 text-xs'
+                        />
+                      </td>
+                      <td className='px-2 py-1'>
+                        <Input
+                          value={it.translation}
+                          onChange={(e) => {
+                            const next = [...items]
+                            next[i] = { ...it, translation: e.target.value }
+                            setItems(next)
+                          }}
+                          className='h-6 text-xs'
+                        />
+                      </td>
+                      <td className='px-2 py-1'>
+                        <Select
+                          value={it.appliedCategory}
+                          onValueChange={(v) => {
+                            const next = [...items]
+                            next[i] = {
+                              ...it,
+                              appliedCategory: v as Proposed['appliedCategory'],
+                            }
+                            setItems(next)
+                          }}
+                        >
+                          <SelectTrigger className='h-6 w-full'>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ALL_CATEGORIES.map((c) => (
+                              <SelectItem key={c} value={c}>
+                                {t(CATEGORY_LABEL_KEY[c])}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
@@ -520,7 +530,9 @@ export function ExtractEntitiesModal({
                   disabled={applying || selectedCount === 0}
                   onClick={() => void applySelected()}
                 >
-                  {applying && <Loader2Icon className='size-3.5 animate-spin' />}
+                  {applying && (
+                    <Loader2Icon className='size-3.5 animate-spin' />
+                  )}
                   {t('extractEntities.applyButton', { count: selectedCount })}
                 </Button>
               </div>

@@ -8,7 +8,11 @@
 import NextError from 'next/error'
 import { useEffect } from 'react'
 
-export default function GlobalError({ error }: { error: Error & { digest?: string } }) {
+export default function GlobalError({
+  error,
+}: {
+  error: Error & { digest?: string }
+}) {
   useEffect(() => {
     // Log to console in development; replace with your own error-reporting
     // service if desired (e.g. Sentry, LogRocket, Datadog).

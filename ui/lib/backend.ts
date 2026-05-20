@@ -254,7 +254,7 @@ export function subscribeCollabSync(
 }
 
 export async function publishCollab(
-  event: RpcNotificationMap['collab_sync']
+  event: RpcNotificationMap['collab_sync'],
 ): Promise<boolean> {
   return getClient().invoke<boolean>('collab_publish', event)
 }

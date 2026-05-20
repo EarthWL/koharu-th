@@ -128,7 +128,8 @@ export const useTextBlockMutations = () => {
 
   const updateTextBlocks = useCallback(
     async (textBlocks: TextBlock[], index?: number) => {
-      const resolvedIndex = index ?? useEditorUiStore.getState().currentDocumentIndex
+      const resolvedIndex =
+        index ?? useEditorUiStore.getState().currentDocumentIndex
       const queryKey = queryKeys.documents.current(resolvedIndex)
       const currentDocument = queryClient.getQueryData<any>(queryKey)
       if (!currentDocument) return
@@ -458,7 +459,9 @@ export const useDocumentMutations = () => {
           // Local OCR or Auto OCR
           let finalEngine = ocrEngine
           if (ocrEngine === 'auto') {
-            const series = queryClient.getQueryData<{ sourceLanguage?: string }>(['project', 'series-meta'])
+            const series = queryClient.getQueryData<{
+              sourceLanguage?: string
+            }>(['project', 'series-meta'])
             const sourceLang = series?.sourceLanguage ?? ''
             const isJapanese =
               sourceLang.toLowerCase().includes('ja') ||
@@ -492,7 +495,9 @@ export const useDocumentMutations = () => {
                   cloudApiKey,
                 )
                 if (resolved) {
-                  const subsetBlocks = fallbackIndices.map((idx) => doc.textBlocks[idx])
+                  const subsetBlocks = fallbackIndices.map(
+                    (idx) => doc.textBlocks[idx],
+                  )
                   const { texts } = await ocrPageViaCloud(
                     resolved.profile,
                     resolved.apiKey,
@@ -582,7 +587,6 @@ export const useDocumentMutations = () => {
     },
     [inpaint, render],
   )
-
 
   const processImage = useCallback(
     async (_?: any, index?: number) => {
@@ -706,8 +710,13 @@ export const useDocumentMutations = () => {
       total: totalPages,
     })
     try {
-      const { detectorEngine, animeYoloVariant, animeYoloConfidence, inpaintEngine, inpaintMaxSide } =
-        usePreferencesStore.getState()
+      const {
+        detectorEngine,
+        animeYoloVariant,
+        animeYoloConfidence,
+        inpaintEngine,
+        inpaintMaxSide,
+      } = usePreferencesStore.getState()
       await api.process({
         llmModelId: selectedModel,
         language: selectedLanguage,
@@ -735,8 +744,13 @@ export const useDocumentMutations = () => {
         index ?? useEditorUiStore.getState().currentDocumentIndex
       const { selectedModel, selectedLanguage } = useLlmUiStore.getState()
       const { renderEffect, renderStroke } = useEditorUiStore.getState()
-      const { cloudProvider, cloudTargetLanguage, fontFamily, inpaintMaxSide, thaiPostProcess } =
-        usePreferencesStore.getState()
+      const {
+        cloudProvider,
+        cloudTargetLanguage,
+        fontFamily,
+        inpaintMaxSide,
+        thaiPostProcess,
+      } = usePreferencesStore.getState()
       const { startOperation, finishOperation } = useOperationStore.getState()
       startOperation({
         type: 'process-current',
@@ -752,19 +766,21 @@ export const useDocumentMutations = () => {
           // render via the normal Rust render step.
           const queryKey = queryKeys.documents.current(resolvedIndex)
           const cached = queryClient.getQueryData<any>(queryKey)
-          const doc = cached ?? await api.getDocument(resolvedIndex)
+          const doc = cached ?? (await api.getDocument(resolvedIndex))
           const blocks: any[] = doc?.textBlocks ?? []
 
           const blocksToTranslate = blocks
             .map((b: any, i: number) => ({ index: i, text: b.text ?? '' }))
-            .filter((b) => b.text)  // force: no !translation filter
+            .filter((b) => b.text) // force: no !translation filter
 
           if (blocksToTranslate.length > 0) {
-            const { generateCloudBatchTranslation } = await import(
-              '@/lib/services/cloudLlm'
-            )
+            const { generateCloudBatchTranslation } =
+              await import('@/lib/services/cloudLlm')
             const language = cloudTargetLanguage || 'Thai'
-            const context = await getTranslationContext(queryClient, resolvedIndex)
+            const context = await getTranslationContext(
+              queryClient,
+              resolvedIndex,
+            )
             const translatedResult = await generateCloudBatchTranslation(
               blocksToTranslate,
               language,
@@ -779,7 +795,10 @@ export const useDocumentMutations = () => {
               ) {
                 const b = nextBlocks[result.index]
                 if (b) {
-                  nextBlocks[result.index] = { ...b, translation: result.translation }
+                  nextBlocks[result.index] = {
+                    ...b,
+                    translation: result.translation,
+                  }
                 }
               }
             }
@@ -896,11 +915,13 @@ export const useDocumentMutations = () => {
         //   the sync queue to Rust may still be in-flight → prefer cache.
         // - Local Rust OCR: Rust has the text but cache may still be stale
         //   (not yet re-fetched) → fall back to api.getDocument().
-        const cached = queryClient.getQueryData<{ textBlocks?: { text?: string | null }[] }>(
-          queryKeys.documents.current(resolvedIndex),
-        )
+        const cached = queryClient.getQueryData<{
+          textBlocks?: { text?: string | null }[]
+        }>(queryKeys.documents.current(resolvedIndex))
         const cacheHasText = (cached?.textBlocks ?? []).some((b: any) => b.text)
-        const doc = cacheHasText ? cached! : await api.getDocument(resolvedIndex)
+        const doc = cacheHasText
+          ? cached!
+          : await api.getDocument(resolvedIndex)
         const texts = (doc.textBlocks ?? [])
           .map((b: any) => b.text ?? '')
           .filter(Boolean)
@@ -971,7 +992,10 @@ const getTranslationContext = async (
       try {
         prevDoc = await api.getDocument(resolvedIndex - 1)
       } catch (e) {
-        console.warn('[getTranslationContext] Failed to fetch previous document context', e)
+        console.warn(
+          '[getTranslationContext] Failed to fetch previous document context',
+          e,
+        )
       }
     }
     if (prevDoc?.textBlocks) {
@@ -979,7 +1003,9 @@ const getTranslationContext = async (
         .map((b: any) => b.translation?.trim())
         .filter((t: any) => t)
       if (prevTranslations.length > 0) {
-        contextParts.push(`Previous Page Translations:\n` + prevTranslations.join('\n'))
+        contextParts.push(
+          `Previous Page Translations:\n` + prevTranslations.join('\n'),
+        )
       }
     }
   }
@@ -998,7 +1024,9 @@ const getTranslationContext = async (
         })
         .filter((t: any) => t)
       if (currentTranslations.length > 0) {
-        contextParts.push(`Same Page Other Translations:\n` + currentTranslations.join('\n'))
+        contextParts.push(
+          `Same Page Other Translations:\n` + currentTranslations.join('\n'),
+        )
       }
     }
   }
@@ -1103,17 +1131,24 @@ export const useLlmMutations = () => {
    *   ถ้าไม่ส่ง (undefined) → cloud path ใช้ prompt แบบ default
    */
   const llmGenerate = useCallback(
-    async (_?: any, index?: number, textBlockIndex?: number, style?: 'standard' | 'shonen' | 'polite') => {
+    async (
+      _?: any,
+      index?: number,
+      textBlockIndex?: number,
+      style?: 'standard' | 'shonen' | 'polite',
+    ) => {
       const resolvedIndex =
         index ?? useEditorUiStore.getState().currentDocumentIndex
-      
-      const { cloudProvider, cloudTargetLanguage } = usePreferencesStore.getState()
+
+      const { cloudProvider, cloudTargetLanguage } =
+        usePreferencesStore.getState()
       const selectedLanguage = useLlmUiStore.getState().selectedLanguage
 
       if (cloudProvider !== 'none') {
         const queryKey = queryKeys.documents.current(resolvedIndex)
         const currentDocument = queryClient.getQueryData<any>(queryKey)
-        const { generateCloudTranslation } = await import('@/lib/services/cloudLlm')
+        const { generateCloudTranslation } =
+          await import('@/lib/services/cloudLlm')
         const language = cloudTargetLanguage || 'Thai'
 
         if (typeof textBlockIndex === 'number') {
@@ -1122,15 +1157,27 @@ export const useLlmMutations = () => {
           const block = currentDocument?.textBlocks?.[textBlockIndex]
           if (block?.text) {
             try {
-              const context = await getTranslationContext(queryClient, resolvedIndex, textBlockIndex)
-              const translation = await generateCloudTranslation(block.text, language, undefined, style, context)
-              const nextBlocks = (currentDocument?.textBlocks ?? []).map((b: any, i: number) =>
-                 i === textBlockIndex ? { ...b, translation } : b
+              const context = await getTranslationContext(
+                queryClient,
+                resolvedIndex,
+                textBlockIndex,
+              )
+              const translation = await generateCloudTranslation(
+                block.text,
+                language,
+                undefined,
+                style,
+                context,
+              )
+              const nextBlocks = (currentDocument?.textBlocks ?? []).map(
+                (b: any, i: number) =>
+                  i === textBlockIndex ? { ...b, translation } : b,
               )
               // Issue #21 — Thai post-process before save (no extra
               // round-trip vs the local-LLM path; we have the blocks
               // in-memory already).
-              const processed = usePreferencesStore.getState().thaiPostProcessEnabled
+              const processed = usePreferencesStore.getState()
+                .thaiPostProcessEnabled
                 ? applyThaiPostProcessToBlocks(nextBlocks)
                 : nextBlocks
               // Pass the resolved page index explicitly so a mid-flight
@@ -1168,22 +1215,38 @@ export const useLlmMutations = () => {
                     .filter((b) => b.text)
 
             if (blocksToTranslate.length > 0) {
-              const { generateCloudBatchTranslation } = await import('@/lib/services/cloudLlm')
-              const context = await getTranslationContext(queryClient, resolvedIndex)
-              const translatedResult = await generateCloudBatchTranslation(blocksToTranslate, language, context)
+              const { generateCloudBatchTranslation } =
+                await import('@/lib/services/cloudLlm')
+              const context = await getTranslationContext(
+                queryClient,
+                resolvedIndex,
+              )
+              const translatedResult = await generateCloudBatchTranslation(
+                blocksToTranslate,
+                language,
+                context,
+              )
 
               // Map the returned JSON translations back to the blocks array
               for (const result of translatedResult) {
-                if (result && typeof result.index === 'number' && typeof result.translation === 'string') {
+                if (
+                  result &&
+                  typeof result.index === 'number' &&
+                  typeof result.translation === 'string'
+                ) {
                   const b = nextBlocks[result.index]
                   if (b) {
-                     nextBlocks[result.index] = { ...b, translation: result.translation }
+                    nextBlocks[result.index] = {
+                      ...b,
+                      translation: result.translation,
+                    }
                   }
                 }
               }
 
               // Issue #21 — Thai post-process before save.
-              const processed = usePreferencesStore.getState().thaiPostProcessEnabled
+              const processed = usePreferencesStore.getState()
+                .thaiPostProcessEnabled
                 ? applyThaiPostProcessToBlocks(nextBlocks)
                 : nextBlocks
               // Pin to resolvedIndex (see comment on the single-block
@@ -1214,7 +1277,10 @@ export const useLlmMutations = () => {
             }
           } catch (e: any) {
             console.error('Cloud LLM Batch JSON Generation failed:', e)
-            alert(e.message || 'Batch JSON translation failed. The AI or API might have failed to return a proper JSON structure.')
+            alert(
+              e.message ||
+                'Batch JSON translation failed. The AI or API might have failed to return a proper JSON structure.',
+            )
           }
         }
       } else {
@@ -1231,8 +1297,17 @@ export const useLlmMutations = () => {
 
         if (typeof textBlockIndex === 'number') {
           // Single block — translate only (inpaint per-block is not meaningful)
-          const context = await getTranslationContext(queryClient, resolvedIndex, textBlockIndex)
-          await api.llmGenerate(resolvedIndex, textBlockIndex, language, context)
+          const context = await getTranslationContext(
+            queryClient,
+            resolvedIndex,
+            textBlockIndex,
+          )
+          await api.llmGenerate(
+            resolvedIndex,
+            textBlockIndex,
+            language,
+            context,
+          )
         } else {
           // Batch mode: Generate = Inpaint + Translate + Render via Rust pipeline.
           // api.process() with skipDetect+skipOcr runs inpaint then LLM then render
@@ -1267,8 +1342,7 @@ export const useLlmMutations = () => {
         // in the data model but the canvas doesn't repaint until
         // the user clicks Render or twiddles a font setting.
         try {
-          const { renderEffect, renderStroke } =
-            useEditorUiStore.getState()
+          const { renderEffect, renderStroke } = useEditorUiStore.getState()
           const { fontFamily } = usePreferencesStore.getState()
           await api.render(resolvedIndex, {
             shaderEffect: renderEffect,

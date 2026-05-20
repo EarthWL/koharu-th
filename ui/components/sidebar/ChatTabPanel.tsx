@@ -27,18 +27,9 @@ import { api, type ChatAttachment, type ChatMessageDto } from '@/lib/api'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { useProjectStore } from '@/lib/stores/projectStore'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
-import {
-  runChatTurn,
-  type ChatMessage,
-} from '@/lib/services/chatWithTools'
-import {
-  expandSlash,
-  SLASH_COMMANDS,
-} from '@/lib/services/chatSlashCommands'
-import {
-  blobToAttachment,
-  parseAttachments,
-} from '@/lib/services/imageAttach'
+import { runChatTurn, type ChatMessage } from '@/lib/services/chatWithTools'
+import { expandSlash, SLASH_COMMANDS } from '@/lib/services/chatSlashCommands'
+import { blobToAttachment, parseAttachments } from '@/lib/services/imageAttach'
 import { supportsVision } from '@/lib/services/visionSupport'
 import { KINDS, kindOf } from '@/lib/services/profileHelpers'
 import i18n from '@/lib/i18n'
@@ -54,9 +45,9 @@ const UI_LOCALE_TO_LANGUAGE: Record<string, string> = {
   'en-US': 'English',
   'th-TH': 'Thai',
   'ja-JP': 'Japanese',
-  'en': 'English',
-  'th': 'Thai',
-  'ja': 'Japanese',
+  en: 'English',
+  th: 'Thai',
+  ja: 'Japanese',
 }
 
 function uiLanguageName(): string {
@@ -145,9 +136,9 @@ export function ChatTabPanel() {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showSlash, setShowSlash] = useState(false)
-  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>(
-    [],
-  )
+  const [pendingAttachments, setPendingAttachments] = useState<
+    ChatAttachment[]
+  >([])
   const [attaching, setAttaching] = useState(false)
   /** Partial assistant text that's currently streaming in. */
   const [streamingText, setStreamingText] = useState('')
@@ -157,7 +148,9 @@ export function ChatTabPanel() {
   const currentDocIndex = useEditorUiStore((s) => s.currentDocumentIndex)
 
   // Snooze config (ESET-style):
-  const [snoozeType, setSnoozeType] = useState<'restart' | 'messages' | null>(null)
+  const [snoozeType, setSnoozeType] = useState<'restart' | 'messages' | null>(
+    null,
+  )
   const [snoozeTargetCount, setSnoozeTargetCount] = useState<number>(0)
   const [showSnoozeMenu, setShowSnoozeMenu] = useState(false)
   const [compacting, setCompacting] = useState(false)
@@ -170,7 +163,8 @@ export function ChatTabPanel() {
   const currentCount = history.data?.length ?? 0
   const isSnoozed = useMemo(() => {
     if (snoozeType === 'restart') return true
-    if (snoozeType === 'messages' && currentCount < snoozeTargetCount) return true
+    if (snoozeType === 'messages' && currentCount < snoozeTargetCount)
+      return true
     return false
   }, [snoozeType, snoozeTargetCount, currentCount])
 
@@ -310,7 +304,9 @@ export function ChatTabPanel() {
     // (see disabled prop below) already enables itself for that case.
     if ((!input.trim() && pendingAttachments.length === 0) || sending) return
     if (provider === 'none') {
-      setError('Cloud LLM not selected — pick a profile from the LLM badge or Profiles tab.')
+      setError(
+        'Cloud LLM not selected — pick a profile from the LLM badge or Profiles tab.',
+      )
       return
     }
     // Detect "local" profiles (Ollama / LM Studio / llama.cpp etc.) by
@@ -379,15 +375,19 @@ export function ChatTabPanel() {
     // The last message in priorRows is the one we just added (with displayContent).
     // We remove it from priorRows and replace it with lastUser (which has sendContent)
     // to avoid duplicating the user's message.
-    if (priorRows.length > 0 && priorRows[priorRows.length - 1].role === 'user') {
+    if (
+      priorRows.length > 0 &&
+      priorRows[priorRows.length - 1].role === 'user'
+    ) {
       priorRows.pop()
     }
 
     // Rolling Window Context: Keep only the most recent 12 turns to speed up responses and save context window tokens
     const ROLLING_WINDOW_LIMIT = 12
-    const rollingPriorRows = priorRows.length > ROLLING_WINDOW_LIMIT
-      ? priorRows.slice(priorRows.length - ROLLING_WINDOW_LIMIT)
-      : priorRows
+    const rollingPriorRows =
+      priorRows.length > ROLLING_WINDOW_LIMIT
+        ? priorRows.slice(priorRows.length - ROLLING_WINDOW_LIMIT)
+        : priorRows
 
     // Replace the just-persisted user message's display content with
     // the expanded prompt before sending. Attachments travel as-is —
@@ -473,7 +473,14 @@ export function ChatTabPanel() {
   const [redoStack, setRedoStack] = useState<ChatMessageDto[][]>([])
 
   const revokeFromMessage = async (m: ChatMessageDto) => {
-    if (!projectInfo || !history.data || history.data.length === 0 || revoking || sending) return
+    if (
+      !projectInfo ||
+      !history.data ||
+      history.data.length === 0 ||
+      revoking ||
+      sending
+    )
+      return
     const targetIdx = history.data.findIndex((item) => item.id === m.id)
     if (targetIdx === -1) return
     const deletedMessages = history.data.slice(targetIdx)
@@ -494,8 +501,17 @@ export function ChatTabPanel() {
   }
 
   const revokeLastTurn = async () => {
-    if (!projectInfo || !history.data || history.data.length === 0 || revoking || sending) return
-    const lastUserIdx = [...history.data].reverse().findIndex((m) => m.role === 'user')
+    if (
+      !projectInfo ||
+      !history.data ||
+      history.data.length === 0 ||
+      revoking ||
+      sending
+    )
+      return
+    const lastUserIdx = [...history.data]
+      .reverse()
+      .findIndex((m) => m.role === 'user')
     if (lastUserIdx === -1) return
     const actualUserIdx = history.data.length - 1 - lastUserIdx
     await revokeFromMessage(history.data[actualUserIdx])
@@ -529,7 +545,12 @@ export function ChatTabPanel() {
 
   const clearAll = async () => {
     if (clearing) return
-    if (!confirm('ต้องการล้างประวัติแชททั้งหมดของโปรเจกต์นี้หรือไม่? (ข้อมูลทั้งหมดจะถูกลบถาวร)')) return
+    if (
+      !confirm(
+        'ต้องการล้างประวัติแชททั้งหมดของโปรเจกต์นี้หรือไม่? (ข้อมูลทั้งหมดจะถูกลบถาวร)',
+      )
+    )
+      return
     setClearing(true)
     try {
       await api.chatMessagesClear()
@@ -560,17 +581,17 @@ export function ChatTabPanel() {
   return (
     <div className='flex h-full min-h-0 flex-1 flex-col'>
       <div className='border-border flex items-center justify-between border-b px-2 py-1.5'>
-        <span className='text-muted-foreground text-[10px] font-bold tracking-wide uppercase flex items-center gap-1.5'>
+        <span className='text-muted-foreground flex items-center gap-1.5 text-[10px] font-bold tracking-wide uppercase'>
           AI Chat ({history.data?.length ?? 0})
           {isSnoozed && (
             <button
               onClick={() => {
                 setSnoozeType(null)
               }}
-              title="การแจ้งเตือนความจำไหลผ่านเริ่มจำศีลอยู่ (คลิกเพื่อกู้คืนการแจ้งเตือนกลับมาปกติ)"
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted hover:bg-amber-500/10 text-muted-foreground/60 hover:text-amber-600 dark:hover:text-amber-400 text-[9px] font-semibold border border-border transition cursor-pointer"
+              title='การแจ้งเตือนความจำไหลผ่านเริ่มจำศีลอยู่ (คลิกเพื่อกู้คืนการแจ้งเตือนกลับมาปกติ)'
+              className='bg-muted text-muted-foreground/60 border-border inline-flex cursor-pointer items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-semibold transition hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400'
             >
-              <BellOffIcon className="size-2.5" />
+              <BellOffIcon className='size-2.5' />
               ปิดเตือนอยู่
             </button>
           )}
@@ -579,7 +600,7 @@ export function ChatTabPanel() {
           <Button
             variant='ghost'
             size='sm'
-            className='h-6 px-2 text-[10px] disabled:opacity-40 flex items-center gap-1'
+            className='flex h-6 items-center gap-1 px-2 text-[10px] disabled:opacity-40'
             title='ดึงคืนข้อความล่าสุดและคำตอบของ AI กลับมาแก้ไขใหม่'
             disabled={!history.data?.length || sending || clearing || revoking}
             onClick={() => void revokeLastTurn()}
@@ -594,7 +615,7 @@ export function ChatTabPanel() {
           <Button
             variant='ghost'
             size='sm'
-            className='h-6 px-2 text-[10px] disabled:opacity-40 flex items-center gap-1'
+            className='flex h-6 items-center gap-1 px-2 text-[10px] disabled:opacity-40'
             title='ทำซ้ำข้อความที่ดึงคืนล่าสุด'
             disabled={!redoStack.length || sending || clearing || revoking}
             onClick={() => void redoLastTurn()}
@@ -609,7 +630,7 @@ export function ChatTabPanel() {
           <Button
             variant='ghost'
             size='sm'
-            className='h-6 px-2 text-[10px] disabled:opacity-40 flex items-center gap-1'
+            className='flex h-6 items-center gap-1 px-2 text-[10px] disabled:opacity-40'
             title='ล้างประวัติแชททั้งหมดสำหรับโปรเจกต์นี้'
             disabled={!history.data?.length || sending || clearing}
             onClick={() => void clearAll()}
@@ -633,8 +654,9 @@ export function ChatTabPanel() {
           </span>
         ) : (
           <span className='min-w-0 flex-1 truncate'>
-            via <span className='text-foreground font-semibold'>{provider}</span>{' '}
-            · {model || '(no model)'}
+            via{' '}
+            <span className='text-foreground font-semibold'>{provider}</span> ·{' '}
+            {model || '(no model)'}
           </span>
         )}
         {provider !== 'none' && (
@@ -654,7 +676,7 @@ export function ChatTabPanel() {
 
       {/* Warn if attachments queued but active model is text-only */}
       {!vision.supported && pendingAttachments.length > 0 && (
-        <div className='border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 border-b px-2 py-1.5 text-[10px]'>
+        <div className='border-b border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-700 dark:text-amber-400'>
           {t(
             'chat.textOnlyWarning',
             '⚠ {{count}} image attachment(s) queued but the active model is text-only — switch profile to a vision-capable model (e.g. gpt-4o, claude-haiku, gemini-1.5+) or remove the attachments before sending.',
@@ -664,7 +686,7 @@ export function ChatTabPanel() {
       )}
 
       {/* Messages Wrapper for Floating Overlays */}
-      <div className='relative min-h-0 min-w-0 flex-1 flex flex-col'>
+      <div className='relative flex min-h-0 min-w-0 flex-1 flex-col'>
         <ScrollArea className='flex-1' viewportRef={scrollRef}>
           <div className='w-full min-w-0 space-y-2 p-2 pb-24'>
             {!history.data?.length ? (
@@ -692,62 +714,63 @@ export function ChatTabPanel() {
 
         {/* ESET-style Compact Memory Warning Floating Card */}
         {showWarning && (
-          <div className="absolute bottom-2 left-2 right-2 border-amber-500/30 bg-background/95 backdrop-blur-sm text-amber-900 dark:text-amber-300 border rounded-lg p-2.5 shadow-lg text-xs flex flex-col gap-1.5 z-40 animate-in fade-in slide-in-from-bottom-2 duration-200">
-            <div className="font-semibold flex items-center justify-between">
-              <span className="flex items-center gap-1.5">
-                <TriangleAlertIcon className="size-3 text-amber-600 dark:text-amber-400 shrink-0" />
+          <div className='bg-background/95 animate-in fade-in slide-in-from-bottom-2 absolute right-2 bottom-2 left-2 z-40 flex flex-col gap-1.5 rounded-lg border border-amber-500/30 p-2.5 text-xs text-amber-900 shadow-lg backdrop-blur-sm duration-200 dark:text-amber-300'>
+            <div className='flex items-center justify-between font-semibold'>
+              <span className='flex items-center gap-1.5'>
+                <TriangleAlertIcon className='size-3 shrink-0 text-amber-600 dark:text-amber-400' />
                 ความทรงจำของ AI เริ่มจะไม่แน่นอนแล้ว
               </span>
-              <button 
-                onClick={() => setSnoozeType('restart')} 
-                className="opacity-50 hover:opacity-100 transition text-[10px] cursor-pointer"
-                title="ปิดชั่วคราวจนกว่าจะรีสตาร์ท"
+              <button
+                onClick={() => setSnoozeType('restart')}
+                className='cursor-pointer text-[10px] opacity-50 transition hover:opacity-100'
+                title='ปิดชั่วคราวจนกว่าจะรีสตาร์ท'
               >
                 ✕
               </button>
             </div>
-            <p className="text-[10px] leading-relaxed text-muted-foreground">
-              ความจำช่วงเริ่มต้นกำลังจะเลือนหายเนื่องจากประวัติแชทเริ่มยาวเกินกำหนด แนะนำให้บีบอัดแชทเพื่อรักษาบริบทสำคัญไว้
+            <p className='text-muted-foreground text-[10px] leading-relaxed'>
+              ความจำช่วงเริ่มต้นกำลังจะเลือนหายเนื่องจากประวัติแชทเริ่มยาวเกินกำหนด
+              แนะนำให้บีบอัดแชทเพื่อรักษาบริบทสำคัญไว้
             </p>
-            <div className="flex items-center gap-2 mt-1 relative">
+            <div className='relative mt-1 flex items-center gap-2'>
               <Button
-                variant="outline"
-                size="sm"
+                variant='outline'
+                size='sm'
                 disabled={compacting || sending}
                 onClick={compactChat}
-                className="h-6 px-2.5 text-[10px] bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-800 dark:text-amber-300 flex items-center"
+                className='flex h-6 items-center border-amber-500/30 bg-amber-500/10 px-2.5 text-[10px] text-amber-800 hover:bg-amber-500/20 dark:text-amber-300'
               >
                 {compacting ? (
                   <>
-                    <Loader2Icon className="mr-1 size-3 animate-spin" />
+                    <Loader2Icon className='mr-1 size-3 animate-spin' />
                     กำลังบีบอัด...
                   </>
                 ) : (
                   <>
-                    <ZapIcon className="size-2.5 mr-1 text-amber-600 dark:text-amber-400" />
+                    <ZapIcon className='mr-1 size-2.5 text-amber-600 dark:text-amber-400' />
                     บีบอัดแชทตอนนี้
                   </>
                 )}
               </Button>
-              <div className="relative">
+              <div className='relative'>
                 <Button
-                  variant="ghost"
-                  size="sm"
+                  variant='ghost'
+                  size='sm'
                   disabled={compacting || sending}
                   onClick={() => setShowSnoozeMenu(!showSnoozeMenu)}
-                  className="h-6 px-2 text-[10px] text-muted-foreground hover:bg-muted"
+                  className='text-muted-foreground hover:bg-muted h-6 px-2 text-[10px]'
                 >
                   ปิดเตือนชั่วคราว ▾
                 </Button>
                 {showSnoozeMenu && (
-                  <div className="absolute left-0 bottom-full z-50 mb-1 w-60 rounded-md border border-border bg-popover text-popover-foreground shadow-lg p-1 text-[10px] font-sans">
+                  <div className='border-border bg-popover text-popover-foreground absolute bottom-full left-0 z-50 mb-1 w-60 rounded-md border p-1 font-sans text-[10px] shadow-lg'>
                     <button
                       onClick={() => {
                         setSnoozeType('messages')
                         setSnoozeTargetCount(currentCount + 50)
                         setShowSnoozeMenu(false)
                       }}
-                      className="w-full text-left px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-sm transition cursor-pointer"
+                      className='hover:bg-accent hover:text-accent-foreground w-full cursor-pointer rounded-sm px-2 py-1.5 text-left transition'
                     >
                       ปิดเตือนถัดไปอีก 50 ข้อความ
                     </button>
@@ -756,7 +779,7 @@ export function ChatTabPanel() {
                         setSnoozeType('restart')
                         setShowSnoozeMenu(false)
                       }}
-                      className="w-full text-left px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-sm transition cursor-pointer"
+                      className='hover:bg-accent hover:text-accent-foreground w-full cursor-pointer rounded-sm px-2 py-1.5 text-left transition'
                     >
                       ปิดเตือนจนกว่าจะเปิดโปรแกรมใหม่
                     </button>
@@ -973,7 +996,13 @@ function MessageRow({
   onUndoFromHere?: () => void
 }) {
   if (m.role === 'tool') {
-    return <ToolResultRow message={m} onDelete={onDelete} onUndoFromHere={onUndoFromHere} />
+    return (
+      <ToolResultRow
+        message={m}
+        onDelete={onDelete}
+        onUndoFromHere={onUndoFromHere}
+      />
+    )
   }
   const isUser = m.role === 'user'
   const attachments = parseAttachments(m.attachments)
@@ -981,13 +1010,15 @@ function MessageRow({
     <div
       className={
         'group relative rounded-md border p-2 text-xs ' +
-        (isUser
-          ? 'border-primary/30 bg-primary/5'
-          : 'border-border bg-card')
+        (isUser ? 'border-primary/30 bg-primary/5' : 'border-border bg-card')
       }
     >
       <div className='text-muted-foreground mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase'>
-        {isUser ? <UserIcon className='size-3' /> : <BotIcon className='size-3' />}
+        {isUser ? (
+          <UserIcon className='size-3' />
+        ) : (
+          <BotIcon className='size-3' />
+        )}
         {m.role}
         {/* Undo from here button */}
         {onUndoFromHere && (
@@ -996,7 +1027,7 @@ function MessageRow({
             onClick={onUndoFromHere}
             aria-label='Undo from this message'
             title='ลบประวัติตั้งแต่ข้อความนี้ย้อนหลัง (Undo from here)'
-            className='text-muted-foreground hover:text-amber-500 ml-auto mr-1.5 opacity-0 transition group-hover:opacity-100 focus:opacity-100'
+            className='text-muted-foreground mr-1.5 ml-auto opacity-0 transition group-hover:opacity-100 hover:text-amber-500 focus:opacity-100'
           >
             <Undo2Icon className='size-3' />
           </button>
@@ -1009,7 +1040,11 @@ function MessageRow({
           onClick={onDelete}
           aria-label='Delete this message'
           title='Delete this message'
-          className={onUndoFromHere ? 'text-muted-foreground hover:text-destructive opacity-0 transition group-hover:opacity-100 focus:opacity-100' : 'text-muted-foreground hover:text-destructive ml-auto opacity-0 transition group-hover:opacity-100 focus:opacity-100'}
+          className={
+            onUndoFromHere
+              ? 'text-muted-foreground hover:text-destructive opacity-0 transition group-hover:opacity-100 focus:opacity-100'
+              : 'text-muted-foreground hover:text-destructive ml-auto opacity-0 transition group-hover:opacity-100 focus:opacity-100'
+          }
         >
           <XIcon className='size-3' />
         </button>
@@ -1026,7 +1061,7 @@ function MessageRow({
         <div className='min-w-0'>
           {m.content ? (
             isUser ? (
-              <div className='select-text break-words whitespace-pre-wrap text-xs leading-relaxed'>
+              <div className='text-xs leading-relaxed break-words whitespace-pre-wrap select-text'>
                 {m.content}
               </div>
             ) : (
@@ -1054,7 +1089,7 @@ function MessageRow({
                 src={a.dataUrl}
                 alt={`attachment ${i + 1}`}
                 className='h-full w-full object-cover'
-                />
+              />
             </a>
           ))}
         </div>
@@ -1117,7 +1152,7 @@ function ToolResultRow({
             onClick={onUndoFromHere}
             aria-label='Undo from this tool result'
             title='ลบประวัติตั้งแต่ผลลัพธ์เครื่องมือนี้ย้อนหลัง (Undo from here)'
-            className='text-muted-foreground hover:text-amber-500 opacity-0 transition group-hover:opacity-100 focus:opacity-100 mr-1.5'
+            className='text-muted-foreground mr-1.5 opacity-0 transition group-hover:opacity-100 hover:text-amber-500 focus:opacity-100'
           >
             <Undo2Icon className='size-2.5' />
           </button>
@@ -1133,7 +1168,7 @@ function ToolResultRow({
         </button>
       </div>
       {open && (
-        <pre className='mt-1 max-h-48 overflow-auto rounded bg-black/30 p-1.5 text-[10px] select-text whitespace-pre-wrap break-all'>
+        <pre className='mt-1 max-h-48 overflow-auto rounded bg-black/30 p-1.5 text-[10px] break-all whitespace-pre-wrap select-text'>
           {m.content}
         </pre>
       )}
@@ -1159,7 +1194,7 @@ function SlashPicker({
   )
   if (!filtered.length) return null
   return (
-    <div className='border-border bg-card absolute bottom-full left-2 right-2 mb-1 rounded-md border shadow-lg'>
+    <div className='border-border bg-card absolute right-2 bottom-full left-2 mb-1 rounded-md border shadow-lg'>
       <div className='max-h-48 overflow-auto p-1'>
         {filtered.map((c) => (
           <button

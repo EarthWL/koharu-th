@@ -54,13 +54,15 @@ export function GlossaryTabPanel() {
       return `"${clean}"`
     }
     const rows = data.map((item) => {
-      const aliasesStr = Array.isArray(item.aliases) ? item.aliases.join('|') : ''
+      const aliasesStr = Array.isArray(item.aliases)
+        ? item.aliases.join('|')
+        : ''
       return [
         escapeCsv(item.sourceText),
         escapeCsv(item.targetText),
         escapeCsv(item.category),
         escapeCsv(aliasesStr),
-        escapeCsv(item.contextNote ?? '')
+        escapeCsv(item.contextNote ?? ''),
       ].join(',')
     })
     const csvContent = '\uFEFF' + [header.join(','), ...rows].join('\n')

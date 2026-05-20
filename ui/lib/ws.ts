@@ -16,7 +16,6 @@ export class DiagnosticError extends Error {
   }
 }
 
-
 type OutgoingRequest = {
   type: 'req'
   id: number

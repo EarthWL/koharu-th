@@ -60,7 +60,7 @@ export function applyThaiPostProcess(text: string): string {
     // 1. Double quotes to French guillemets with non-breaking spaces (U+00A0)
     out = out.replace(/(^|[\s([{<])"/g, '$1«\u00a0')
     out = out.replace(/"/g, '\u00a0»')
-    
+
     // 2. Non-breaking space before high punctuation marks: ? ! ; :
     out = out.replace(/\s*([?!;:])($|[\s)\]}])/g, '\u00a0$1$2')
     out = out.replace(/\s*:\s*/g, '\u00a0:\u00a0')
