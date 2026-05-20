@@ -1772,7 +1772,19 @@ export function ChatTabPanel() {
 
       {/* Messages Wrapper for Floating Overlays */}
       <div className='relative flex min-h-0 min-w-0 flex-1 flex-col'>
-        <ScrollArea className='flex-1' viewportRef={scrollRef}>
+        {/* viewportClassName `[&>div]:!block`: Radix wraps the viewport's
+            content in a `display:table; min-width:100%` div that grows to its
+            widest descendant — a wide markdown table or long tool line then
+            stretches the whole column so paragraphs stop wrapping and content
+            spills past the sidebar ("the chat box burrows"). Forcing that
+            wrapper back to `display:block` (beats Radix's inline style via
+            `!important`) lets min-w-0 + break-words + the table's own
+            overflow-x-auto do their job. */}
+        <ScrollArea
+          className='flex-1'
+          viewportClassName='[&>div]:!block'
+          viewportRef={scrollRef}
+        >
           <div className='w-full min-w-0 space-y-2 p-2 pb-24'>
             {!history.data?.length ? (
               <EmptyState />
@@ -1975,31 +1987,6 @@ export function ChatTabPanel() {
               >
                 ✕
               </button>
-            <EmptyState />
-          ) : (
-            chatRows.map((g) =>
-              g.type === 'message' ? (
-                <MessageRow
-                  key={g.message.id}
-                  message={g.message}
-                  onDelete={() => void deleteMessage(g.message.id)}
-                />
-              ) : (
-                <ToolActivityGroup
-                  key={`tools-${g.items[0].id}`}
-                  items={g.items}
-                  onDelete={(id) => void deleteMessage(id)}
-                />
-              ),
-            )
-          )}
-          {sending && (
-            <StreamingBubble streamingText={streamingText} onStop={stop} />
-          )}
-          {error && (
-            <div className='text-destructive border-destructive/30 rounded border p-2 text-[10px]'>
-              {error}
->>>>>>> 70c8fd7c (feat(chat): collapse consecutive tool calls/results into one group)
             </div>
             <p className='text-muted-foreground text-[10px] leading-relaxed'>
               ความจำช่วงเริ่มต้นกำลังจะเลือนหายเนื่องจากประวัติแชทเริ่มยาวเกินกำหนด

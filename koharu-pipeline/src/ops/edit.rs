@@ -228,46 +228,69 @@ pub async fn update_text_block(
     state: AppResources,
     payload: UpdateTextBlockPayload,
 ) -> anyhow::Result<TextBlockInfo> {
-    state_tx::mutate_doc(&state.state, payload.index, |document| {
-        let block = document
-            .text_blocks
-            .get_mut(payload.text_block_index)
-            .ok_or_else(|| anyhow::anyhow!("Text block {} not found", payload.text_block_index))?;
-        let mut geometry_changed = false;
+    let index = payload.index;
+    let block_index = payload.text_block_index;
+    state_tx::mutate_doc(&state.state, index, |document| {
+        let block_count = document.text_blocks.len();
+        let block = document.text_blocks.get_mut(block_index).ok_or_else(|| {
+            // Actionable message: a common failure is the caller (e.g. the
+            // AI-chat agent) passing a 1-based page number as the 0-based
+            // document `index`, or targeting a page whose blocks aren't the
+            // ones it inspected. Report the doc index + block count so the
+            // mismatch is visible instead of a bare "not found".
+            anyhow::anyhow!(
+                "Text block {block_index} not found: document index {index} has {block_count} block(s) (valid block indices 0..{block_count}). Check the document index (0-based) matches the page you mean."
+            )
+        })?;
+        // Self-test fix #2: track whether the change invalidates
+        // the rendered sprite. Pure-position moves (x/y only) do
+        // NOT change the sprite contents — only its placement on
+        // the canvas — so we preserve `block.rendered` and the
+        // frontend's TextBlockSpriteLayer keeps showing the
+        // translation. Pre-fix every update_text_block call
+        // unconditionally cleared `rendered`, so dragging a block
+        // to reposition it made the translated text vanish until
+        // the user pressed Render again.
+        let mut size_changed = false; // affects sprite content
+        let mut moved = false; // pure-position, sprite unchanged
 
         if let Some(translation) = payload.translation {
             block.translation = Some(translation);
+            size_changed = true; // text content rebaked
         }
         if let Some(x) = payload.x {
             block.x = x;
-            geometry_changed = true;
+            moved = true;
         }
         if let Some(y) = payload.y {
             block.y = y;
-            geometry_changed = true;
+            moved = true;
         }
         if let Some(width) = payload.width {
             block.width = width;
-            geometry_changed = true;
+            size_changed = true;
             block.lock_layout_box = true;
         }
         if let Some(height) = payload.height {
             block.height = height;
-            geometry_changed = true;
+            size_changed = true;
             block.lock_layout_box = true;
         }
         if let Some(rotation_deg) = payload.rotation_deg {
             block.rotation_deg = Some(rotation_deg);
+            size_changed = true; // sprite rotation baked-in
         }
-        if geometry_changed {
+        if size_changed || moved {
             block.set_layout_seed(block.x, block.y, block.width, block.height);
         }
 
+        let mut style_changed = false;
         if payload.font_families.is_some()
             || payload.font_size.is_some()
             || payload.color.is_some()
             || payload.shader_effect.is_some()
         {
+            style_changed = true;
             let style = block.style.get_or_insert_with(|| TextStyle {
                 font_families: Vec::new(),
                 font_size: None,
@@ -297,7 +320,11 @@ pub async fn update_text_block(
             }
         }
 
-        block.rendered = None;
+        if size_changed || style_changed {
+            // Sprite content changed → stale rebake.
+            block.rendered = None;
+        }
+        // Pure `moved` (x/y only) preserves rendered.
         Ok(to_block_info(payload.text_block_index, block))
     })
     .await
