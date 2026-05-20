@@ -155,8 +155,20 @@ tokio-util = { version = "0.7", features = ["rt"] }
 [patch.crates-io]
 # KI-1: vendored cudarc 0.19.3 with the cuDNN Drop unwrap softened to a
 # logged no-op (third-party/cudarc/src/cudnn/safe/core.rs). Both our direct
-# dep and candle-core pull cudarc 0.19.x from crates.io, so one patch covers
-# both. Re-sync this fork if cudarc is bumped. See docs/v2-progress.md KI-1.
+# dep (^0.19.2) and candle-core (^0.19.0) pull cudarc 0.19.x from crates.io,
+# so this single patch covers every cuDNN handle in the process.
+#
+# DRIFT BEHAVIOUR — read before bumping cudarc:
+#  * This pins ALL cudarc 0.19.x to our frozen 0.19.3 copy, so upstream
+#    0.19.4+ patch releases (incl. any official Drop fix) are MASKED until
+#    re-synced.
+#  * Raising either requirement above 0.19.3 makes cargo FAIL LOUD
+#    ("patch ... did not resolve to a usable version") — not a silent
+#    miscompile. To re-sync: re-copy the new registry source into
+#    third-party/cudarc, re-apply the core.rs Drop edit, drop its Cargo.lock.
+#  * If upstream cudarc ships the Drop fix, delete this patch + the vendored
+#    dir entirely and rely on the registry version.
+# See docs/v2-progress.md KI-1.
 cudarc = { path = "third-party/cudarc" }
 candle-transformers = { git = "https://github.com/mayocream/candle", branch = "cuda-dynamic-loading" }
 candle-core = { git = "https://github.com/mayocream/candle", branch = "cuda-dynamic-loading" }

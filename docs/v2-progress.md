@@ -178,7 +178,13 @@ toast ("พื้นที่เล็กเกินไปสำหรับก
 fail mid-inference. Gating at the input covers both the blockwise
 (eraser-narrowed bubble) and `inference_crop` (full-image) paths. Unit
 test `rejects_crops_thinner_than_model_minimum` covers the boundary.
-8/8 lama lib tests green.
+
+Follow-up (scrutinize): the gate alone had a hole — a long-thin crop
+(e.g. 2000×20) passes it (both sides ≥16) but the >512 downscale path
+proportionally shrank the short side below 16 and still crashed candle.
+Fixed by clamping the downscaled dims at `MIN_INPAINT_DIM` instead of `1`
+(`downscale_dims`); test `downscale_never_shrinks_a_side_below_model_minimum`.
+9/9 lama lib tests green.
 
 <details><summary>original report</summary>
 
@@ -361,6 +367,19 @@ Reproduction is environment-dependent (RTX 50xx Blackwell +
 CUDA 13.1 + cuDNN 9.19) so a deterministic test isn't in the
 suite. The panic_hook log shipped in `bf0ed50d` stays as a tracer for
 any future cuDNN Drop error (now logged, not aborting).
+
+**Open decision — is the vendor worth it? (scrutinize, owed benchmark)**
+Vendoring ~236k lines to soften one Drop unwrap is heavy for a
+shutdown-only, no-work-lost abort. The lighter alternative is to drop
+the `cudnn` feature from `koharu-runtime` defaults — candle then uses
+its own im2col+gemm conv, no `Cudnn` type is ever instantiated, and
+KI-1 disappears at the root with a one-line revert. It was NOT chosen
+because the conv-perf cost (detection runs interactively per page) is
+unmeasured — and can't be measured in the agent shell (VS18/CUDA13.1
+blocks the cuda build). **Owed on the Blackwell box**: benchmark
+detect+inpaint with cudnn on vs off; if the delta is immaterial, revert
+this vendor (`git revert e83bd91a` + drop the patch) and disable the
+feature instead.
 
 ## Locked decisions (won't revisit without explicit approval)
 

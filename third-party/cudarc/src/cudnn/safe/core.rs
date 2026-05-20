@@ -52,7 +52,14 @@ impl Drop for Cudnn {
             // away anyway and the driver reclaims the handle on context
             // teardown. See koharu-th docs/v2-progress.md KI-1.
             if let Err(e) = unsafe { result::destroy_handle(handle) } {
-                eprintln!("cudarc(koharu patch): cudnnDestroyHandle failed during drop, ignoring: {e:?}");
+                // Must NOT panic here — this Drop runs during TLS teardown, so
+                // a panic aborts the process (the very bug we're fixing). eprintln!
+                // panics on stderr write failure; writeln! + `let _` cannot.
+                use std::io::Write as _;
+                let _ = writeln!(
+                    std::io::stderr(),
+                    "cudarc(koharu patch): cudnnDestroyHandle failed during drop, ignoring: {e:?}"
+                );
             }
         }
     }
