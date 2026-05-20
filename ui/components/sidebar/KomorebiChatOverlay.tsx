@@ -176,16 +176,16 @@ export function KomorebiChatOverlay({
         ctx.textAlign = textAlign
         ctx.textBaseline = 'middle'
 
-        // Simple text wrapping inside simulated bubble ellipse
-        const words = text.split(' ')
+        // Simple text wrapping inside simulated bubble ellipse (with Thai smart character-level wrapping fallback)
+        const words = text.includes(' ') ? text.split(' ') : text.split('')
         const lines: string[] = []
         let currentLine = ''
         const maxWidth = canvas.width - padding * 2
 
         for (const word of words) {
-          const testLine = currentLine ? currentLine + ' ' + word : word
+          const testLine = currentLine + (text.includes(' ') && currentLine ? ' ' : '') + word
           const metrics = ctx.measureText(testLine)
-          if (metrics.width > maxWidth) {
+          if (metrics.width > maxWidth && currentLine) {
             lines.push(currentLine)
             currentLine = word
           } else {
@@ -341,16 +341,15 @@ export function KomorebiChatOverlay({
     if (!activeBlock) return
     setIsTranslating(true)
     
-    // Simulate a minor API timeout or keyring failover check
-    await new Promise(r => setTimeout(r, 1200))
-
     const rawJp = activeBlock.text || ''
-    
-    // Custom simulated translations based on Japanese input
     let kenjiVal = 'เฮ้ย! ไปกันเถอะ ลุยกันเลยสิ!'
     let harukaVal = 'กรุณาไปกันเถอะค่ะ พวกเราต้องออกเดินทางแล้ว'
     let consensusVal = 'พวกเราไปกันเถอะ!'
+    let kenjiComment = `โย่! ฉันแกะภาษาญี่ปุ่นมาได้ล่ะ คำว่า "${rawJp}" เนี่ย อารมณ์มันต้องดิบๆ วัยรุ่นๆ หน่อย! แนะนำสำนวนนี้เลย: "${kenjiVal}" รับรองว่าอ่านแล้วอินเข้าเส้นแน่ๆ!`
+    let harukaComment = `สวัสดีค่ะคุณเคนจิ แต่ฮารุกะคิดว่าถ้าแปลแบบนั้นอาจจะดูหยาบคายไปนิดสำหรับตัวละครหญิงนะคะ ลองสำนวนสุภาพแต่แฝงอารมณ์แบบดั้งเดิมดูไหมคะ: "${harukaVal}" จะได้อารมณ์และสัมผัสภาษาที่งดงามขึ้นค่ะ`
+    let editorComment = `ขอบคุณทั้งเคนจิและฮารุกะที่ช่วยออกความเห็นครับ ผมได้พิจารณาบริบทภาพรวมหน้ากระดาษและสไตล์มังงะเรื่องนี้แล้ว ขอสรุปเป็นทางสายกลางที่กระชับ เหมาะสมกับกรอบ bubble ข้อความ และรักษาอารมณ์ดั้งเดิมได้ดีที่สุด: "${consensusVal}" ครับ`
 
+    // Determine basic simulated values in case of API failure
     if (rawJp.includes('君') || rawJp.includes('お前')) {
       kenjiVal = 'นายนี่มันสุดยอดจริงๆ ว่ะ!'
       harukaVal = 'คุณเป็นคนที่วิเศษมากเลยค่ะ'
@@ -365,32 +364,95 @@ export function KomorebiChatOverlay({
       consensusVal = 'ขอบคุณมากนะ!'
     }
 
+    try {
+      // Build dynamic agentic debate prompt (Feature 1, Feature 7, Feature 10)
+      const systemPrompt = `You are a manga translation Roundtable coordinator. You will coordinate a debate between three distinct Thai personas to translate the Japanese text.
+Personas:
+1. Kenji (👦 เคนจิ): Trendy, direct teenager who loves manga slang, action, and youthful expressions. Focuses on making it punchy.
+2. Haruka (👧 ฮารุกะ): Polite, academically correct, gentle female translator. Focuses on precise Thai grammar and respect.
+3. Editor (👨–💼 บรรณาธิการ): Wise, experienced editor who respects line-length/balloon constraints and makes the final consensus choice.
+
+You MUST structure your response EXACTLY as follows:
+[KENJI]: (Kenji's comment in Thai explaining his proposed translation)
+[KENJI_PROPOSAL]: (Kenji's proposed Thai translation text only)
+[HARUKA]: (Haruka's comment in Thai with polite counter-proposal)
+[HARUKA_PROPOSAL]: (Haruka's proposed Thai translation text only)
+[EDITOR]: (Editor's summary comment in Thai)
+[EDITOR_PROPOSAL]: (The final consensus Thai translation only)
+
+Do not include any extra text outside of these tags. Make sure the proposals do not have quotes.`
+
+      const prompt = `Translate this Japanese manga text bubble: "${rawJp}".
+User context/notes: "${inputValue.trim() || 'ไม่มี'}"`
+
+      const profiles = await api.providerProfilesList()
+      const activeProfile = profiles.find(p => p.isDefault) || profiles[0]
+      if (!activeProfile) {
+        throw new Error("No active provider profile configured")
+      }
+
+      const response = await api.cloudLlmCall({
+        profileId: activeProfile.id,
+        modelName: activeProfile.modelName,
+        apiUrl: activeProfile.apiUrl,
+        jsonMode: false,
+        prompt: `${systemPrompt}\n\n${prompt}`,
+      })
+
+      if (response && response.text) {
+        const text = response.text
+        const getTagContent = (tag: string) => {
+          const regex = new RegExp(`\\[${tag}\\]:?\\s*([\\s\\S]*?)(?=\\[|$)`, 'i')
+          const match = text.match(regex)
+          return match ? match[1].trim().replace(/^["']|["']$/g, '') : ''
+        }
+
+        const parsedKenji = getTagContent('KENJI')
+        const parsedKenjiProp = getTagContent('KENJI_PROPOSAL')
+        const parsedHaruka = getTagContent('HARUKA')
+        const parsedHarukaProp = getTagContent('HARUKA_PROPOSAL')
+        const parsedEditor = getTagContent('EDITOR')
+        const parsedEditorProp = getTagContent('EDITOR_PROPOSAL')
+
+        if (parsedKenjiProp && parsedHarukaProp && parsedEditorProp) {
+          kenjiVal = parsedKenjiProp
+          harukaVal = parsedHarukaProp
+          consensusVal = parsedEditorProp
+          kenjiComment = parsedKenji || `โย่! แนะนำสำนวนนี้เลย: "${kenjiVal}"`
+          harukaComment = parsedHaruka || `ลองสำนวนสุภาพแบบนี้ดูนะคะ: "${harukaVal}"`
+          editorComment = parsedEditor || `ขอสรุปเป็นสำนวนนี้เพื่อความลงตัว: "${consensusVal}" ครับ`
+        }
+      }
+    } catch (e) {
+      console.warn("Roundtable API call failed, using high-fidelity local simulation fallback:", e)
+    }
+
     setCustomTranslation(consensusVal)
 
     // Push Agent Conversation timeline dynamically with visual emotion changes (Feature 1, 7)
     setMessages(prev => [
       ...prev,
       {
-        id: 'kenji-msg',
+        id: `kenji-${Date.now()}`,
         agent: 'kenji',
         senderName: 'เคนจิ 👦 [ฝ่ายลุยแสลงมังงะ]',
-        text: `โย่! ฉันแกะภาษาญี่ปุ่นมาได้ล่ะ คำว่า "${rawJp}" เนี่ย อารมณ์มันต้องดิบๆ วัยรุ่นๆ หน่อย! แนะนำสำนวนนี้เลย: "${kenjiVal}" รับรองว่าอ่านแล้วอินเข้าเส้นแน่ๆ!`,
+        text: kenjiComment,
         emotion: 'excited',
         translationProposal: kenjiVal
       },
       {
-        id: 'haruka-msg',
+        id: `haruka-${Date.now()}`,
         agent: 'haruka',
         senderName: 'ฮารุกะ 👧 [ฝ่ายภาษาศาสตร์และไวยากรณ์]',
-        text: `สวัสดีค่ะคุณเคนจิ แต่ฮารุกะคิดว่าถ้าแปลแบบนั้นอาจจะดูหยาบคายไปนิดสำหรับตัวละครหญิงนะคะ ลองสำนวนสุภาพแต่แฝงอารมณ์แบบดั้งเดิมดูไหมคะ: "${harukaVal}" จะได้อารมณ์และสัมผัสภาษาที่งดงามขึ้นค่ะ`,
+        text: harukaComment,
         emotion: 'thinking',
         translationProposal: harukaVal
       },
       {
-        id: 'editor-consensus',
+        id: `editor-${Date.now()}`,
         agent: 'editor',
         senderName: 'บรรณาธิการ 👨‍💼 [สรุปสำนวนโต๊ะกลม]',
-        text: `ขอบคุณทั้งเคนจิและฮารุกะที่ช่วยออกความเห็นครับ ผมได้พิจารณาบริบทภาพรวมหน้ากระดาษและสไตล์มังงะเรื่องนี้แล้ว ขอสรุปเป็นทางสายกลางที่กระชับ เหมาะสมกับกรอบ bubble ข้อความ และรักษาอารมณ์ดั้งเดิมได้ดีที่สุด: "${consensusVal}" ครับ`,
+        text: editorComment,
         emotion: 'satisfied',
         translationProposal: consensusVal
       }
@@ -438,7 +500,10 @@ export function KomorebiChatOverlay({
       setIsPlayingTTS(null)
     }
 
-    window.speechSynthesis.speak(utterance)
+    // Defensive timeout boundary to prevent browser Speech Engine lockups on Windows WebView2
+    setTimeout(() => {
+      window.speechSynthesis.speak(utterance)
+    }, 50)
   }
 
   // Direct Canvas Commit (Feature 8)
