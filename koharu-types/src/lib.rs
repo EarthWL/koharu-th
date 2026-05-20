@@ -124,6 +124,14 @@ pub struct TextBlock {
     pub style: Option<TextStyle>,
     pub font_prediction: Option<FontPrediction>,
     pub rendered: Option<SerializableDynamicImage>,
+    /// Runtime-only stable id mirroring the session scene's `NodeId`,
+    /// so the engine_bridge Document mirror can find a block by id
+    /// (survives add/remove, unlike a positional index). `0` =
+    /// unassigned; `build_scene_from_document` backfills it. Skipped
+    /// from serde — it never persists to disk or reaches the frontend
+    /// DTO; on reload it's reassigned (history is per-session anyway).
+    #[serde(skip)]
+    pub node_id: u64,
     #[serde(skip)]
     pub lock_layout_box: bool,
     #[serde(skip)]

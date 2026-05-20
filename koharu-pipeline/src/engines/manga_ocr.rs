@@ -140,6 +140,7 @@ fn build_tmp_document(
     let mut text_blocks: Vec<V1TextBlock> = Vec::with_capacity(page.text_blocks.len());
     for block in page.text_blocks.values() {
         text_blocks.push(V1TextBlock {
+            node_id: block.id.0,
             x: block.region.x as f32,
             y: block.region.y as f32,
             width: block.region.width as f32,

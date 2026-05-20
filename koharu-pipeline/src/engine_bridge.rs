@@ -136,7 +136,7 @@ pub async fn run_engine_on_document(
 
     // Build the Scene shape the engine reads + the page id it
     // operates on.
-    let (scene, page_id) = build_scene_from_document(&doc, &state.blobs)?;
+    let (scene, page_id) = build_scene_from_document(&mut doc, &state.blobs)?;
 
     // Phase 4.5: build a real ProjectView from the open
     // koharu-project (if any). Translate engines read glossary +
@@ -273,7 +273,7 @@ pub async fn run_engine_on_document(
 /// Build a single-page Scene from a v1 Document. Registers the
 /// page image in the BlobStore (idempotent — same bytes hash to
 /// the same BlobId, so re-runs don't re-encode unnecessarily).
-fn build_scene_from_document(doc: &Document, blobs: &BlobStore) -> Result<(Scene, PageId)> {
+fn build_scene_from_document(doc: &mut Document, blobs: &BlobStore) -> Result<(Scene, PageId)> {
     let image_id = register_image(blobs, &doc.image)?;
     let segment_id = doc
         .segment
@@ -300,14 +300,28 @@ fn build_scene_from_document(doc: &Document, blobs: &BlobStore) -> Result<(Scene
     // OcrText / Translation / FontPrediction get to see whatever
     // upstream stages already produced.
     //
-    // NodeId(idx + 1) — `+1` because `NodeId::NONE = 0` is the
-    // koharu-core sentinel for "no node". Using NodeId(0) for a
-    // real block would conflate it with NONE downstream. The
-    // mapping is documented next to `index_to_node_id` /
-    // `node_id_to_index`.
+    // Stable node ids: each Document block carries a runtime `node_id`
+    // (serde-skipped) that becomes its scene `NodeId`. We BACKFILL any
+    // unassigned (0) ids here — assigning above the current max so a
+    // re-detect/add never reuses an id still referenced by session
+    // history. For a fresh document (all ids 0) this assigns 1, 2, 3…
+    // — identical to the previous positional `NodeId(idx + 1)`, so the
+    // change is behaviour-preserving until add/remove start reordering.
+    // `NodeId::NONE = 0` stays reserved (max+1 is always ≥ 1).
+    let mut next_id = doc
+        .text_blocks
+        .iter()
+        .map(|b| b.node_id)
+        .max()
+        .unwrap_or(0)
+        + 1;
     let mut text_blocks: IndexMap<NodeId, SceneTextBlock> = IndexMap::new();
-    for (idx, v1) in doc.text_blocks.iter().enumerate() {
-        let id = index_to_node_id(idx);
+    for v1 in doc.text_blocks.iter_mut() {
+        if v1.node_id == 0 {
+            v1.node_id = next_id;
+            next_id += 1;
+        }
+        let id = NodeId(v1.node_id);
         text_blocks.insert(
             id,
             SceneTextBlock {
@@ -490,53 +504,59 @@ impl ApplyOutcome {
 ///
 /// Returns [`ApplyOutcome::DriftSkipped`] if any leaf op was
 /// warn-skipped (used by audit #9/B1 to surface drift toast).
+/// Position of the Document block carrying `node_id`, or None if no
+/// block has it. The id is the stable mirror of the scene `NodeId`
+/// (`build_scene_from_document` backfills it), so this lookup survives
+/// add/remove where a positional index would drift.
+fn doc_index_of_node(doc: &Document, node_id: NodeId) -> Option<usize> {
+    // NodeId::NONE (0) is the "no node" sentinel and also the value of
+    // an unassigned `node_id` — it must never match a real block.
+    if node_id.0 == 0 {
+        return None;
+    }
+    doc.text_blocks.iter().position(|b| b.node_id == node_id.0)
+}
+
 pub fn apply_op(doc: &mut Document, op: Op, blobs: &BlobStore) -> Result<ApplyOutcome> {
     let outcome = match op {
         Op::AddTextBlock { block, .. } => {
+            // Append. scene_block_to_v1 stamps the block's NodeId onto
+            // the v1 `node_id` so later id-based lookups find it.
             doc.text_blocks.push(scene_block_to_v1(block));
             ApplyOutcome::Clean
         }
+        Op::InsertTextBlock { index, block, .. } => {
+            // Restore at the original position (undo of a delete). The
+            // index is part of the op; clamp to current length.
+            let pos = index.min(doc.text_blocks.len());
+            doc.text_blocks.insert(pos, scene_block_to_v1(block));
+            ApplyOutcome::Clean
+        }
         Op::UpdateTextBlock { id, patch, .. } => {
-            // Bridge maps `NodeId(idx + 1)` → v1 `text_blocks[idx]`.
-            // The `+ 1` skips `NodeId::NONE` (= 0), reserved by
-            // koharu-core as the "no node" sentinel — see id.rs.
-            // build_scene_from_document assigns ids by array
-            // position so the inverse mapping is `id.0 - 1`.
-            // Engines never reorder Scene's IndexMap (read-only),
-            // so the mapping is stable across the run.
-            let Some(idx) = node_id_to_index(id) else {
-                warn!(node_id = id.0, "UpdateTextBlock: node id is NONE, skipping");
-                return Ok(ApplyOutcome::DriftSkipped);
-            };
-            let Some(target) = doc.text_blocks.get_mut(idx) else {
+            // Find the Document row by stable `node_id` (not a
+            // positional index) so the mapping survives add/remove.
+            let Some(idx) = doc_index_of_node(doc, id) else {
                 warn!(
                     node_id = id.0,
-                    array_index = idx,
                     blocks_len = doc.text_blocks.len(),
-                    "UpdateTextBlock: node id out of range, skipping"
+                    "UpdateTextBlock: no Document block with this node id, skipping"
                 );
                 return Ok(ApplyOutcome::DriftSkipped);
             };
-            apply_text_block_patch(target, patch);
+            apply_text_block_patch(&mut doc.text_blocks[idx], patch);
             ApplyOutcome::Clean
         }
         Op::RemoveTextBlock { id, .. } => {
-            let Some(idx) = node_id_to_index(id) else {
-                warn!(node_id = id.0, "RemoveTextBlock: node id is NONE, skipping");
-                return Ok(ApplyOutcome::DriftSkipped);
-            };
-            if idx < doc.text_blocks.len() {
-                doc.text_blocks.remove(idx);
-                ApplyOutcome::Clean
-            } else {
+            let Some(idx) = doc_index_of_node(doc, id) else {
                 warn!(
                     node_id = id.0,
-                    array_index = idx,
                     blocks_len = doc.text_blocks.len(),
-                    "RemoveTextBlock: node id out of range, skipping"
+                    "RemoveTextBlock: no Document block with this node id, skipping"
                 );
-                ApplyOutcome::DriftSkipped
-            }
+                return Ok(ApplyOutcome::DriftSkipped);
+            };
+            doc.text_blocks.remove(idx);
+            ApplyOutcome::Clean
         }
         Op::SetSegmentationMask { mask, .. } => {
             doc.segment = blob_to_serializable_image(blobs, mask)?;
@@ -647,6 +667,8 @@ fn scene_block_to_v1(block: SceneTextBlock) -> koharu_types::TextBlock {
             .map(crate::style_convert::v1_style_from_scene),
         font_prediction: None,
         rendered: None,
+        // Carry the scene NodeId so id-based Document lookups find it.
+        node_id: block.id.0,
         lock_layout_box: false,
         layout_seed_x: None,
         layout_seed_y: None,
@@ -855,8 +877,8 @@ mod tests {
     #[test]
     fn build_scene_registers_image_in_blob_store() {
         let blobs = BlobStore::in_memory();
-        let doc = one_pixel_doc();
-        let (scene, page_id) = build_scene_from_document(&doc, &blobs).unwrap();
+        let mut doc = one_pixel_doc();
+        let (scene, page_id) = build_scene_from_document(&mut doc, &blobs).unwrap();
         let page = scene.pages.get(&page_id).unwrap();
         assert!(blobs.exists(page.source_image));
         assert_eq!(page.width, 1);
@@ -867,9 +889,9 @@ mod tests {
     #[test]
     fn register_image_is_content_addressed_idempotent() {
         let blobs = BlobStore::in_memory();
-        let doc = one_pixel_doc();
-        let (_, page_a) = build_scene_from_document(&doc, &blobs).unwrap();
-        let (_, page_b) = build_scene_from_document(&doc, &blobs).unwrap();
+        let mut doc = one_pixel_doc();
+        let (_, page_a) = build_scene_from_document(&mut doc, &blobs).unwrap();
+        let (_, page_b) = build_scene_from_document(&mut doc, &blobs).unwrap();
         let id_a = scene_image_id(&blobs, page_a);
         let id_b = scene_image_id(&blobs, page_b);
         assert_eq!(id_a, id_b);
@@ -880,7 +902,7 @@ mod tests {
     // stored page by re-encoding (build_scene returns the scene but
     // not the PageId-to-blob mapping in a convenient shape).
     fn scene_image_id(blobs: &BlobStore, _page: PageId) -> BlobId {
-        let doc = one_pixel_doc();
+        let mut doc = one_pixel_doc();
         register_image(blobs, &doc.image).unwrap()
     }
 
@@ -972,6 +994,7 @@ mod tests {
         // Seed with two existing text blocks so build_scene has
         // something to assign ids to.
         doc.text_blocks.push(koharu_types::TextBlock {
+            node_id: 0,
             x: 0.0, y: 0.0, width: 1.0, height: 1.0, confidence: 1.0,
             line_polygons: None, source_direction: None, source_language: None,
             rotation_deg: None, detected_font_size_px: None, detector: None,
@@ -981,6 +1004,7 @@ mod tests {
             layout_seed_width: None, layout_seed_height: None,
         });
         doc.text_blocks.push(koharu_types::TextBlock {
+            node_id: 0,
             x: 0.0, y: 0.0, width: 1.0, height: 1.0, confidence: 1.0,
             line_polygons: None, source_direction: None, source_language: None,
             rotation_deg: None, detected_font_size_px: None, detector: None,
@@ -990,7 +1014,7 @@ mod tests {
             layout_seed_width: None, layout_seed_height: None,
         });
 
-        let (scene, page_id) = build_scene_from_document(&doc, &blobs).unwrap();
+        let (scene, page_id) = build_scene_from_document(&mut doc, &blobs).unwrap();
         assert_ne!(page_id.0, 0, "PageId must skip NONE sentinel");
         let page = scene.pages.get(&page_id).unwrap();
         let ids: Vec<NodeId> = page.text_blocks.keys().copied().collect();
@@ -1078,10 +1102,11 @@ mod tests {
     /// inverse `-1` in apply, this test would assert on the wrong
     /// block.
     #[test]
-    fn apply_update_text_block_uses_shifted_id_mapping() {
+    fn apply_update_text_block_uses_id_mapping() {
         let blobs = BlobStore::in_memory();
         let mut doc = one_pixel_doc();
         doc.text_blocks.push(koharu_types::TextBlock {
+            node_id: 1,
             x: 0.0, y: 0.0, width: 1.0, height: 1.0, confidence: 1.0,
             line_polygons: None, source_direction: None, source_language: None,
             rotation_deg: None, detected_font_size_px: None, detector: None,
@@ -1091,6 +1116,7 @@ mod tests {
             layout_seed_width: None, layout_seed_height: None,
         });
         doc.text_blocks.push(koharu_types::TextBlock {
+            node_id: 2,
             x: 0.0, y: 0.0, width: 1.0, height: 1.0, confidence: 1.0,
             line_polygons: None, source_direction: None, source_language: None,
             rotation_deg: None, detected_font_size_px: None, detector: None,
@@ -1100,8 +1126,8 @@ mod tests {
             layout_seed_width: None, layout_seed_height: None,
         });
 
-        // Update the SECOND block (array index 1) via its shifted id
-        // NodeId(2). Bridge inverse maps id-1 → index 1.
+        // Update the block whose stable node_id is 2 (the second). The
+        // Document mirror finds it by id, not by array position.
         apply_op(
             &mut doc,
             Op::UpdateTextBlock {
@@ -1133,6 +1159,7 @@ mod tests {
         let mut doc = one_pixel_doc();
         for i in 0..n {
             doc.text_blocks.push(koharu_types::TextBlock {
+                node_id: 0,
                 x: i as f32, y: i as f32, width: 10.0, height: 10.0,
                 confidence: 1.0,
                 line_polygons: None, source_direction: None,
@@ -1191,9 +1218,12 @@ mod tests {
     #[test]
     fn ocr_stage_golden() {
         // OCR runs against detector output: UpdateTextBlock setting
-        // source_text on each block via the shifted NodeId.
+        // source_text on each block via its stable NodeId. Backfill
+        // node ids first (run_engine_on_document does this before any
+        // engine runs) so the id-based Document mirror can find them.
         let blobs = BlobStore::in_memory();
         let mut doc = doc_with_n_blocks(3);
+        build_scene_from_document(&mut doc, &blobs).unwrap();
         for i in 0..3u64 {
             apply_op(
                 &mut doc,
@@ -1219,6 +1249,7 @@ mod tests {
         // translation; source_text preserved.
         let blobs = BlobStore::in_memory();
         let mut doc = doc_with_n_blocks(2);
+        build_scene_from_document(&mut doc, &blobs).unwrap();
         doc.text_blocks[0].text = Some("ja A".into());
         doc.text_blocks[1].text = Some("ja B".into());
         for (id, t) in [(1u64, "th A"), (2, "th B")] {
@@ -1354,6 +1385,10 @@ mod tests {
         doc.text_blocks[0].text = Some("first".into());
         doc.text_blocks[1].text = Some("second".into());
         doc.text_blocks[2].text = Some("third".into());
+        // Assign stable node ids; the mirror removes by id, not index.
+        doc.text_blocks[0].node_id = 1;
+        doc.text_blocks[1].node_id = 2;
+        doc.text_blocks[2].node_id = 3;
         apply_op(
             &mut doc,
             Op::RemoveTextBlock { page: PageId(1), id: NodeId(2) },
@@ -1464,14 +1499,14 @@ mod tests {
         use koharu_app::{ProjectSession, SessionConfig};
         let blobs = BlobStore::in_memory();
         let mut doc = one_pixel_doc();
-        let (scene, page_id) = build_scene_from_document(&doc, &blobs).unwrap();
+        let (scene, page_id) = build_scene_from_document(&mut doc, &blobs).unwrap();
         let mut session = ProjectSession::new(scene, SessionConfig::default());
 
         let op = Op::AddTextBlock { page: page_id, block: make_scene_block(1, 42) };
         apply_op(&mut doc, op.clone(), &blobs).unwrap();
         session.apply(op).unwrap();
 
-        let (rebuilt, _) = build_scene_from_document(&doc, &blobs).unwrap();
+        let (rebuilt, _) = build_scene_from_document(&mut doc, &blobs).unwrap();
         let r_ids: Vec<_> = rebuilt.pages.get(&page_id).unwrap().text_blocks.keys().copied().collect();
         let s_ids: Vec<_> = session.scene().pages.get(&page_id).unwrap().text_blocks.keys().copied().collect();
         assert_eq!(r_ids, s_ids, "dual-apply NodeId set must match");
@@ -1486,14 +1521,14 @@ mod tests {
         use koharu_app::{ProjectSession, SessionConfig};
         let blobs = BlobStore::in_memory();
         let mut doc = doc_with_n_blocks(3);
-        let (scene_v1, page_id) = build_scene_from_document(&doc, &blobs).unwrap();
+        let (scene_v1, page_id) = build_scene_from_document(&mut doc, &blobs).unwrap();
         let mut session = ProjectSession::new(scene_v1, SessionConfig::default());
         assert_eq!(session.scene().pages.get(&page_id).unwrap().text_blocks.len(), 3);
 
         // clear_text_blocks_first policy: wipe v1 vector + reset
         // session from the post-clear scene.
         doc.text_blocks.clear();
-        let (scene_v2, _) = build_scene_from_document(&doc, &blobs).unwrap();
+        let (scene_v2, _) = build_scene_from_document(&mut doc, &blobs).unwrap();
         session = ProjectSession::new(scene_v2, SessionConfig::default());
 
         // Re-detect emits NodeId(1) — pre-fix this collided.
@@ -1535,7 +1570,7 @@ mod tests {
         //   4. engine emits AddTextBlock(NodeId(1))
         //   5. session.apply succeeds — no duplicate
         doc.text_blocks.clear();
-        let (scene, page_id) = build_scene_from_document(&doc, &blobs).unwrap();
+        let (scene, page_id) = build_scene_from_document(&mut doc, &blobs).unwrap();
         assert_eq!(
             scene.pages.get(&page_id).unwrap().text_blocks.len(),
             0,
@@ -1598,7 +1633,7 @@ mod tests {
         //   2. clear doc.text_blocks AFTER (doesn't touch scene)
         //   3. reset session with stale scene
         //   4. engine emits AddTextBlock(NodeId(1)) → DUPLICATE
-        let (scene_stale, page_id) = build_scene_from_document(&doc, &blobs).unwrap();
+        let (scene_stale, page_id) = build_scene_from_document(&mut doc, &blobs).unwrap();
         doc.text_blocks.clear(); // clear after build — too late
         let mut session = ProjectSession::new(scene_stale, SessionConfig::default());
 
