@@ -64,6 +64,49 @@ async function readCloudOcrChoice(): Promise<{
   }
 }
 
+/// The full Process / batch pipeline (`run_pipeline`) runs detect + OCR
+/// through the LEGACY ML facade keyed off `ProcessRequest.{detector_engine,
+/// ocr_engine, anime_yolo_*}` — it does NOT consult the v2 engine profile.
+/// So to make Process respect the Engines-tab selection (which only the
+/// standalone Detect/OCR buttons read via run_engine_for_artifact), we
+/// translate the profile's active engines + anime-yolo settings into the
+/// legacy enums and pass them to `api.process`. Cloud OCR is handled by the
+/// frontend cloud branch (skipDetect/skipOcr); cloud → local-default here.
+/// Note: the legacy pipeline can't carry nms/containment, so full Process
+/// applies only variant + confidence for anime_yolo (the standalone Detect
+/// button gets all four via the engine path).
+async function readPipelineEngines(): Promise<{
+  detectorEngine: 'default' | 'anime_yolo'
+  animeYoloVariant?: 'n' | 's' | 'm' | 'l' | 'x'
+  animeYoloConfidence?: number
+  ocrEngine: 'mit48px' | 'manga'
+}> {
+  try {
+    const profile = await api.engineProfileGet()
+    const detectorEngine =
+      profile.active['detection_boxes'] === 'anime_yolo_detector'
+        ? 'anime_yolo'
+        : 'default'
+    const ocrEngine =
+      profile.active['ocr_text'] === 'manga_ocr' ? 'manga' : 'mit48px'
+    const ay = profile.settings?.['anime_yolo_detector'] ?? {}
+    const variantRaw = ay['variant']
+    const confRaw = ay['confidence_threshold']
+    return {
+      detectorEngine,
+      ocrEngine,
+      animeYoloVariant:
+        typeof variantRaw === 'string'
+          ? (variantRaw as 'n' | 's' | 'm' | 'l' | 'x')
+          : undefined,
+      animeYoloConfidence:
+        typeof confRaw === 'number' ? confRaw : undefined,
+    }
+  } catch {
+    return { detectorEngine: 'default', ocrEngine: 'mit48px' }
+  }
+}
+
 const invalidateCurrentDocument = async (
   queryClient: QueryClient,
   index: number,
@@ -684,8 +727,10 @@ export const useDocumentMutations = () => {
             skipOcr: true,
           })
         } else {
-          // Local pipeline: detector + OCR engines (and their settings)
-          // resolve from the engine profile — no per-call overrides.
+          // Local pipeline: bridge the Engines-tab selection into the
+          // legacy ProcessRequest fields the pipeline reads (it doesn't
+          // consult the engine profile itself).
+          const eng = await readPipelineEngines()
           await api.process({
             index: resolvedIndex,
             llmModelId: selectedModel,
@@ -693,6 +738,10 @@ export const useDocumentMutations = () => {
             shaderEffect: renderEffect,
             shaderStroke: renderStroke,
             fontFamily,
+            detectorEngine: eng.detectorEngine,
+            animeYoloVariant: eng.animeYoloVariant,
+            animeYoloConfidence: eng.animeYoloConfidence,
+            ocrEngine: eng.ocrEngine,
           })
         }
       } catch (error) {
@@ -728,13 +777,20 @@ export const useDocumentMutations = () => {
       total: totalPages,
     })
     try {
-      // Detector + OCR engines (and settings) come from the engine profile.
+      // Bridge the Engines-tab selection into the legacy pipeline fields
+      // (the pipeline doesn't read the engine profile). Cloud OCR maps to
+      // the local default here — batch never uses Cloud Vision.
+      const eng = await readPipelineEngines()
       await api.process({
         llmModelId: selectedModel,
         language: selectedLanguage,
         shaderEffect: renderEffect,
         shaderStroke: renderStroke,
         fontFamily,
+        detectorEngine: eng.detectorEngine,
+        animeYoloVariant: eng.animeYoloVariant,
+        animeYoloConfidence: eng.animeYoloConfidence,
+        ocrEngine: eng.ocrEngine,
       })
     } catch (error) {
       console.error('Failed to start processing:', error)
