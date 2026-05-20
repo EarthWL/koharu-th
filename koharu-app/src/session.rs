@@ -251,6 +251,7 @@ fn summarise(op: &Op) -> (PageId, usize) {
                 Some(*id)
             }
             Op::AddTextBlock { page, .. }
+            | Op::InsertTextBlock { page, .. }
             | Op::UpdateTextBlock { page, .. }
             | Op::RemoveTextBlock { page, .. }
             | Op::SetSegmentationMask { page, .. }
@@ -331,6 +332,18 @@ fn apply_to_scene(scene: &mut Scene, op: &Op) -> Result<(), SessionError> {
                 return Err(SessionError::NodeAlreadyExists(block.id, *page));
             }
             p.text_blocks.insert(block.id, block.clone());
+        }
+        Op::InsertTextBlock { page, index, block } => {
+            let p = scene
+                .pages
+                .get_mut(page)
+                .ok_or(SessionError::PageNotFound(*page))?;
+            if p.text_blocks.contains_key(&block.id) {
+                return Err(SessionError::NodeAlreadyExists(block.id, *page));
+            }
+            // Clamp to current length so a stale index can't panic.
+            let pos = (*index).min(p.text_blocks.len());
+            p.text_blocks.shift_insert(pos, block.id, block.clone());
         }
         Op::UpdateTextBlock { page, id, patch } => {
             let p = scene
@@ -516,6 +529,10 @@ fn compute_inverse(scene: &Scene, op: &Op) -> Result<Op, SessionError> {
             page: *page,
             id: block.id,
         }),
+        Op::InsertTextBlock { page, block, .. } => Ok(Op::RemoveTextBlock {
+            page: *page,
+            id: block.id,
+        }),
         Op::UpdateTextBlock { page, id, patch } => {
             let p = scene
                 .pages
@@ -547,12 +564,20 @@ fn compute_inverse(scene: &Scene, op: &Op) -> Result<Op, SessionError> {
                 .pages
                 .get(page)
                 .ok_or(SessionError::PageNotFound(*page))?;
+            // Capture the block's CURRENT position so undo restores it
+            // at the same index (plain AddTextBlock would append and
+            // reorder the page).
+            let index = p
+                .text_blocks
+                .get_index_of(id)
+                .ok_or(SessionError::NodeNotFound(*id, *page))?;
             let block = p
                 .text_blocks
                 .get(id)
                 .ok_or(SessionError::NodeNotFound(*id, *page))?;
-            Ok(Op::AddTextBlock {
+            Ok(Op::InsertTextBlock {
                 page: *page,
+                index,
                 block: block.clone(),
             })
         }

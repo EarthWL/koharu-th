@@ -105,6 +105,16 @@ pub enum Op {
         page: PageId,
         block: TextBlock,
     },
+    /// Insert a text block at a specific position in the page's ordered
+    /// block list. Generated as the inverse of `RemoveTextBlock` so undo
+    /// of a delete restores the block at its ORIGINAL index (plain
+    /// `AddTextBlock` appends, which would reorder the page). `index` is
+    /// clamped to the current length on apply.
+    InsertTextBlock {
+        page: PageId,
+        index: usize,
+        block: TextBlock,
+    },
     UpdateTextBlock {
         page: PageId,
         id: NodeId,

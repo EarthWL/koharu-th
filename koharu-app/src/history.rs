@@ -187,6 +187,7 @@ fn op_kind_and_page(op: &Op) -> (&'static str, Option<u64>) {
         Op::UpdatePageImage { id, .. } => ("UpdatePageImage", Some(id.0)),
         // Page-content variants reference their parent page via `page`.
         Op::AddTextBlock { page, .. } => ("AddTextBlock", Some(page.0)),
+        Op::InsertTextBlock { page, .. } => ("InsertTextBlock", Some(page.0)),
         Op::UpdateTextBlock { page, .. } => ("UpdateTextBlock", Some(page.0)),
         Op::RemoveTextBlock { page, .. } => ("RemoveTextBlock", Some(page.0)),
         Op::SetSegmentationMask { page, .. } => ("SetSegmentationMask", Some(page.0)),
