@@ -6,7 +6,7 @@ import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { useTextBlocks } from '@/hooks/useTextBlocks'
 import { cn } from '@/lib/utils'
 
-interface AntigravityTaskbarProps {
+interface KomorebiTaskbarProps {
   onToggleChat: () => void
   isChatOpen: boolean
   onQuickTranslate: () => void
@@ -15,14 +15,14 @@ interface AntigravityTaskbarProps {
   isPlayingTTS: boolean
 }
 
-export function AntigravityTaskbar({
+export function KomorebiTaskbar({
   onToggleChat,
   isChatOpen,
   onQuickTranslate,
   isTranslating,
   onPlayTTS,
   isPlayingTTS,
-}: AntigravityTaskbarProps) {
+}: KomorebiTaskbarProps) {
   const { document: currentDoc, selectedBlockIndex } = useTextBlocks()
   const activeBlock =
     selectedBlockIndex !== undefined && currentDoc?.textBlocks
@@ -49,7 +49,7 @@ export function AntigravityTaskbar({
           
           <div className="flex flex-col min-w-0 text-left">
             <span className="text-[10px] text-zinc-400 font-medium tracking-wider uppercase font-mono">
-              {activeBlock && selectedBlockIndex !== undefined ? `Block #${selectedBlockIndex + 1} Selected` : 'Antigravity HUD Active'}
+              {activeBlock && selectedBlockIndex !== undefined ? `Block #${selectedBlockIndex + 1} Selected` : 'Komorebi HUD Active'}
             </span>
             <span className="text-xs font-semibold truncate text-zinc-200 pr-2">
               {activeBlock 

@@ -45,8 +45,8 @@ import {
   resolvePinchMemoScaleRatio,
   resolvePinchNextScaleRatio,
 } from '@/components/canvas/zoomGestures'
-import { AntigravityTaskbar } from '@/components/sidebar/AntigravityTaskbar'
-import { AntigravityChatOverlay } from '@/components/sidebar/AntigravityChatOverlay'
+import { KomorebiTaskbar } from '@/components/sidebar/KomorebiTaskbar'
+import { KomorebiChatOverlay } from '@/components/sidebar/KomorebiChatOverlay'
 
 const BRUSH_CURSOR =
   'url(\'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="16" height="16"%3E%3Ccircle cx="8" cy="8" r="4" stroke="black" stroke-width="1.5" fill="white"/%3E%3C/svg%3E\') 8 8, crosshair'
@@ -282,7 +282,7 @@ export function Workspace() {
     }
   }, [])
 
-  // Ctrl+Space keyboard shortcut to summon the glassmorphic Antigravity AI Command Center HUD
+  // Ctrl+Space keyboard shortcut to summon the glassmorphic Komorebi AI Command Center HUD
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       const activeEl = document.activeElement
@@ -791,7 +791,7 @@ export function Workspace() {
         )}
       </div>
       <ShortcutsCheatSheetDialog />
-      <AntigravityTaskbar
+      <KomorebiTaskbar
         onToggleChat={() => setIsChatOpen(!isChatOpen)}
         isChatOpen={isChatOpen}
         onQuickTranslate={handleQuickTranslate}
@@ -799,7 +799,7 @@ export function Workspace() {
         onPlayTTS={handlePlayTTS}
         isPlayingTTS={isPlayingTTS}
       />
-      <AntigravityChatOverlay
+      <KomorebiChatOverlay
         isOpen={isChatOpen}
         onClose={() => {
           setIsChatOpen(false)

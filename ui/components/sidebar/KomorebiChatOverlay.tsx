@@ -58,7 +58,7 @@ interface Message {
   translationProposal?: string
 }
 
-export function AntigravityChatOverlay({
+export function KomorebiChatOverlay({
   isOpen,
   onClose,
   activeBlockIndex,
@@ -121,7 +121,7 @@ export function AntigravityChatOverlay({
           id: 'welcome',
           agent: 'editor',
           senderName: 'บรรณาธิการ 👨‍💼',
-          text: `สวัสดีครับ ยินดีต้อนรับสู่ศูนย์แปลอัจฉริยะ Antigravity HUD ตอนนี้คุณได้เลือกช่องคำพูดที่ #${(selectedBlockIndex ?? 0) + 1} แล้ว ซึ่งมีข้อความภาษาญี่ปุ่น: "${source}" ต้องการให้ทางทีมช่วยวิเคราะห์และแปลเลยไหมครับ?`,
+          text: `สวัสดีครับ ยินดีต้อนรับสู่ศูนย์แปลอัจฉริยะ Komorebi HUD ตอนนี้คุณได้เลือกช่องคำพูดที่ #${(selectedBlockIndex ?? 0) + 1} แล้ว ซึ่งมีข้อความภาษาญี่ปุ่น: "${source}" ต้องการให้ทางทีมช่วยวิเคราะห์และแปลเลยไหมครับ?`,
           emotion: 'serious'
         }
       ])
@@ -520,7 +520,7 @@ export function AntigravityChatOverlay({
           <div className="flex items-center gap-2">
             <Sparkles className="size-5 text-pink-500 animate-pulse" />
             <div>
-              <h2 className="font-bold text-sm tracking-wide">Antigravity AI Command Center HUD</h2>
+              <h2 className="font-bold text-sm tracking-wide">Komorebi AI Command Center HUD</h2>
               <p className="text-[10px] text-zinc-400">ระบบแปลและจัดเรียงหน้าอักษรโต๊ะกลมจำลอง Multi-Agent ในแผงควบคุมกึ่งกลาง</p>
             </div>
           </div>
@@ -999,7 +999,7 @@ export function AntigravityChatOverlay({
               </div>
               <div className="flex justify-between">
                 <span>Model Engine:</span>
-                <span className="font-semibold text-zinc-400 font-mono">Antigravity Premium roundtable</span>
+                <span className="font-semibold text-zinc-400 font-mono">Komorebi Premium roundtable</span>
               </div>
               <div className="flex justify-between">
                 <span>Security Engine:</span>
