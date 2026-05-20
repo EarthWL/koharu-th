@@ -15,6 +15,13 @@ diverge, update `v2-arch.md` first (design is locked there, not here).
 
 **Status**: 🔄 IN PROGRESS — 6.1 / 6.2 / 6.3 / 6.4 ✅ complete; 6.5 / 6.6 remaining
 
+> **Branch tip `c367a744` (2026-05-21, pushed) — 103 commits ahead of main.**
+> Beyond the Phase-6 work below, large self-test-driven blocks have landed on
+> top: KI-1 (vendored cudarc) + KI-3 fixes; the **Engines-tab consolidation +
+> Cloud OCR/translate** feature; and chat fixes. See the dedicated sections
+> near the end of this file ("Engines-tab consolidation", "Cloud engines",
+> "Recurring serde gotcha") for the durable detail.
+
 ### Phase 6.1 — V007 migration SQL + host backup/manifest bump ✅
 
 `koharu-project/migrations/V007__v2_blob_index.sql` adds the
@@ -380,6 +387,77 @@ blocks the cuda build). **Owed on the Blackwell box**: benchmark
 detect+inpaint with cudnn on vs off; if the delta is immaterial, revert
 this vendor (`git revert e83bd91a` + drop the patch) and disable the
 feature instead.
+
+## Engines-tab consolidation (2026-05-21, user-verified)
+
+The Engines sidebar tab is the single source of truth for engine selection +
+per-engine settings. Commits `366fb840` `f9de4d9f` `f35781f1` `ac038277`.
+
+- Settings page no longer has any engine config — removed the Detector +
+  local-OCR cards; dropped `detectorEngine`/`animeYoloVariant`/
+  `animeYoloConfidence` from `preferencesStore`.
+- `EngineInfo.is_default` → `EngineInfoView.isDefault`: the tab highlights the
+  backend's actual default (comic_text_detector / mit48px_ocr / lama_inpaint /
+  local_llm_translate / text_renderer), not `engines[0]`.
+- `migrateEnginePrefs.ts` (one-shot in `Providers`) seeds the engine profile
+  from a legacy localStorage detector/OCR choice — guarded + idempotent.
+- i18n: nested `engineSettings.*` (en + th); `EngineSettingsForm` renders help
+  as a visible line. Labels/help only surfaced after `ac038277` fixed the
+  `SettingDescriptor` field serialization — see the serde gotcha below.
+
+### Cloud engines in the tab (Approach B: frontend pseudo-engines)
+
+Commits `28c14a77` (OCR) `f57056ae` (translate) `c367a744` (Process support).
+
+- New `SettingDescriptor::ProfileSelect` (koharu-core/settings.rs): a dynamic
+  provider-profile picker — options resolved at runtime from
+  `providerProfilesList`, not `&'static`; `vision_only` flag. Rendered by
+  `ProfileSelectControl` in `EngineSettingsForm`.
+- `cloud_vision_ocr` + `cloud_llm_translate` registered in the engine inventory
+  (produce OcrText / Translation, `cost=cloud`, `is_default=false`) so they
+  appear in the tab with a ProfileSelect. Their Rust `run()` BAILS — both are
+  frontend-orchestrated (`cloudOcr.ts` / `cloudLlm.ts`); they must never be
+  dispatched to the backend bridge.
+- Cloud OCR selection: `readCloudOcrChoice()` (mutations) reads
+  `engine_profile active['ocr_text'] === 'cloud_vision_ocr'` + the
+  `vision_profile` setting; replaced the old Settings cloud toggle.
+- Cloud translate: `useTranslateProfileSync()` one-way mirrors the tab's
+  Translation choice → the shared `cloudProvider`/`activeProfileId` prefs (the
+  app-wide active cloud LLM, also used by chat/embeddings). Skips first run so
+  it doesn't clobber persisted state; the canvas-toolbar dropdown stays synced
+  via the same prefs. `applyProviderProfile`/`clearProviderProfile` shared in
+  `profileHelpers`.
+
+### ⚠️ Two engine-selection paths — keep them in sync
+
+- **Standalone** Detect/OCR buttons → `vision::detect/ocr` (payload engine None)
+  → `run_engine_for_artifact` → reads `engine_profile` + merges profile
+  settings (`run_engine_on_document`). All four anime_yolo settings apply.
+- **Full Process / batch** → `run_pipeline_inner` (pipeline.rs) → LEGACY ML
+  facade keyed off `ProcessRequest.{detector_engine, ocr_engine, anime_yolo_*}`
+  — does NOT read `engine_profile`. `readPipelineEngines()` (mutations) bridges
+  the profile → those legacy fields for `processImage`/`processAllImages`
+  (`a5fd6064`). Caveat: the legacy pipeline can't carry nms/containment, so full
+  Process applies only variant+confidence for anime_yolo.
+- Cloud in the pipeline: `skip_translate` added to `ProcessRequest` + the
+  `LlmGenerate` step (mirrors `skip_ocr`). `processImage` has 4 combos —
+  all-local = one pipeline call; any cloud (OCR/translate) → frontend runs
+  detect→OCR→cloud-translate then the pipeline does only inpaint+render
+  (`c367a744`). Batch always translates locally.
+
+## ⚠️ Recurring serde gotcha (bit 3× on 2026-05-21)
+
+`#[serde(rename_all = "camelCase")]` is per-struct and is NOT recursive into
+nested structs/enums. Every DTO the frontend reads needs its own attr. The tell
+is the frontend reading a multi-word field as `undefined`. Fixed this session
+in `DetectedHardware` (→ "CPU only" everywhere), the nested `HardwareReq` /
+`BackendSupport` / `EngineCost` (→ "No backend"), and the `SettingDescriptor`
+ENUM fields (→ labels fell back to ids, help blank; an enum needs
+`rename_all_fields="camelCase"` ALONGSIDE the `rename_all="snake_case"` that
+renames the `kind` variant tag). Single-word fields + tuple/array elements
+survive snake_case, which masks the bug (Select options resolved while the
+label didn't). When adding a backend→frontend DTO field: check the camelCase
+attr first.
 
 ## Locked decisions (won't revisit without explicit approval)
 
