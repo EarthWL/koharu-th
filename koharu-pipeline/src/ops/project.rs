@@ -2375,9 +2375,21 @@ pub fn get_available_disk_space(path: &std::path::Path) -> anyhow::Result<u64> {
 }
 
 #[cfg(not(windows))]
-pub fn get_available_disk_space(_path: &std::path::Path) -> anyhow::Result<u64> {
-    // 100 GB fallback for non-Windows platforms (e.g. testing)
-    Ok(100 * 1024 * 1024 * 1024)
+pub fn get_available_disk_space(path: &std::path::Path) -> anyhow::Result<u64> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let path_c = CString::new(path.as_os_str().as_bytes())?;
+    unsafe {
+        let mut stats: libc::statvfs = std::mem::zeroed();
+        if libc::statvfs(path_c.as_ptr(), &mut stats) == 0 {
+            // Available space = fragment size * blocks available to unprivileged user
+            let free_space = (stats.f_frsize as u64) * (stats.f_bavail as u64);
+            Ok(free_space)
+        } else {
+            Err(anyhow::anyhow!("Failed to call statvfs on Unix"))
+        }
+    }
 }
 
 pub async fn project_check_disk_space(

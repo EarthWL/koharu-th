@@ -34,3 +34,4 @@ strum = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 walkdir = "2"
+libc = { workspace = true }

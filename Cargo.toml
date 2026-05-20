@@ -138,6 +138,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 handlebars = { version = "6", default-features = false }
 sha2 = "0.10"
 keyring = "3"
+libc = "0.2"
 
 [patch.crates-io]
 candle-transformers = { git = "https://github.com/mayocream/candle", branch = "cuda-dynamic-loading" }
