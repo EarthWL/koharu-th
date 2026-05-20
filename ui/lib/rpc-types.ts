@@ -113,6 +113,10 @@ export type EngineInfoView = {
   settingsSchema: SettingDescriptor[]
   hardware: HardwareReq
   cost: EngineCost
+  /** Backend fallback engine for the artifact(s) it produces when no
+   *  profile override is saved. The Engines tab highlights this as the
+   *  implicit default so the UI matches what the pipeline resolves. */
+  isDefault: boolean
 }
 
 export type GpuVendor = 'Nvidia' | 'Apple' | 'Amd' | 'Intel' | 'Unknown'

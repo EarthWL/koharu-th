@@ -75,6 +75,14 @@ pub struct EngineInfo {
     pub hardware: HardwareReq,
     pub cost: EngineCost,
 
+    /// True for the engine the pipeline falls back to when no profile
+    /// override is saved for an artifact it produces (e.g.
+    /// comic_text_detector for DetectionBoxes, mit48px_ocr for OcrText).
+    /// The Engine Profile UI highlights this one as "using default" so
+    /// the displayed default matches what `run_engine_for_artifact`
+    /// actually resolves. Exactly one engine per artifact should set it.
+    pub is_default: bool,
+
     /// Async constructor. Driver calls this once at first-use and
     /// caches the resulting `Box<dyn Engine>`. Returning a `Box`
     /// gives us dyn-compat for the inventory registry; the boxed
@@ -106,6 +114,7 @@ pub struct EngineInfoView {
     pub settings_schema: Vec<SettingDescriptor>,
     pub hardware: HardwareReq,
     pub cost: EngineCost,
+    pub is_default: bool,
 }
 
 impl EngineInfo {
@@ -124,6 +133,7 @@ impl EngineInfo {
             settings_schema: self.settings_schema.to_vec(),
             hardware: self.hardware.clone(),
             cost: self.cost.clone(),
+            is_default: self.is_default,
         }
     }
 }
@@ -175,10 +185,12 @@ mod tests {
                 weights_size_mb: 0,
             },
             cost: EngineCost::local(),
+            is_default: true,
         };
         let json = serde_json::to_string(&view).unwrap();
         assert!(json.contains("\"displayName\""));
         assert!(json.contains("\"settingsSchema\""));
+        assert!(json.contains("\"isDefault\""));
         // Nested structs must ALSO be camelCase — serde rename_all is
         // per-struct, not recursive. These snake_case leaks made the
         // frontend read `backends.cpuFallback` / `weightsSizeMb` /

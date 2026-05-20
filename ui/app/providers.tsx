@@ -31,6 +31,18 @@ export function Providers({ children }: { children: ReactNode }) {
     ensureDownloadSubscribed()
   }, [ensureDownloadSubscribed])
 
+  // One-shot: carry a pre-consolidation Settings-page detector/OCR choice
+  // into the machine-wide engine profile. Guarded + idempotent; runs once
+  // per machine. RPC waits for resources, so firing on mount is safe.
+  useEffect(() => {
+    void (async () => {
+      const { migrateLegacyEnginePrefs } = await import(
+        '@/lib/services/migrateEnginePrefs'
+      )
+      await migrateLegacyEnginePrefs()
+    })()
+  }, [])
+
   useEffect(() => {
     let unlisten: (() => void) | undefined
     ;(async () => {

@@ -195,11 +195,15 @@ function EngineGroup({
 
   // Single-engine groups don't need radios — no choice to make.
   const showActiveRadios = engines.length > 1
-  // Resolve "default" pick when no profile override exists: the
-  // first engine in the list (stable insertion order from
-  // `groupEnginesByProduces`). Matches what the bridge does as a
-  // fallback today.
-  const effectiveActive = active ?? engines[0]?.id
+  // Resolve "default" pick when no profile override exists: the engine
+  // the backend flags as `isDefault` for this artifact (mirrors what
+  // `run_engine_for_artifact` resolves — e.g. comic_text_detector for
+  // detection, mit48px_ocr for OCR). Falls back to the first engine only
+  // if no default is flagged. Using `isDefault` (not `engines[0]`) keeps
+  // the highlighted default honest: it matches what Detect/Process run.
+  const defaultEngineId =
+    engines.find((e) => e.isDefault)?.id ?? engines[0]?.id
+  const effectiveActive = active ?? defaultEngineId
   const usingImplicitDefault = active === undefined && showActiveRadios
 
   return (

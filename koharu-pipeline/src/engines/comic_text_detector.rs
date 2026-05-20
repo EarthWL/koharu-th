@@ -221,6 +221,7 @@ inventory::submit! {
             weights_size_mb: 16,
         },
         cost: EngineCost::local(),
+        is_default: true,
         load,
     }
 }
