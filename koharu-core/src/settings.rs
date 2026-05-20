@@ -59,7 +59,13 @@ use serde::{Deserialize, Serialize};
 /// under the namespace the engine picks (convention:
 /// `engineSettings.<engine_id>.<setting_id>`).
 #[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+// `rename_all` renames the variant names for the `kind` tag
+// (Slider → "slider", NumberInput → "number_input", …). It does NOT
+// touch fields — `rename_all_fields` does that, so `label_i18n_key` /
+// `help_i18n_key` go out as `labelI18nKey` / `helpI18nKey` to match the
+// TS SettingDescriptor. Without the latter the frontend read those as
+// undefined → labels fell back to the raw id and help never rendered.
+#[serde(tag = "kind", rename_all = "snake_case", rename_all_fields = "camelCase")]
 pub enum SettingDescriptor {
     /// A continuous numeric value with min/max/step bounds. Renders
     /// as a slider (with the current value displayed next to it).
@@ -223,6 +229,13 @@ mod tests {
         assert!(s.contains("\"id\":\"max_crop_size_px\""));
         assert!(s.contains("\"min\":256"));
         assert!(s.contains("\"default\":512"));
+        // rename_all_fields = camelCase → the frontend reads labelI18nKey /
+        // helpI18nKey, not the raw snake_case. Without this, labels fell
+        // back to the id and help never rendered in the Engines tab.
+        assert!(s.contains("\"labelI18nKey\""), "{s}");
+        assert!(s.contains("\"helpI18nKey\""), "{s}");
+        assert!(!s.contains("label_i18n_key"));
+        assert!(!s.contains("help_i18n_key"));
     }
 
     #[test]
