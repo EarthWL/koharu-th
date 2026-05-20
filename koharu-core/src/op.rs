@@ -166,6 +166,11 @@ pub struct TextBlockPatch {
     pub style: Option<Option<TextStyle>>,
     #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
     pub source_lang: Option<Option<String>>,
+    /// Clockwise text rotation in degrees. Double-option: outer `None`
+    /// = field untouched, `Some(None)` = reset to upright, `Some(Some)`
+    /// = set. Lets a manual rotate be an undoable UpdateTextBlock.
+    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    pub rotation_deg: Option<Option<f32>>,
 }
 
 /// Deserializer helper for `Option<Option<T>>` fields where we need

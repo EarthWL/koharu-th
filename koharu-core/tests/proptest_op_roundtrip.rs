@@ -55,6 +55,7 @@ fn arb_text_block_patch() -> impl Strategy<Value = TextBlockPatch> {
             translation,
             style: None,
             source_lang: None,
+            rotation_deg: None,
         })
 }
 

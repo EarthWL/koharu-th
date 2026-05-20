@@ -577,10 +577,18 @@ fn apply_text_block_patch(target: &mut koharu_types::TextBlock, patch: koharu_co
     if let Some(lang) = patch.source_lang {
         target.source_language = lang;
     }
-    // patch.style intentionally not applied here — v1 TextStyle has
-    // a different shape than v2's, and no engine currently emits
-    // style updates. Phase 4.4's render engine will, with a proper
-    // v1↔v2 style mapping helper.
+    // Mirror style + rotation onto the Document so manual edits routed
+    // through session.apply (undoable path) keep the v1 Document — which
+    // the renderer + RPC reads — in sync. Uses the v1↔scene style mapper
+    // added with the render-style passthrough work.
+    if let Some(style) = patch.style {
+        target.style = style
+            .as_ref()
+            .map(crate::style_convert::v1_style_from_scene);
+    }
+    if let Some(rotation) = patch.rotation_deg {
+        target.rotation_deg = rotation;
+    }
 }
 
 /// Helper: optional BlobId → Option<SerializableDynamicImage>. Fetches
@@ -616,12 +624,15 @@ fn scene_block_to_v1(block: SceneTextBlock) -> koharu_types::TextBlock {
         line_polygons: None,
         source_direction: None,
         source_language: block.source_lang,
-        rotation_deg: None,
+        rotation_deg: block.rotation_deg,
         detected_font_size_px: None,
         detector: None,
         text: block.source_text,
         translation: block.translation,
-        style: None,
+        style: block
+            .style
+            .as_ref()
+            .map(crate::style_convert::v1_style_from_scene),
         font_prediction: None,
         rendered: None,
         lock_layout_box: false,

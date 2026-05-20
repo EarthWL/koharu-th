@@ -406,6 +406,9 @@ fn apply_text_block_patch(
     if let Some(source_lang) = &patch.source_lang {
         block.source_lang = source_lang.clone();
     }
+    if let Some(rotation_deg) = patch.rotation_deg {
+        block.rotation_deg = rotation_deg;
+    }
 }
 
 /// Compute the inverse Op for `op` against the CURRENT (pre-apply)
@@ -531,6 +534,7 @@ fn compute_inverse(scene: &Scene, op: &Op) -> Result<Op, SessionError> {
                 translation: patch.translation.as_ref().map(|_| block.translation.clone()),
                 style: patch.style.as_ref().map(|_| block.style.clone()),
                 source_lang: patch.source_lang.as_ref().map(|_| block.source_lang.clone()),
+                rotation_deg: patch.rotation_deg.map(|_| block.rotation_deg),
             };
             Ok(Op::UpdateTextBlock {
                 page: *page,
