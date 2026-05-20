@@ -190,7 +190,11 @@
     "fitTight": "tight",
     "fitToBubble": "Fit to bubble",
     "fitToBubbleTooltip": "Auto-expand this block to fit the surrounding speech bubble (uses flood-fill of white pixels on the original image)",
-    "generateAria": "Translate this block"
+    "generateAria": "Translate this block",
+    "readingOrder": "Reading Order",
+    "readingOrderRtl": "RTL (Manga)",
+    "readingOrderLtr": "LTR (Comic)",
+    "readingOrderCustom": "Custom"
   },
   "workspace": {
     "importPrompt": "Import a page to begin editing.",

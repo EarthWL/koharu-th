@@ -16,6 +16,7 @@ import {
   PlusIcon,
   RefreshCwIcon,
   SquareIcon,
+  StarIcon,
 } from 'lucide-react'
 import { useTextBlocks } from '@/hooks/useTextBlocks'
 import {
@@ -166,6 +167,8 @@ export function RenderControlsPanel() {
   const { data: availableFonts = [] } = useFontsQuery()
   const fontFamily = usePreferencesStore((state) => state.fontFamily)
   const setFontFamily = usePreferencesStore((state) => state.setFontFamily)
+  const favoriteFonts = usePreferencesStore((state) => state.favoriteFonts) || []
+  const toggleFavoriteFont = usePreferencesStore((state) => state.toggleFavoriteFont)
   const { textBlocks, selectedBlockIndex, replaceBlock } = useTextBlocks()
   const { t } = useTranslation()
   const selectedBlock =
@@ -370,44 +373,98 @@ export function RenderControlsPanel() {
           {fontLabel}
         </span>
 
-        <div className='flex min-w-0 items-center gap-1.5'>
-          <div className='min-w-0 flex-1'>
-            <SearchableSelect
-              value={currentFont}
-              onValueChange={(value) => {
-                const nextFamilies = mergeFontFamilies(
-                  value,
-                  selectedBlock?.style?.fontFamilies,
-                )
-                if (applyStyleToSelected({ fontFamilies: nextFamilies })) return
-                setFontFamily(value)
-                if (!hasBlocks) return
-                const nextBlocks = textBlocks.map((block) => ({
-                  ...block,
-                  style: buildStyle(block, block.style, {
-                    fontFamilies: mergeFontFamilies(
-                      value,
-                      block.style?.fontFamilies,
+        <div className='flex min-w-0 items-start gap-1.5'>
+          <div className='min-w-0 flex-1 flex flex-col gap-1.5'>
+            <div className='flex items-center gap-1 w-full'>
+              <SearchableSelect
+                value={currentFont}
+                onValueChange={(value) => {
+                  const nextFamilies = mergeFontFamilies(
+                    value,
+                    selectedBlock?.style?.fontFamilies,
+                  )
+                  if (applyStyleToSelected({ fontFamilies: nextFamilies })) return
+                  setFontFamily(value)
+                  if (!hasBlocks) return
+                  const nextBlocks = textBlocks.map((block) => ({
+                    ...block,
+                    style: buildStyle(block, block.style, {
+                      fontFamilies: mergeFontFamilies(
+                        value,
+                        block.style?.fontFamilies,
+                      ),
+                    }),
+                  }))
+                  void updateTextBlocks(nextBlocks)
+                }}
+                options={fontOptions.map(
+                  (font): SearchableSelectOption => ({
+                    value: font,
+                    label: (
+                      <span style={{ fontFamily: font }}>{font}</span>
                     ),
+                    searchText: font,
                   }),
-                }))
-                void updateTextBlocks(nextBlocks)
-              }}
-              options={fontOptions.map(
-                (font): SearchableSelectOption => ({
-                  value: font,
-                  label: (
-                    <span style={{ fontFamily: font }}>{font}</span>
-                  ),
-                  searchText: font,
-                }),
-              )}
-              placeholder={t('render.fontPlaceholder')}
-              searchPlaceholder={t('render.fontSearchPlaceholder')}
-              emptyMessage={t('render.fontEmptyMessage')}
-              disabled={fontOptions.length === 0}
-              className='h-8 w-full min-w-0'
-            />
+                )}
+                placeholder={t('render.fontPlaceholder')}
+                searchPlaceholder={t('render.fontSearchPlaceholder')}
+                emptyMessage={t('render.fontEmptyMessage')}
+                disabled={fontOptions.length === 0}
+                className='h-8 w-full min-w-0'
+              />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant='ghost'
+                    size='icon-sm'
+                    onClick={() => toggleFavoriteFont(currentFont)}
+                    disabled={!currentFont}
+                    className={cn(
+                      'size-7 shrink-0 transition-colors',
+                      favoriteFonts.includes(currentFont) && 'text-amber-400 hover:text-amber-500 bg-amber-400/10'
+                    )}
+                  >
+                    <StarIcon className={cn('size-3.5', favoriteFonts.includes(currentFont) && 'fill-current')} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side='bottom' sideOffset={4}>
+                  {favoriteFonts.includes(currentFont) ? t('render.unfavoriteFont', 'Remove from Favorites') : t('render.favoriteFont', 'Add to Favorites')}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            
+            {favoriteFonts.length > 0 && (
+              <div className='flex flex-wrap gap-1 mt-0.5'>
+                {favoriteFonts.map(font => (
+                  <Button
+                    key={font}
+                    variant='outline'
+                    size='sm'
+                    className={cn(
+                      'h-5 px-1.5 text-[9px] font-medium border-border/60 hover:bg-accent/50 transition-colors',
+                      currentFont === font && 'bg-primary/10 border-primary/30 text-primary'
+                    )}
+                    style={{ fontFamily: font }}
+                    onClick={() => {
+                      const nextFamilies = mergeFontFamilies(font, selectedBlock?.style?.fontFamilies)
+                      if (applyStyleToSelected({ fontFamilies: nextFamilies })) return
+                      setFontFamily(font)
+                      if (!hasBlocks) return
+                      const nextBlocks = textBlocks.map((block) => ({
+                        ...block,
+                        style: buildStyle(block, block.style, {
+                          fontFamilies: mergeFontFamilies(font, block.style?.fontFamilies),
+                        }),
+                      }))
+                      void updateTextBlocks(nextBlocks)
+                    }}
+                    title={font}
+                  >
+                    {font}
+                  </Button>
+                ))}
+              </div>
+            )}
           </div>
 
           <Tooltip>

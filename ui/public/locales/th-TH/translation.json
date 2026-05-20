@@ -217,7 +217,11 @@
     "fitTight": "แน่น",
     "fitToBubble": "พอดี bubble",
     "fitToBubbleTooltip": "ขยาย block อัตโนมัติให้พอดีกับช่องคำพูด (ใช้ flood-fill ของ pixel สีขาวบนภาพต้นฉบับ)",
-    "generateAria": "แปล block นี้"
+    "generateAria": "แปล block นี้",
+    "readingOrder": "ลำดับการอ่าน",
+    "readingOrderRtl": "อ่านขวาไปซ้าย (RTL)",
+    "readingOrderLtr": "อ่านซ้ายไปขวา (LTR)",
+    "readingOrderCustom": "จัดเรียงเอง"
   },
   "workspace": {
     "importPrompt": "เปิดหน้าเพื่อเริ่มแก้ไข",

@@ -18,9 +18,12 @@ import { bubbleFitWarning } from '@/lib/services/bubbleFit'
 import { fileSave } from 'browser-fs-access'
 import { useTextBlocks } from '@/hooks/useTextBlocks'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
+import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { useLlmReadyQuery } from '@/lib/query/hooks'
 import { useLlmMutations } from '@/lib/query/mutations'
 import { flushAllSyncQueues } from '@/lib/services/syncQueues'
+import { useQueryClient } from '@tanstack/react-query'
+import { api } from '@/lib/api'
 import {
   Accordion,
   AccordionContent,
@@ -37,6 +40,13 @@ import { DraftTextarea } from '@/components/ui/draft-textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Slider } from '@/components/ui/slider'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 export function TextBlocksPanel() {
   const {
@@ -53,6 +63,8 @@ export function TextBlocksPanel() {
   const { llmGenerate } = useLlmMutations()
   const { data: llmReady = false } = useLlmReadyQuery()
   const { cloudProvider } = usePreferencesStore()
+  const { readingOrder, setReadingOrder } = useEditorUiStore()
+  const queryClient = useQueryClient()
   const [generatingIndex, setGeneratingIndex] = useState<number | null>(null)
 
   const handleMoveBlock = async (index: number, direction: 'up' | 'down') => {
@@ -186,15 +198,40 @@ export function TextBlocksPanel() {
     reader.readAsText(file)
   }
 
+  const handleReadingOrderChange = async (val: string) => {
+    const order = val as 'rtl' | 'ltr' | 'custom'
+    setReadingOrder(order)
+    if ((order === 'rtl' || order === 'ltr') && document) {
+      try {
+        await api.reorderTextBlocks(document.index, order)
+        await queryClient.invalidateQueries({ queryKey: ['document', document.index] })
+      } catch (err) {
+        console.error('Failed to reorder text blocks:', err)
+      }
+    }
+  }
+
   return (
     <div
       className='flex min-h-0 flex-1 flex-col'
       data-testid='panels-textblocks'
     >
       <div className='border-border text-muted-foreground flex items-center justify-between border-b px-2 py-1.5 text-xs font-semibold tracking-wide uppercase'>
-        <span data-testid='textblocks-count' data-count={textBlocks.length}>
-          {t('textBlocks.title', { count: textBlocks.length })}
-        </span>
+        <div className='flex items-center gap-2'>
+          <span data-testid='textblocks-count' data-count={textBlocks.length}>
+            {t('textBlocks.title', { count: textBlocks.length })}
+          </span>
+          <Select value={readingOrder} onValueChange={handleReadingOrderChange}>
+            <SelectTrigger className='h-6 w-24 bg-background/50 backdrop-blur text-[10px] px-2 py-0 border-border/40 hover:bg-accent/50 transition-colors'>
+              <SelectValue placeholder={t('textBlocks.readingOrder')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="rtl" className="text-xs">{t('textBlocks.readingOrderRtl', 'RTL')}</SelectItem>
+              <SelectItem value="ltr" className="text-xs">{t('textBlocks.readingOrderLtr', 'LTR')}</SelectItem>
+              <SelectItem value="custom" className="text-xs">{t('textBlocks.readingOrderCustom', 'Custom')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <div className='flex items-center gap-1'>
           <Tooltip>
             <TooltipTrigger asChild>
