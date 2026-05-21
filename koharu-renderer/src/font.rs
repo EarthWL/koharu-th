@@ -242,14 +242,23 @@ impl FontBook {
                 font.family.0,
                 font.family.1,
                 font.index,
-                font.attributes,
                 font.blob.clone(),
             ));
             QueryStatus::Stop
         });
+        drop(query);
 
-        let (family_id, family_index, index, attributes, blob) =
+        let (family_id, family_index, index, blob) =
             selected.with_context(|| format!("no font found for families: {families:?}"))?;
+
+        let attributes = self.collection
+            .family(family_id)
+            .and_then(|family| {
+                family.fonts().get(family_index).map(|info| {
+                    fontique::Attributes::new(info.width(), info.style(), info.weight())
+                })
+            })
+            .unwrap_or_else(|| properties.to_attributes());
 
         let cache_key = CacheKey {
             family_id,

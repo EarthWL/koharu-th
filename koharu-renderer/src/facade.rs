@@ -5,7 +5,7 @@ use image::{DynamicImage, GrayImage};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
 use koharu_types::{
-    Document, SerializableDynamicImage, TextAlign, TextBlock, TextShaderEffect, TextStrokeStyle,
+    Document, TextAlign, TextBlock, TextShaderEffect, TextStrokeStyle,
     TextStyle,
 };
 
@@ -263,10 +263,10 @@ impl Renderer {
 
         // If the user requested bold/italic, check if the matched font is actually bold/italic.
         // If not (fell back to Regular), automatically enable synthetic faux bold/italic as a fallback!
-        if block_effect.bold && font.attributes.weight() < fontique::FontWeight::BOLD {
+        if block_effect.bold && font.attributes.weight < fontique::FontWeight::BOLD {
             block_effect.faux_bold = true;
         }
-        if block_effect.italic && font.attributes.style() == fontique::FontStyle::Normal {
+        if block_effect.italic && font.attributes.style == fontique::FontStyle::Normal {
             block_effect.faux_italic = true;
         }
         let color = text_block
