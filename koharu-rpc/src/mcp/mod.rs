@@ -17,7 +17,7 @@ use koharu_api::commands::{
     DetectPayload, OcrPayload, WebFetchPayload,
     ExportDocumentParams, FileEntry, GlossaryAddPayload, GlossaryBulkAddPayload,
     GlossaryBumpUsagePayload, GlossaryIdPayload, GlossaryUpdatePayload, IndexPayload,
-    InpaintPartialPayload, InpaintRegion, InpaintRegionParams, LlmCallLogPayload,
+    InpaintPartialPayload, InpaintPayload, InpaintRegion, InpaintRegionParams, LlmCallLogPayload,
     LlmGenerateParams, LlmGeneratePayload, LlmListPayload, LlmLoadParams, LlmLoadPayload,
     MaskMorphPayload, OpenDocumentsParams, OpenDocumentsPayload, ProcessParams, ProcessRequest,
     ProjectCreatePayload, ProjectOpenPayload, PromptRenderPayload, PromptTemplateAddPayload,
