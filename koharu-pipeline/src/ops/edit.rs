@@ -787,7 +787,7 @@ fn recursive_xy_cut(
         }
     }
     y_intervals.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    let mut y_merged = Vec::new();
+    let mut y_merged: Vec<(f32, f32)> = Vec::new();
     for &(start, end) in &y_intervals {
         if let Some(last) = y_merged.last_mut() {
             if start <= last.1 {
@@ -819,7 +819,7 @@ fn recursive_xy_cut(
         }
     }
     x_intervals.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    let mut x_merged = Vec::new();
+    let mut x_merged: Vec<(f32, f32)> = Vec::new();
     for &(start, end) in &x_intervals {
         if let Some(last) = x_merged.last_mut() {
             if start <= last.1 {
