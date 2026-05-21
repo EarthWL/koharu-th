@@ -458,7 +458,7 @@ export const useDocumentMutations = () => {
           }
         } else {
           // Local OCR or Auto OCR
-          let finalEngine = ocrEngine
+          let finalEngine: 'mit48px' | 'manga' | 'auto' | 'cloud' = ocrEngine
           if (ocrEngine === 'auto') {
             const series = queryClient.getQueryData<{
               sourceLanguage?: string
@@ -469,6 +469,53 @@ export const useDocumentMutations = () => {
               sourceLang.toLowerCase().includes('jp') ||
               sourceLang.toLowerCase().includes('日本語')
             finalEngine = isJapanese ? 'manga' : 'cloud'
+          }
+
+          if (finalEngine === 'cloud') {
+            // Auto resolved to cloud (non-Japanese source). Run the
+            // same cloud-OCR path as when the user explicitly picks
+            // Cloud Vision — `api.ocr` only accepts local engines
+            // (mit48px / manga / auto), so passing `'cloud'` would
+            // surface as a Rust deserialize error.
+            const profiles = await api.providerProfilesList()
+            const resolved = await resolveOcrCloudProfile(
+              ocrCloudProfileId,
+              profiles,
+              cloudProvider,
+              cloudModelName,
+              cloudApiKey,
+            )
+            if (!resolved) {
+              throw new Error(
+                'Auto OCR resolved to Cloud Vision (non-Japanese source) but no vision-capable profile is available. Configure one in Sidebar → Profiles or set OCR engine to a local one in Settings.',
+              )
+            }
+            let doc = await api.getDocument(resolvedIndex)
+            if (doc.textBlocks.length === 0) {
+              await api.detect(resolvedIndex, {
+                detectorEngine,
+                animeYoloVariant,
+                animeYoloConfidence,
+              })
+              doc = await api.getDocument(resolvedIndex)
+            }
+            if (doc.textBlocks.length > 0) {
+              const { texts } = await ocrPageViaCloud(
+                resolved.profile,
+                resolved.apiKey,
+                doc.image,
+                doc.textBlocks,
+              )
+              const updated = doc.textBlocks.map((b, i) => ({
+                ...b,
+                text: texts[i] ?? b.text,
+              }))
+              await api.updateTextBlocks(resolvedIndex, updated)
+            }
+            await invalidateCurrentDocument(queryClient, resolvedIndex)
+            await invalidateThumbnailAtIndex(queryClient, resolvedIndex)
+            useEditorUiStore.getState().setShowTextBlocksOverlay(true)
+            return
           }
 
           // Trigger OCR using the final chosen local engine
