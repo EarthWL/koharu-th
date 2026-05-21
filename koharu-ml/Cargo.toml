@@ -40,6 +40,7 @@ objc2-metal = { workspace = true, optional = true }
 objc2-metal-performance-shaders = { workspace = true, optional = true }
 objc2-metal-performance-shaders-graph = { workspace = true, optional = true }
 objc2-foundation = { workspace = true, optional = true }
+ort = { workspace = true, optional = true }
 
 [features]
 cuda = [
@@ -58,6 +59,11 @@ metal = [
     "objc2-foundation",
     "objc2-metal-performance-shaders",
     "objc2-metal-performance-shaders-graph",
+]
+dml = [
+    "ort",
+    "ort/directml",
+    "ort/copy-dylibs",
 ]
 
 [dev-dependencies]

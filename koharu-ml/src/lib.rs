@@ -1,6 +1,7 @@
 mod hf_hub;
 
 pub mod anime_text;
+pub mod backend;
 pub mod comic_text_detector;
 pub mod facade;
 pub mod font_detector;
@@ -12,6 +13,7 @@ pub mod mit48px_ocr;
 pub mod offloader;
 
 use anyhow::Result;
+pub use backend::{HardwareBackend, detect_best_backend, dml_is_available};
 use candle_core::utils::metal_is_available;
 
 pub use candle_core::Device;
