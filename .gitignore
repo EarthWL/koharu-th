@@ -57,3 +57,12 @@ test-results/
 
 # Claude Code session files (local-only, never useful in git)
 .claude/
+
+# Agent Context & Metadata Files
+CLAUDE.md
+AGENTS.md
+MEMORY.md
+pr16_body.txt
+.rtk/
+.mcp.json
+
