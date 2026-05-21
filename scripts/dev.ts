@@ -279,8 +279,53 @@ function setupRemapPathPrefix() {
     : flags.join(' ')
 }
 
+/**
+ * CUDA 13.x ships a CCCL header (`cccl/cuda/std/__cccl/preprocessor.h`)
+ * that errors out with `C1189` when the C++ host compiler is MSVC
+ * `cl.exe` running its traditional (non-conforming) preprocessor.
+ *
+ * The check is preprocessor-level (`_MSVC_TRADITIONAL`), so a runtime
+ * env var won't suppress it. Two viable fixes:
+ *   1. Pass `/Zc:preprocessor` to cl.exe via `nvcc -Xcompiler ...`
+ *      → switches MSVC to the standard-conforming preprocessor.
+ *   2. Define `CCCL_IGNORE_MSVC_TRADITIONAL_PREPROCESSOR_WARNING` as a
+ *      compile-time macro (`-D...`) so the `#error` is skipped.
+ *
+ * `nvcc` honours `NVCC_PREPEND_FLAGS` for every invocation, so use that
+ * to inject (1) and (2) without patching candle-kernels' build script.
+ */
+function setupCcclWorkaround() {
+  // Force cl.exe to use the conforming preprocessor + C++17 dialect.
+  // CUDA 13.x's CCCL headers gate-keep on both with #error directives.
+  // `-Xcompiler` forwards flags to the host compiler (cl.exe).
+  // The `-D` macros are belt-and-braces in case `-Xcompiler` is
+  // ignored on some translation units.
+  const fix = [
+    // Tell nvcc *itself* which C++ standard to use when parsing .cu
+    // files. Without this nvcc defaults to a dialect that can't read
+    // MSVC's C++17 standard library headers (deduction guides, inline
+    // variables, nested namespace defs).
+    '-std=c++17',
+    // Forward MSVC-side flags so cl.exe also emits C++17 conforming
+    // preprocessor + dialect for the host-compile half.
+    '-Xcompiler',
+    '/Zc:preprocessor',
+    '-Xcompiler',
+    '/std:c++17',
+    // Escape hatches in case any CCCL header still gate-keeps.
+    '-DCCCL_IGNORE_MSVC_TRADITIONAL_PREPROCESSOR_WARNING',
+    '-DCCCL_IGNORE_DEPRECATED_CPP_DIALECT',
+  ].join(' ')
+  const existing = process.env.NVCC_PREPEND_FLAGS ?? ''
+  process.env.NVCC_PREPEND_FLAGS = existing ? `${existing} ${fix}` : fix
+  if (!process.env.CCCL_IGNORE_MSVC_TRADITIONAL_PREPROCESSOR_WARNING) {
+    process.env.CCCL_IGNORE_MSVC_TRADITIONAL_PREPROCESSOR_WARNING = '1'
+  }
+}
+
 async function dev() {
   setupRemapPathPrefix()
+  setupCcclWorkaround()
 
   // Tracks whether the CUDA toolchain (nvcc + cuDNN + cl) was wired up
   // successfully. Drives the `--features cuda` injection below — without
