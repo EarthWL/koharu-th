@@ -3826,6 +3826,7 @@ name = "koharu"
 version = "1.2.2"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "dirs",
  "git-version",

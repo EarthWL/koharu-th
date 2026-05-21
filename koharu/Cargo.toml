@@ -30,6 +30,7 @@ koharu-rpc = { workspace = true }
 koharu-runtime = { workspace = true }
 koharu-types = { workspace = true }
 anyhow = { workspace = true }
+chrono = { workspace = true }
 clap = { workspace = true }
 dirs = { workspace = true }
 git-version = { workspace = true }

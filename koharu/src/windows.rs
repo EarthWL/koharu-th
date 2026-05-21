@@ -93,8 +93,8 @@ pub fn register_file_associations() -> Result<()> {
         SHChangeNotify(
             SHCNE_ASSOCCHANGED,
             SHCNF_IDLIST,
-            std::ptr::null(),
-            std::ptr::null(),
+            None,
+            None,
         );
     }
 
