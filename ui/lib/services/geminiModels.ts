@@ -5,10 +5,22 @@
  * — requires an API key (Google rejects unauthenticated requests).
  * Returned IDs come back as "models/gemini-2.5-flash"; we strip the
  * "models/" prefix because that's what `generateContent` accepts.
+ *
+ * The /models endpoint returns the full *public catalog*, not just
+ * models this key can actually call. We post-filter by probing each
+ * candidate with the cheap :countTokens endpoint and dropping ones
+ * that explicitly reject the key (403 PERMISSION_DENIED / 404
+ * NOT_FOUND). Other transient failures (429, 5xx, network) keep the
+ * model in the list so a temporary rate-limit doesn't permanently
+ * hide it from the picker.
  */
 
 const GEMINI_MODELS_URL =
   'https://generativelanguage.googleapis.com/v1beta/models'
+
+/** Max parallel `countTokens` probes — Google's free tier rate-limits
+ *  aggressively, so keep this conservative. */
+const PROBE_CONCURRENCY = 5
 
 export type GeminiModel = {
   /** Bare id without the "models/" prefix. What the user pastes into modelName. */
@@ -51,7 +63,7 @@ export async function fetchGeminiModels(
   }
   const data = (await res.json()) as { models?: RawGeminiModel[] }
   const items = data.models ?? []
-  return items
+  const catalog = items
     .map((raw): GeminiModel | null => {
       const fullName = raw.name ?? ''
       if (!fullName.startsWith('models/')) return null
@@ -79,6 +91,65 @@ export async function fetchGeminiModels(
       }
     })
     .filter((m): m is GeminiModel => m !== null)
+
+  // Probe each catalog entry to keep only ones the key can actually
+  // call. countTokens is the cheapest authenticated probe and doesn't
+  // consume generation quota.
+  return filterAccessibleModels(catalog, apiKey)
+}
+
+/** Probe a single model with :countTokens. Returns:
+ *  - true if model is callable
+ *  - false if the API explicitly rejects access (403/404)
+ *  - true (keep) if the probe fails for transient reasons (429/5xx/network)
+ */
+async function isModelAccessible(
+  modelId: string,
+  apiKey: string,
+): Promise<boolean> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:countTokens?key=${encodeURIComponent(apiKey)}`
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: 'ok' }] }],
+      }),
+    })
+    if (res.ok) return true
+    // 403 PERMISSION_DENIED → key lacks access (paid-tier, geo-block, ToS).
+    // 404 NOT_FOUND → model id retired or not yet available to this key.
+    // 400 INVALID_ARGUMENT for a known-good probe payload usually means
+    // the model can't accept this content shape (e.g., image-only) — drop.
+    if (res.status === 403 || res.status === 404 || res.status === 400) {
+      return false
+    }
+    // Transient (429 rate-limit, 5xx, etc.) — keep the model so a
+    // temporary failure doesn't permanently hide it.
+    return true
+  } catch {
+    // Network errors are transient. Keep the model.
+    return true
+  }
+}
+
+async function filterAccessibleModels(
+  models: GeminiModel[],
+  apiKey: string,
+): Promise<GeminiModel[]> {
+  const accessible: GeminiModel[] = []
+  // Bounded concurrency: process the catalog in chunks of
+  // PROBE_CONCURRENCY to stay friendly to Google's rate-limits.
+  for (let i = 0; i < models.length; i += PROBE_CONCURRENCY) {
+    const batch = models.slice(i, i + PROBE_CONCURRENCY)
+    const results = await Promise.all(
+      batch.map((m) => isModelAccessible(m.id, apiKey)),
+    )
+    batch.forEach((m, idx) => {
+      if (results[idx]) accessible.push(m)
+    })
+  }
+  return accessible
 }
 
 export function formatTokenLimit(n?: number): string | null {
