@@ -141,11 +141,35 @@ export const windowControls = {
 
 // --- Typed RPC invoke ---
 
+// These commands are registered with `tauri::generate_handler!` in
+// koharu/src/app.rs and are NOT exposed by the WebSocket RPC layer.
+// They have to be invoked through Tauri's native IPC (window.__TAURI_INTERNALS__)
+// or they come back with a generic `ERR_SYSTEM_UNKNOWN` from the WS dispatcher
+// because the method name simply doesn't exist there.
+const TAURI_ONLY_METHODS: ReadonlySet<keyof RpcMethodMap> = new Set([
+  'get_ml_device_config',
+  'set_ml_device_config',
+  'enumerate_cuda_devices',
+  'relaunch_app',
+] as const)
+
 export async function invoke<M extends keyof RpcMethodMap>(
   method: M,
   ...args: RpcMethodMap[M][0] extends void ? [] : [RpcMethodMap[M][0]]
 ): Promise<RpcMethodMap[M][1]> {
   const params = args[0]
+
+  // Route Tauri-native commands through the native IPC, not WS RPC.
+  if (TAURI_ONLY_METHODS.has(method)) {
+    if (!isTauriEnv()) {
+      throw new Error(`${method} is only available in the Tauri runtime`)
+    }
+    const { invoke: tauriInvoke } = await import('@tauri-apps/api/core')
+    return (await tauriInvoke(
+      method as string,
+      (params ?? {}) as Record<string, unknown>,
+    )) as RpcMethodMap[M][1]
+  }
 
   // Browser-only: open_external in a new tab
   if (!isTauriEnv() && method === 'open_external') {
