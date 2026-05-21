@@ -215,6 +215,25 @@ export type RpcMethodMap = {
     | { kind: 'failed'; version: string; error: string },
   ]
   runtime_install_cudnn: [void, string]
+  runtime_check_cudnn_upgrade: [
+    void,
+    {
+      version: string
+      size_bytes: number | null
+      released_at: string
+      notes: string | null
+    } | null,
+  ]
+  runtime_health: [
+    void,
+    {
+      active_cudnn_version: string | null
+      crash_count_24h: number
+      crash_window_start_unix: number
+      last_promoted_unix: number
+    },
+  ]
+  runtime_gc_stale: [void, number]
   relaunch_app: [void, void]
   text_block_fit_to_bubble: [any, any]
   update_text_block: [any, any]

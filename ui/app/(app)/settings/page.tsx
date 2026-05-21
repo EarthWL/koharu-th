@@ -133,6 +133,14 @@ export default function SettingsPage() {
     | { kind: 'failed'; version: string; error: string }
   const [cudnnStatus, setCudnnStatus] = useState<CudnnStatus | null>(null)
   const [cudnnInstalling, setCudnnInstalling] = useState(false)
+  // Phase 2/3 — newer stable cuDNN that passes the 30-day soak gate.
+  // null = no eligible upgrade or manifest probe hasn't completed.
+  const [cudnnUpgrade, setCudnnUpgrade] = useState<{
+    version: string
+    size_bytes: number | null
+    released_at: string
+    notes: string | null
+  } | null>(null)
   const ocrEngine = usePreferencesStore((s) => s.ocrEngine)
   const setOcrEngine = usePreferencesStore((s) => s.setOcrEngine)
   const ocrSmartCloudFallback = usePreferencesStore(
@@ -250,6 +258,17 @@ export default function SettingsPage() {
       }
     }
     void loadCudnnStatus()
+
+    // Probe manifest + stability gate in the background. Network
+    // failures are non-fatal — we just don't surface an upgrade chip.
+    void (async () => {
+      try {
+        const candidate = await invoke('runtime_check_cudnn_upgrade')
+        setCudnnUpgrade(candidate ?? null)
+      } catch (error) {
+        console.warn('cuDNN upgrade probe failed', error)
+      }
+    })()
 
     // Stream install progress so the user sees a live progress bar while
     // the ~700 MB cuDNN archive downloads. Cleanup on unmount cancels
@@ -967,6 +986,45 @@ export default function SettingsPage() {
                             )}
                           </span>
                         )}
+                        {cudnnUpgrade &&
+                          cudnnStatus.kind === 'installed' && (
+                            <div className='mt-2 flex items-start justify-between gap-2 rounded border border-amber-500/20 bg-amber-500/5 p-2 text-[10px]'>
+                              <div className='flex flex-col gap-0.5'>
+                                <span className='font-semibold text-amber-600 dark:text-amber-400'>
+                                  {t(
+                                    'settings.cudnnUpgradeAvailable',
+                                    'มี cuDNN v{{version}} ผ่าน stability gate',
+                                    { version: cudnnUpgrade.version },
+                                  )}
+                                </span>
+                                {cudnnUpgrade.notes && (
+                                  <span className='text-muted-foreground'>
+                                    {cudnnUpgrade.notes}
+                                  </span>
+                                )}
+                              </div>
+                              <Button
+                                variant='outline'
+                                size='sm'
+                                disabled={cudnnInstalling}
+                                className='h-6 px-2 text-[10px]'
+                                onClick={async () => {
+                                  setCudnnInstalling(true)
+                                  try {
+                                    await invoke('runtime_install_cudnn')
+                                  } catch (err) {
+                                    console.error(
+                                      'cuDNN upgrade failed',
+                                      err,
+                                    )
+                                    setCudnnInstalling(false)
+                                  }
+                                }}
+                              >
+                                {t('settings.cudnnUpgrade', 'อัปเกรด')}
+                              </Button>
+                            </div>
+                          )}
                       </div>
                     )}
                   </div>

@@ -31,7 +31,7 @@
 //! from the vendor.
 
 use anyhow::{Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Pinned baseline cuDNN release. Use the `_cuda12-archive` build —
@@ -263,4 +263,298 @@ pub fn register_cudnn_dll_path(_runtime_root: &Path) -> Result<()> {
     // Non-Windows builds use libcudnn.so on the system loader path or
     // LD_LIBRARY_PATH — out of scope for Phase 1.
     Ok(())
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Phase 2 — Manifest probe
+// ──────────────────────────────────────────────────────────────────────
+
+const MANIFEST_URL: &str =
+    "https://raw.githubusercontent.com/HetCreep/koharu-th/feat/ux-improvements/runtime_manifest.json";
+const MANIFEST_CACHE_TTL_SECS: u64 = 24 * 60 * 60;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CudnnRelease {
+    pub version: String,
+    pub released_at: String,
+    pub cuda_compat: Vec<String>,
+    pub url: String,
+    pub size_bytes: Option<u64>,
+    pub baseline: bool,
+    #[serde(default)]
+    pub sha256: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CudnnManifest {
+    pub windows_x86_64: Option<Vec<CudnnRelease>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeManifest {
+    pub schema_version: u32,
+    pub updated_at: String,
+    pub cudnn: CudnnManifest,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ManifestCache {
+    fetched_at_unix: u64,
+    etag: Option<String>,
+    payload: RuntimeManifest,
+}
+
+fn manifest_cache_path(runtime_root: &Path) -> PathBuf {
+    runtime_root.join("manifest_cache.json")
+}
+
+fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Fetch the runtime manifest from the HetCreep repo, honouring HTTP
+/// ETag for revalidation. Caches the parsed manifest + ETag on disk so
+/// repeated checks within the TTL window don't hammer GitHub raw.
+pub async fn fetch_manifest(runtime_root: &Path) -> Result<RuntimeManifest> {
+    let cache_path = manifest_cache_path(runtime_root);
+
+    // Load any prior cache so we can revalidate with If-None-Match.
+    let cache: Option<ManifestCache> = std::fs::read(&cache_path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok());
+
+    if let Some(c) = &cache {
+        if now_unix().saturating_sub(c.fetched_at_unix) < MANIFEST_CACHE_TTL_SECS {
+            return Ok(c.payload.clone());
+        }
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
+    let mut req = client.get(MANIFEST_URL);
+    if let Some(c) = &cache {
+        if let Some(etag) = &c.etag {
+            req = req.header(reqwest::header::IF_NONE_MATCH, etag);
+        }
+    }
+    let resp = req.send().await.context("GET runtime manifest")?;
+    if resp.status() == reqwest::StatusCode::NOT_MODIFIED {
+        // 304 — bump the cached fetched_at and reuse payload.
+        if let Some(mut c) = cache {
+            c.fetched_at_unix = now_unix();
+            if let Some(parent) = cache_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(&cache_path, serde_json::to_vec_pretty(&c)?);
+            return Ok(c.payload);
+        }
+    }
+    if !resp.status().is_success() {
+        // Network success but bad status — fall back to cache if present.
+        if let Some(c) = cache {
+            return Ok(c.payload);
+        }
+        anyhow::bail!("manifest fetch returned HTTP {}", resp.status());
+    }
+    let etag = resp
+        .headers()
+        .get(reqwest::header::ETAG)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    let payload: RuntimeManifest = resp.json().await.context("parse manifest")?;
+    let entry = ManifestCache {
+        fetched_at_unix: now_unix(),
+        etag,
+        payload: payload.clone(),
+    };
+    if let Some(parent) = cache_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(&cache_path, serde_json::to_vec_pretty(&entry)?);
+    Ok(payload)
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Phase 3 — Stability gate
+// ──────────────────────────────────────────────────────────────────────
+
+const STABILITY_AGE_DAYS: i64 = 30;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UpgradeCandidate {
+    pub version: String,
+    pub size_bytes: Option<u64>,
+    pub released_at: String,
+    pub notes: Option<String>,
+}
+
+/// Given a manifest + the currently-installed baseline, decide which
+/// (if any) newer release passes the stability gate and should be
+/// surfaced to the UI as "upgrade available".
+pub fn pick_upgrade(
+    manifest: &RuntimeManifest,
+    installed_version: &str,
+) -> Option<UpgradeCandidate> {
+    let releases = manifest.cudnn.windows_x86_64.as_ref()?;
+    let installed_major = major_minor(installed_version)?;
+    let now = now_unix() as i64;
+
+    let mut best: Option<&CudnnRelease> = None;
+    for rel in releases {
+        if rel.version == installed_version {
+            continue;
+        }
+        let Some(rel_major) = major_minor(&rel.version) else {
+            continue;
+        };
+        // Gate: same MAJOR version to keep ABI compatible.
+        if rel_major.0 != installed_major.0 {
+            continue;
+        }
+        // Gate: release age >= 30 days.
+        let Some(released_unix) = parse_iso8601_to_unix(&rel.released_at) else {
+            continue;
+        };
+        let age_days = (now - released_unix) / 86_400;
+        if age_days < STABILITY_AGE_DAYS {
+            continue;
+        }
+        // Gate: must be a strict version bump.
+        if version_compare(&rel.version, installed_version) != std::cmp::Ordering::Greater {
+            continue;
+        }
+        // Track highest eligible.
+        match best {
+            None => best = Some(rel),
+            Some(b)
+                if version_compare(&rel.version, &b.version) == std::cmp::Ordering::Greater =>
+            {
+                best = Some(rel)
+            }
+            _ => {}
+        }
+    }
+    best.map(|r| UpgradeCandidate {
+        version: r.version.clone(),
+        size_bytes: r.size_bytes,
+        released_at: r.released_at.clone(),
+        notes: r.notes.clone(),
+    })
+}
+
+fn major_minor(v: &str) -> Option<(u32, u32)> {
+    let mut parts = v.split('.');
+    Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
+}
+
+fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
+    let av: Vec<u32> = a.split('.').filter_map(|s| s.parse().ok()).collect();
+    let bv: Vec<u32> = b.split('.').filter_map(|s| s.parse().ok()).collect();
+    av.cmp(&bv)
+}
+
+fn parse_iso8601_to_unix(s: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(s)
+        .ok()
+        .map(|dt| dt.timestamp())
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Phase 4 — Boot health + stale GC
+// ──────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RuntimeHealth {
+    pub active_cudnn_version: Option<String>,
+    pub crash_count_24h: u32,
+    pub crash_window_start_unix: u64,
+    pub last_promoted_unix: u64,
+}
+
+fn health_path(runtime_root: &Path) -> PathBuf {
+    runtime_root.join("health.json")
+}
+
+pub fn read_health(runtime_root: &Path) -> RuntimeHealth {
+    std::fs::read(health_path(runtime_root))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+pub fn write_health(runtime_root: &Path, health: &RuntimeHealth) -> Result<()> {
+    let path = health_path(runtime_root);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let bytes = serde_json::to_vec_pretty(health)?;
+    std::fs::write(&path, bytes)?;
+    Ok(())
+}
+
+/// Record a panic-time crash. Called from the panic hook so the next
+/// startup can decide whether to roll back. The 24-hour window resets
+/// every time the count hits 0 again.
+pub fn record_crash(runtime_root: &Path) {
+    let mut h = read_health(runtime_root);
+    let now = now_unix();
+    if now.saturating_sub(h.crash_window_start_unix) > 86_400 {
+        h.crash_count_24h = 0;
+        h.crash_window_start_unix = now;
+    }
+    h.crash_count_24h += 1;
+    let _ = write_health(runtime_root, &h);
+}
+
+/// Mark a runtime version as stale (slated for cleanup). A sentinel
+/// file inside the version directory holds the eligibility timestamp;
+/// `gc_stale_runtimes` deletes the dir once the grace period elapses.
+pub fn mark_stale(runtime_root: &Path, version: &str) -> Result<()> {
+    let dir = runtime_root
+        .join("cudnn")
+        .join(format!("v{version}"));
+    if !dir.exists() {
+        return Ok(());
+    }
+    let stale_marker = dir.join(".stale");
+    std::fs::write(&stale_marker, now_unix().to_string())?;
+    Ok(())
+}
+
+const STALE_GC_GRACE_SECS: u64 = 7 * 24 * 60 * 60;
+
+/// Background sweep — delete versioned runtime dirs that have been
+/// marked stale for longer than the grace period. Called once at
+/// startup (after the active baseline is confirmed working).
+pub fn gc_stale_runtimes(runtime_root: &Path) -> Result<u32> {
+    let cudnn_root = runtime_root.join("cudnn");
+    if !cudnn_root.exists() {
+        return Ok(0);
+    }
+    let mut removed = 0u32;
+    for entry in std::fs::read_dir(&cudnn_root)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let marker = entry.path().join(".stale");
+        let Ok(marker_bytes) = std::fs::read_to_string(&marker) else {
+            continue;
+        };
+        let Ok(staled_at) = marker_bytes.trim().parse::<u64>() else {
+            continue;
+        };
+        if now_unix().saturating_sub(staled_at) >= STALE_GC_GRACE_SECS {
+            if std::fs::remove_dir_all(entry.path()).is_ok() {
+                removed += 1;
+            }
+        }
+    }
+    Ok(removed)
 }

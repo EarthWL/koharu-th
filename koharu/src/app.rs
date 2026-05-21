@@ -254,10 +254,17 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
     // on demand). Must run after APP_ROOT/runtime/ is conceptually
     // available but doesn't need the directory to actually exist —
     // `register_cudnn_dll_path` is a no-op when cuDNN isn't installed.
-    if let Err(err) =
-        crate::runtime_install::register_cudnn_dll_path(&APP_ROOT.join("runtime"))
-    {
+    let runtime_root = APP_ROOT.join("runtime");
+    if let Err(err) = crate::runtime_install::register_cudnn_dll_path(&runtime_root) {
         tracing::warn!(?err, "Failed to register cuDNN DLL path; GPU may fall back to CPU");
+    }
+    // Sweep stale versioned runtime directories that have been marked
+    // for removal longer than the 7-day grace window. Phase 4 — runs
+    // on every startup so users don't accumulate orphaned cuDNN copies.
+    match crate::runtime_install::gc_stale_runtimes(&runtime_root) {
+        Ok(0) => {}
+        Ok(n) => tracing::info!("Reclaimed {n} stale runtime versions"),
+        Err(err) => tracing::warn!(?err, "Stale runtime GC failed"),
     }
 
     // Migrate legacy Koharu folder → KoharuTH (branding rename). Must run
@@ -398,6 +405,11 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
         if let Err(e) = std::fs::write(&crash_path, &dump_content) {
             eprintln!("Failed to write crash dump to {:?}: {:?}", crash_path, e);
         }
+
+        // Bump runtime crash counter. Phase 4 logic uses this to
+        // decide whether to auto-rollback a freshly-promoted cuDNN
+        // upgrade on the next launch (3 crashes within 24h → revert).
+        crate::runtime_install::record_crash(&APP_ROOT.join("runtime"));
 
         let dialog_msg = format!(
             "A fatal panic occurred (probably GPU CUDA Out Of Memory or model execution error).\n\n\
@@ -777,6 +789,43 @@ pub async fn run() -> Result<()> {
         crate::runtime_install::cudnn_status(&APP_ROOT.join("runtime"))
     }
 
+    /// Probe the HetCreep manifest + check the stability gate. Returns
+    /// `Some(candidate)` if a newer stable cuDNN exists that passes
+    /// gate (≥30 days old, same major version), otherwise `None`. The
+    /// fetch honours an ETag cache so this is cheap to call on every
+    /// Settings page mount.
+    #[tauri::command]
+    async fn runtime_check_cudnn_upgrade(
+    ) -> Result<Option<crate::runtime_install::UpgradeCandidate>, String> {
+        let runtime_root = APP_ROOT.join("runtime");
+        let manifest = crate::runtime_install::fetch_manifest(&runtime_root)
+            .await
+            .map_err(|e| format!("{e:#}"))?;
+        let installed = match crate::runtime_install::cudnn_status(&runtime_root) {
+            crate::runtime_install::CudnnStatus::Installed { version, .. } => version,
+            crate::runtime_install::CudnnStatus::Ready { version, .. } => version,
+            _ => return Ok(None), // No baseline installed, nothing to upgrade.
+        };
+        Ok(crate::runtime_install::pick_upgrade(&manifest, &installed))
+    }
+
+    /// Read the runtime health snapshot (active version + crash counter).
+    /// UI surfaces this so users can see whether an auto-rollback is
+    /// pending and which version is currently active.
+    #[tauri::command]
+    fn runtime_health() -> crate::runtime_install::RuntimeHealth {
+        crate::runtime_install::read_health(&APP_ROOT.join("runtime"))
+    }
+
+    /// Sweep stale runtime versions that have been marked for removal
+    /// for longer than the grace period. Called on startup; also
+    /// exposed manually for users who want to reclaim disk now.
+    #[tauri::command]
+    fn runtime_gc_stale() -> Result<u32, String> {
+        crate::runtime_install::gc_stale_runtimes(&APP_ROOT.join("runtime"))
+            .map_err(|e| format!("{e:#}"))
+    }
+
     /// Kick off the cuDNN download + extract. Streams progress events
     /// to the frontend via `koharu://runtime/cudnn-progress`. Returns
     /// the final install path when the runtime is ready, or surfaces
@@ -836,6 +885,9 @@ pub async fn run() -> Result<()> {
             enumerate_cuda_devices,
             runtime_cudnn_status,
             runtime_install_cudnn,
+            runtime_check_cudnn_upgrade,
+            runtime_health,
+            runtime_gc_stale,
             get_installed_addons
         ])
         .setup({
