@@ -58,7 +58,11 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
         if: matrix.os == 'windows-latest'
       - run: bun install
-      - run: bun tauri build --no-bundle
+      # `--features cuda` enables candle + cudarc CUDA kernels at compile
+      # time. Without it, `cfg!(feature = "cuda")` is false and the
+      # runtime device picker (`cuda_is_available()` in koharu-ml/src/lib.rs)
+      # short-circuits to CPU even on machines with a working RTX driver.
+      - run: bun tauri build --no-bundle --features cuda
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:

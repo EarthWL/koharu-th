@@ -191,30 +191,71 @@ function setupRemapPathPrefix() {
 async function dev() {
   setupRemapPathPrefix()
 
+  // Tracks whether the CUDA toolchain (nvcc + cuDNN + cl) was wired up
+  // successfully. Drives the `--features cuda` injection below — without
+  // that flag, `cfg!(feature = "cuda")` is false at compile time and
+  // `cuda_is_available()` short-circuits to CPU even on machines with
+  // a working RTX driver. See koharu-ml/src/lib.rs:146.
+  let cudaReady = false
+
   if (os.type() === 'Windows_NT') {
-    // First, try to check if nvcc is available
-    await checkNvcc()
-      // If not found, try to set up CUDA paths
-      .catch(async () => {
-        await setupCuda()
-        // Check again after setup
-        await checkNvcc()
-      })
+    try {
+      // First, try to check if nvcc is available
+      await checkNvcc()
+        // If not found, try to set up CUDA paths
+        .catch(async () => {
+          await setupCuda()
+          // Check again after setup
+          await checkNvcc()
+        })
 
-    // Setup cuDNN path
-    await setupCudnn()
+      // Setup cuDNN path
+      await setupCudnn()
 
-    // Setup cl.exe path
-    await setupCl()
+      // Setup cl.exe path
+      await setupCl()
 
-    // Detect this machine's GPU compute capability for native kernel
-    // compilation. Must come after CUDA setup so nvidia-smi is on PATH.
-    await setupComputeCap()
+      // Detect this machine's GPU compute capability for native kernel
+      // compilation. Must come after CUDA setup so nvidia-smi is on PATH.
+      await setupComputeCap()
+
+      cudaReady = true
+    } catch (err) {
+      // Any step of the CUDA toolchain setup failed — log and continue
+      // with a CPU build so dev workflow doesn't hard-block on missing
+      // CUDA when the developer just wants a quick CPU iteration.
+      const reason = err instanceof Error ? err.message : String(err)
+      console.warn(`[koharu] CUDA toolchain unavailable: ${reason}`)
+      console.warn(
+        '[koharu] Building without `--features cuda`. ML inference will run on CPU.',
+      )
+    }
   }
 
   const args = process.argv.slice(2)
   if (args.length === 0) {
     throw new Error('No command provided')
+  }
+
+  // Inject `--features cuda` right after `tauri dev` / `tauri build`
+  // when the CUDA toolchain is ready. tauri-cli forwards `--features`
+  // through to cargo. Position matters: it must land before the
+  // first `--` separator (which delimits cargo args from app args).
+  if (
+    cudaReady &&
+    args[0] === 'tauri' &&
+    (args[1] === 'dev' || args[1] === 'build')
+  ) {
+    // Don't double-inject if the caller already passed --features.
+    const hasFeaturesFlag = args.some(
+      (a) => a === '--features' || a === '-f' || a.startsWith('--features='),
+    )
+    if (!hasFeaturesFlag) {
+      const sepIdx = args.indexOf('--')
+      const insertAt = sepIdx === -1 ? args.length : sepIdx
+      args.splice(insertAt, 0, '--features', 'cuda')
+      console.log('[koharu] Injected `--features cuda` for accelerated build.')
+    }
   }
 
   const proc = spawn(args.join(' '), {
