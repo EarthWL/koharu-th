@@ -168,7 +168,6 @@ pub struct InpaintPayload {
     pub inpaint_max_side: Option<u32>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct InpaintRegion {
@@ -378,7 +377,6 @@ pub struct BackupDto {
 pub struct ProjectDiskSpaceResult {
     pub free_bytes: u64,
 }
-
 
 /// Summary returned by project_open / project_create / project_current.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -1537,4 +1535,3 @@ pub struct CloudLlmCallPayload {
 pub struct CloudLlmCallResult {
     pub text: String,
 }
-

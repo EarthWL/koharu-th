@@ -4,5 +4,4 @@ pub mod http;
 pub mod progress;
 pub mod range;
 
-pub use http::{http_client, create_client_builder};
-
+pub use http::{create_client_builder, http_client};

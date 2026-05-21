@@ -7,8 +7,7 @@ const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VE
 /// Creates a `reqwest::ClientBuilder` configured with the default user agent
 /// and global HTTP/Socks5 proxy settings read from standard environment variables.
 pub fn create_client_builder() -> reqwest::ClientBuilder {
-    let mut builder = reqwest::Client::builder()
-        .user_agent(USER_AGENT);
+    let mut builder = reqwest::Client::builder().user_agent(USER_AGENT);
 
     // Read proxies from environment
     if let Ok(proxy_str) = std::env::var("KOHARU_PROXY")
@@ -23,7 +22,11 @@ pub fn create_client_builder() -> reqwest::ClientBuilder {
                     builder = builder.proxy(proxy);
                 }
                 Err(e) => {
-                    tracing::error!("Failed to parse global proxy from env '{}': {:?}", proxy_str, e);
+                    tracing::error!(
+                        "Failed to parse global proxy from env '{}': {:?}",
+                        proxy_str,
+                        e
+                    );
                 }
             }
         }
@@ -47,4 +50,3 @@ static HTTP_CLIENT: Lazy<ClientWithMiddleware> = Lazy::new(|| {
 pub fn http_client() -> &'static ClientWithMiddleware {
     &HTTP_CLIENT
 }
-

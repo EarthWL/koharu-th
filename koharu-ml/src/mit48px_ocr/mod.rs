@@ -278,7 +278,7 @@ fn smart_join_lines(lines: &[String]) -> String {
         if !result.is_empty() {
             let mut last_char = result.chars().last().unwrap();
             let first_char = trimmed.chars().next().unwrap();
-            
+
             // If the last character is a hyphen ('-'), this represents a syllable
             // break at the end of a line (e.g. WONDER- and FUL). In this case,
             // we remove the hyphen and concatenate directly without any spaces.
@@ -306,14 +306,14 @@ fn is_western_char(c: char) -> bool {
     // Hangul: 0xAC00..=0xD7AF, 0x1100..=0x11FF, 0x3130..=0x318F
     // CJK Symbols/Punctuation: 0x3000..=0x303F
     // Fullwidth Forms: 0xFF00..=0xFFEF
-    !( (val >= 0x4E00 && val <= 0x9FFF) ||
-       (val >= 0x3040 && val <= 0x309F) ||
-       (val >= 0x30A0 && val <= 0x30FF) ||
-       (val >= 0xAC00 && val <= 0xD7AF) ||
-       (val >= 0x1100 && val <= 0x11FF) ||
-       (val >= 0x3130 && val <= 0x318F) ||
-       (val >= 0x3000 && val <= 0x303F) ||
-       (val >= 0xFF00 && val <= 0xFFEF) )
+    !((val >= 0x4E00 && val <= 0x9FFF)
+        || (val >= 0x3040 && val <= 0x309F)
+        || (val >= 0x30A0 && val <= 0x30FF)
+        || (val >= 0xAC00 && val <= 0xD7AF)
+        || (val >= 0x1100 && val <= 0x11FF)
+        || (val >= 0x3130 && val <= 0x318F)
+        || (val >= 0x3000 && val <= 0x303F)
+        || (val >= 0xFF00 && val <= 0xFFEF))
 }
 
 fn read_dictionary(path: &Path) -> Result<Vec<String>> {
@@ -493,32 +493,14 @@ mod tests {
             "...BUT HOW DO I FIGHT SOMETHING SO HUGE?"
         );
 
-        let japanese_lines = vec![
-            "いつもの".to_string(),
-            "ところ".to_string(),
-        ];
-        assert_eq!(
-            smart_join_lines(&japanese_lines),
-            "いつものところ"
-        );
+        let japanese_lines = vec!["いつもの".to_string(), "ところ".to_string()];
+        assert_eq!(smart_join_lines(&japanese_lines), "いつものところ");
 
-        let mixed_lines = vec![
-            "レベル".to_string(),
-            "UP".to_string(),
-        ];
-        assert_eq!(
-            smart_join_lines(&mixed_lines),
-            "レベル UP"
-        );
+        let mixed_lines = vec!["レベル".to_string(), "UP".to_string()];
+        assert_eq!(smart_join_lines(&mixed_lines), "レベル UP");
 
-        let hyphenated_lines = vec![
-            "self-".to_string(),
-            "contained".to_string(),
-        ];
-        assert_eq!(
-            smart_join_lines(&hyphenated_lines),
-            "selfcontained"
-        );
+        let hyphenated_lines = vec!["self-".to_string(), "contained".to_string()];
+        assert_eq!(smart_join_lines(&hyphenated_lines), "selfcontained");
 
         let english_with_layout_break = vec![
             "HOW".to_string(),

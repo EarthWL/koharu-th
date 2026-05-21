@@ -64,7 +64,9 @@ async fn serve_thumbnail_route(
 ) -> impl IntoResponse {
     let resources = match crate::shared::get_resources(&state.resources) {
         Ok(res) => res,
-        Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, "Resources not initialized").into_response(),
+        Err(_) => {
+            return (StatusCode::SERVICE_UNAVAILABLE, "Resources not initialized").into_response();
+        }
     };
 
     let guard = resources.state.read().await;
@@ -73,7 +75,9 @@ async fn serve_thumbnail_route(
         None => return (StatusCode::NOT_FOUND, "Document not found").into_response(),
     };
 
-    let thumbnail = doc.image.resize(180, 240, image::imageops::FilterType::Triangle);
+    let thumbnail = doc
+        .image
+        .resize(180, 240, image::imageops::FilterType::Triangle);
     let etag = get_image_etag("thumb", &doc.id, &thumbnail);
 
     if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH) {
@@ -84,10 +88,9 @@ async fn serve_thumbnail_route(
                 header::CACHE_CONTROL,
                 HeaderValue::from_static("private, max-age=86400"),
             );
-            response.headers_mut().insert(
-                header::ETAG,
-                HeaderValue::from_str(&etag).unwrap(),
-            );
+            response
+                .headers_mut()
+                .insert(header::ETAG, HeaderValue::from_str(&etag).unwrap());
             return response.into_response();
         }
     }
@@ -98,18 +101,16 @@ async fn serve_thumbnail_route(
     }
 
     let mut response = Response::new(Body::from(buf.into_inner()));
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("image/webp"),
-    );
+    response
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, HeaderValue::from_static("image/webp"));
     response.headers_mut().insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static("private, max-age=86400"),
     );
-    response.headers_mut().insert(
-        header::ETAG,
-        HeaderValue::from_str(&etag).unwrap(),
-    );
+    response
+        .headers_mut()
+        .insert(header::ETAG, HeaderValue::from_str(&etag).unwrap());
     response.into_response()
 }
 
@@ -120,7 +121,9 @@ async fn serve_image_route(
 ) -> impl IntoResponse {
     let resources = match crate::shared::get_resources(&state.resources) {
         Ok(res) => res,
-        Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, "Resources not initialized").into_response(),
+        Err(_) => {
+            return (StatusCode::SERVICE_UNAVAILABLE, "Resources not initialized").into_response();
+        }
     };
 
     let guard = resources.state.read().await;
@@ -156,10 +159,9 @@ async fn serve_image_route(
                 header::CACHE_CONTROL,
                 HeaderValue::from_static("private, max-age=86400"),
             );
-            response.headers_mut().insert(
-                header::ETAG,
-                HeaderValue::from_str(&etag).unwrap(),
-            );
+            response
+                .headers_mut()
+                .insert(header::ETAG, HeaderValue::from_str(&etag).unwrap());
             return response.into_response();
         }
     }
@@ -170,18 +172,16 @@ async fn serve_image_route(
     }
 
     let mut response = Response::new(Body::from(buf.into_inner()));
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("image/webp"),
-    );
+    response
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, HeaderValue::from_static("image/webp"));
     response.headers_mut().insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static("private, max-age=86400"),
     );
-    response.headers_mut().insert(
-        header::ETAG,
-        HeaderValue::from_str(&etag).unwrap(),
-    );
+    response
+        .headers_mut()
+        .insert(header::ETAG, HeaderValue::from_str(&etag).unwrap());
     response.into_response()
 }
 
@@ -227,7 +227,7 @@ fn get_image_etag(prefix: &str, doc_id: &str, img: &image::DynamicImage) -> Stri
     img.width().hash(&mut hasher);
     img.height().hash(&mut hasher);
     img.color().hash(&mut hasher);
-    
+
     let bytes = img.as_bytes();
     if !bytes.is_empty() {
         bytes.len().hash(&mut hasher);

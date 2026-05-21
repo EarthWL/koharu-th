@@ -26,8 +26,8 @@ use image::{
     DynamicImage, Rgb, RgbImage,
     imageops::{self, FilterType},
 };
-use koharu_types::TextBlock;
 pub use koharu_types::AnimeYoloVariant as AnimeTextYoloVariant;
+use koharu_types::TextBlock;
 use serde::Serialize;
 use tracing::instrument;
 
@@ -119,10 +119,7 @@ impl AnimeTextDetector {
         Self::load_variant(DEFAULT_VARIANT, cpu).await
     }
 
-    pub async fn load_variant(
-        variant: AnimeTextYoloVariant,
-        cpu: bool,
-    ) -> Result<Self> {
+    pub async fn load_variant(variant: AnimeTextYoloVariant, cpu: bool) -> Result<Self> {
         let device = device(cpu)?;
         let scale = scale_for(variant);
         let model =
@@ -150,11 +147,7 @@ impl AnimeTextDetector {
 
     #[instrument(level = "debug", skip_all)]
     pub fn inference(&self, image: &DynamicImage) -> Result<AnimeTextDetection> {
-        self.inference_with_thresholds(
-            image,
-            DEFAULT_CONFIDENCE_THRESHOLD,
-            DEFAULT_NMS_THRESHOLD,
-        )
+        self.inference_with_thresholds(image, DEFAULT_CONFIDENCE_THRESHOLD, DEFAULT_NMS_THRESHOLD)
     }
 
     #[instrument(level = "debug", skip_all)]
@@ -195,10 +188,8 @@ impl AnimeTextDetector {
             INPUT_SIZE as f32 / original_width.max(1) as f32,
             INPUT_SIZE as f32 / original_height.max(1) as f32,
         );
-        let resized_width =
-            ((original_width as f32 * scale).round() as u32).clamp(1, INPUT_SIZE);
-        let resized_height =
-            ((original_height as f32 * scale).round() as u32).clamp(1, INPUT_SIZE);
+        let resized_width = ((original_width as f32 * scale).round() as u32).clamp(1, INPUT_SIZE);
+        let resized_height = ((original_height as f32 * scale).round() as u32).clamp(1, INPUT_SIZE);
         let pad_x = (INPUT_SIZE - resized_width) / 2;
         let pad_y = (INPUT_SIZE - resized_height) / 2;
 

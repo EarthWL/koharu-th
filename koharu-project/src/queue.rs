@@ -7,16 +7,14 @@
 //! CRUD surface that both the worker and the UI talk to.
 
 use chrono::Utc;
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use strum::{AsRefStr, EnumString};
 
 use crate::db::Conn;
 use crate::error::Result;
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, AsRefStr, EnumString, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, AsRefStr, EnumString, Serialize, Deserialize)]
 #[strum(serialize_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum QueueStatus {
@@ -93,8 +91,7 @@ pub fn enqueue(conn: &Conn, chapter_id: i64) -> Result<QueueEntry> {
         params![chapter_id, now],
     )?;
     let id = conn.last_insert_rowid();
-    get(conn, id)?
-        .ok_or_else(|| crate::error::Error::NotFound("queue entry just inserted".into()))
+    get(conn, id)?.ok_or_else(|| crate::error::Error::NotFound("queue entry just inserted".into()))
 }
 
 pub fn get(conn: &Conn, id: i64) -> Result<Option<QueueEntry>> {
@@ -159,12 +156,7 @@ pub fn mark_running(conn: &Conn, id: i64) -> Result<bool> {
 
 /// Update the per-entry page progress. Called by the worker as the
 /// pipeline ticks through pages so the UI can render a live progress bar.
-pub fn update_progress(
-    conn: &Conn,
-    id: i64,
-    done_pages: i64,
-    total_pages: i64,
-) -> Result<()> {
+pub fn update_progress(conn: &Conn, id: i64, done_pages: i64, total_pages: i64) -> Result<()> {
     conn.execute(
         "UPDATE translation_queue
          SET done_pages = ?2, total_pages = ?3

@@ -33,7 +33,7 @@ mod types;
 
 pub use db::{Conn, Pool};
 pub use error::{Error, Result};
-pub use manifest::{Manifest, ManifestPaths, MANIFEST_FILENAME, SUPPORTED_SCHEMA_VERSION};
+pub use manifest::{MANIFEST_FILENAME, Manifest, ManifestPaths, SUPPORTED_SCHEMA_VERSION};
 pub use project::Project;
 pub use types::{
     Chapter, ChapterStatus, Character, Confidence, GlossaryCategory, GlossaryEntry, NameAlias,

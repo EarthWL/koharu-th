@@ -147,7 +147,7 @@ fn clear_orphan_cache(model_root: &Path) -> Result<u64, String> {
     }
     let mut bytes_freed = 0u64;
     let mut errors = 0;
-    
+
     for entry in WalkDir::new(model_root).into_iter().filter_map(|e| e.ok()) {
         if entry.file_type().is_file() {
             let path = entry.path();
@@ -169,7 +169,7 @@ fn clear_orphan_cache(model_root: &Path) -> Result<u64, String> {
             }
         }
     }
-    
+
     if errors > 0 {
         Err(format!(
             "Successfully freed {} bytes, but failed to remove {} temporary file(s) due to permissions or lock",

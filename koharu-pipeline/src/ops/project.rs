@@ -8,22 +8,22 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use koharu_api::commands::{
     ChapterAddPagesPayload, ChapterCreatePayload, ChapterDto, ChapterIdPayload,
-    ChapterImportResult, ChapterUpdatePayload,
-    CharacterAddPayload,
-    CharacterDto, CharacterIdPayload, CharacterUpdatePayload, GlossaryAddPayload,
-    GlossaryBumpUsagePayload, GlossaryDto, GlossaryIdPayload, GlossaryUpdatePayload,
-    GlossaryBulkAddPayload, GlossaryBulkAddResult, LlmCallLogPayload, LlmCostStats,
-    NameAliasDto, ProjectBackupResult, ProjectCreatePayload, RecentProjectDto,
-    RecentProjectRemovePayload,
-    ProjectCreatePickerPayload, ProjectInfo, ProjectOpenPayload, PromptRenderPayload,
-    PromptRenderResult, PromptTemplateAddPayload, PromptTemplateDto, PromptTemplateIdPayload,
+    ChapterImportResult, ChapterUpdatePayload, CharacterAddPayload, CharacterDto,
+    CharacterIdPayload, CharacterUpdatePayload, CloudLlmCallPayload, CloudLlmCallResult,
+    GlossaryAddPayload, GlossaryBulkAddPayload, GlossaryBulkAddResult, GlossaryBumpUsagePayload,
+    GlossaryDto, GlossaryIdPayload, GlossaryUpdatePayload, LlmCallLogPayload, LlmCostStats,
+    NameAliasDto, ProjectBackupResult, ProjectCreatePayload, ProjectCreatePickerPayload,
+    ProjectInfo, ProjectOpenPayload, PromptRenderPayload, PromptRenderResult,
+    PromptTemplateAddPayload, PromptTemplateDto, PromptTemplateIdPayload,
     PromptTemplateUpdatePayload, ProviderProfileAddPayload, ProviderProfileDto,
     ProviderProfileIdPayload, ProviderProfileSecret, ProviderProfileUpdatePayload,
-    SeriesMetaDto, SeriesMetaUpdatePayload, TmEntryDto, TmFuzzyHit, TmInsertPayload,
-    TmLookupFuzzyPayload, TmLookupPayload, CloudLlmCallPayload, CloudLlmCallResult,
+    RecentProjectDto, RecentProjectRemovePayload, SeriesMetaDto, SeriesMetaUpdatePayload,
+    TmEntryDto, TmFuzzyHit, TmInsertPayload, TmLookupFuzzyPayload, TmLookupPayload,
 };
 use koharu_project::{
-    backup as backup_ops,
+    Chapter, ChapterStatus, Character, Confidence, GlossaryCategory, GlossaryEntry,
+    MANIFEST_FILENAME, NameAlias, Project, PromptTemplate, PromptUseCase, Provider,
+    ProviderProfile, SeriesMeta, backup as backup_ops,
     chapter::{self as chapter_ops, ChapterInsert, ChapterPatch},
     character::{self as character_ops, CharacterInsert, CharacterPatch},
     glossary::{self as glossary_ops, GlossaryInsert, GlossaryPatch},
@@ -33,9 +33,6 @@ use koharu_project::{
     secret as secret_ops,
     series::{self as series_ops, SeriesMetaPatch},
     tm::{self as tm_ops, TmEntry, TmInsert as TmInsertItem},
-    Chapter, ChapterStatus, Character, Confidence, GlossaryCategory, GlossaryEntry, NameAlias,
-    Project, PromptTemplate, PromptUseCase, Provider, ProviderProfile, SeriesMeta,
-    MANIFEST_FILENAME,
 };
 use rfd::FileDialog;
 
@@ -168,7 +165,7 @@ async fn after_project_open(state: AppResources) {
     let p_cleanup = project.clone();
     tokio::task::spawn_blocking(move || {
         let root = p_cleanup.root();
-        
+
         // 1. Delete `.backup_restore_temp` directory/file if left over from aborted restore operations
         let backup_temp = root.join(".backup_restore_temp");
         if backup_temp.exists() {
@@ -182,7 +179,7 @@ async fn after_project_open(state: AppResources) {
                 tracing::warn!(path = ?backup_temp, ?err, "failed to remove stale .backup_restore_temp file");
             }
         }
-        
+
         // 2. Scan and delete any stale manifest backup `.koharuproj.tmp` files
         if let Ok(entries) = std::fs::read_dir(root) {
             for entry in entries.flatten() {
@@ -193,9 +190,16 @@ async fn after_project_open(state: AppResources) {
                             if let Some(stem) = path.file_stem() {
                                 if stem.to_string_lossy().ends_with(".koharuproj") {
                                     if let Err(err) = std::fs::remove_file(&path) {
-                                        tracing::warn!(?path, ?err, "failed to remove stale .koharuproj.tmp file");
+                                        tracing::warn!(
+                                            ?path,
+                                            ?err,
+                                            "failed to remove stale .koharuproj.tmp file"
+                                        );
                                     } else {
-                                        tracing::info!(?path, "successfully cleaned up stale .koharuproj.tmp file");
+                                        tracing::info!(
+                                            ?path,
+                                            "successfully cleaned up stale .koharuproj.tmp file"
+                                        );
                                     }
                                 }
                             }
@@ -220,19 +224,22 @@ async fn after_project_open(state: AppResources) {
         }
 
         // 4. Orphan Asset Garbage Collector: Scan physical chapters/ directories and clean unreferenced assets.
-        let active_folders: std::collections::HashSet<String> = if let Ok(conn) = p_cleanup.pool().get() {
-            if let Ok(mut stmt) = conn.prepare("SELECT folder_path FROM chapters WHERE folder_path IS NOT NULL") {
-                if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
-                    rows.filter_map(|r| r.ok()).collect()
+        let active_folders: std::collections::HashSet<String> =
+            if let Ok(conn) = p_cleanup.pool().get() {
+                if let Ok(mut stmt) =
+                    conn.prepare("SELECT folder_path FROM chapters WHERE folder_path IS NOT NULL")
+                {
+                    if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
+                        rows.filter_map(|r| r.ok()).collect()
+                    } else {
+                        std::collections::HashSet::new()
+                    }
                 } else {
                     std::collections::HashSet::new()
                 }
             } else {
                 std::collections::HashSet::new()
-            }
-        } else {
-            std::collections::HashSet::new()
-        };
+            };
 
         let chapters_dir = root.join("chapters");
         if chapters_dir.exists() && chapters_dir.is_dir() {
@@ -242,40 +249,71 @@ async fn after_project_open(state: AppResources) {
                     if path.is_dir() {
                         if let Ok(rel_path) = path.strip_prefix(root) {
                             let rel_str = rel_path.to_string_lossy().replace('\\', "/");
-                            
+
                             // If the directory is NOT in the database, it's an orphan chapter!
                             if !active_folders.contains(&rel_str) {
-                                tracing::info!(?path, "Orphan Asset Garbage Collector: Removing orphaned chapter folder...");
+                                tracing::info!(
+                                    ?path,
+                                    "Orphan Asset Garbage Collector: Removing orphaned chapter folder..."
+                                );
                                 if let Err(err) = std::fs::remove_dir_all(&path) {
-                                    tracing::warn!(?path, ?err, "Orphan Asset Garbage Collector: Failed to remove orphaned chapter folder");
+                                    tracing::warn!(
+                                        ?path,
+                                        ?err,
+                                        "Orphan Asset Garbage Collector: Failed to remove orphaned chapter folder"
+                                    );
                                 } else {
-                                    tracing::info!(?path, "Orphan Asset Garbage Collector: Successfully removed orphaned chapter folder");
+                                    tracing::info!(
+                                        ?path,
+                                        "Orphan Asset Garbage Collector: Successfully removed orphaned chapter folder"
+                                    );
                                 }
                             } else {
                                 // If it is active, scan render/ and clean up render files without a matching source page!
                                 let source_dir = path.join("source");
                                 let render_dir = path.join("render");
                                 if source_dir.exists() && render_dir.exists() {
-                                    if let (Ok(src_entries), Ok(rnd_entries)) = (std::fs::read_dir(&source_dir), std::fs::read_dir(&render_dir)) {
-                                        let source_stems: std::collections::HashSet<String> = src_entries
-                                            .flatten()
-                                            .filter(|e| e.path().is_file())
-                                            .filter_map(|e| {
-                                                e.path().file_stem().map(|s| s.to_string_lossy().into_owned().to_lowercase())
-                                            })
-                                            .collect();
+                                    if let (Ok(src_entries), Ok(rnd_entries)) = (
+                                        std::fs::read_dir(&source_dir),
+                                        std::fs::read_dir(&render_dir),
+                                    ) {
+                                        let source_stems: std::collections::HashSet<String> =
+                                            src_entries
+                                                .flatten()
+                                                .filter(|e| e.path().is_file())
+                                                .filter_map(|e| {
+                                                    e.path().file_stem().map(|s| {
+                                                        s.to_string_lossy()
+                                                            .into_owned()
+                                                            .to_lowercase()
+                                                    })
+                                                })
+                                                .collect();
 
                                         for rnd_entry in rnd_entries.flatten() {
                                             let rnd_path = rnd_entry.path();
                                             if rnd_path.is_file() {
                                                 if let Some(rnd_stem) = rnd_path.file_stem() {
-                                                    let rnd_stem_str = rnd_stem.to_string_lossy().to_lowercase();
+                                                    let rnd_stem_str =
+                                                        rnd_stem.to_string_lossy().to_lowercase();
                                                     if !source_stems.contains(&rnd_stem_str) {
-                                                        tracing::info!(?rnd_path, "Orphan Asset Garbage Collector: Removing orphaned render file...");
-                                                        if let Err(err) = std::fs::remove_file(&rnd_path) {
-                                                            tracing::warn!(?rnd_path, ?err, "Orphan Asset Garbage Collector: Failed to remove orphaned render file");
+                                                        tracing::info!(
+                                                            ?rnd_path,
+                                                            "Orphan Asset Garbage Collector: Removing orphaned render file..."
+                                                        );
+                                                        if let Err(err) =
+                                                            std::fs::remove_file(&rnd_path)
+                                                        {
+                                                            tracing::warn!(
+                                                                ?rnd_path,
+                                                                ?err,
+                                                                "Orphan Asset Garbage Collector: Failed to remove orphaned render file"
+                                                            );
                                                         } else {
-                                                            tracing::info!(?rnd_path, "Orphan Asset Garbage Collector: Successfully removed orphaned render file");
+                                                            tracing::info!(
+                                                                ?rnd_path,
+                                                                "Orphan Asset Garbage Collector: Successfully removed orphaned render file"
+                                                            );
                                                         }
                                                     }
                                                 }
@@ -308,9 +346,7 @@ fn push_recent_safe(state: &AppResources, project: &Project) {
     }
 }
 
-pub async fn recent_projects_list(
-    state: AppResources,
-) -> anyhow::Result<Vec<RecentProjectDto>> {
+pub async fn recent_projects_list(state: AppResources) -> anyhow::Result<Vec<RecentProjectDto>> {
     let path = state.recent_projects_path.clone();
     let list = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<RecentProjectDto>> {
         Ok(recent_ops::list(&path)?
@@ -332,15 +368,16 @@ pub async fn recent_projects_remove(
 ) -> anyhow::Result<bool> {
     let store = state.recent_projects_path.clone();
     let removed = tokio::task::spawn_blocking(move || -> anyhow::Result<bool> {
-        Ok(recent_ops::remove(&store, std::path::Path::new(&payload.path))?)
+        Ok(recent_ops::remove(
+            &store,
+            std::path::Path::new(&payload.path),
+        )?)
     })
     .await??;
     Ok(removed)
 }
 
-pub async fn project_backup_picker(
-    state: AppResources,
-) -> anyhow::Result<ProjectBackupResult> {
+pub async fn project_backup_picker(state: AppResources) -> anyhow::Result<ProjectBackupResult> {
     let project = require_project(&state).await?;
     let manifest_name = project.manifest().name.clone();
 
@@ -428,7 +465,6 @@ pub async fn project_current(state: AppResources) -> anyhow::Result<Option<Proje
     let project = require_project(&state).await?;
     Ok(Some(build_info(&project)?))
 }
-
 
 // ---------------------------------------------------------------
 // helpers
@@ -687,9 +723,8 @@ pub async fn chapter_get_page_bytes(
     let result = tokio::task::spawn_blocking(
         move || -> anyhow::Result<koharu_api::commands::ChapterPageBytes> {
             let conn = project.pool().get()?;
-            let chapter = chapter_ops::get(&conn, payload.chapter_id)?.ok_or_else(|| {
-                anyhow::anyhow!("chapter {} not found", payload.chapter_id)
-            })?;
+            let chapter = chapter_ops::get(&conn, payload.chapter_id)?
+                .ok_or_else(|| anyhow::anyhow!("chapter {} not found", payload.chapter_id))?;
             let pages = chapter_ops::list_source_pages(project.root(), &chapter)?;
             let total = pages.len();
             if payload.page_index >= total {
@@ -722,10 +757,7 @@ pub async fn chapter_get_page_bytes(
 
 /// Open all pages from a chapter's `source/` subfolder into the editor.
 /// Replaces the currently-loaded documents.
-pub async fn chapter_open(
-    state: AppResources,
-    payload: ChapterIdPayload,
-) -> anyhow::Result<usize> {
+pub async fn chapter_open(state: AppResources, payload: ChapterIdPayload) -> anyhow::Result<usize> {
     let project = require_project(&state).await?;
 
     let loaded = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<(PathBuf, Vec<u8>)>> {
@@ -767,10 +799,7 @@ pub async fn chapter_update(
             chapter_number: payload.chapter_number,
             title: payload.title.map(Some),
             volume: payload.volume.map(Some),
-            status: payload
-                .status
-                .as_deref()
-                .and_then(ChapterStatus::parse),
+            status: payload.status.as_deref().and_then(ChapterStatus::parse),
             summary: payload.summary.map(Some),
             notes: payload.notes.map(Some),
             page_count: payload.page_count,
@@ -825,7 +854,12 @@ pub async fn chapter_export_cbz(
 
     let project_root = project.root().to_path_buf();
     let result = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-        Ok(cbz::export_chapter(&project_root, &chapter, &series, &out_path)?)
+        Ok(cbz::export_chapter(
+            &project_root,
+            &chapter,
+            &series,
+            &out_path,
+        )?)
     })
     .await??;
 
@@ -870,9 +904,8 @@ pub async fn chapter_clear_pages(
     let result = tokio::task::spawn_blocking(
         move || -> anyhow::Result<koharu_api::commands::ChapterClearPagesResult> {
             let conn = project.pool().get()?;
-            let chapter = chapter_ops::get(&conn, payload.id)?.ok_or_else(|| {
-                anyhow::anyhow!("chapter {} not found", payload.id)
-            })?;
+            let chapter = chapter_ops::get(&conn, payload.id)?
+                .ok_or_else(|| anyhow::anyhow!("chapter {} not found", payload.id))?;
             let pages = chapter_ops::list_source_pages(project.root(), &chapter)?;
             let mut removed = 0usize;
             let mut failures: Vec<String> = Vec::new();
@@ -931,7 +964,10 @@ pub async fn character_add(
                 aliases: payload
                     .aliases
                     .into_iter()
-                    .map(|a| NameAlias { src: a.src, tgt: a.tgt })
+                    .map(|a| NameAlias {
+                        src: a.src,
+                        tgt: a.tgt,
+                    })
                     .collect(),
                 role: payload.role,
                 gender: payload.gender,
@@ -962,7 +998,10 @@ pub async fn character_update(
             translated_name: payload.translated_name,
             aliases: payload.aliases.map(|v| {
                 v.into_iter()
-                    .map(|a| NameAlias { src: a.src, tgt: a.tgt })
+                    .map(|a| NameAlias {
+                        src: a.src,
+                        tgt: a.tgt,
+                    })
                     .collect()
             }),
             role: payload.role.map(Some),
@@ -1089,7 +1128,10 @@ pub async fn glossary_update(
         let patch = GlossaryPatch {
             source_text: payload.source_text,
             target_text: payload.target_text,
-            category: payload.category.as_deref().and_then(GlossaryCategory::parse),
+            category: payload
+                .category
+                .as_deref()
+                .and_then(GlossaryCategory::parse),
             aliases: payload.aliases,
             context_note: payload.context_note.map(Some),
             first_appearance_chapter_id: payload.first_appearance_chapter_id.map(Some),
@@ -1274,8 +1316,7 @@ pub async fn tm_lookup(
     let project = require_project(&state).await?;
     let dto = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<TmEntryDto>> {
         let conn = project.pool().get()?;
-        Ok(tm_ops::lookup_exact(&conn, &payload.source_text, &payload.target_lang)?
-            .map(tm_to_dto))
+        Ok(tm_ops::lookup_exact(&conn, &payload.source_text, &payload.target_lang)?.map(tm_to_dto))
     })
     .await??;
     Ok(dto)
@@ -1341,8 +1382,8 @@ pub async fn tm_pending_embeddings(
 ) -> anyhow::Result<Vec<koharu_api::commands::TmPendingEmbeddingItem>> {
     use koharu_api::commands::TmPendingEmbeddingItem;
     let project = require_project(&state).await?;
-    let list = tokio::task::spawn_blocking(
-        move || -> anyhow::Result<Vec<TmPendingEmbeddingItem>> {
+    let list =
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<TmPendingEmbeddingItem>> {
             let conn = project.pool().get()?;
             let rows = koharu_project::tm_vector::list_pending_embeddings(
                 &conn,
@@ -1351,14 +1392,10 @@ pub async fn tm_pending_embeddings(
             )?;
             Ok(rows
                 .into_iter()
-                .map(|(id, source_text)| TmPendingEmbeddingItem {
-                    id,
-                    source_text,
-                })
+                .map(|(id, source_text)| TmPendingEmbeddingItem { id, source_text })
                 .collect())
-        },
-    )
-    .await??;
+        })
+        .await??;
     Ok(list)
 }
 
@@ -1516,12 +1553,8 @@ pub async fn tm_import_tmx(
     let in_path2 = in_path.clone();
     let result = tokio::task::spawn_blocking(move || -> anyhow::Result<(usize, usize)> {
         let mut conn = project2.pool().get()?;
-        let r = koharu_project::tm_tmx::import_from_tmx(
-            &mut conn,
-            &in_path2,
-            &src_lang,
-            &tgt_lang,
-        )?;
+        let r =
+            koharu_project::tm_tmx::import_from_tmx(&mut conn, &in_path2, &src_lang, &tgt_lang)?;
         Ok((r.inserted, r.skipped))
     })
     .await??;
@@ -1542,7 +1575,10 @@ pub async fn provider_profiles_list(
     let project = require_project(&state).await?;
     let list = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<ProviderProfileDto>> {
         let conn = project.pool().get()?;
-        Ok(profile_ops::list(&conn)?.into_iter().map(profile_to_dto).collect())
+        Ok(profile_ops::list(&conn)?
+            .into_iter()
+            .map(profile_to_dto)
+            .collect())
     })
     .await??;
     Ok(list)
@@ -1736,21 +1772,31 @@ async fn do_single_llm_call_with_creds(
     payload_model_name: &str,
 ) -> anyhow::Result<String> {
     let project = require_project(state).await?;
-    
+
     // Retrieve API key, provider, API URL, and model name in a blocking task
-    let (api_key_plaintext, provider, db_api_url, db_model_name) = tokio::task::spawn_blocking(move || -> anyhow::Result<(String, String, Option<String>, String)> {
-        let conn = project.pool().get()?;
-        let profile = profile_ops::get(&conn, profile_id)?
-            .ok_or_else(|| anyhow::anyhow!("profile {} not found", profile_id))?;
-        let r = profile.api_key_ref.as_deref()
-            .ok_or_else(|| anyhow::anyhow!("API key reference missing for profile"))?;
-        let raw_key = secret_ops::get(r)?.ok_or_else(|| anyhow::anyhow!("Keyring entry empty"))?;
-        Ok((raw_key, profile.provider.as_str().to_string(), profile.api_url, profile.model_name))
-    })
+    let (api_key_plaintext, provider, db_api_url, db_model_name) = tokio::task::spawn_blocking(
+        move || -> anyhow::Result<(String, String, Option<String>, String)> {
+            let conn = project.pool().get()?;
+            let profile = profile_ops::get(&conn, profile_id)?
+                .ok_or_else(|| anyhow::anyhow!("profile {} not found", profile_id))?;
+            let r = profile
+                .api_key_ref
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("API key reference missing for profile"))?;
+            let raw_key =
+                secret_ops::get(r)?.ok_or_else(|| anyhow::anyhow!("Keyring entry empty"))?;
+            Ok((
+                raw_key,
+                profile.provider.as_str().to_string(),
+                profile.api_url,
+                profile.model_name,
+            ))
+        },
+    )
     .await??;
 
     let secure_key = SecureApiKey(api_key_plaintext);
-    
+
     let api_url = if profile_id == primary_id {
         payload_api_url.or(db_api_url.as_deref())
     } else {
@@ -1772,7 +1818,7 @@ async fn do_single_llm_call_with_creds(
         let client_clone = client.clone();
         let provider_str = provider.as_str();
         let secure_key_val = &secure_key.0;
-        
+
         let result: anyhow::Result<String> = async {
             match provider_str {
                 "gemini" => {
@@ -1821,7 +1867,7 @@ async fn do_single_llm_call_with_creds(
                     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
                     let mut req = client_clone.post(&url)
                         .header("Authorization", format!("Bearer {}", secure_key_val));
-                    
+
                     if provider_str == "openrouter" {
                         req = req.header("HTTP-Referer", "https://github.com/EarthWL/koharu-th")
                             .header("X-Title", "Koharu Manga Studio");
@@ -1858,7 +1904,7 @@ async fn do_single_llm_call_with_creds(
                 "anthropic" => {
                     let base_url = api_url.unwrap_or("https://api.anthropic.com");
                     let url = format!("{}/v1/messages", base_url.trim_end_matches('/'));
-                    
+
                     let req = client_clone.post(&url)
                         .header("x-api-key", secure_key_val.as_str())
                         .header("anthropic-version", "2023-06-01")
@@ -1898,10 +1944,16 @@ async fn do_single_llm_call_with_creds(
             Err(e) => {
                 let err_str = e.to_string();
                 if err_str.contains("fatal:") || attempt >= max_retries {
-                    tracing::error!("LLM Call failed definitively on attempt {}/{} for profile {}: {}", attempt, max_retries, profile_id, err_str);
+                    tracing::error!(
+                        "LLM Call failed definitively on attempt {}/{} for profile {}: {}",
+                        attempt,
+                        max_retries,
+                        profile_id,
+                        err_str
+                    );
                     return Err(e);
                 }
-                
+
                 // Calculate Jitter
                 let now_nanos = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -1909,12 +1961,16 @@ async fn do_single_llm_call_with_creds(
                     .unwrap_or(0);
                 let jitter = 0.75 + ((now_nanos % 100) as f64 / 200.0);
                 let sleep_dur = delay.mul_f64(jitter);
-                
+
                 tracing::warn!(
                     "Transient LLM error for profile {} (attempt {}/{}): {}. Retrying in {:?}...",
-                    profile_id, attempt, max_retries, err_str, sleep_dur
+                    profile_id,
+                    attempt,
+                    max_retries,
+                    err_str,
+                    sleep_dur
                 );
-                
+
                 tokio::time::sleep(sleep_dur).await;
                 delay *= 2;
             }
@@ -1928,10 +1984,13 @@ pub async fn cloud_llm_call(
 ) -> anyhow::Result<CloudLlmCallResult> {
     check_debugger()?;
 
-    let _permit = CLOUD_LLM_SEMAPHORE.acquire().await.map_err(|e| anyhow::anyhow!("semaphore closed: {e}"))?;
+    let _permit = CLOUD_LLM_SEMAPHORE
+        .acquire()
+        .await
+        .map_err(|e| anyhow::anyhow!("semaphore closed: {e}"))?;
 
     let project = require_project(&state).await?;
-    
+
     let client = koharu_http::create_client_builder()
         .timeout(std::time::Duration::from_secs(45))
         .min_tls_version(reqwest::tls::Version::TLS_1_2)
@@ -1949,24 +2008,27 @@ pub async fn cloud_llm_call(
         payload.json_mode,
         payload.api_url.as_deref(),
         &payload.model_name,
-    ).await;
+    )
+    .await;
 
     match primary_res {
         Ok(text) => Ok(CloudLlmCallResult { text }),
         Err(primary_err) => {
             tracing::warn!(
                 "Primary LLM profile {} failed definitively: {}. Initiating Multi-LLM Failover Gateway...",
-                primary_id, primary_err
+                primary_id,
+                primary_err
             );
 
             // 2. Fetch alternative profiles from database
             let project_clone = project.clone();
-            let alt_profiles = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<ProviderProfile>> {
-                let conn = project_clone.pool().get()?;
-                let list = profile_ops::list(&conn)?;
-                Ok(list)
-            })
-            .await??;
+            let alt_profiles =
+                tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<ProviderProfile>> {
+                    let conn = project_clone.pool().get()?;
+                    let list = profile_ops::list(&conn)?;
+                    Ok(list)
+                })
+                .await??;
 
             // 3. Iterate fallback profiles
             for profile in alt_profiles {
@@ -1978,14 +2040,17 @@ pub async fn cloud_llm_call(
                 if profile.api_key_ref.is_none() {
                     tracing::info!(
                         "Skipping fallback profile {} ({}) because it has no keyring reference.",
-                        profile.id, profile.name
+                        profile.id,
+                        profile.name
                     );
                     continue;
                 }
 
                 tracing::info!(
                     "Attempting failover to fallback profile {} ({}, provider: {})",
-                    profile.id, profile.name, profile.provider.as_str()
+                    profile.id,
+                    profile.name,
+                    profile.provider.as_str()
                 );
 
                 let fallback_res = do_single_llm_call_with_creds(
@@ -1997,20 +2062,24 @@ pub async fn cloud_llm_call(
                     payload.json_mode,
                     profile.api_url.as_deref(),
                     &profile.model_name,
-                ).await;
+                )
+                .await;
 
                 match fallback_res {
                     Ok(text) => {
                         tracing::info!(
                             "Multi-LLM Failover successful! Recovered using profile {} ({})",
-                            profile.id, profile.name
+                            profile.id,
+                            profile.name
                         );
                         return Ok(CloudLlmCallResult { text });
                     }
                     Err(fallback_err) => {
                         tracing::warn!(
                             "Fallback profile {} ({}) failed: {}. Trying next...",
-                            profile.id, profile.name, fallback_err
+                            profile.id,
+                            profile.name,
+                            fallback_err
                         );
                     }
                 }
@@ -2025,10 +2094,7 @@ pub async fn cloud_llm_call(
     }
 }
 
-pub async fn llm_call_log(
-    state: AppResources,
-    payload: LlmCallLogPayload,
-) -> anyhow::Result<()> {
+pub async fn llm_call_log(state: AppResources, payload: LlmCallLogPayload) -> anyhow::Result<()> {
     let project = require_project(&state).await?;
     tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
         let conn = project.pool().get()?;
@@ -2065,8 +2131,7 @@ pub async fn llm_cost_breakdown(
     state: AppResources,
 ) -> anyhow::Result<koharu_api::commands::LlmCostBreakdown> {
     use koharu_api::commands::{
-        LlmCostBreakdown, LlmCostByChapter, LlmCostByDay, LlmCostByProfile,
-        LlmCostByUseCase,
+        LlmCostBreakdown, LlmCostByChapter, LlmCostByDay, LlmCostByProfile, LlmCostByUseCase,
     };
     let project = require_project(&state).await?;
     let breakdown = tokio::task::spawn_blocking(move || -> anyhow::Result<LlmCostBreakdown> {
@@ -2091,7 +2156,9 @@ pub async fn llm_cost_breakdown(
             stmt.query_map([], |r| {
                 Ok(LlmCostByProfile {
                     profile_id: r.get(0)?,
-                    profile_name: r.get::<_, Option<String>>(1)?.unwrap_or_else(|| "(deleted)".into()),
+                    profile_name: r
+                        .get::<_, Option<String>>(1)?
+                        .unwrap_or_else(|| "(deleted)".into()),
                     provider: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
                     total_calls: r.get(3)?,
                     successful_calls: r.get(4)?,
@@ -2316,7 +2383,10 @@ fn character_to_dto(c: Character) -> CharacterDto {
         aliases: c
             .aliases
             .into_iter()
-            .map(|a| NameAliasDto { src: a.src, tgt: a.tgt })
+            .map(|a| NameAliasDto {
+                src: a.src,
+                tgt: a.tgt,
+            })
             .collect(),
         role: c.role,
         gender: c.gender,
@@ -2375,8 +2445,6 @@ async fn require_project(state: &AppResources) -> anyhow::Result<Project> {
     Ok(project)
 }
 
-
-
 fn series_meta_to_dto(m: SeriesMeta) -> SeriesMetaDto {
     SeriesMetaDto {
         title: m.title,
@@ -2421,7 +2489,9 @@ fn build_info(project: &Project) -> anyhow::Result<ProjectInfo> {
         .query_row("SELECT COUNT(*) FROM chapters", [], |r| r.get::<_, i64>(0))
         .unwrap_or(0) as u32;
     let character_count: u32 = conn
-        .query_row("SELECT COUNT(*) FROM characters", [], |r| r.get::<_, i64>(0))
+        .query_row("SELECT COUNT(*) FROM characters", [], |r| {
+            r.get::<_, i64>(0)
+        })
         .unwrap_or(0) as u32;
     let glossary_count: u32 = conn
         .query_row("SELECT COUNT(*) FROM glossary", [], |r| r.get::<_, i64>(0))
@@ -2442,9 +2512,7 @@ fn build_info(project: &Project) -> anyhow::Result<ProjectInfo> {
     })
 }
 
-pub async fn project_backup_silent(
-    state: AppResources,
-) -> anyhow::Result<ProjectBackupResult> {
+pub async fn project_backup_silent(state: AppResources) -> anyhow::Result<ProjectBackupResult> {
     let project = require_project(&state).await?;
     let manifest_name = project.manifest().name.clone();
     let backups_dir = project.root().join(".koharu").join("backups");
@@ -2484,10 +2552,16 @@ pub async fn project_backup_list(
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_file() && path.extension().map_or(false, |ext| ext == "zip") {
-            let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
             let metadata = entry.metadata()?;
             let size_bytes = metadata.len();
-            let created = metadata.created().unwrap_or_else(|_| std::time::SystemTime::now());
+            let created = metadata
+                .created()
+                .unwrap_or_else(|_| std::time::SystemTime::now());
             let created_at = chrono::DateTime::<chrono::Utc>::from(created).to_rfc3339();
             list.push(koharu_api::commands::BackupDto {
                 name,
@@ -2507,10 +2581,16 @@ pub async fn project_backup_restore(
 ) -> anyhow::Result<()> {
     let project = require_project(&state).await?;
     let root = project.root().to_path_buf();
-    let backup_path = root.join(".koharu").join("backups").join(&payload.backup_name);
+    let backup_path = root
+        .join(".koharu")
+        .join("backups")
+        .join(&payload.backup_name);
 
     if !backup_path.exists() {
-        return Err(anyhow::anyhow!("Backup file not found at {}", backup_path.display()));
+        return Err(anyhow::anyhow!(
+            "Backup file not found at {}",
+            backup_path.display()
+        ));
     }
 
     // Safely close active DB connections before copying
@@ -2529,7 +2609,9 @@ pub async fn project_backup_restore(
             if let Ok(project) = Project::open(&root) {
                 *state.project.write().await = Some(project);
             }
-            return Err(anyhow::anyhow!("Failed to create temporary backup of series.db: {err}"));
+            return Err(anyhow::anyhow!(
+                "Failed to create temporary backup of series.db: {err}"
+            ));
         }
         db_backed_up = true;
     }
@@ -2545,7 +2627,9 @@ pub async fn project_backup_restore(
             if let Ok(project) = Project::open(&root) {
                 *state.project.write().await = Some(project);
             }
-            return Err(anyhow::anyhow!("Failed to create temporary backup of series.koharuproj: {err}"));
+            return Err(anyhow::anyhow!(
+                "Failed to create temporary backup of series.koharuproj: {err}"
+            ));
         }
         manifest_backed_up = true;
     }
@@ -2593,13 +2677,17 @@ pub async fn project_backup_restore(
             // Failed! Rollback critical files from shadow backups
             if db_backed_up && db_temp.exists() {
                 if let Err(err) = std::fs::copy(&db_temp, &db_file) {
-                    tracing::error!("CRITICAL: Failed to rollback series.db during restore failure: {err}");
+                    tracing::error!(
+                        "CRITICAL: Failed to rollback series.db during restore failure: {err}"
+                    );
                 }
                 let _ = std::fs::remove_file(&db_temp);
             }
             if manifest_backed_up && manifest_temp.exists() {
                 if let Err(err) = std::fs::copy(&manifest_temp, &manifest_file) {
-                    tracing::error!("CRITICAL: Failed to rollback series.koharuproj during restore failure: {err}");
+                    tracing::error!(
+                        "CRITICAL: Failed to rollback series.koharuproj during restore failure: {err}"
+                    );
                 }
                 let _ = std::fs::remove_file(&manifest_temp);
             }
@@ -2621,9 +2709,13 @@ pub async fn project_backup_restore(
         Err(err) => {
             tracing::error!("Failed to reopen project after restore: {err}");
             if let Some(ref ext_err) = final_error {
-                return Err(anyhow::anyhow!("Extraction failed: {ext_err}. Also failed to reopen project: {err}"));
+                return Err(anyhow::anyhow!(
+                    "Extraction failed: {ext_err}. Also failed to reopen project: {err}"
+                ));
             } else {
-                return Err(anyhow::anyhow!("Failed to reopen project after successful extraction: {err}"));
+                return Err(anyhow::anyhow!(
+                    "Failed to reopen project after successful extraction: {err}"
+                ));
             }
         }
     }
@@ -2648,7 +2740,11 @@ unsafe extern "system" {
 #[cfg(windows)]
 pub fn get_available_disk_space(path: &std::path::Path) -> anyhow::Result<u64> {
     use std::os::windows::ffi::OsStrExt;
-    let path_str: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let path_str: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
     let mut free_bytes: u64 = 0;
     let mut total_bytes: u64 = 0;
     let mut total_free_bytes: u64 = 0;
@@ -2695,4 +2791,3 @@ pub async fn project_check_disk_space(
     let free_bytes = get_available_disk_space(&root)?;
     Ok(koharu_api::commands::ProjectDiskSpaceResult { free_bytes })
 }
-

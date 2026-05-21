@@ -12,20 +12,19 @@ use rmcp::model::{
 use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 
 use koharu_api::commands::{
-    AddTextBlockPayload, ChapterCreatePayload, ChapterIdPayload,
-    ChapterUpdatePayload, CharacterAddPayload, CharacterIdPayload, CharacterUpdatePayload,
-    DetectPayload, OcrPayload, WebFetchPayload,
+    AddTextBlockPayload, ChapterCreatePayload, ChapterIdPayload, ChapterUpdatePayload,
+    CharacterAddPayload, CharacterIdPayload, CharacterUpdatePayload, DetectPayload,
     ExportDocumentParams, FileEntry, GlossaryAddPayload, GlossaryBulkAddPayload,
     GlossaryBumpUsagePayload, GlossaryIdPayload, GlossaryUpdatePayload, IndexPayload,
     InpaintPartialPayload, InpaintPayload, InpaintRegion, InpaintRegionParams, LlmCallLogPayload,
     LlmGenerateParams, LlmGeneratePayload, LlmListPayload, LlmLoadParams, LlmLoadPayload,
-    MaskMorphPayload, OpenDocumentsParams, OpenDocumentsPayload, ProcessParams, ProcessRequest,
-    ProjectCreatePayload, ProjectOpenPayload, PromptRenderPayload, PromptTemplateAddPayload,
-    PromptTemplateIdPayload, PromptTemplateUpdatePayload, ProviderProfileAddPayload,
-    ProviderProfileIdPayload, ProviderProfileUpdatePayload, RecentProjectRemovePayload,
-    RemoveTextBlockPayload, RenderParams, RenderPayload, SeriesMetaUpdatePayload, TmInsertPayload,
-    TmLookupFuzzyPayload, TmLookupPayload, UpdateTextBlockPayload, ViewImageParams,
-    ViewTextBlockParams,
+    MaskMorphPayload, OcrPayload, OpenDocumentsParams, OpenDocumentsPayload, ProcessParams,
+    ProcessRequest, ProjectCreatePayload, ProjectOpenPayload, PromptRenderPayload,
+    PromptTemplateAddPayload, PromptTemplateIdPayload, PromptTemplateUpdatePayload,
+    ProviderProfileAddPayload, ProviderProfileIdPayload, ProviderProfileUpdatePayload,
+    RecentProjectRemovePayload, RemoveTextBlockPayload, RenderParams, RenderPayload,
+    SeriesMetaUpdatePayload, TmInsertPayload, TmLookupFuzzyPayload, TmLookupPayload,
+    UpdateTextBlockPayload, ViewImageParams, ViewTextBlockParams, WebFetchPayload,
 };
 use koharu_api::views::to_doc_info;
 use koharu_pipeline::AppResources;

@@ -258,7 +258,13 @@ fn draw_outline_glyph(
     opts: &RenderOptions,
     pass: RenderPass,
 ) {
-    let transform = glyph_transform(glyph.bounds, baseline_x, baseline_y, opts.effect.faux_italic, opts.horizontal_scale);
+    let transform = glyph_transform(
+        glyph.bounds,
+        baseline_x,
+        baseline_y,
+        opts.effect.faux_italic,
+        opts.horizontal_scale,
+    );
 
     match pass {
         RenderPass::Stroke => {

@@ -238,12 +238,7 @@ impl FontBook {
         let mut selected = None;
         query.matches_with(|font| {
             // Clone the necessary fields from font to avoid borrow issues
-            selected = Some((
-                font.family.0,
-                font.family.1,
-                font.index,
-                font.blob.clone(),
-            ));
+            selected = Some((font.family.0, font.family.1, font.index, font.blob.clone()));
             QueryStatus::Stop
         });
         drop(query);
@@ -251,7 +246,8 @@ impl FontBook {
         let (family_id, family_index, index, blob) =
             selected.with_context(|| format!("no font found for families: {families:?}"))?;
 
-        let attributes = self.collection
+        let attributes = self
+            .collection
             .family(family_id)
             .and_then(|family| {
                 family.fonts().get(family_index).map(|info| {

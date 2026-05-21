@@ -97,7 +97,9 @@ impl Llm {
         };
 
         let model_size_bytes = std::fs::metadata(&model_path)?.len();
-        let total_layers = ct.metadata.get(&format!("{arch}.block_count"))
+        let total_layers = ct
+            .metadata
+            .get(&format!("{arch}.block_count"))
             .and_then(|v| v.to_u32().ok())
             .unwrap_or(28) as usize;
 

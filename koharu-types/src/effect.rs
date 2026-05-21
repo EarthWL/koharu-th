@@ -96,7 +96,9 @@ impl FromStr for TextShaderEffect {
                 "fauxitalic" | "faux_italic" => effect.faux_italic = true,
                 "fauxbold" | "faux_bold" => effect.faux_bold = true,
                 "normal" | "none" => {}
-                _ => anyhow::bail!("Unknown shader effect: {token}. Valid: italic, bold, fauxItalic, fauxBold"),
+                _ => anyhow::bail!(
+                    "Unknown shader effect: {token}. Valid: italic, bold, fauxItalic, fauxBold"
+                ),
             }
         }
 
@@ -125,7 +127,12 @@ impl<'de> Deserialize<'de> for TextShaderEffect {
         }
 
         match Repr::deserialize(deserializer)? {
-            Repr::Flags(FlagsRepr { italic, bold, faux_italic, faux_bold }) => Ok(Self {
+            Repr::Flags(FlagsRepr {
+                italic,
+                bold,
+                faux_italic,
+                faux_bold,
+            }) => Ok(Self {
                 italic: italic.unwrap_or(false),
                 bold: bold.unwrap_or(false),
                 faux_italic: faux_italic.unwrap_or(false),

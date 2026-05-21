@@ -23,7 +23,7 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use handlebars::Handlebars;
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 use serde::Serialize;
 
 use crate::db::Conn;
@@ -99,7 +99,11 @@ pub fn build_context(
                     .join(", ");
                 format!(" [aliases: {aliases}]")
             };
-            let role_part = if role.is_empty() { String::new() } else { format!(" ({role})") };
+            let role_part = if role.is_empty() {
+                String::new()
+            } else {
+                format!(" ({role})")
+            };
             let speech_part = if speech.is_empty() {
                 String::new()
             } else {
@@ -165,14 +169,14 @@ fn map_lang_name(code: &str) -> String {
 pub fn render_template(template: &str, ctx: &PromptContext) -> Result<String> {
     let mut hb = Handlebars::new();
     hb.set_strict_mode(false);
-    let rendered = hb
-        .render_template(template, ctx)
-        .map_err(|e| crate::error::Error::InvalidManifest {
-            // Reuse InvalidManifest variant generically; rendering errors
-            // are user-facing config problems, not infra failures.
-            path: Default::default(),
-            reason: format!("template render failed: {e}"),
-        })?;
+    let rendered =
+        hb.render_template(template, ctx)
+            .map_err(|e| crate::error::Error::InvalidManifest {
+                // Reuse InvalidManifest variant generically; rendering errors
+                // are user-facing config problems, not infra failures.
+                path: Default::default(),
+                reason: format!("template render failed: {e}"),
+            })?;
     Ok(rendered)
 }
 
@@ -319,10 +323,7 @@ pub fn update(conn: &Conn, id: i64, patch: PromptTemplatePatch) -> Result<Option
 }
 
 pub fn remove(conn: &Conn, id: i64) -> Result<bool> {
-    let changed = conn.execute(
-        "DELETE FROM prompt_templates WHERE id = ?1",
-        params![id],
-    )?;
+    let changed = conn.execute("DELETE FROM prompt_templates WHERE id = ?1", params![id])?;
     Ok(changed > 0)
 }
 
@@ -433,7 +434,7 @@ fn ts_to_utc(ts: i64) -> DateTime<Utc> {
 mod tests {
     use super::*;
     use crate::types::{Confidence, GlossaryCategory, NameAlias};
-    use crate::{character, glossary as gl_ops, series, Project};
+    use crate::{Project, character, glossary as gl_ops, series};
     use tempfile::tempdir;
 
     #[test]
@@ -467,7 +468,10 @@ mod tests {
             character::CharacterInsert {
                 original_name: "健太".into(),
                 translated_name: "เคนตะ".into(),
-                aliases: vec![NameAlias { src: "健ちゃん".into(), tgt: "เคนจัง".into() }],
+                aliases: vec![NameAlias {
+                    src: "健ちゃん".into(),
+                    tgt: "เคนจัง".into(),
+                }],
                 role: Some("protagonist".into()),
                 gender: None,
                 age: None,

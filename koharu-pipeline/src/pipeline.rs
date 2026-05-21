@@ -186,19 +186,22 @@ async fn run_pipeline_inner(
                     if req.skip_inpaint.unwrap_or(false) {
                         // ผู้ใช้ต้องการ re-translate โดยใช้ผลลัพธ์ inpaint เดิม ข้ามขั้นตอนนี้เพื่อประหยัดเวลา
                     } else {
-                        res.ml.inpaint_with(
-                            &mut snapshot,
-                            req.inpaint_engine.unwrap_or_default(),
-                            req.inpaint_max_side,
-                        )
-                        .await?
+                        res.ml
+                            .inpaint_with(
+                                &mut snapshot,
+                                req.inpaint_engine.unwrap_or_default(),
+                                req.inpaint_max_side,
+                            )
+                            .await?
                     }
                 }
                 PipelineStep::LlmGenerate => {
                     let mut context = None;
                     let context_string;
                     if doc_index > 0 {
-                        if let Ok(prev_snapshot) = state_tx::read_doc(&res.state, doc_index - 1).await {
+                        if let Ok(prev_snapshot) =
+                            state_tx::read_doc(&res.state, doc_index - 1).await
+                        {
                             let prev_translations: Vec<String> = prev_snapshot
                                 .text_blocks
                                 .iter()
@@ -213,7 +216,11 @@ async fn run_pipeline_inner(
                         }
                     }
                     res.llm
-                        .translate(&mut snapshot, req.language.as_deref(), context.map(|s| s.as_str()))
+                        .translate(
+                            &mut snapshot,
+                            req.language.as_deref(),
+                            context.map(|s| s.as_str()),
+                        )
                         .await?;
                 }
                 PipelineStep::Render => {

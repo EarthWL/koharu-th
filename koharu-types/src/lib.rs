@@ -10,9 +10,7 @@ pub use image::SerializableDynamicImage;
 /// app has shipped with since fork; `Manga` is a Japanese-tuned
 /// encoder-decoder (mayocream/manga-ocr) — often better at handwritten
 /// or stylised Japanese, sometimes worse at SFX / latin.
-#[derive(
-    Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash,
-)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum OcrEngine {
     Mit48px,
@@ -28,9 +26,7 @@ pub enum OcrEngine {
 /// designed to catch SFX / stylised titles / out-of-bubble text
 /// that the default misses. Lazy-loaded ~10MB on first use of the
 /// N (nano) variant.
-#[derive(
-    Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash,
-)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum DetectorEngine {
     #[default]
@@ -72,9 +68,7 @@ impl DetectorEngine {
 /// `Lama` (Tier 1: Offline, lightweight, fast, default)
 /// `StableDiffusion` (Tier 2: Offline/Local high-quality quantized/OpenVINO or local high-quality path)
 /// `CloudFlux` (Tier 3: Online high-quality via API or premium fallbacks)
-#[derive(
-    Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash,
-)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum InpaintEngine {
     #[default]
@@ -113,9 +107,7 @@ impl InpaintEngine {
 ///   M (medium)      ~80MB
 ///   L (large)       ~150MB
 ///   X (extra large) ~250MB
-#[derive(
-    Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash,
-)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum AnimeYoloVariant {
     #[default]
@@ -141,9 +133,7 @@ impl AnimeYoloVariant {
 }
 
 /// Bounding box layout reading order preference.
-#[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default,
-)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ReadingOrder {
     #[default]
@@ -423,7 +413,10 @@ pub fn classify_error(err: &anyhow::Error) -> DiagnosticError {
             &err_str,
         );
     }
-    if err_str.contains("dns") || err_str.contains("resolve host") || err_str.contains("Could not resolve") {
+    if err_str.contains("dns")
+        || err_str.contains("resolve host")
+        || err_str.contains("Could not resolve")
+    {
         return DiagnosticError::new(
             "ERR_NET_DNS_FAILED",
             "ไม่สามารถค้นหาโฮสต์ปลายทางได้ (DNS Error) กรุณาตรวจสอบความถูกต้องของ URL หรือเครือข่าย",
@@ -462,7 +455,10 @@ pub fn classify_error(err: &anyhow::Error) -> DiagnosticError {
     }
 
     // 4. ML / Inference errors
-    if err_str.contains("OOM") || err_str.contains("out of memory") || err_str.contains("CUDA error") {
+    if err_str.contains("OOM")
+        || err_str.contains("out of memory")
+        || err_str.contains("CUDA error")
+    {
         return DiagnosticError::new(
             "ERR_ML_GPU_OOM",
             "หน่วยความจำการ์ดจอ (VRAM) หรือ RAM ไม่เพียงพอสำหรับประมวลผลโมเดล AI กรุณาลองปรับลดขนาดรูปภาพลง",
@@ -538,4 +534,3 @@ mod tests {
         assert_eq!(third, (100.0, 200.0, 300.0, 400.0));
     }
 }
-

@@ -78,11 +78,7 @@ pub fn get(conn: &Conn, id: i64) -> Result<Option<ChatMessage>> {
 /// Return the most-recent `limit` messages in chronological (oldest-first)
 /// order. The UI uses this with a small cap (~50) for display; the full
 /// history stays on disk and can be paged via `before_id`.
-pub fn list_recent(
-    conn: &Conn,
-    limit: u32,
-    before_id: Option<i64>,
-) -> Result<Vec<ChatMessage>> {
+pub fn list_recent(conn: &Conn, limit: u32, before_id: Option<i64>) -> Result<Vec<ChatMessage>> {
     let limit = limit.clamp(1, 1000) as i64;
     let mut rows: Vec<ChatMessage> = if let Some(before) = before_id {
         let mut stmt = conn.prepare(
@@ -133,10 +129,7 @@ pub fn delete(conn: &Conn, id: i64) -> Result<usize> {
 /// tool / follow-up message inserted after it goes too. Returns
 /// the number of rows removed.
 pub fn delete_from(conn: &Conn, from_id: i64) -> Result<usize> {
-    let n = conn.execute(
-        "DELETE FROM chat_messages WHERE id >= ?1",
-        [from_id],
-    )?;
+    let n = conn.execute("DELETE FROM chat_messages WHERE id >= ?1", [from_id])?;
     Ok(n)
 }
 

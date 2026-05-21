@@ -1,4 +1,3 @@
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Precision {
     FP32,
@@ -92,34 +91,41 @@ pub fn get_cuda_vram_bytes() -> Option<(u64, u64)> {
 
     unsafe {
         let lib = libloading::Library::new(CUDA_LIB_NAME).ok()?;
-        
+
         // Load CUDA driver methods dynamically
-        let cu_init: libloading::Symbol<unsafe extern "C" fn(u32) -> i32> = lib.get(b"cuInit").ok()?;
-        let cu_device_get: libloading::Symbol<unsafe extern "C" fn(*mut i32, i32) -> i32> = lib.get(b"cuDeviceGet").ok()?;
-        let cu_ctx_create: libloading::Symbol<unsafe extern "C" fn(*mut *mut std::ffi::c_void, u32, i32) -> i32> = lib.get(b"cuCtxCreate_v2").ok()?;
-        let cu_mem_get_info: libloading::Symbol<unsafe extern "C" fn(*mut usize, *mut usize) -> i32> = lib.get(b"cuMemGetInfo_v2").ok()?;
-        let cu_ctx_destroy: libloading::Symbol<unsafe extern "C" fn(*mut std::ffi::c_void) -> i32> = lib.get(b"cuCtxDestroy_v2").ok()?;
+        let cu_init: libloading::Symbol<unsafe extern "C" fn(u32) -> i32> =
+            lib.get(b"cuInit").ok()?;
+        let cu_device_get: libloading::Symbol<unsafe extern "C" fn(*mut i32, i32) -> i32> =
+            lib.get(b"cuDeviceGet").ok()?;
+        let cu_ctx_create: libloading::Symbol<
+            unsafe extern "C" fn(*mut *mut std::ffi::c_void, u32, i32) -> i32,
+        > = lib.get(b"cuCtxCreate_v2").ok()?;
+        let cu_mem_get_info: libloading::Symbol<
+            unsafe extern "C" fn(*mut usize, *mut usize) -> i32,
+        > = lib.get(b"cuMemGetInfo_v2").ok()?;
+        let cu_ctx_destroy: libloading::Symbol<unsafe extern "C" fn(*mut std::ffi::c_void) -> i32> =
+            lib.get(b"cuCtxDestroy_v2").ok()?;
 
         if cu_init(0) != 0 {
             return None;
         }
-        
+
         let mut dev: i32 = 0;
         if cu_device_get(&mut dev, 0) != 0 {
             return None;
         }
-        
+
         let mut ctx: *mut std::ffi::c_void = std::ptr::null_mut();
         if cu_ctx_create(&mut ctx, 0, dev) != 0 {
             return None;
         }
-        
+
         let mut free: usize = 0;
         let mut total: usize = 0;
         let mem_res = cu_mem_get_info(&mut free, &mut total);
-        
+
         let _ = cu_ctx_destroy(ctx);
-        
+
         if mem_res == 0 {
             Some((free as u64, total as u64))
         } else {
@@ -182,7 +188,9 @@ pub fn get_offload_strategy(model_size_bytes: u64, total_layers: usize) -> Memor
     // Scenario 4: Hardware VRAM exhausted, run model entirely on CPU
     tracing::warn!("[ML-Offloader] Selected: Full CPU Execution (Safety fallback mode active)");
     if avail_ram < model_size_bytes {
-        tracing::warn!("[ML-Offloader] DANGER: Physical RAM is lower than model size. Extreme low memory condition!");
+        tracing::warn!(
+            "[ML-Offloader] DANGER: Physical RAM is lower than model size. Extreme low memory condition!"
+        );
     }
     MemoryStrategy::FullCpu
 }

@@ -61,10 +61,16 @@ pub async fn llm_generate(state: AppResources, payload: LlmGeneratePayload) -> a
                 .text_blocks
                 .get_mut(block_index)
                 .ok_or_else(|| anyhow::anyhow!("Text block not found"))?;
-            state.llm.translate(text_block, target_language, context).await?;
+            state
+                .llm
+                .translate(text_block, target_language, context)
+                .await?;
         }
         None => {
-            state.llm.translate(&mut updated, target_language, context).await?;
+            state
+                .llm
+                .translate(&mut updated, target_language, context)
+                .await?;
         }
     }
 

@@ -128,7 +128,7 @@ impl RollingFileWriter {
 
     fn write_buf(&self, buf: &[u8]) -> std::io::Result<()> {
         let mut guard = self.inner.lock().unwrap();
-        
+
         // Ensure directories exist and file is open
         if guard.is_none() {
             let _ = std::fs::create_dir_all(&self.log_dir);
@@ -145,7 +145,7 @@ impl RollingFileWriter {
         }
 
         let inner = guard.as_mut().unwrap();
-        
+
         // Check size limit (10MB)
         if inner.current_size + buf.len() as u64 > self.max_size {
             // Rotate files
@@ -174,7 +174,7 @@ impl RollingFileWriter {
                 .write(true)
                 .truncate(true) // Start fresh
                 .open(&active_path)?;
-            
+
             *guard = Some(RollingWriterInner {
                 file,
                 current_size: 0,
@@ -225,7 +225,10 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
 
     // Initialize custom rolling file logger capped at 10MB
     std::fs::create_dir_all(LOG_ROOT.as_path()).ok();
-    let file_writer = Arc::new(RollingFileWriter::new(LOG_ROOT.to_path_buf(), 10 * 1024 * 1024));
+    let file_writer = Arc::new(RollingFileWriter::new(
+        LOG_ROOT.to_path_buf(),
+        10 * 1024 * 1024,
+    ));
     let file_writer_clone = file_writer.clone();
 
     tracing_subscriber::fmt()
@@ -245,9 +248,16 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
     if let Some(local_dir) = dirs::data_local_dir() {
         let legacy_path = local_dir.join("Koharu");
         if legacy_path.exists() && !APP_ROOT.exists() {
-            tracing::info!("Migrating legacy Koharu directory from {:?} to {:?}", legacy_path, *APP_ROOT);
+            tracing::info!(
+                "Migrating legacy Koharu directory from {:?} to {:?}",
+                legacy_path,
+                *APP_ROOT
+            );
             if let Err(err) = robust_move_dir(&legacy_path, &*APP_ROOT) {
-                tracing::warn!(?err, "Failed to migrate legacy Koharu directory automatically");
+                tracing::warn!(
+                    ?err,
+                    "Failed to migrate legacy Koharu directory automatically"
+                );
             }
         }
     }
@@ -266,11 +276,21 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
         let new_webview_path = new_appdata_path.join("EBWebView");
 
         if old_webview_path.exists() && !new_webview_path.exists() {
-            tracing::info!("Migrating legacy WebView2 user data from {:?} to {:?}", old_webview_path, new_webview_path);
+            tracing::info!(
+                "Migrating legacy WebView2 user data from {:?} to {:?}",
+                old_webview_path,
+                new_webview_path
+            );
             if let Err(err) = std::fs::create_dir_all(&new_appdata_path) {
-                tracing::warn!(?err, "Failed to create new appdata directory for WebView2 migration");
+                tracing::warn!(
+                    ?err,
+                    "Failed to create new appdata directory for WebView2 migration"
+                );
             } else if let Err(err) = robust_move_dir(&old_webview_path, &new_webview_path) {
-                tracing::warn!(?err, "Failed to migrate legacy WebView2 user data automatically");
+                tracing::warn!(
+                    ?err,
+                    "Failed to migrate legacy WebView2 user data automatically"
+                );
             }
         }
     }
@@ -281,10 +301,7 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
     // Register libs + app root as protected directories so cleaner tools
     // (IObit, Revo Uninstaller, etc.) skip them in future scans.
     #[cfg(target_os = "windows")]
-    crate::windows::register_protected_dirs(&[
-        LIB_ROOT.as_path(),
-        APP_ROOT.as_path(),
-    ]);
+    crate::windows::register_protected_dirs(&[LIB_ROOT.as_path(), APP_ROOT.as_path()]);
 
     // Register .khr and .koharuproj file associations unconditionally so
     // double-clicking either extension opens Koharu regardless of GPU mode.
@@ -308,7 +325,6 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
     cleanup_cleaner_temp_files(LIB_ROOT.as_path());
     cleanup_app_temp_files(APP_ROOT.as_path());
 
-
     // hook model cache dir
     koharu_ml::set_cache_dir(MODEL_ROOT.to_path_buf())?;
 
@@ -327,13 +343,15 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
             "Unknown panic payload"
         };
 
-        let location = info.location()
+        let location = info
+            .location()
             .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
             .unwrap_or_else(|| "Unknown location".to_string());
-        
+
         let backtrace = std::backtrace::Backtrace::capture();
         let cuda_available = koharu_ml::cuda_is_available();
-        let cpu_info = std::env::var("PROCESSOR_IDENTIFIER").unwrap_or_else(|_| "Unknown".to_string());
+        let cpu_info =
+            std::env::var("PROCESSOR_IDENTIFIER").unwrap_or_else(|_| "Unknown".to_string());
 
         let dump_content = format!(
             "================================================================================\n\
@@ -375,11 +393,15 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
         );
 
         if headless {
-            eprintln!("================================================================================");
+            eprintln!(
+                "================================================================================"
+            );
             eprintln!("FATAL PANIC AT {}", location);
             eprintln!("{}", payload);
             eprintln!("Crash dump saved to {:?}", crash_path);
-            eprintln!("================================================================================");
+            eprintln!(
+                "================================================================================"
+            );
         } else {
             MessageDialog::new()
                 .set_level(rfd::MessageLevel::Error)
@@ -603,7 +625,10 @@ async fn build_resources_inner(cpu: bool, file: Option<PathBuf>) -> Result<AppRe
                 Some(p)
             }
             Err(err) => {
-                tracing::error!("Failed to auto-load project from command-line {:?}: {err:#}", root);
+                tracing::error!(
+                    "Failed to auto-load project from command-line {:?}: {err:#}",
+                    root
+                );
                 None
             }
         }
@@ -649,45 +674,45 @@ pub async fn run() -> Result<()> {
     let ws_port = listener.local_addr()?.port();
     let shared: SharedResources = Arc::new(tokio::sync::OnceCell::new());
 
-#[tauri::command]
-fn relaunch_app(app: tauri::AppHandle) {
-    app.restart();
-}
-
-#[tauri::command]
-fn get_ml_device_config() -> String {
-    get_ml_device_selection()
-}
-
-#[tauri::command]
-fn set_ml_device_config(selection: String) -> std::result::Result<(), String> {
-    if let Err(err) = std::fs::create_dir_all(APP_ROOT.as_path()) {
-        return Err(format!("Failed to create APP_ROOT directory: {err}"));
+    #[tauri::command]
+    fn relaunch_app(app: tauri::AppHandle) {
+        app.restart();
     }
-    let val = serde_json::json!({ "selection": selection });
-    let content = serde_json::to_string_pretty(&val)
-        .map_err(|e| format!("Failed to serialize ML device config: {e}"))?;
-    std::fs::write(ML_DEVICE_CONFIG_PATH.as_path(), content)
-        .map_err(|err| format!("Failed to write ml-device.json: {err}"))?;
-    Ok(())
-}
 
-#[tauri::command]
-fn get_installed_addons() -> Vec<String> {
-    let mut addons = Vec::new();
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(parent) = exe_path.parent() {
-            let possible_addons = ["fr", "de", "es", "pt", "ko"];
-            for addon in possible_addons {
-                let flag_path = parent.join(format!("addon_{}.flag", addon));
-                if flag_path.exists() {
-                    addons.push(addon.to_string());
+    #[tauri::command]
+    fn get_ml_device_config() -> String {
+        get_ml_device_selection()
+    }
+
+    #[tauri::command]
+    fn set_ml_device_config(selection: String) -> std::result::Result<(), String> {
+        if let Err(err) = std::fs::create_dir_all(APP_ROOT.as_path()) {
+            return Err(format!("Failed to create APP_ROOT directory: {err}"));
+        }
+        let val = serde_json::json!({ "selection": selection });
+        let content = serde_json::to_string_pretty(&val)
+            .map_err(|e| format!("Failed to serialize ML device config: {e}"))?;
+        std::fs::write(ML_DEVICE_CONFIG_PATH.as_path(), content)
+            .map_err(|err| format!("Failed to write ml-device.json: {err}"))?;
+        Ok(())
+    }
+
+    #[tauri::command]
+    fn get_installed_addons() -> Vec<String> {
+        let mut addons = Vec::new();
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(parent) = exe_path.parent() {
+                let possible_addons = ["fr", "de", "es", "pt", "ko"];
+                for addon in possible_addons {
+                    let flag_path = parent.join(format!("addon_{}.flag", addon));
+                    if flag_path.exists() {
+                        addons.push(addon.to_string());
+                    }
                 }
             }
         }
+        addons
     }
-    addons
-}
 
     let app = tauri::Builder::default()
         .append_invoke_initialization_script(format!("window.__KOHARU_WS_PORT__ = {};", ws_port))
@@ -868,13 +893,14 @@ fn cleanup_app_temp_files(dir: &std::path::Path) {
             if lower.ends_with(".json.tmp") || lower.ends_with(".tmp") {
                 match std::fs::remove_file(&path) {
                     Ok(()) => tracing::info!(?path, "removed stale app temporary file"),
-                    Err(err) => tracing::warn!(?path, ?err, "failed to remove stale app temporary file"),
+                    Err(err) => {
+                        tracing::warn!(?path, ?err, "failed to remove stale app temporary file")
+                    }
                 }
             }
         }
     }
 }
-
 
 ///
 /// Symlinks and Windows NTFS junctions are skipped rather than traversed, to

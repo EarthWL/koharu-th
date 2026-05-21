@@ -2,7 +2,7 @@
 //! hash so identical bubbles don't re-hit the LLM.
 
 use chrono::{DateTime, TimeZone, Utc};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -52,11 +52,7 @@ pub fn hash_source(text: &str) -> String {
 
 /// Look up an exact-match translation. `target_lang` must match because
 /// the same source can have different translations per language.
-pub fn lookup_exact(
-    conn: &Conn,
-    source_text: &str,
-    target_lang: &str,
-) -> Result<Option<TmEntry>> {
+pub fn lookup_exact(conn: &Conn, source_text: &str, target_lang: &str) -> Result<Option<TmEntry>> {
     let hash = hash_source(source_text);
     let row = conn
         .query_row(
@@ -221,11 +217,7 @@ fn bigram_jaccard(a: &str, b: &str) -> f32 {
     }
     let inter = ba.intersection(&bb).count() as f32;
     let union = ba.union(&bb).count() as f32;
-    if union == 0.0 {
-        0.0
-    } else {
-        inter / union
-    }
+    if union == 0.0 { 0.0 } else { inter / union }
 }
 
 fn row_to_entry(r: &rusqlite::Row<'_>) -> rusqlite::Result<TmEntry> {
@@ -245,7 +237,10 @@ fn row_to_entry(r: &rusqlite::Row<'_>) -> rusqlite::Result<TmEntry> {
         prompt_template_id: r.get(11)?,
         quality_rating: r.get(12)?,
         is_approved: approved_int != 0,
-        created_at: Utc.timestamp_opt(r.get(14)?, 0).single().unwrap_or_else(Utc::now),
+        created_at: Utc
+            .timestamp_opt(r.get(14)?, 0)
+            .single()
+            .unwrap_or_else(Utc::now),
     })
 }
 
@@ -354,8 +349,7 @@ mod tests {
         assert!(none.is_none());
 
         // Wrong target lang → no hit.
-        let other_lang =
-            lookup_fuzzy(&conn, "今日はいい天気ですね", "en", 0.5).unwrap();
+        let other_lang = lookup_fuzzy(&conn, "今日はいい天気ですね", "en", 0.5).unwrap();
         assert!(other_lang.is_none());
     }
 }

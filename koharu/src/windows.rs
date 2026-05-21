@@ -90,12 +90,7 @@ pub fn register_file_associations() -> Result<()> {
     // Notify the Windows Shell so Explorer picks up the new associations
     // immediately without requiring a reboot or Explorer restart.
     unsafe {
-        SHChangeNotify(
-            SHCNE_ASSOCCHANGED,
-            SHCNF_IDLIST,
-            None,
-            None,
-        );
+        SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None);
     }
 
     Ok(())
@@ -129,16 +124,16 @@ pub fn register_protected_dirs(dirs: &[&std::path::Path]) {
         let path_str = dir.to_string_lossy();
 
         // IObit Uninstaller — "Protected Folders" ignore list
-        if let Ok((key, _)) = hkcu.create_subkey(
-            format!("Software\\IObit\\IObit Uninstaller\\ProtectedFolders\\{path_str}")
-        ) {
+        if let Ok((key, _)) = hkcu.create_subkey(format!(
+            "Software\\IObit\\IObit Uninstaller\\ProtectedFolders\\{path_str}"
+        )) {
             let _ = key.set_value("Protected", &1u32);
         }
 
         // Revo Uninstaller — Logs/excludes path
-        if let Ok((key, _)) = hkcu.create_subkey(
-            format!("Software\\VS Revo Group\\Revo Uninstaller\\Exclude\\{path_str}")
-        ) {
+        if let Ok((key, _)) = hkcu.create_subkey(format!(
+            "Software\\VS Revo Group\\Revo Uninstaller\\Exclude\\{path_str}"
+        )) {
             let _ = key.set_value("Exclude", &1u32);
         }
 

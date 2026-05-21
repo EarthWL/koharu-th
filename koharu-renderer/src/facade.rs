@@ -4,10 +4,7 @@ use anyhow::Result;
 use image::{DynamicImage, GrayImage};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
-use koharu_types::{
-    Document, TextAlign, TextBlock, TextShaderEffect, TextStrokeStyle,
-    TextStyle,
-};
+use koharu_types::{Document, TextAlign, TextBlock, TextShaderEffect, TextStrokeStyle, TextStyle};
 
 use crate::{
     font::{FamilyName, Font, FontBook, Properties},
@@ -161,10 +158,12 @@ impl Renderer {
                 let block_height = block.height();
                 let mut sprite_data = block.0.to_rgba8().into_raw();
                 premultiply_rgba(&mut sprite_data);
-                let sprite = tiny_skia::PixmapRef::from_bytes(&sprite_data, block_width, block_height)
-                    .ok_or_else(|| anyhow::anyhow!("Failed to create sprite pixmap ref"))?;
+                let sprite =
+                    tiny_skia::PixmapRef::from_bytes(&sprite_data, block_width, block_height)
+                        .ok_or_else(|| anyhow::anyhow!("Failed to create sprite pixmap ref"))?;
 
-                let mut transform = tiny_skia::Transform::from_translate(text_block.x, text_block.y);
+                let mut transform =
+                    tiny_skia::Transform::from_translate(text_block.x, text_block.y);
 
                 if let Some(rotation) = text_block.rotation_deg
                     && rotation != 0.0
@@ -440,7 +439,7 @@ impl Renderer {
             .fontbook
             .lock()
             .map_err(|_| anyhow::anyhow!("Failed to lock fontbook"))?;
-        
+
         let mut props = Properties::default();
         if let Some(effect) = style.effect {
             if effect.bold {

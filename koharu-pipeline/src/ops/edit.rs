@@ -725,9 +725,18 @@ pub async fn inpaint_partial(
         return Ok(());
     }
 
-    let image_crop =
-        SerializableDynamicImage(std::sync::Arc::new(snapshot.image.crop_imm(x0, y0, crop_width, crop_height)));
-    let mask_crop = SerializableDynamicImage(std::sync::Arc::new(mask_image.crop_imm(x0, y0, crop_width, crop_height)));
+    let image_crop = SerializableDynamicImage(std::sync::Arc::new(snapshot.image.crop_imm(
+        x0,
+        y0,
+        crop_width,
+        crop_height,
+    )));
+    let mask_crop = SerializableDynamicImage(std::sync::Arc::new(mask_image.crop_imm(
+        x0,
+        y0,
+        crop_width,
+        crop_height,
+    )));
 
     let inpainted_crop = state
         .ml
@@ -763,16 +772,32 @@ fn recursive_xy_cut(
     let mut heights = Vec::new();
     for &idx in indices {
         if let Some(b) = blocks.get(idx) {
-            let w = if b.width.is_finite() && b.width >= 0.0 { b.width } else { 0.0 };
-            let h = if b.height.is_finite() && b.height >= 0.0 { b.height } else { 0.0 };
+            let w = if b.width.is_finite() && b.width >= 0.0 {
+                b.width
+            } else {
+                0.0
+            };
+            let h = if b.height.is_finite() && b.height >= 0.0 {
+                b.height
+            } else {
+                0.0
+            };
             widths.push(w);
             heights.push(h);
         }
     }
     widths.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     heights.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let median_w = if widths.is_empty() { 50.0 } else { widths[widths.len() / 2] };
-    let median_h = if heights.is_empty() { 20.0 } else { heights[heights.len() / 2] };
+    let median_w = if widths.is_empty() {
+        50.0
+    } else {
+        widths[widths.len() / 2]
+    };
+    let median_h = if heights.is_empty() {
+        20.0
+    } else {
+        heights[heights.len() / 2]
+    };
 
     let min_gap_x = (median_w * 0.15).max(10.0);
     let min_gap_y = (median_h * 0.10).max(8.0);
@@ -782,7 +807,11 @@ fn recursive_xy_cut(
     for &idx in indices {
         if let Some(b) = blocks.get(idx) {
             let y = if b.y.is_finite() { b.y } else { 0.0 };
-            let h = if b.height.is_finite() && b.height >= 0.0 { b.height } else { 0.0 };
+            let h = if b.height.is_finite() && b.height >= 0.0 {
+                b.height
+            } else {
+                0.0
+            };
             y_intervals.push((y, y + h));
         }
     }
@@ -801,10 +830,10 @@ fn recursive_xy_cut(
     }
     let mut best_y_gap: Option<(f32, f32, f32)> = None; // (start, end, size)
     for i in 0..y_merged.len().saturating_sub(1) {
-        let size = y_merged[i+1].0 - y_merged[i].1;
+        let size = y_merged[i + 1].0 - y_merged[i].1;
         if size > min_gap_y {
             if best_y_gap.map_or(true, |(_, _, best_size)| size > best_size) {
-                best_y_gap = Some((y_merged[i].1, y_merged[i+1].0, size));
+                best_y_gap = Some((y_merged[i].1, y_merged[i + 1].0, size));
             }
         }
     }
@@ -814,7 +843,11 @@ fn recursive_xy_cut(
     for &idx in indices {
         if let Some(b) = blocks.get(idx) {
             let x = if b.x.is_finite() { b.x } else { 0.0 };
-            let w = if b.width.is_finite() && b.width >= 0.0 { b.width } else { 0.0 };
+            let w = if b.width.is_finite() && b.width >= 0.0 {
+                b.width
+            } else {
+                0.0
+            };
             x_intervals.push((x, x + w));
         }
     }
@@ -833,10 +866,10 @@ fn recursive_xy_cut(
     }
     let mut best_x_gap: Option<(f32, f32, f32)> = None;
     for i in 0..x_merged.len().saturating_sub(1) {
-        let size = x_merged[i+1].0 - x_merged[i].1;
+        let size = x_merged[i + 1].0 - x_merged[i].1;
         if size > min_gap_x {
             if best_x_gap.map_or(true, |(_, _, best_size)| size > best_size) {
-                best_x_gap = Some((x_merged[i].1, x_merged[i+1].0, size));
+                best_x_gap = Some((x_merged[i].1, x_merged[i + 1].0, size));
             }
         }
     }
@@ -887,8 +920,16 @@ fn recursive_xy_cut(
                 let by = if b.y.is_finite() { b.y } else { 0.0 };
                 let ax = if a.x.is_finite() { a.x } else { 0.0 };
                 let bx = if b.x.is_finite() { b.x } else { 0.0 };
-                let aw = if a.width.is_finite() && a.width >= 0.0 { a.width } else { 0.0 };
-                let bw = if b.width.is_finite() && b.width >= 0.0 { b.width } else { 0.0 };
+                let aw = if a.width.is_finite() && a.width >= 0.0 {
+                    a.width
+                } else {
+                    0.0
+                };
+                let bw = if b.width.is_finite() && b.width >= 0.0 {
+                    b.width
+                } else {
+                    0.0
+                };
                 let center_ax = ax + aw / 2.0;
                 let center_bx = bx + bw / 2.0;
 
@@ -896,11 +937,15 @@ fn recursive_xy_cut(
                     match reading_order {
                         ReadingOrder::Rtl => {
                             // Right to Left: larger X first
-                            center_bx.partial_cmp(&center_ax).unwrap_or(std::cmp::Ordering::Equal)
+                            center_bx
+                                .partial_cmp(&center_ax)
+                                .unwrap_or(std::cmp::Ordering::Equal)
                         }
                         _ => {
                             // Left to Right: smaller X first
-                            center_ax.partial_cmp(&center_bx).unwrap_or(std::cmp::Ordering::Equal)
+                            center_ax
+                                .partial_cmp(&center_bx)
+                                .unwrap_or(std::cmp::Ordering::Equal)
                         }
                     }
                 } else {
@@ -924,7 +969,11 @@ fn partition_by_x(
     for &idx in indices {
         if let Some(b) = blocks.get(idx) {
             let x = if b.x.is_finite() { b.x } else { 0.0 };
-            let w = if b.width.is_finite() && b.width >= 0.0 { b.width } else { 0.0 };
+            let w = if b.width.is_finite() && b.width >= 0.0 {
+                b.width
+            } else {
+                0.0
+            };
             let center_x = x + w / 2.0;
             match reading_order {
                 ReadingOrder::Rtl => {
@@ -959,7 +1008,11 @@ fn partition_by_y(
     for &idx in indices {
         if let Some(b) = blocks.get(idx) {
             let y = if b.y.is_finite() { b.y } else { 0.0 };
-            let h = if b.height.is_finite() && b.height >= 0.0 { b.height } else { 0.0 };
+            let h = if b.height.is_finite() && b.height >= 0.0 {
+                b.height
+            } else {
+                0.0
+            };
             let center_y = y + h / 2.0;
             // Top to bottom: Top comes first
             if center_y < cut_coord {
@@ -982,7 +1035,8 @@ pub async fn reorder_text_blocks(
         }
 
         let indices: Vec<usize> = (0..document.text_blocks.len()).collect();
-        let sorted_indices = recursive_xy_cut(&indices, &document.text_blocks, payload.reading_order);
+        let sorted_indices =
+            recursive_xy_cut(&indices, &document.text_blocks, payload.reading_order);
 
         let mut sorted_blocks = Vec::with_capacity(document.text_blocks.len());
         for idx in sorted_indices {
@@ -1005,8 +1059,8 @@ pub async fn reorder_text_blocks(
 #[cfg(test)]
 mod tests {
     use super::{
-        find_matching_previous, localize_inpaint_text_blocks, paste_crop,
-        rehydrate_runtime_text_block_state, recursive_xy_cut,
+        find_matching_previous, localize_inpaint_text_blocks, paste_crop, recursive_xy_cut,
+        rehydrate_runtime_text_block_state,
     };
     use image::{Rgba, RgbaImage};
     use koharu_types::{ReadingOrder, TextBlock};
@@ -1216,4 +1270,3 @@ mod tests {
         assert_eq!(ltr_sorted, vec![1, 0, 2]);
     }
 }
-

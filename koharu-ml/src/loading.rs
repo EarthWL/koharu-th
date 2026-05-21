@@ -11,12 +11,12 @@ where
     F: Future<Output = Result<PathBuf>>,
 {
     let path = manifest.await?;
-    
+
     // 1. Verify file exists
     if !path.exists() {
         anyhow::bail!("Model file does not exist: {}", path.display());
     }
-    
+
     // 2. Check metadata and non-zero size
     let metadata = std::fs::metadata(&path)
         .with_context(|| format!("Failed to get metadata for model: {}", path.display()))?;
@@ -47,7 +47,10 @@ where
     // 4. Safetensors header pre-flight structural validation
     if path.extension().map_or(false, |ext| ext == "safetensors") {
         if file_size < 8 {
-            anyhow::bail!("Safetensors file is too small (less than 8 bytes): {}", path.display());
+            anyhow::bail!(
+                "Safetensors file is too small (less than 8 bytes): {}",
+                path.display()
+            );
         }
         let mut file = std::fs::File::open(&path)?;
         use std::io::Read;

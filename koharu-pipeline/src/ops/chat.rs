@@ -3,12 +3,12 @@
 //! the in-app AI Chat can pull wiki / blog pages into context without
 //! hitting browser CORS.
 
-use std::time::Duration;
 use koharu_api::commands::{
     ChatClearResult, ChatListPayload, ChatMessageAddPayload, ChatMessageDeleteFromPayload,
     ChatMessageDeletePayload, ChatMessageDto, WebFetchPayload, WebFetchResult,
 };
 use koharu_project::chat::{self as chat_ops, ChatMessage, ChatMessageInsert};
+use std::time::Duration;
 
 use crate::AppResources;
 
@@ -112,9 +112,7 @@ fn to_dto(m: ChatMessage) -> ChatMessageDto {
     }
 }
 
-async fn require_project(
-    state: &AppResources,
-) -> anyhow::Result<koharu_project::Project> {
+async fn require_project(state: &AppResources) -> anyhow::Result<koharu_project::Project> {
     let guard = state.project.read().await;
     if let Some(p) = guard.as_ref() {
         return Ok(p.clone());
@@ -139,8 +137,6 @@ async fn require_project(
     *write_guard = Some(project.clone());
     Ok(project)
 }
-
-
 
 // ---------------------------------------------------------------
 // web_fetch_url — agentic tool for the AI Chat. Lets the assistant
@@ -178,7 +174,11 @@ pub async fn web_fetch_url(
 
     let bytes = res.bytes().await?;
     let truncated = bytes.len() > MAX_BYTES;
-    let slice = if truncated { &bytes[..MAX_BYTES] } else { &bytes[..] };
+    let slice = if truncated {
+        &bytes[..MAX_BYTES]
+    } else {
+        &bytes[..]
+    };
     let raw = String::from_utf8_lossy(slice).to_string();
 
     let (title, text) = if content_type.contains("html") || looks_like_html(&raw) {

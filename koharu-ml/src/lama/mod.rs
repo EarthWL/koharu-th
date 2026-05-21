@@ -115,7 +115,12 @@ impl Lama {
     }
 
     #[instrument(level = "debug", skip_all)]
-    fn inference_crop(&self, image: &RgbImage, mask: &GrayImage, max_side: Option<u32>) -> Result<RgbImage> {
+    fn inference_crop(
+        &self,
+        image: &RgbImage,
+        mask: &GrayImage,
+        max_side: Option<u32>,
+    ) -> Result<RgbImage> {
         if let Some(filled) = try_fill_balloon(image, mask) {
             return Ok(filled);
         }
@@ -165,7 +170,11 @@ impl Lama {
                 if count_nonzero(&crop_mask) == 0 {
                     return None; // ไม่มี mask — ข้ามทันที ไม่ต้อง spawn thread
                 }
-                Some(Crop { xyxy_e, image: crop_image, mask: crop_mask })
+                Some(Crop {
+                    xyxy_e,
+                    image: crop_image,
+                    mask: crop_mask,
+                })
             })
             .collect();
 
@@ -210,7 +219,14 @@ impl Lama {
                 .collect();
             handles
                 .into_iter()
-                .map(|h| h.join().unwrap_or_else(|_| (([0, 0, 0, 0]), Err(anyhow::anyhow!("inpaint thread panicked")))))
+                .map(|h| {
+                    h.join().unwrap_or_else(|_| {
+                        (
+                            ([0, 0, 0, 0]),
+                            Err(anyhow::anyhow!("inpaint thread panicked")),
+                        )
+                    })
+                })
                 .collect()
         });
 
@@ -230,7 +246,12 @@ impl Lama {
     }
 
     #[instrument(level = "debug", skip_all)]
-    fn inference_model_rgb(&self, image: &RgbImage, mask: &GrayImage, max_side: Option<u32>) -> Result<RgbImage> {
+    fn inference_model_rgb(
+        &self,
+        image: &RgbImage,
+        mask: &GrayImage,
+        max_side: Option<u32>,
+    ) -> Result<RgbImage> {
         let (w, h) = image.dimensions();
         let cap = max_side.unwrap_or(MAX_INPAINT_SIDE);
         let long_side = w.max(h);

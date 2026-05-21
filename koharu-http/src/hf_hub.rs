@@ -98,7 +98,9 @@ pub fn set_cache_dir(path: PathBuf) -> anyhow::Result<()> {
     // HF_API / HF_CACHE lazy statics fire their fallback initializer
     // before `initialize()` reaches `set_cache_dir` (issue #41).
     if let Err(_rejected) = CACHE_DIR.set(path.clone()) {
-        let existing = CACHE_DIR.get().expect("set failed so cell must be initialized");
+        let existing = CACHE_DIR
+            .get()
+            .expect("set failed so cell must be initialized");
         if existing == &path {
             tracing::debug!("set_cache_dir: already set to same path; ignoring duplicate call");
             return Ok(());

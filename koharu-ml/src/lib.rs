@@ -56,33 +56,27 @@ pub fn device(cpu: bool) -> Result<Device> {
     if let Some(ref sel) = selection {
         match sel.as_str() {
             "CPU" => return Ok(Device::Cpu),
-            "CUDA:0" => {
-                match Device::new_cuda(0) {
-                    Ok(dev) => return Ok(dev),
-                    Err(err) => {
-                        tracing::warn!("CUDA:0 requested but failed: {err}. Falling back to CPU.");
-                        return Ok(Device::Cpu);
-                    }
+            "CUDA:0" => match Device::new_cuda(0) {
+                Ok(dev) => return Ok(dev),
+                Err(err) => {
+                    tracing::warn!("CUDA:0 requested but failed: {err}. Falling back to CPU.");
+                    return Ok(Device::Cpu);
                 }
-            }
-            "CUDA:1" => {
-                match Device::new_cuda(1) {
-                    Ok(dev) => return Ok(dev),
-                    Err(err) => {
-                        tracing::warn!("CUDA:1 requested but failed: {err}. Falling back to CPU.");
-                        return Ok(Device::Cpu);
-                    }
+            },
+            "CUDA:1" => match Device::new_cuda(1) {
+                Ok(dev) => return Ok(dev),
+                Err(err) => {
+                    tracing::warn!("CUDA:1 requested but failed: {err}. Falling back to CPU.");
+                    return Ok(Device::Cpu);
                 }
-            }
-            "CUDA:2" => {
-                match Device::new_cuda(2) {
-                    Ok(dev) => return Ok(dev),
-                    Err(err) => {
-                        tracing::warn!("CUDA:2 requested but failed: {err}. Falling back to CPU.");
-                        return Ok(Device::Cpu);
-                    }
+            },
+            "CUDA:2" => match Device::new_cuda(2) {
+                Ok(dev) => return Ok(dev),
+                Err(err) => {
+                    tracing::warn!("CUDA:2 requested but failed: {err}. Falling back to CPU.");
+                    return Ok(Device::Cpu);
                 }
-            }
+            },
             sel => {
                 // Support CUDA:N for any index beyond the named cases above.
                 if let Some(idx_str) = sel.strip_prefix("CUDA:") {

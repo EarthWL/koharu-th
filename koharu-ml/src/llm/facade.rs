@@ -80,7 +80,10 @@ pub trait Translatable {
         }
         let prompt = match context {
             Some(ctx) if !ctx.trim().is_empty() => {
-                format!("Previous translation context:\n{}\n\nTranslate the following:\n{}", ctx, text)
+                format!(
+                    "Previous translation context:\n{}\n\nTranslate the following:\n{}",
+                    ctx, text
+                )
             }
             _ => text,
         };
@@ -431,7 +434,10 @@ impl Translatable for Document {
         }
         let prompt = match context {
             Some(ctx) if !ctx.trim().is_empty() => {
-                format!("Previous translation context:\n{}\n\nTranslate the following:\n{}", ctx, text)
+                format!(
+                    "Previous translation context:\n{}\n\nTranslate the following:\n{}",
+                    ctx, text
+                )
             }
             _ => text,
         };

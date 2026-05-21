@@ -1,6 +1,8 @@
 use anyhow::Result;
 use image::{DynamicImage, GenericImageView};
-use koharu_types::{Document, DetectorEngine, FontPrediction, InpaintEngine, OcrEngine, SerializableDynamicImage};
+use koharu_types::{
+    DetectorEngine, Document, FontPrediction, InpaintEngine, OcrEngine, SerializableDynamicImage,
+};
 use tokio::sync::Mutex;
 
 use crate::anime_text::{AnimeTextDetector, AnimeTextYoloVariant};
@@ -334,7 +336,9 @@ impl Model {
                             final_blocks = merged;
                         }
                         Err(err) => {
-                            tracing::warn!("AnimeText YOLO inference failed ({err:#}); falling back to default detector");
+                            tracing::warn!(
+                                "AnimeText YOLO inference failed ({err:#}); falling back to default detector"
+                            );
                         }
                     }
                 }
@@ -395,9 +399,7 @@ impl Model {
             OcrEngine::Manga => match self.manga_ocr().await {
                 Ok(_) => OcrEngine::Manga,
                 Err(err) => {
-                    tracing::warn!(
-                        "Manga OCR failed to load ({err:#}); falling back to Mit48px"
-                    );
+                    tracing::warn!("Manga OCR failed to load ({err:#}); falling back to Mit48px");
                     OcrEngine::Mit48px
                 }
             },
@@ -407,7 +409,10 @@ impl Model {
                         .as_deref()
                         .map(|s| {
                             let s = s.to_lowercase();
-                            s.contains("ja") || s.contains("jp") || s.contains("japanese") || s.contains("日本語")
+                            s.contains("ja")
+                                || s.contains("jp")
+                                || s.contains("japanese")
+                                || s.contains("日本語")
                         })
                         .unwrap_or(false)
                 });
@@ -439,10 +444,7 @@ impl Model {
                 // shape from Mit48pxOcr which slices internally. We
                 // do the cropping here so the rest of the pipeline
                 // doesn't care which engine is active.
-                let ocr = self
-                    .manga_ocr()
-                    .await
-                    .expect("checked above");
+                let ocr = self.manga_ocr().await.expect("checked above");
                 let crops: Vec<DynamicImage> = doc
                     .text_blocks
                     .iter()
@@ -475,7 +477,12 @@ impl Model {
     /// - Lama (Tier 1): Offline, lightweight, fast, local.
     /// - StableDiffusion (Tier 2): Offline/Local high-quality quantized/OpenVINO or high-quality local patch.
     /// - CloudFlux (Tier 3): Online/Cloud API high-quality generative fill.
-    pub async fn inpaint_with(&self, doc: &mut Document, engine: InpaintEngine, max_side: Option<u32>) -> Result<()> {
+    pub async fn inpaint_with(
+        &self,
+        doc: &mut Document,
+        engine: InpaintEngine,
+        max_side: Option<u32>,
+    ) -> Result<()> {
         if doc.text_blocks.is_empty() {
             tracing::debug!("skipping inpaint: no text blocks detected");
             return Ok(());
@@ -490,27 +497,37 @@ impl Model {
                     .segment
                     .as_ref()
                     .ok_or_else(|| anyhow::anyhow!("Segment image not found"))?;
-                let result = self
-                    .lama
-                    .inference_with_blocks(&doc.image, mask, Some(&doc.text_blocks), max_side)?;
+                let result = self.lama.inference_with_blocks(
+                    &doc.image,
+                    mask,
+                    Some(&doc.text_blocks),
+                    max_side,
+                )?;
                 doc.inpainted = Some(result.into());
             }
             InpaintEngine::StableDiffusion => {
                 // Tier 2: Stable Diffusion Inpainting Local
                 // For Tier 2, if the SD module isn't loaded/downloaded, we can fallback to the local LaMa engine under high-quality constraints (max_side = 768) as a safe offline fallback.
-                tracing::info!("Tier 2 Inpainting Engine: Initializing local Stable Diffusion patch...");
+                tracing::info!(
+                    "Tier 2 Inpainting Engine: Initializing local Stable Diffusion patch..."
+                );
                 let mask = doc
                     .segment
                     .as_ref()
                     .ok_or_else(|| anyhow::anyhow!("Segment image not found"))?;
-                
+
                 // Emulate higher-quality patch by enforcing minimum high-quality max_side fallback if none provided
                 let sd_max_side = max_side.or(Some(768));
-                let result = self
-                    .lama
-                    .inference_with_blocks(&doc.image, mask, Some(&doc.text_blocks), sd_max_side)?;
+                let result = self.lama.inference_with_blocks(
+                    &doc.image,
+                    mask,
+                    Some(&doc.text_blocks),
+                    sd_max_side,
+                )?;
                 doc.inpainted = Some(result.into());
-                tracing::info!("Tier 2 Inpainting Engine completed successfully via local high-quality refinement.");
+                tracing::info!(
+                    "Tier 2 Inpainting Engine completed successfully via local high-quality refinement."
+                );
             }
             InpaintEngine::CloudFlux => {
                 // Tier 3: Cloud FLUX.1 / Fal.ai / Replicate
@@ -522,11 +539,16 @@ impl Model {
                     .ok_or_else(|| anyhow::anyhow!("Segment image not found"))?;
 
                 let flux_max_side = max_side.or(Some(1024));
-                let result = self
-                    .lama
-                    .inference_with_blocks(&doc.image, mask, Some(&doc.text_blocks), flux_max_side)?;
+                let result = self.lama.inference_with_blocks(
+                    &doc.image,
+                    mask,
+                    Some(&doc.text_blocks),
+                    flux_max_side,
+                )?;
                 doc.inpainted = Some(result.into());
-                tracing::info!("Tier 3 Inpainting Engine completed successfully (using high-quality cloud-aligned fallback).");
+                tracing::info!(
+                    "Tier 3 Inpainting Engine completed successfully (using high-quality cloud-aligned fallback)."
+                );
             }
         }
 
@@ -545,7 +567,9 @@ impl Model {
         mask: &SerializableDynamicImage,
         text_blocks: Option<&[koharu_types::TextBlock]>,
     ) -> Result<SerializableDynamicImage> {
-        let result = self.lama.inference_with_blocks(image, mask, text_blocks, None)?;
+        let result = self
+            .lama
+            .inference_with_blocks(image, mask, text_blocks, None)?;
         Ok(result.into())
     }
 
