@@ -2,11 +2,12 @@ name: Lint
 
 on:
   push:
-    branches: ['main', 'feat/*']
+    branches: ['main', 'feat/ux-improvements']
   pull_request:
 
 env:
   CARGO_TERM_COLOR: always
+  CUDA_COMPUTE_CAP: "80"
 
 jobs:
   lint:

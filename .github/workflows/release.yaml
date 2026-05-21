@@ -12,7 +12,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   # Turing/Ampere/Ada/Blackwell — covers RTX 20xx through 50xx.
-  CUDA_COMPUTE_CAP: "75;86;89;120"
+  CUDA_COMPUTE_CAP: "80"
 
 jobs:
   release:
