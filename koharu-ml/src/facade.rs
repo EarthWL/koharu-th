@@ -463,6 +463,7 @@ impl Model {
                     block.text = Some(text);
                 }
             }
+            OcrEngine::Auto => unreachable!(),
         }
 
         Ok(())
@@ -544,7 +545,7 @@ impl Model {
         mask: &SerializableDynamicImage,
         text_blocks: Option<&[koharu_types::TextBlock]>,
     ) -> Result<SerializableDynamicImage> {
-        let result = self.lama.inference_with_blocks(image, mask, text_blocks)?;
+        let result = self.lama.inference_with_blocks(image, mask, text_blocks, None)?;
         Ok(result.into())
     }
 
