@@ -200,6 +200,21 @@ export type RpcMethodMap = {
   get_ml_device_config: [void, string]
   set_ml_device_config: [{ selection: string }, void]
   enumerate_cuda_devices: [void, Array<[number, string]>]
+  runtime_cudnn_status: [
+    void,
+    | { kind: 'installed'; version: string; path: string }
+    | { kind: 'missing'; version: string }
+    | {
+        kind: 'downloading'
+        version: string
+        bytes_done: number
+        bytes_total: number | null
+      }
+    | { kind: 'extracting'; version: string }
+    | { kind: 'ready'; version: string; path: string }
+    | { kind: 'failed'; version: string; error: string },
+  ]
+  runtime_install_cudnn: [void, string]
   relaunch_app: [void, void]
   text_block_fit_to_bubble: [any, any]
   update_text_block: [any, any]

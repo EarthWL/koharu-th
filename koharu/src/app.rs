@@ -249,6 +249,17 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
         })
         .init();
 
+    // Register the cuDNN runtime DLL directory *before* any code path
+    // that can trigger candle's CUDA conv (which dlopens cudnn64_9.dll
+    // on demand). Must run after APP_ROOT/runtime/ is conceptually
+    // available but doesn't need the directory to actually exist —
+    // `register_cudnn_dll_path` is a no-op when cuDNN isn't installed.
+    if let Err(err) =
+        crate::runtime_install::register_cudnn_dll_path(&APP_ROOT.join("runtime"))
+    {
+        tracing::warn!(?err, "Failed to register cuDNN DLL path; GPU may fall back to CPU");
+    }
+
     // Migrate legacy Koharu folder → KoharuTH (branding rename). Must run
     // before migrate_legacy_model_cache() so APP_ROOT exists first.
     if let Some(local_dir) = dirs::data_local_dir() {
@@ -757,6 +768,48 @@ pub async fn run() -> Result<()> {
             .collect()
     }
 
+    /// Report whether the pinned cuDNN baseline is installed locally.
+    /// UI uses this on Settings → Device to decide whether to show
+    /// the "Install cuDNN" CTA. Returns a tagged JSON object — see
+    /// `runtime_install::CudnnStatus`.
+    #[tauri::command]
+    fn runtime_cudnn_status() -> crate::runtime_install::CudnnStatus {
+        crate::runtime_install::cudnn_status(&APP_ROOT.join("runtime"))
+    }
+
+    /// Kick off the cuDNN download + extract. Streams progress events
+    /// to the frontend via `koharu://runtime/cudnn-progress`. Returns
+    /// the final install path when the runtime is ready, or surfaces
+    /// the error message verbatim so the UI can show it.
+    #[tauri::command]
+    async fn runtime_install_cudnn(window: tauri::Window) -> Result<String, String> {
+        use tauri::Emitter;
+        let runtime_root = APP_ROOT.join("runtime");
+        let window_clone = window.clone();
+        let result = crate::runtime_install::install_cudnn(&runtime_root, move |status| {
+            // Best-effort emit — a closed window means the install
+            // continues to completion but UI stops updating, which is
+            // acceptable behaviour.
+            let _ = window_clone.emit("koharu://runtime/cudnn-progress", &status);
+        })
+        .await;
+
+        match result {
+            Ok(path) => Ok(path.display().to_string()),
+            Err(err) => {
+                let msg = format!("{err:#}");
+                let _ = window.emit(
+                    "koharu://runtime/cudnn-progress",
+                    &crate::runtime_install::CudnnStatus::Failed {
+                        version: "".into(),
+                        error: msg.clone(),
+                    },
+                );
+                Err(msg)
+            }
+        }
+    }
+
     #[tauri::command]
     fn get_installed_addons() -> Vec<String> {
         let mut addons = Vec::new();
@@ -781,6 +834,8 @@ pub async fn run() -> Result<()> {
             get_ml_device_config,
             set_ml_device_config,
             enumerate_cuda_devices,
+            runtime_cudnn_status,
+            runtime_install_cudnn,
             get_installed_addons
         ])
         .setup({

@@ -117,6 +117,22 @@ export default function SettingsPage() {
   const [cudaDevices, setCudaDevices] = useState<
     Array<{ index: number; name: string }>
   >([])
+  // cuDNN install state — driven by `runtime_cudnn_status` on mount and
+  // the streaming `koharu://runtime/cudnn-progress` event during install.
+  type CudnnStatus =
+    | { kind: 'installed'; version: string; path: string }
+    | { kind: 'missing'; version: string }
+    | {
+        kind: 'downloading'
+        version: string
+        bytes_done: number
+        bytes_total: number | null
+      }
+    | { kind: 'extracting'; version: string }
+    | { kind: 'ready'; version: string; path: string }
+    | { kind: 'failed'; version: string; error: string }
+  const [cudnnStatus, setCudnnStatus] = useState<CudnnStatus | null>(null)
+  const [cudnnInstalling, setCudnnInstalling] = useState(false)
   const ocrEngine = usePreferencesStore((s) => s.ocrEngine)
   const setOcrEngine = usePreferencesStore((s) => s.setOcrEngine)
   const ocrSmartCloudFallback = usePreferencesStore(
@@ -224,6 +240,37 @@ export default function SettingsPage() {
       }
     }
     void loadCudaDevices()
+
+    const loadCudnnStatus = async () => {
+      try {
+        const status = (await invoke('runtime_cudnn_status')) as CudnnStatus
+        setCudnnStatus(status)
+      } catch (error) {
+        console.error('Failed to read cuDNN status', error)
+      }
+    }
+    void loadCudnnStatus()
+
+    // Stream install progress so the user sees a live progress bar while
+    // the ~700 MB cuDNN archive downloads. Cleanup on unmount cancels
+    // the listener so dev-mode HMR doesn't accumulate stale subscribers.
+    let unlisten: (() => void) | null = null
+    void (async () => {
+      const { listen } = await import('@tauri-apps/api/event')
+      unlisten = await listen<CudnnStatus>(
+        'koharu://runtime/cudnn-progress',
+        (e) => {
+          setCudnnStatus(e.payload)
+          if (e.payload.kind === 'ready' || e.payload.kind === 'failed') {
+            setCudnnInstalling(false)
+            if (e.payload.kind === 'ready') setNeedsRelaunch(true)
+          }
+        },
+      )
+    })()
+    return () => {
+      if (unlisten) unlisten()
+    }
 
     void loadDeviceInfo()
     void loadMlDeviceSelection()
@@ -798,7 +845,14 @@ export default function SettingsPage() {
                               key={d.index}
                               value={`CUDA:${d.index}`}
                             >
-                              CUDA:{d.index} — {d.name}
+                              {/* Show plain GPU name when there's just
+                               *  one CUDA device; prefix `[N]` when
+                               *  multi-GPU so duplicates stay
+                               *  distinguishable. Backend value still
+                               *  carries the CUDA index. */}
+                              {cudaDevices.length > 1
+                                ? `[${d.index}] ${d.name}`
+                                : d.name}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -821,6 +875,96 @@ export default function SettingsPage() {
                         >
                           {t('settings.relaunchBtn', 'รีสตาร์ทตอนนี้')}
                         </Button>
+                      </div>
+                    )}
+
+                    {/* cuDNN runtime install card. Only surfaced when
+                     *  the user actually has a CUDA-capable GPU on the
+                     *  machine — otherwise installing cuDNN is pointless. */}
+                    {cudnnStatus && cudaDevices.length > 0 && (
+                      <div className='border-border/60 mt-3 rounded-lg border p-3'>
+                        <div className='flex items-start justify-between gap-3'>
+                          <div className='flex flex-col gap-0.5'>
+                            <span className='text-foreground text-sm font-medium'>
+                              {t('settings.cudnnTitle', 'cuDNN GPU runtime')}
+                            </span>
+                            <span className='text-muted-foreground text-xs'>
+                              {cudnnStatus.kind === 'installed'
+                                ? t(
+                                    'settings.cudnnInstalled',
+                                    'ติดตั้งแล้ว v{{version}} — ใช้งาน GPU acceleration ได้เต็มสปีด',
+                                    { version: cudnnStatus.version },
+                                  )
+                                : cudnnStatus.kind === 'ready'
+                                  ? t(
+                                      'settings.cudnnReady',
+                                      'พร้อมใช้งาน v{{version}} — รีสตาร์ทเพื่อเปิด GPU',
+                                      { version: cudnnStatus.version },
+                                    )
+                                  : cudnnStatus.kind === 'failed'
+                                    ? t(
+                                        'settings.cudnnFailed',
+                                        'ดาวน์โหลดล้มเหลว: {{error}}',
+                                        { error: cudnnStatus.error },
+                                      )
+                                    : t(
+                                        'settings.cudnnMissing',
+                                        'ยังไม่ติดตั้ง — GPU จะ fallback ไป CPU. ดาวน์โหลด v{{version}} (~700 MB) จาก NVIDIA CDN',
+                                        { version: cudnnStatus.version },
+                                      )}
+                            </span>
+                          </div>
+                          {(cudnnStatus.kind === 'missing' ||
+                            cudnnStatus.kind === 'failed') && (
+                            <Button
+                              variant='outline'
+                              size='sm'
+                              disabled={cudnnInstalling}
+                              onClick={async () => {
+                                setCudnnInstalling(true)
+                                try {
+                                  await invoke('runtime_install_cudnn')
+                                } catch (err) {
+                                  console.error('cuDNN install failed', err)
+                                  setCudnnInstalling(false)
+                                }
+                              }}
+                            >
+                              {cudnnInstalling
+                                ? t('settings.cudnnInstalling', 'กำลังติดตั้ง…')
+                                : t('settings.cudnnInstall', 'ติดตั้ง')}
+                            </Button>
+                          )}
+                        </div>
+                        {cudnnStatus.kind === 'downloading' && (
+                          <div className='mt-2'>
+                            <div className='bg-muted h-1.5 w-full overflow-hidden rounded-full'>
+                              <div
+                                className='bg-primary h-full transition-all'
+                                style={{
+                                  width: cudnnStatus.bytes_total
+                                    ? `${Math.min(100, (cudnnStatus.bytes_done / cudnnStatus.bytes_total) * 100)}%`
+                                    : '0%',
+                                }}
+                              />
+                            </div>
+                            <span className='text-muted-foreground mt-1 block text-[10px]'>
+                              {(cudnnStatus.bytes_done / 1_000_000).toFixed(1)}{' '}
+                              MB
+                              {cudnnStatus.bytes_total
+                                ? ` / ${(cudnnStatus.bytes_total / 1_000_000).toFixed(0)} MB`
+                                : ''}
+                            </span>
+                          </div>
+                        )}
+                        {cudnnStatus.kind === 'extracting' && (
+                          <span className='text-muted-foreground mt-2 block text-[10px]'>
+                            {t(
+                              'settings.cudnnExtracting',
+                              'กำลังแตกไฟล์ DLL…',
+                            )}
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>

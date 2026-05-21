@@ -150,6 +150,8 @@ const TAURI_ONLY_METHODS: ReadonlySet<keyof RpcMethodMap> = new Set([
   'get_ml_device_config',
   'set_ml_device_config',
   'enumerate_cuda_devices',
+  'runtime_cudnn_status',
+  'runtime_install_cudnn',
   'relaunch_app',
 ] as const)
 
