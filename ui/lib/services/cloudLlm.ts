@@ -1267,10 +1267,15 @@ async function fetchGemini(
     // "wait a moment / upgrade tier / switch provider".
     if (res.status === 429) {
       const retryHint = parseGeminiRetryHint(err)
+      // Marker prefix lets the UI's ErrorCard render a soft "rate
+      // limited" toast (amber, Clock icon) instead of the red panic
+      // dialog used for real crashes. Caller code can still parse the
+      // retry hint out of the message tail.
       throw new Error(
-        retryHint
-          ? `Gemini free-tier quota exceeded. Try again in ~${retryHint}s, or switch provider / upgrade your API tier.`
-          : `Gemini free-tier quota exceeded. Try again in a moment, or switch provider / upgrade your API tier.`,
+        `[RATE_LIMIT:gemini${retryHint ? `:${retryHint}` : ''}] ` +
+          (retryHint
+            ? `โควต้า Gemini หมดชั่วคราว — รอ ~${retryHint} วินาที แล้วลองอีกครั้ง หรือเปลี่ยน profile / อัปเกรด API tier`
+            : `โควต้า Gemini หมดชั่วคราว — รอสักครู่แล้วลองอีกครั้ง หรือเปลี่ยน profile / อัปเกรด API tier`),
       )
     }
     throw new Error(`Gemini API Error: ${err}`)
