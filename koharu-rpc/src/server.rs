@@ -47,8 +47,8 @@ fn build_router(shared: SharedResources, resolver: SharedAssetResolver) -> Route
 
     Router::new()
         .route("/ws", get(rpc::ws_handler))
-        .route("/api/thumbnail/:index", get(serve_thumbnail_route))
-        .route("/api/image/:index/:layer", get(serve_image_route))
+        .route("/api/thumbnail/{index}", get(serve_thumbnail_route))
+        .route("/api/image/{index}/{layer}", get(serve_image_route))
         .with_state(ws_state)
         .nest_service("/mcp", mcp_service)
         .fallback(move |uri: Uri| {

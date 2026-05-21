@@ -132,12 +132,46 @@ pub fn device(cpu: bool) -> Result<Device> {
 }
 
 pub fn cuda_is_available() -> bool {
-    (unsafe {
+    let driver_ok = unsafe {
         libloading::Library::new(if cfg!(target_os = "windows") {
             "nvcuda.dll"
         } else {
             "libcuda.so"
         })
         .is_ok()
-    }) && cfg!(feature = "cuda")
+    };
+
+    if !driver_ok || !cfg!(feature = "cuda") {
+        return false;
+    }
+
+    // Defensively check if cublas can be dynamically loaded as well.
+    // If nvcuda is present (GPU driver installed) but cublas is missing
+    // (CUDA Toolkit not installed), candle/cudarc will panic at runtime
+    // during device creation instead of returning an error.
+    let cublas_libs = if cfg!(target_os = "windows") {
+        vec![
+            "cublas.dll",
+            "cublas64.dll",
+            "cublas64_12.dll",
+            "cublas64_11.dll",
+            "cublas64_10.dll",
+            "cublas64_9.dll",
+        ]
+    } else {
+        vec![
+            "libcublas.so",
+            "libcublas.so.12",
+            "libcublas.so.11",
+            "libcublas.so.10",
+        ]
+    };
+
+    let cublas_ok = unsafe {
+        cublas_libs
+            .iter()
+            .any(|&lib_name| libloading::Library::new(lib_name).is_ok())
+    };
+
+    cublas_ok
 }
