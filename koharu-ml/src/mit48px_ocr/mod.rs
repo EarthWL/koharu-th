@@ -20,6 +20,7 @@ define_models! {
     Config => ("mayocream/mit48px-ocr", "config.json"),
     Dictionary => ("mayocream/mit48px-ocr", "alphabet-all-v7.txt"),
     Model => ("mayocream/mit48px-ocr", "model.safetensors"),
+    OnnxModel => ("mayocream/mit48px-ocr", "model.onnx"),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,21 +72,63 @@ struct ModelFiles {
     weights: PathBuf,
 }
 
+pub enum OcrBackend {
+    Candle {
+        model: Mit48pxModel,
+        device: Device,
+    },
+    #[cfg(feature = "dml")]
+    Onnx {
+        session: ort::Session,
+    },
+}
+
 pub struct Mit48pxOcr {
-    model: Mit48pxModel,
+    backend: OcrBackend,
     config: Mit48pxConfig,
     dictionary: Vec<String>,
-    device: Device,
 }
 
 impl Mit48pxOcr {
     pub async fn load(use_cpu: bool) -> Result<Self> {
+        #[cfg(feature = "dml")]
+        {
+            if !use_cpu && crate::dml_is_available() {
+                match Self::load_onnx().await {
+                    Ok(ocr) => return Ok(ocr),
+                    Err(err) => {
+                        tracing::warn!("Failed to load ONNX Mit48pxOcr under DirectML: {err}. Falling back to native Candle CPU/GPU...");
+                    }
+                }
+            }
+        }
+
         let files = ModelFiles {
             config: loading::resolve_manifest_path(Manifest::Config.get()).await?,
             dictionary: loading::resolve_manifest_path(Manifest::Dictionary.get()).await?,
             weights: loading::resolve_manifest_path(Manifest::Model.get()).await?,
         };
         Self::load_from_files(files, use_cpu)
+    }
+
+    #[cfg(feature = "dml")]
+    async fn load_onnx() -> Result<Self> {
+        let config_path = loading::resolve_manifest_path(Manifest::Config.get()).await?;
+        let dict_path = loading::resolve_manifest_path(Manifest::Dictionary.get()).await?;
+        let onnx_path = loading::resolve_manifest_path(Manifest::OnnxModel.get()).await?;
+
+        let config: Mit48pxConfig = loading::read_json(&config_path)?;
+        let dictionary = read_dictionary(&dict_path)?;
+
+        let session = ort::Session::builder()?
+            .with_execution_providers([ort::DirectMLExecutionProvider::default().build()])?
+            .commit_from_file(onnx_path)?;
+
+        Ok(Self {
+            backend: OcrBackend::Onnx { session },
+            config,
+            dictionary,
+        })
     }
 
     pub fn load_from_dir(dir: impl AsRef<Path>, use_cpu: bool) -> Result<Self> {
@@ -110,11 +153,18 @@ impl Mit48pxOcr {
         let vb = VarBuilder::from_buffered_safetensors(data, DType::F32, &device)?;
         let model = Mit48pxModel::new(config.clone(), dictionary.len(), vb, device.clone())?;
         Ok(Self {
-            model,
+            backend: OcrBackend::Candle { model, device },
             config,
             dictionary,
-            device,
         })
+    }
+
+    fn device(&self) -> &Device {
+        match &self.backend {
+            OcrBackend::Candle { device, .. } => device,
+            #[cfg(feature = "dml")]
+            OcrBackend::Onnx { .. } => &Device::Cpu,
+        }
     }
 
     #[instrument(level = "debug", skip_all)]
@@ -125,10 +175,112 @@ impl Mit48pxOcr {
 
         let mut predictions = Vec::with_capacity(regions.len());
         for chunk in regions.chunks(OCR_CHUNK_SIZE) {
-            let batch = preprocess_regions(chunk, &self.config, &self.device)?;
-            let raw = self.model.infer_batch(&batch.tensor, &batch.widths)?;
-            for prediction in raw {
-                predictions.push(self.decode_prediction(prediction));
+            let batch = preprocess_regions(chunk, &self.config, self.device())?;
+            match &self.backend {
+                OcrBackend::Candle { model, .. } => {
+                    let raw = model.infer_batch(&batch.tensor, &batch.widths)?;
+                    for prediction in raw {
+                        predictions.push(self.decode_prediction(prediction));
+                    }
+                }
+                #[cfg(feature = "dml")]
+                OcrBackend::Onnx { session } => {
+                    let shape = batch.tensor.shape().dims();
+                    let flat_vec = batch.tensor.flatten_all()?.to_vec1::<f32>()?;
+                    let input_images = ndarray::Array4::from_shape_vec(
+                        (shape[0], shape[1], shape[2], shape[3]),
+                        flat_vec,
+                    )?;
+                    
+                    let widths_i64: Vec<i64> = batch.widths.iter().map(|&w| w as i64).collect();
+                    let input_widths = ndarray::Array1::from_shape_vec(
+                        batch.widths.len(),
+                        widths_i64,
+                    )?;
+
+                    let outputs = session.run(ort::inputs![
+                        input_images,
+                        input_widths,
+                    ]?)?;
+
+                    let token_ids_view = outputs[0].try_extract_tensor::<i64>();
+                    let (batch_size, seq_len) = match &token_ids_view {
+                        Ok(view) => {
+                            let shape = view.shape();
+                            (shape[0], shape[1])
+                        }
+                        Err(_) => {
+                            let view = outputs[0].try_extract_tensor::<i32>()?;
+                            let shape = view.shape();
+                            (shape[0], shape[1])
+                        }
+                    };
+
+                    let fg_colors_view = outputs[1].try_extract_tensor::<f32>()?;
+                    let bg_colors_view = outputs[2].try_extract_tensor::<f32>()?;
+                    let fg_indicators_view = outputs[3].try_extract_tensor::<f32>()?;
+                    let bg_indicators_view = outputs[4].try_extract_tensor::<f32>()?;
+
+                    let fg_slice = fg_colors_view.to_slice().ok_or_else(|| anyhow::anyhow!("failed to slice fg_colors"))?;
+                    let bg_slice = bg_colors_view.to_slice().ok_or_else(|| anyhow::anyhow!("failed to slice bg_colors"))?;
+                    let fg_ind_slice = fg_indicators_view.to_slice().ok_or_else(|| anyhow::anyhow!("failed to slice fg_indicators"))?;
+                    let bg_ind_slice = bg_indicators_view.to_slice().ok_or_else(|| anyhow::anyhow!("failed to slice bg_indicators"))?;
+
+                    for b in 0..batch_size {
+                        let mut token_ids = Vec::with_capacity(seq_len);
+                        if let Ok(view) = &token_ids_view {
+                            let slice = view.to_slice().ok_or_else(|| anyhow::anyhow!("failed to slice token_ids"))?;
+                            for s in 0..seq_len {
+                                token_ids.push(slice[b * seq_len + s] as u32);
+                            }
+                        } else {
+                            let view = outputs[0].try_extract_tensor::<i32>()?;
+                            let slice = view.to_slice().ok_or_else(|| anyhow::anyhow!("failed to slice token_ids"))?;
+                            for s in 0..seq_len {
+                                token_ids.push(slice[b * seq_len + s] as u32);
+                            }
+                        }
+
+                        let mut fg_colors = Vec::with_capacity(seq_len);
+                        let mut bg_colors = Vec::with_capacity(seq_len);
+                        let mut fg_indicators = Vec::with_capacity(seq_len);
+                        let mut bg_indicators = Vec::with_capacity(seq_len);
+
+                        for s in 0..seq_len {
+                            let color_offset = (b * seq_len + s) * 3;
+                            fg_colors.push([
+                                fg_slice[color_offset],
+                                fg_slice[color_offset + 1],
+                                fg_slice[color_offset + 2],
+                            ]);
+                            bg_colors.push([
+                                bg_slice[color_offset],
+                                bg_slice[color_offset + 1],
+                                bg_slice[color_offset + 2],
+                            ]);
+
+                            let ind_offset = (b * seq_len + s) * 2;
+                            fg_indicators.push([
+                                fg_ind_slice[ind_offset],
+                                fg_ind_slice[ind_offset + 1],
+                            ]);
+                            bg_indicators.push([
+                                bg_ind_slice[ind_offset],
+                                bg_ind_slice[ind_offset + 1],
+                            ]);
+                        }
+
+                        let raw_pred = RawPrediction {
+                            token_ids,
+                            confidence: 1.0,
+                            fg_colors,
+                            bg_colors,
+                            fg_indicators,
+                            bg_indicators,
+                        };
+                        predictions.push(self.decode_prediction(raw_pred));
+                    }
+                }
             }
         }
         Ok(predictions)
