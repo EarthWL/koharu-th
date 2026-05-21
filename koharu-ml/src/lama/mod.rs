@@ -18,6 +18,7 @@ use crate::{define_models, device, loading};
 
 define_models! {
     Lama => ("mayocream/lama-manga", "lama-manga.safetensors"),
+    OnnxModel => ("mayocream/lama-manga-onnx", "model.onnx"),
 }
 
 const BALLOON_CANNY_LOW: f32 = 70.0;
@@ -43,25 +44,155 @@ struct BalloonMasks {
     non_text_mask: GrayImage,
 }
 
+pub enum LamaBackend {
+    Candle {
+        model: model::Lama,
+        device: Device,
+    },
+    #[cfg(feature = "dml")]
+    Onnx {
+        session: ort::Session,
+    },
+}
+
 pub struct Lama {
-    model: model::Lama,
-    device: Device,
+    backend: LamaBackend,
 }
 
 impl Lama {
     pub async fn load(use_cpu: bool) -> Result<Self> {
+        #[cfg(feature = "dml")]
+        {
+            if !use_cpu && crate::dml_is_available() {
+                match Self::load_onnx().await {
+                    Ok(lama) => return Ok(lama),
+                    Err(err) => {
+                        tracing::warn!("Failed to load ONNX Lama under DirectML: {err}. Falling back to native Candle CPU/GPU...");
+                    }
+                }
+            }
+        }
+
         let device = device(use_cpu)?;
         let model = loading::load_buffered_safetensors(Manifest::Lama.get(), &device, |vb| {
             model::Lama::load(&vb)
         })
         .await?;
 
-        Ok(Self { model, device })
+        Ok(Self {
+            backend: LamaBackend::Candle { model, device },
+        })
+    }
+
+    #[cfg(feature = "dml")]
+    async fn load_onnx() -> Result<Self> {
+        let onnx_path = loading::resolve_manifest_path(Manifest::OnnxModel.get()).await?;
+        let session = ort::Session::builder()?
+            .with_execution_providers([ort::DirectMLExecutionProvider::default().build()])?
+            .commit_from_file(onnx_path)?;
+        Ok(Self {
+            backend: LamaBackend::Onnx { session },
+        })
+    }
+
+    fn device(&self) -> &Device {
+        match &self.backend {
+            LamaBackend::Candle { device, .. } => device,
+            #[cfg(feature = "dml")]
+            LamaBackend::Onnx { .. } => &Device::Cpu,
+        }
     }
 
     #[instrument(level = "debug", skip_all)]
     fn forward(&self, image: &Tensor, mask: &Tensor) -> Result<Tensor> {
-        self.model.forward(image, mask)
+        match &self.backend {
+            LamaBackend::Candle { model, .. } => model.forward(image, mask),
+            #[cfg(feature = "dml")]
+            LamaBackend::Onnx { session } => {
+                let inputs = session.inputs();
+                let image_name = inputs.get(0).map(|i| i.name.as_str()).unwrap_or("image");
+                let mask_input = inputs.get(1);
+                let mask_name = mask_input.map(|i| i.name.as_str()).unwrap_or("mask");
+
+                let mut mask_dtype = "f32";
+                if let Some(i) = mask_input {
+                    let type_str = format!("{:?}", i.input_type);
+                    if type_str.contains("I64") {
+                        mask_dtype = "i64";
+                    } else if type_str.contains("I32") {
+                        mask_dtype = "i32";
+                    } else if type_str.contains("U8") {
+                        mask_dtype = "u8";
+                    }
+                }
+
+                let shape = image.shape().dims();
+                let flat_vec = image.flatten_all()?.to_vec1::<f32>()?;
+                let input_image = ndarray::Array4::from_shape_vec(
+                    (shape[0], shape[1], shape[2], shape[3]),
+                    flat_vec,
+                )?;
+
+                let mask_shape = mask.shape().dims();
+                let mask_flat = mask.flatten_all()?.to_vec1::<u8>()?;
+
+                let outputs = match mask_dtype {
+                    "i64" => {
+                        let mask_vec: Vec<i64> = mask_flat.iter().map(|&x| x as i64).collect();
+                        let input_mask = ndarray::Array4::from_shape_vec(
+                            (mask_shape[0], mask_shape[1], mask_shape[2], mask_shape[3]),
+                            mask_vec,
+                        )?;
+                        session.run(ort::inputs![
+                            image_name => input_image,
+                            mask_name => input_mask,
+                        ]?)?
+                    }
+                    "i32" => {
+                        let mask_vec: Vec<i32> = mask_flat.iter().map(|&x| x as i32).collect();
+                        let input_mask = ndarray::Array4::from_shape_vec(
+                            (mask_shape[0], mask_shape[1], mask_shape[2], mask_shape[3]),
+                            mask_vec,
+                        )?;
+                        session.run(ort::inputs![
+                            image_name => input_image,
+                            mask_name => input_mask,
+                        ]?)?
+                    }
+                    "u8" => {
+                        let input_mask = ndarray::Array4::from_shape_vec(
+                            (mask_shape[0], mask_shape[1], mask_shape[2], mask_shape[3]),
+                            mask_flat,
+                        )?;
+                        session.run(ort::inputs![
+                            image_name => input_image,
+                            mask_name => input_mask,
+                        ]?)?
+                    }
+                    _ => {
+                        let mask_vec: Vec<f32> = mask_flat.iter().map(|&x| x as f32).collect();
+                        let input_mask = ndarray::Array4::from_shape_vec(
+                            (mask_shape[0], mask_shape[1], mask_shape[2], mask_shape[3]),
+                            mask_vec,
+                        )?;
+                        session.run(ort::inputs![
+                            image_name => input_image,
+                            mask_name => input_mask,
+                        ]?)?
+                    }
+                };
+
+                let output_view = outputs[0].try_extract_tensor::<f32>()?;
+                let out_shape = output_view.shape();
+                let out_vec = output_view.to_slice().ok_or_else(|| anyhow::anyhow!("failed to slice output"))?.to_vec();
+                let output_tensor = Tensor::from_vec(
+                    out_vec,
+                    (out_shape[0], out_shape[1], out_shape[2], out_shape[3]),
+                    &Device::Cpu,
+                )?;
+                Ok(output_tensor)
+            }
+        }
     }
 
     #[instrument(level = "debug", skip_all)]
@@ -307,12 +438,12 @@ impl Lama {
         let rgb = image.to_rgb8().into_raw();
         let luma = mask.to_luma8().into_raw();
 
-        let image_tensor = (Tensor::from_vec(rgb, (1, h, w, 3), &self.device)?
+        let image_tensor = (Tensor::from_vec(rgb, (1, h, w, 3), self.device())?
             .permute((0, 3, 1, 2))?
             .to_dtype(DType::F32)?
             * (1. / 255.))?;
 
-        let mask_tensor = Tensor::from_vec(luma, (1, h, w, 1), &self.device)?
+        let mask_tensor = Tensor::from_vec(luma, (1, h, w, 1), self.device())?
             .permute((0, 3, 1, 2))?
             .to_dtype(DType::F32)?
             .gt(1.0f32)?;
