@@ -70,6 +70,27 @@ fn normalize_font_prediction(prediction: &mut FontPrediction) {
     }
 }
 
+fn intersection_over_union(a: &koharu_types::TextBlock, b: &koharu_types::TextBlock) -> f32 {
+    let x1 = a.x.max(b.x);
+    let y1 = a.y.max(b.y);
+    let x2 = (a.x + a.width).min(b.x + b.width);
+    let y2 = (a.y + a.height).min(b.y + b.height);
+
+    let intersection_width = (x2 - x1).max(0.0);
+    let intersection_height = (y2 - y1).max(0.0);
+    let intersection_area = intersection_width * intersection_height;
+
+    let area_a = a.width * a.height;
+    let area_b = b.width * b.height;
+    let union_area = area_a + area_b - intersection_area;
+
+    if union_area <= 0.0 {
+        0.0
+    } else {
+        intersection_area / union_area
+    }
+}
+
 pub struct Model {
     dialog_detector: ComicTextDetector,
     ocr_mit48px: Mit48pxOcr,
@@ -226,26 +247,6 @@ impl Model {
     /// `anime_yolo_confidence` overrides Anime Text YOLO's confidence
     /// threshold (None = module default 0.25). Clamped to a sane range;
     /// only consulted when the YOLO branch actually runs.
-fn intersection_over_union(a: &koharu_types::TextBlock, b: &koharu_types::TextBlock) -> f32 {
-    let x1 = a.x.max(b.x);
-    let y1 = a.y.max(b.y);
-    let x2 = (a.x + a.width).min(b.x + b.width);
-    let y2 = (a.y + a.height).min(b.y + b.height);
-
-    let intersection_width = (x2 - x1).max(0.0);
-    let intersection_height = (y2 - y1).max(0.0);
-    let intersection_area = intersection_width * intersection_height;
-
-    let area_a = a.width * a.height;
-    let area_b = b.width * b.height;
-    let union_area = area_a + area_b - intersection_area;
-
-    if union_area <= 0.0 {
-        0.0
-    } else {
-        intersection_area / union_area
-    }
-}
 
     /// Detect text blocks + bubble mask + fonts using the chosen
     /// detector engine. Falls back to the default if the requested

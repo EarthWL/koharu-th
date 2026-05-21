@@ -62,7 +62,7 @@ define_models! {
 /// only depends on `koharu_types::AnimeYoloVariant`.
 fn manifest_for(v: AnimeTextYoloVariant) -> Manifest {
     match v {
-        AnimeTextYoloVariant::N => Manifest::Yolo12n,
+        AnimeTextYoloVariant::N | AnimeTextYoloVariant::Auto => Manifest::Yolo12n,
         AnimeTextYoloVariant::S => Manifest::Yolo12s,
         AnimeTextYoloVariant::M => Manifest::Yolo12m,
         AnimeTextYoloVariant::L => Manifest::Yolo12l,
@@ -72,7 +72,7 @@ fn manifest_for(v: AnimeTextYoloVariant) -> Manifest {
 
 fn scale_for(v: AnimeTextYoloVariant) -> Yolo12Scale {
     match v {
-        AnimeTextYoloVariant::N => Yolo12Scale::N,
+        AnimeTextYoloVariant::N | AnimeTextYoloVariant::Auto => Yolo12Scale::N,
         AnimeTextYoloVariant::S => Yolo12Scale::S,
         AnimeTextYoloVariant::M => Yolo12Scale::M,
         AnimeTextYoloVariant::L => Yolo12Scale::L,

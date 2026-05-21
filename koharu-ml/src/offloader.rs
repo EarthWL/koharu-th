@@ -1,4 +1,3 @@
-use std::io::Read;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Precision {
@@ -34,7 +33,7 @@ struct MEMORYSTATUSEX {
 }
 
 #[cfg(windows)]
-extern "system" {
+unsafe extern "system" {
     fn GlobalMemoryStatusEx(lpBuffer: *mut MEMORYSTATUSEX) -> i32;
 }
 
