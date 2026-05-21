@@ -155,6 +155,7 @@ pub fn cuda_is_available() -> bool {
         vec![
             "cublas.dll",
             "cublas64.dll",
+            "cublas64_13.dll", // CUDA 13.x (Blackwell-era toolkits)
             "cublas64_12.dll",
             "cublas64_11.dll",
             "cublas64_10.dll",
@@ -163,6 +164,7 @@ pub fn cuda_is_available() -> bool {
     } else {
         vec![
             "libcublas.so",
+            "libcublas.so.13",
             "libcublas.so.12",
             "libcublas.so.11",
             "libcublas.so.10",

@@ -95,7 +95,7 @@ export default function SettingsPage() {
   const { data: backendAddons = [] } = useQuery({
     queryKey: ['app', 'addons'],
     queryFn: () => api.getInstalledAddons(),
-    enabled: !!window.__TAURI__,
+    enabled: !!(window as any).__TAURI__,
   })
   const locales = useMemo(
     () => {
@@ -112,6 +112,11 @@ export default function SettingsPage() {
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo>()
   const [mlDeviceSelection, setMlDeviceSelection] = useState<string>('AUTO')
   const [needsRelaunch, setNeedsRelaunch] = useState<boolean>(false)
+  // CUDA devices discovered at runtime via `nvidia-smi`. Empty when the
+  // machine has no NVIDIA GPU or the driver isn't installed.
+  const [cudaDevices, setCudaDevices] = useState<
+    Array<{ index: number; name: string }>
+  >([])
   const ocrEngine = usePreferencesStore((s) => s.ocrEngine)
   const setOcrEngine = usePreferencesStore((s) => s.setOcrEngine)
   const ocrSmartCloudFallback = usePreferencesStore(
@@ -139,7 +144,7 @@ export default function SettingsPage() {
   const inpaintEngine = usePreferencesStore((s) => s.inpaintEngine)
   const setInpaintEngine = usePreferencesStore((s) => s.setInpaintEngine)
   const smartPostProcess = usePreferencesStore((s) => s.smartPostProcess)
-  const setsmartPostProcess = usePreferencesStore((s) => s.setsmartPostProcess)
+  const setSmartPostProcess = usePreferencesStore((s) => s.setSmartPostProcess)
   const projectInfo = useProjectStore((s) => s.info)
   const cloudProvider = usePreferencesStore((s) => s.cloudProvider)
   const cloudModelName = usePreferencesStore((s) => s.cloudModelName)
@@ -204,6 +209,21 @@ export default function SettingsPage() {
         console.error('Failed to load ML device config', error)
       }
     }
+
+    const loadCudaDevices = async () => {
+      try {
+        // Rust returns `Vec<(usize, String)>` — reshape into our UI
+        // type so the dropdown can render named entries.
+        const raw = (await invoke('enumerate_cuda_devices')) as Array<
+          [number, string]
+        >
+        setCudaDevices(raw.map(([index, name]) => ({ index, name })))
+      } catch (error) {
+        // Non-fatal — UI just falls back to the static AUTO/CPU choices.
+        console.error('Failed to enumerate CUDA devices', error)
+      }
+    }
+    void loadCudaDevices()
 
     void loadDeviceInfo()
     void loadMlDeviceSelection()
@@ -703,7 +723,7 @@ export default function SettingsPage() {
                     role='switch'
                     aria-checked={smartPostProcess}
                     data-testid='settings-thai-post-process'
-                    onClick={() => setsmartPostProcess(!smartPostProcess)}
+                    onClick={() => setSmartPostProcess(!smartPostProcess)}
                     className={[
                       'focus-visible:ring-ring relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus-visible:ring-2 focus-visible:outline-none',
                       smartPostProcess ? 'bg-primary' : 'bg-input',
@@ -773,9 +793,14 @@ export default function SettingsPage() {
                         <SelectContent>
                           <SelectItem value='AUTO'>AUTO</SelectItem>
                           <SelectItem value='CPU'>CPU</SelectItem>
-                          <SelectItem value='CUDA:0'>CUDA:0</SelectItem>
-                          <SelectItem value='CUDA:1'>CUDA:1</SelectItem>
-                          <SelectItem value='CUDA:2'>CUDA:2</SelectItem>
+                          {cudaDevices.map((d) => (
+                            <SelectItem
+                              key={d.index}
+                              value={`CUDA:${d.index}`}
+                            >
+                              CUDA:{d.index} — {d.name}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>

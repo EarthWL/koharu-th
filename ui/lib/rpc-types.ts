@@ -199,10 +199,12 @@ export type RpcMethodMap = {
   // ── ML Device config + Relaunch ─────────────────────────────
   get_ml_device_config: [void, string]
   set_ml_device_config: [{ selection: string }, void]
+  enumerate_cuda_devices: [void, Array<[number, string]>]
   relaunch_app: [void, void]
   text_block_fit_to_bubble: [any, any]
   update_text_block: [any, any]
   collab_publish: [CollabEvent, boolean]
+  get_installed_addons: [void, string[]]
 }
 
 export type QueueStatus =

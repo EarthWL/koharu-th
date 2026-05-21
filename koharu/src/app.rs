@@ -697,6 +697,43 @@ pub async fn run() -> Result<()> {
         Ok(())
     }
 
+    /// Enumerate CUDA-capable GPUs by shelling out to `nvidia-smi`.
+    /// Returns `[(0, "NVIDIA GeForce RTX 3050"), ...]` — TS side
+    /// reshapes it to `{ index, name }`. Empty vec when no driver /
+    /// no CUDA GPU / nvidia-smi fails.
+    ///
+    /// Why nvidia-smi instead of CUDA driver API: nvidia-smi ships with
+    /// every NVIDIA driver install, while libcuda/cudart presence
+    /// depends on which CUDA Toolkit (if any) the user installed.
+    /// Probing the driver here would re-create the cublas DLL dance
+    /// we already do in `koharu_ml::cuda_is_available`.
+    ///
+    /// Returns `(usize, String)` tuples instead of a local struct
+    /// because `#[tauri::command]` requires the return type to be
+    /// nameable at module scope (a closure-local struct doesn't
+    /// satisfy the IPC reflection bounds).
+    #[tauri::command]
+    fn enumerate_cuda_devices() -> Vec<(usize, String)> {
+        let output = match std::process::Command::new("nvidia-smi")
+            .args(["--query-gpu=name", "--format=csv,noheader"])
+            .output()
+        {
+            Ok(o) if o.status.success() => o,
+            _ => return Vec::new(),
+        };
+        let stdout = match std::str::from_utf8(&output.stdout) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        stdout
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .enumerate()
+            .map(|(index, name)| (index, name.to_string()))
+            .collect()
+    }
+
     #[tauri::command]
     fn get_installed_addons() -> Vec<String> {
         let mut addons = Vec::new();
@@ -720,6 +757,7 @@ pub async fn run() -> Result<()> {
             relaunch_app,
             get_ml_device_config,
             set_ml_device_config,
+            enumerate_cuda_devices,
             get_installed_addons
         ])
         .setup({
