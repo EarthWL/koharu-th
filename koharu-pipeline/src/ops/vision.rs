@@ -1,4 +1,4 @@
-use koharu_api::commands::{DetectPayload, IndexPayload, InpaintPayload, OcrPayload, RenderPayload};
+use koharu_api::commands::{DetectPayload, InpaintPayload, OcrPayload, RenderPayload};
 use tracing::instrument;
 
 use crate::{AppResources, state_tx};

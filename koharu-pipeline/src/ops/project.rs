@@ -1763,7 +1763,7 @@ async fn do_single_llm_call_with_creds(
         &db_model_name
     };
 
-    let mut max_retries = 5;
+    let max_retries = 5;
     let mut delay = std::time::Duration::from_millis(1000);
     let mut attempt = 0;
 

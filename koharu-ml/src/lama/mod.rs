@@ -613,6 +613,7 @@ fn non_zero_bbox(mask: &GrayImage) -> Option<Xyxy> {
     ])
 }
 
+#[allow(dead_code)]
 fn clear_mask_bbox(mask: &mut GrayImage, bbox: Xyxy) {
     for y in bbox[1]..bbox[3] {
         for x in bbox[0]..bbox[2] {

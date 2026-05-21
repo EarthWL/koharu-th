@@ -20,6 +20,7 @@ pub enum MemoryStrategy {
 #[cfg(windows)]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+#[allow(non_snake_case)]
 struct MEMORYSTATUSEX {
     dwLength: u32,
     dwMemoryLoad: u32,

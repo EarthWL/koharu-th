@@ -4,8 +4,6 @@
 //! hitting browser CORS.
 
 use std::time::Duration;
-
-use anyhow::Context;
 use koharu_api::commands::{
     ChatClearResult, ChatListPayload, ChatMessageAddPayload, ChatMessageDeleteFromPayload,
     ChatMessageDeletePayload, ChatMessageDto, WebFetchPayload, WebFetchResult,
