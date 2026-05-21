@@ -64,6 +64,12 @@ export type ToolCall = {
   name: string
   /** JSON-stringified arguments. */
   arguments: string
+  /** Gemini-only: opaque base64 signature attached to the model's
+   *  function-call part. Must be echoed back verbatim on the next
+   *  request, otherwise Gemini 2.5+ returns 400 "Function call is
+   *  missing a thought_signature in functionCall parts."
+   *  See https://ai.google.dev/gemini-api/docs/thought-signatures */
+  thoughtSignature?: string
 }
 
 export type ChatMessage = {
@@ -680,7 +686,13 @@ function toGeminiContents(msgs: ChatMessage[]) {
         } catch {
           parsed = {}
         }
-        parts.push({ functionCall: { name: c.name, args: parsed } })
+        // Echo back `thoughtSignature` if the model issued one.
+        // Required by Gemini 2.5+; missing it yields HTTP 400.
+        const part: any = { functionCall: { name: c.name, args: parsed } }
+        if (c.thoughtSignature) {
+          part.thoughtSignature = c.thoughtSignature
+        }
+        parts.push(part)
       }
       out.push({ role: 'model', parts })
     } else if (m.role === 'user' && m.attachments?.length) {
@@ -798,10 +810,20 @@ async function callGemini(
         text += p.text
         onEvent({ kind: 'text-delta', delta: p.text })
       } else if (p.functionCall) {
+        // Preserve thoughtSignature (Gemini 2.5+ requirement).
+        // The SDK uses camelCase `thoughtSignature` in JSON; some
+        // intermediaries may surface the snake_case form, so accept both.
+        const sig: string | undefined =
+          typeof p.thoughtSignature === 'string'
+            ? p.thoughtSignature
+            : typeof p.thought_signature === 'string'
+              ? p.thought_signature
+              : undefined
         toolCalls.push({
           id: `gemini-${Math.random().toString(36).slice(2, 10)}`,
           name: p.functionCall.name,
           arguments: JSON.stringify(p.functionCall.args ?? {}),
+          ...(sig ? { thoughtSignature: sig } : {}),
         })
       }
     }
