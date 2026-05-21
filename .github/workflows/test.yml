@@ -18,6 +18,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-targets: false
+      - uses: Jimver/cuda-toolkit@master
+        with:
+          cuda: '12.8.0'
       - uses: ilammy/msvc-dev-cmd@v1
       - run: cargo test --no-run
       - run: cargo test --workspace --tests
