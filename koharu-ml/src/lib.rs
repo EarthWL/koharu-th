@@ -177,5 +177,40 @@ pub fn cuda_is_available() -> bool {
             .any(|&lib_name| libloading::Library::new(lib_name).is_ok())
     };
 
-    cublas_ok
+    if !cublas_ok {
+        return false;
+    }
+
+    // candle's CUDA convolution path goes through cuDNN even when the
+    // `cudnn` cargo feature is off — cudarc 0.19+ statically links the
+    // cudnn module whenever the cuda backend is built. So if cuDNN
+    // isn't installed the first conv2d call panics with
+    //   `unwrap()` on Err(CudnnError(CUDNN_STATUS_INTERNAL_ERROR))
+    // at cudarc-0.19.7/src/cudnn/safe/core.rs:43.
+    // Detect the entry-point DLL up front and refuse CUDA when it's
+    // missing — the caller falls back to CPU gracefully instead of
+    // crashing later.
+    let cudnn_libs = if cfg!(target_os = "windows") {
+        vec![
+            "cudnn64_9.dll",
+            "cudnn64_8.dll",
+            "cudnn_graph64_9.dll", // cuDNN 9 split: graph component is required
+        ]
+    } else {
+        vec!["libcudnn.so", "libcudnn.so.9", "libcudnn.so.8"]
+    };
+    let cudnn_ok = unsafe {
+        cudnn_libs
+            .iter()
+            .any(|&lib_name| libloading::Library::new(lib_name).is_ok())
+    };
+    if !cudnn_ok {
+        tracing::warn!(
+            "CUDA + cuBLAS detected but cuDNN is missing — falling back to CPU. \
+             Install cuDNN 9.x from https://developer.nvidia.com/cudnn-downloads to enable GPU acceleration."
+        );
+        return false;
+    }
+
+    true
 }

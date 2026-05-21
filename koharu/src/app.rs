@@ -233,6 +233,12 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
 
     tracing_subscriber::fmt()
         .with_span_events(FmtSpan::CLOSE)
+        // Disable ANSI colour escapes — both the stderr writer (which
+        // GUI builds don't have a TTY for) and the file writer (Notepad
+        // and most plain-text viewers render `\x1b[32m` etc. as garbage
+        // boxes, which is why C:\Users\…\KoharuTH\logs\koharu.log
+        // previously looked unreadable).
+        .with_ansi(false)
         .with_env_filter(
             tracing_subscriber::filter::EnvFilter::builder()
                 .with_default_directive(tracing::Level::INFO.into())
@@ -387,9 +393,15 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
              Error: {}\n\
              Location: {}\n\n\
              A detailed diagnostic crash dump has been saved to:\n\
-             {:?}\n\n\
+             {}\n\n\
              Please report this issue to the Koharu-TH developers.",
-            payload, location, crash_path
+            payload,
+            location,
+            // Use Display, not Debug — Debug formats PathBuf as a
+            // quoted Rust-escaped string (`"\\\\?\\C:\\Users\\..."`)
+            // which leaks the verbatim `\\?\` prefix and double-escapes
+            // every backslash. Display renders a clean OS path.
+            crash_path.display(),
         );
 
         if headless {
