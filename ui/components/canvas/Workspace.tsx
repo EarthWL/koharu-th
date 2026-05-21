@@ -789,16 +789,21 @@ export function Workspace() {
             {hudMessage}
           </div>
         )}
+        {/* KomorebiTaskbar uses `absolute bottom-6` so it must live
+         *  inside the nearest positioned ancestor — this `relative`
+         *  canvas container — otherwise it pins relative to the
+         *  outer flex root (or <body>) and overlaps the
+         *  WorkspaceStatusBar row in app/(app)/page.tsx. */}
+        <KomorebiTaskbar
+          onToggleChat={() => setIsChatOpen(!isChatOpen)}
+          isChatOpen={isChatOpen}
+          onQuickTranslate={handleQuickTranslate}
+          isTranslating={isTranslating}
+          onPlayTTS={handlePlayTTS}
+          isPlayingTTS={isPlayingTTS}
+        />
       </div>
       <ShortcutsCheatSheetDialog />
-      <KomorebiTaskbar
-        onToggleChat={() => setIsChatOpen(!isChatOpen)}
-        isChatOpen={isChatOpen}
-        onQuickTranslate={handleQuickTranslate}
-        isTranslating={isTranslating}
-        onPlayTTS={handlePlayTTS}
-        isPlayingTTS={isPlayingTTS}
-      />
       <KomorebiChatOverlay
         isOpen={isChatOpen}
         onClose={() => {
