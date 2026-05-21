@@ -3,7 +3,22 @@ name: Build
 on:
   push:
     branches: ['main', 'feat/ux-improvements']
+    paths-ignore:
+      - '**.md'
+      - '.git*'
+      - 'docs/**'
+      - 'assets/**'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - '.git*'
+      - 'docs/**'
+      - 'assets/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
