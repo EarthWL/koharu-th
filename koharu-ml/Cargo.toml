@@ -41,6 +41,7 @@ objc2-metal-performance-shaders = { workspace = true, optional = true }
 objc2-metal-performance-shaders-graph = { workspace = true, optional = true }
 objc2-foundation = { workspace = true, optional = true }
 ort = { workspace = true, optional = true }
+ndarray = { version = "0.15", optional = true }
 
 [features]
 cuda = [
@@ -64,6 +65,7 @@ dml = [
     "ort",
     "ort/directml",
     "ort/copy-dylibs",
+    "ndarray",
 ]
 
 [dev-dependencies]
