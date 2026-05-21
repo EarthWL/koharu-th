@@ -713,7 +713,31 @@ function toGeminiContents(msgs: ChatMessage[]) {
       })
     }
   }
-  return out
+  // Gemini rejects requests where two consecutive turns have the same
+  // `role` (e.g. model→model, user→user). This can happen when the
+  // upstream chat layer emits a plain-text assistant turn immediately
+  // followed by a tool-calling assistant turn — both map to `model`
+  // here — and surfaces as HTTP 400 INVALID_ARGUMENT:
+  //   "Please ensure that function call turn comes immediately after
+  //    a user turn or after a function response turn."
+  // Merge same-role neighbours by concatenating their `parts` so the
+  // alternation contract holds.
+  return mergeConsecutiveSameRole(out)
+}
+
+function mergeConsecutiveSameRole(
+  turns: Array<{ role: string; parts: any[] }>,
+): Array<{ role: string; parts: any[] }> {
+  const merged: Array<{ role: string; parts: any[] }> = []
+  for (const turn of turns) {
+    const last = merged[merged.length - 1]
+    if (last && last.role === turn.role) {
+      last.parts.push(...turn.parts)
+    } else {
+      merged.push({ role: turn.role, parts: [...turn.parts] })
+    }
+  }
+  return merged
 }
 
 function stripAdditionalProperties(schema: any): any {
