@@ -98,30 +98,36 @@ export async function fetchGeminiModels(
   return filterAccessibleModels(catalog, apiKey)
 }
 
-/** Probe a single model with :countTokens. Returns:
- *  - true if model is callable
- *  - false if the API explicitly rejects access (403/404)
- *  - true (keep) if the probe fails for transient reasons (429/5xx/network)
+/** Probe a single model with `generateContent` (1-token output). Tighter
+ *  filter than `:countTokens` — Gemini gladly returns token counts for
+ *  preview-only models the key can't actually call. `generateContent`
+ *  surfaces the real permission via 403/404 and lets us drop those.
+ *
+ *  Returns:
+ *   - true if the model accepted the call
+ *   - false if the API explicitly rejects access (400/403/404)
+ *   - true (keep) on transient failures (429/5xx/network)
  */
 async function isModelAccessible(
   modelId: string,
   apiKey: string,
 ): Promise<boolean> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:countTokens?key=${encodeURIComponent(apiKey)}`
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:generateContent?key=${encodeURIComponent(apiKey)}`
   try {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: 'ok' }] }],
+        // Cap to 1 token so the probe costs the bare minimum.
+        generationConfig: { maxOutputTokens: 1 },
       }),
     })
     if (res.ok) return true
     // 403 PERMISSION_DENIED → key lacks access (paid-tier, geo-block, ToS).
     // 404 NOT_FOUND → model id retired or not yet available to this key.
-    // 400 INVALID_ARGUMENT for a known-good probe payload usually means
-    // the model can't accept this content shape (e.g., image-only) — drop.
-    if (res.status === 403 || res.status === 404 || res.status === 400) {
+    // 400 with FAILED_PRECONDITION on preview models = same outcome (drop).
+    if (res.status === 400 || res.status === 403 || res.status === 404) {
       return false
     }
     // Transient (429 rate-limit, 5xx, etc.) — keep the model so a

@@ -642,9 +642,26 @@ async function callAnthropic(
 
 function toGeminiContents(msgs: ChatMessage[]) {
   const out: any[] = []
+  // Build a set of toolCall ids that the upstream actually invoked
+  // (i.e. appear in an assistant.toolCalls). Tool messages whose
+  // toolCallId isn't in this set are orphans — usually from a prior
+  // mid-session crash that lost the assistant turn — and Gemini will
+  // reject them with `function response turn comes before a function
+  // call turn`. We drop them defensively.
+  const knownCallIds = new Set<string>()
+  for (const m of msgs) {
+    if (m.role === 'assistant' && m.toolCalls?.length) {
+      for (const c of m.toolCalls) knownCallIds.add(c.id)
+    }
+  }
   for (let i = 0; i < msgs.length; i++) {
     const m = msgs[i]
     if (m.role === 'system') continue
+    if (m.role === 'tool' && (!m.toolCallId || !knownCallIds.has(m.toolCallId))) {
+      // Orphan tool result — skip so Gemini doesn't see a
+      // functionResponse without a preceding functionCall.
+      continue
+    }
     if (m.role === 'tool') {
       // Gemini's `functionResponse.name` must match the FUNCTION NAME
       // of the originating `functionCall`, not the OpenAI-style tool
@@ -677,8 +694,15 @@ function toGeminiContents(msgs: ChatMessage[]) {
         ],
       })
     } else if (m.role === 'assistant' && m.toolCalls?.length) {
+      // Gemini is finicky about mixing text + functionCall in the same
+      // model turn — it treats the functionCall as appearing AFTER the
+      // text part rather than as the leading action, which violates the
+      // "function call turn must come immediately after user /
+      // functionResponse" rule. Split: emit text as its own model turn
+      // (later collapsed into the previous user turn by the merge step
+      // — except merge keeps role contracts intact, so just don't emit
+      // text here at all when there's a functionCall to issue).
       const parts: any[] = []
-      if (m.content) parts.push({ text: m.content })
       for (const c of m.toolCalls) {
         let parsed: any = {}
         try {

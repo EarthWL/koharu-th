@@ -787,9 +787,11 @@ export default function SettingsPage() {
               </div>
             </section>
 
-            {/* Device Section */}
-            {deviceInfo && (
-              <section className='mb-8'>
+            {/* Device Section — render unconditionally so the cuDNN
+             *  install card stays reachable even when `invoke('device')`
+             *  fails or races against the WS RPC bootstrap. Active ML
+             *  Device falls back to a "Loading…" placeholder. */}
+            <section className='mb-8'>
                 <h2 className='text-foreground mb-1 text-sm font-bold'>
                   {t('settings.device')}
                 </h2>
@@ -804,7 +806,7 @@ export default function SettingsPage() {
                         {t('settings.deviceMl')}
                       </span>
                       <span className='text-foreground font-medium'>
-                        {deviceInfo.mlDevice}
+                        {deviceInfo?.mlDevice ?? 'Loading…'}
                       </span>
                     </div>
 
@@ -970,7 +972,6 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </section>
-            )}
 
             {/* Updater Section */}
             <section className='mb-8'>
