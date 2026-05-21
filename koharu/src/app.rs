@@ -714,10 +714,21 @@ pub async fn run() -> Result<()> {
     /// satisfy the IPC reflection bounds).
     #[tauri::command]
     fn enumerate_cuda_devices() -> Vec<(usize, String)> {
-        let output = match std::process::Command::new("nvidia-smi")
-            .args(["--query-gpu=name", "--format=csv,noheader"])
-            .output()
+        let mut cmd = std::process::Command::new("nvidia-smi");
+        cmd.args(["--query-gpu=name", "--format=csv,noheader"]);
+
+        // On Windows the koharu.exe runs without a console (GUI subsystem).
+        // Spawning a child console process without CREATE_NO_WINDOW flashes
+        // a cmd window on every invocation AND can break stdio piping on
+        // some Tauri/WebView configurations. Detach + hide.
+        #[cfg(target_os = "windows")]
         {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        let output = match cmd.output() {
             Ok(o) if o.status.success() => o,
             _ => return Vec::new(),
         };
