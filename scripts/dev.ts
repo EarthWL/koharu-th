@@ -97,18 +97,58 @@ async function setupCl() {
   const vsRoot = 'C:/Program Files/Microsoft Visual Studio'
   const vsVersions = await readdir(vsRoot).catch(() => [])
 
+  // Try each VS edition (BuildTools, Community, Professional, Enterprise).
+  // Most workstations have only one, but be thorough.
+  const editions = ['BuildTools', 'Community', 'Professional', 'Enterprise']
+
   for (const vsVersion of vsVersions) {
-    const vcPath = path.join(vsRoot, vsVersion, 'Community/VC/Tools/MSVC')
-    if (await pathExists(vcPath)) {
-      const msvcVersions = await readdir(vcPath)
+    for (const edition of editions) {
+      const vcPath = path.join(vsRoot, vsVersion, edition, 'VC/Tools/MSVC')
+      if (!(await pathExists(vcPath))) continue
+
+      const msvcVersionsAll = await readdir(vcPath)
+      // Pick the highest MSVC version available so we use the toolchain
+      // that ships with the most recent Windows SDK lib layout.
+      const msvcVersions = sortVersionsDesc([...msvcVersionsAll])
+
       for (const msvcVersion of msvcVersions) {
         const binPath = path.join(vcPath, msvcVersion, 'bin/Hostx64/x64')
-        if (await pathExists(binPath)) {
-          process.env.PATH = `${binPath}${path.delimiter}${process.env.PATH}`
+        if (!(await pathExists(binPath))) continue
 
-          console.log(`Added cl.exe to PATH: ${binPath}`)
-          return
+        process.env.PATH = `${binPath}${path.delimiter}${process.env.PATH}`
+        console.log(`Added cl.exe to PATH: ${binPath}`)
+
+        // Pick the lib folder that actually has msvcrt.lib. Standard
+        // installs ship `lib/x64/`; minimal/onecore-only installs ship
+        // `lib/onecore/x64/`. Probe in that order and use the first
+        // one that exists, otherwise the linker fails with
+        //   LINK : fatal error LNK1104: cannot open file 'msvcrt.lib'
+        const libCandidates = [
+          path.join(vcPath, msvcVersion, 'lib/x64'),
+          path.join(vcPath, msvcVersion, 'lib/onecore/x64'),
+        ]
+        let msvcLib: string | null = null
+        for (const candidate of libCandidates) {
+          if (await pathExists(candidate)) {
+            msvcLib = candidate
+            break
+          }
         }
+        if (!msvcLib) {
+          console.warn(
+            `[koharu] MSVC ${msvcVersion} has neither lib/x64 nor lib/onecore/x64 — skipping.`,
+          )
+          continue
+        }
+
+        const msvcInclude = path.join(vcPath, msvcVersion, 'include')
+
+        // Wire up LIB / INCLUDE for the linker. Without these the
+        // build fails with `LNK1104: cannot open file 'msvcrt.lib'`
+        // because link.exe can't locate the CRT/Windows SDK libs
+        // even though cl.exe is on PATH.
+        await augmentMsvcEnv(msvcLib, msvcInclude)
+        return
       }
     }
   }
@@ -116,6 +156,57 @@ async function setupCl() {
   throw new Error(
     'cl.exe not found. Please install Visual Studio with C++ build tools from https://visualstudio.microsoft.com/downloads/',
   )
+}
+
+/**
+ * Append MSVC's own lib/include directories + the latest Windows SDK
+ * lib/include directories to the LIB / INCLUDE env vars. Mirrors what
+ * `vcvarsall.bat x64` does, but inline so we don't need a batch
+ * subshell wrapping every cargo invocation.
+ */
+async function augmentMsvcEnv(msvcLib: string, msvcInclude: string) {
+  const libParts = [msvcLib]
+  const includeParts = [msvcInclude]
+
+  // Locate the Windows 10/11 SDK. Both Lib/ and Include/ are versioned
+  // (e.g. 10.0.22621.0); pick the newest installed version.
+  const sdkRoot = 'C:/Program Files (x86)/Windows Kits/10'
+  const sdkLibRoot = path.join(sdkRoot, 'Lib')
+  const sdkIncludeRoot = path.join(sdkRoot, 'Include')
+
+  if (await pathExists(sdkLibRoot)) {
+    const sdkVersionsRaw = await readdir(sdkLibRoot)
+    // Windows SDK versions look like "10.0.22621.0"; sort descending
+    // numerically by joining segments so the newest wins.
+    const sdkVersions = sdkVersionsRaw
+      .filter((v) => /^10\.\d/.test(v))
+      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
+
+    for (const sdkVer of sdkVersions) {
+      const ucrtLib = path.join(sdkLibRoot, sdkVer, 'ucrt/x64')
+      const umLib = path.join(sdkLibRoot, sdkVer, 'um/x64')
+      if ((await pathExists(ucrtLib)) && (await pathExists(umLib))) {
+        libParts.push(ucrtLib, umLib)
+        // Mirror the include side from the same SDK version.
+        const sdkIncludeBase = path.join(sdkIncludeRoot, sdkVer)
+        for (const sub of ['ucrt', 'um', 'shared', 'winrt', 'cppwinrt']) {
+          const inc = path.join(sdkIncludeBase, sub)
+          if (await pathExists(inc)) includeParts.push(inc)
+        }
+        console.log(`Added Windows SDK ${sdkVer} libs to LIB/INCLUDE`)
+        break
+      }
+    }
+  }
+
+  const existingLib = process.env.LIB ?? ''
+  const existingInclude = process.env.INCLUDE ?? ''
+  process.env.LIB = existingLib
+    ? `${libParts.join(path.delimiter)}${path.delimiter}${existingLib}`
+    : libParts.join(path.delimiter)
+  process.env.INCLUDE = existingInclude
+    ? `${includeParts.join(path.delimiter)}${path.delimiter}${existingInclude}`
+    : includeParts.join(path.delimiter)
 }
 
 /**
