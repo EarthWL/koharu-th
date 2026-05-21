@@ -363,9 +363,16 @@ impl KoharuMcp {
     )]
     async fn inpaint(&self, Parameters(p): Parameters<IndexPayload>) -> Result<String, String> {
         let res = self.resources()?;
-        operations::inpaint(res, p)
-            .await
-            .map_err(|e| e.to_string())?;
+        operations::inpaint(
+            res,
+            InpaintPayload {
+                index: p.index,
+                inpaint_engine: None,
+                inpaint_max_side: None,
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
         Ok("Inpainting complete".to_string())
     }
 
@@ -431,6 +438,7 @@ impl KoharuMcp {
                 index: p.index,
                 text_block_index: p.text_block_index,
                 language: p.language,
+                context: p.context,
             },
         )
         .await
