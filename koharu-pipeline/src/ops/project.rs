@@ -1693,7 +1693,7 @@ pub async fn provider_profile_remove(
 #[cfg(windows)]
 fn check_debugger() -> anyhow::Result<()> {
     #[link(name = "kernel32")]
-    extern "system" {
+    unsafe extern "system" {
         fn IsDebuggerPresent() -> i32;
     }
     unsafe {
@@ -2636,7 +2636,7 @@ pub async fn project_backup_restore(
 }
 
 #[cfg(windows)]
-extern "system" {
+unsafe extern "system" {
     fn GetDiskFreeSpaceExW(
         lpDirectoryName: *const u16,
         lpFreeBytesAvailableToCaller: *mut u64,

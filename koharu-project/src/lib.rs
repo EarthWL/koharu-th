@@ -15,7 +15,7 @@ pub mod cbz;
 pub mod chapter;
 pub mod character;
 pub mod chat;
-mod db;
+pub mod db;
 mod error;
 pub mod glossary;
 mod manifest;

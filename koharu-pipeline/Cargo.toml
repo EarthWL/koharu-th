@@ -36,3 +36,4 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 walkdir = "2"
 libc = { workspace = true }
+zip = { workspace = true }
