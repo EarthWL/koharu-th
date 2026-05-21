@@ -1,5 +1,4 @@
-use anyhow::Result;
-use tracing::{info, warn};
+use tracing::info;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HardwareBackend {
