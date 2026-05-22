@@ -67,6 +67,9 @@
   IfFileExists "$LOCALAPPDATA\KoharuTH\hf\*.*" koharu_purge_ask
   IfFileExists "$LOCALAPPDATA\KoharuTH\models\*.*" koharu_purge_ask
   IfFileExists "$LOCALAPPDATA\KoharuTH\fonts\*.*" koharu_purge_ask
+  ; runtime/ holds the auto-installed cuDNN + CUDA helper DLLs (~700 MB)
+  ; — a major leftover if not purged.
+  IfFileExists "$LOCALAPPDATA\KoharuTH\runtime\*.*" koharu_purge_ask
   IfFileExists "$LOCALAPPDATA\KoharuTH\recent-projects.json" koharu_purge_ask
   IfFileExists "$LOCALAPPDATA\KoharuTH\ml-device.json" koharu_purge_ask
   Goto koharu_purge_not_ours
@@ -103,6 +106,16 @@ koharu_purge_verified:
 
   DetailPrint "Deleting custom fonts cache (fonts)..."
   RMDir /r "$LOCALAPPDATA\KoharuTH\fonts"
+
+  DetailPrint "Deleting GPU runtime (cuDNN / CUDA helper libraries)..."
+  RMDir /r "$LOCALAPPDATA\KoharuTH\runtime"
+
+  DetailPrint "Deleting logs and crash dumps..."
+  RMDir /r "$LOCALAPPDATA\KoharuTH\logs"
+  RMDir /r "$LOCALAPPDATA\KoharuTH\crashes"
+
+  DetailPrint "Deleting embedded WebView2 data (EBWebView)..."
+  RMDir /r "$LOCALAPPDATA\KoharuTH\EBWebView"
 
   DetailPrint "Deleting saved settings (recent-projects.json)..."
   Delete "$LOCALAPPDATA\KoharuTH\recent-projects.json"
