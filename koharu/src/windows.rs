@@ -223,8 +223,12 @@ pub fn register_cuda_toolkit_dll_path() {
 }
 
 /// Candidate CUDA Toolkit `bin` directories in priority order: the
-/// installer-exported `CUDA_PATH` / `CUDA_PATH_V*` env vars first, then the
-/// default install root scanned newest-version-first.
+/// installer-exported `CUDA_PATH` / `CUDA_PATH_V*` env vars first, then any
+/// `PATH` entry (the loader searches PATH before we restrict it, so that is
+/// exactly where `cuda_is_available()`'s probe found cuBLAS), then the
+/// default install root scanned newest-version-first. The caller only adds
+/// the entries that actually contain a cuBLAS DLL, so listing all of PATH
+/// is safe and covers non-standard CUDA layouts.
 fn cuda_toolkit_bin_candidates() -> Vec<std::path::PathBuf> {
     use std::path::PathBuf;
     let mut out: Vec<PathBuf> = Vec::new();
@@ -235,6 +239,16 @@ fn cuda_toolkit_bin_candidates() -> Vec<std::path::PathBuf> {
             let bin = PathBuf::from(val).join("bin");
             if !out.contains(&bin) {
                 out.push(bin);
+            }
+        }
+    }
+
+    // PATH entries verbatim — these dirs are already the loader's view, so a
+    // cuBLAS-bearing one here is precisely what the startup probe matched.
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path) {
+            if !out.contains(&dir) {
+                out.push(dir);
             }
         }
     }
