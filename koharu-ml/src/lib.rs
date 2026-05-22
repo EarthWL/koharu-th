@@ -224,5 +224,53 @@ pub fn cuda_is_available() -> bool {
         return false;
     }
 
+    // DLLs load — but loadable != usable. Verify CUDA + cuBLAS + cuDNN
+    // actually EXECUTE before committing to the GPU. cudarc 0.19 `unwrap()`s
+    // internally and panics on a broken/mismatched toolkit (e.g.
+    // CUDNN_STATUS_INTERNAL_ERROR from a cuDNN/CUDA version mismatch), which
+    // callers cannot catch. The cached smoke test runs a real conv2d under a
+    // silenced `catch_unwind` so any such failure degrades to CPU instead of
+    // crashing the whole app.
+    if !cuda_smoke_test_passes() {
+        return false;
+    }
+
     true
+}
+
+static CUDA_SMOKE_OK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+/// Run a one-shot GPU smoke test: a tiny `conv2d` (the op routed through
+/// cuBLAS + cuDNN). cudarc panics internally on a broken toolkit, so we run
+/// it under `catch_unwind` with the global fatal-crash panic hook silenced
+/// for the probe's duration — a failure is expected on some machines and is
+/// handled by falling back to CPU, so it must not pop the crash dialog or
+/// `exit(1)`. Cached: at most one real run per process.
+fn cuda_smoke_test_passes() -> bool {
+    *CUDA_SMOKE_OK.get_or_init(|| {
+        let prev_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let dev = candle_core::Device::new_cuda(0).ok()?;
+            let input =
+                candle_core::Tensor::zeros((1usize, 1, 8, 8), candle_core::DType::F32, &dev).ok()?;
+            let kernel =
+                candle_core::Tensor::zeros((1usize, 1, 3, 3), candle_core::DType::F32, &dev).ok()?;
+            // conv2d exercises the cuDNN path; to_vec4 forces the lazy GPU op
+            // to actually execute + synchronise so errors surface here.
+            let out = input.conv2d(&kernel, 0, 1, 1, 1).ok()?;
+            out.to_vec4::<f32>().ok()?;
+            Some(())
+        }))
+        .ok()
+        .flatten()
+        .is_some();
+        std::panic::set_hook(prev_hook);
+        if !ok {
+            tracing::warn!(
+                "CUDA smoke test failed (cuBLAS/cuDNN runtime error) — falling back to CPU."
+            );
+        }
+        ok
+    })
 }
