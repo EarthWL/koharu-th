@@ -181,6 +181,13 @@ type PreferencesState = {
   favoriteFonts: string[]
   toggleFavoriteFont: (font: string) => void
 
+  /** Developer mode — default off. When on, the error system surfaces
+   *  full debug diagnostics (raw error, RPC method, telemetry, stack)
+   *  for EVERY error via the ErrorDialog, instead of auto-dismissing
+   *  simple toasts. Toggled from the About page. */
+  developerMode: boolean
+  setDeveloperMode: (enabled: boolean) => void
+
   resetPreferences: () => void
 }
 
@@ -209,6 +216,7 @@ const initialPreferences = {
   llmFailoverPriority: [] as number[],
   installedAddons: [] as string[],
   favoriteFonts: [] as string[],
+  developerMode: false,
 }
 
 /**
@@ -319,6 +327,7 @@ export const usePreferencesStore = create<PreferencesState>()(
             : [...(state.favoriteFonts || []), font]
           return { favoriteFonts }
         }),
+      setDeveloperMode: (enabled) => set({ developerMode: enabled }),
       resetPreferences: () => set({ ...initialPreferences }),
     }),
     {

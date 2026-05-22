@@ -12,6 +12,9 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { invoke, isTauri } from '@/lib/backend'
 import { useDocumentMutations } from '@/lib/query/mutations'
+import { usePreferencesStore } from '@/lib/stores/preferencesStore'
+import { useUiErrorStore } from '@/lib/stores/uiErrorStore'
+import { CodeIcon } from 'lucide-react'
 import Image from 'next/image'
 
 const GITHUB_REPO = 'EarthWL/koharu-th'
@@ -22,6 +25,8 @@ type VersionStatus = 'loading' | 'latest' | 'outdated' | 'error'
 export default function AboutPage() {
   const { t } = useTranslation()
   const { openExternal } = useDocumentMutations()
+  const developerMode = usePreferencesStore((s) => s.developerMode)
+  const setDeveloperMode = usePreferencesStore((s) => s.setDeveloperMode)
 
   const [appVersion, setAppVersion] = useState<string>()
   const [latestVersion, setLatestVersion] = useState<string>()
@@ -227,6 +232,69 @@ export default function AboutPage() {
                     GPL-3.0 · Apache-2.0
                   </button>
                 </div>
+              </div>
+            </div>
+
+            {/* Developer section — default off. When enabled, the error
+             *  system surfaces full debug diagnostics (raw error + RPC
+             *  method + telemetry + stack) for every error via the
+             *  ErrorDialog, instead of auto-dismissing simple toasts. */}
+            <div className='bg-card border-border mt-4 rounded-lg border p-4'>
+              <div className='flex items-start justify-between gap-3'>
+                <div className='flex flex-col gap-0.5'>
+                  <span className='text-foreground flex items-center gap-1.5 text-sm font-medium'>
+                    <CodeIcon className='size-3.5' />
+                    {t('about.developerTitle', 'นักพัฒนา')}
+                  </span>
+                  <span className='text-muted-foreground text-xs'>
+                    {t(
+                      'about.developerDesc',
+                      'เปิดโหมด debug — แสดงรายละเอียดข้อผิดพลาดเชิงลึก (raw error, RPC method, telemetry, stack) ใน error box ทุกครั้ง',
+                    )}
+                  </span>
+                </div>
+                <button
+                  role='switch'
+                  aria-checked={developerMode}
+                  aria-label={t('about.developerTitle', 'นักพัฒนา')}
+                  onClick={() => {
+                    const next = !developerMode
+                    setDeveloperMode(next)
+                    // Immediate feedback that the debug error channel is
+                    // now live — itself routed through the error box so
+                    // the user sees exactly what dev mode changes.
+                    if (next) {
+                      useUiErrorStore
+                        .getState()
+                        .showError(
+                          t(
+                            'about.developerEnabled',
+                            'เปิดโหมดนักพัฒนาแล้ว — error box จะแสดง debug detail',
+                          ),
+                          {
+                            code: 'DEV-MODE-ON',
+                            msgTh: t(
+                              'about.developerEnabled',
+                              'เปิดโหมดนักพัฒนาแล้ว — error box จะแสดง debug detail',
+                            ),
+                            details:
+                              'Developer mode enabled. All errors now surface full diagnostics via the debug ErrorDialog.',
+                          },
+                        )
+                    }
+                  }}
+                  className={
+                    'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ' +
+                    (developerMode ? 'bg-primary' : 'bg-muted-foreground/30')
+                  }
+                >
+                  <span
+                    className={
+                      'inline-block size-4 transform rounded-full bg-white transition-transform ' +
+                      (developerMode ? 'translate-x-4' : 'translate-x-0.5')
+                    }
+                  />
+                </button>
               </div>
             </div>
           </div>
