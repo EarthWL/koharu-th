@@ -200,7 +200,14 @@ pub async fn web_fetch_url(
 }
 
 fn looks_like_html(s: &str) -> bool {
-    let head = &s[..s.len().min(2048)].to_ascii_lowercase();
+    // Cap the scan to ~2 KB, backing off to a UTF-8 char boundary so a
+    // multi-byte sequence (common on non-ASCII pages) is never split — a
+    // raw `&s[..2048]` slice panics when 2048 lands mid-character.
+    let mut end = s.len().min(2048);
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    let head = s[..end].to_ascii_lowercase();
     head.contains("<html") || head.contains("<!doctype html")
 }
 
