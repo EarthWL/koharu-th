@@ -217,21 +217,23 @@ export default function SettingsPage() {
     if (!isTauri()) return
 
     const loadDeviceInfo = async () => {
-      // `device` goes through the WS RPC, which may not be connected the
-      // instant Settings mounts. Retry a few times with backoff so the
-      // "Active ML Device" field doesn't get stuck on "Loading…" when
-      // the first probe races the socket handshake.
-      for (let attempt = 0; attempt < 8; attempt++) {
+      // `device` goes through the WS RPC, which may not be ready for a
+      // while after Settings mounts: build_resources is loading ML
+      // models on first run, and a concurrent cuDNN auto-download eats
+      // CPU/bandwidth, so the socket can take >10s to answer. Poll
+      // patiently (up to ~60s) instead of giving up after a few tries —
+      // otherwise "Active ML Device" stays stuck on "Loading…".
+      for (let attempt = 0; attempt < 40; attempt++) {
         try {
           const info = await invoke('device')
           setDeviceInfo(info)
           return
         } catch (error) {
-          if (attempt === 7) {
-            console.error('Failed to load device info', error)
+          if (attempt === 39) {
+            console.error('Failed to load device info after retries', error)
             return
           }
-          await new Promise((r) => setTimeout(r, 500))
+          await new Promise((r) => setTimeout(r, 1500))
         }
       }
     }
