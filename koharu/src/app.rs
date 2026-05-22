@@ -39,6 +39,25 @@ static APP_ROOT: Lazy<PathBuf> = Lazy::new(|| {
         path
     }
 });
+
+/// Render a path for user-facing display, stripping the Windows verbatim
+/// `\\?\` prefix that [`APP_ROOT`] carries to defeat the legacy MAX_PATH
+/// limit. The prefix is required for file I/O on long paths but looks
+/// alien in a dialog: `\\?\C:\x` -> `C:\x`, `\\?\UNC\srv\s` -> `\\srv\s`.
+fn display_path(path: &std::path::Path) -> String {
+    let s = path.to_string_lossy();
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+            return format!(r"\\{rest}");
+        }
+        if let Some(rest) = s.strip_prefix(r"\\?\") {
+            return rest.to_string();
+        }
+    }
+    s.into_owned()
+}
+
 static LIB_ROOT: Lazy<PathBuf> = Lazy::new(|| APP_ROOT.join("libs"));
 /// HuggingFace model cache directory.
 ///
@@ -428,11 +447,11 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
              Please report this issue to the Koharu-TH developers.",
             payload,
             location,
-            // Use Display, not Debug — Debug formats PathBuf as a
-            // quoted Rust-escaped string (`"\\\\?\\C:\\Users\\..."`)
-            // which leaks the verbatim `\\?\` prefix and double-escapes
-            // every backslash. Display renders a clean OS path.
-            crash_path.display(),
+            // Strip the verbatim `\\?\` prefix APP_ROOT carries (kept for
+            // MAX_PATH-safe file I/O) so the dialog shows a clean path
+            // instead of `\\?\C:\Users\...`. Plain Display does NOT strip
+            // it — a verbatim PathBuf renders the prefix verbatim.
+            display_path(&crash_path),
         );
 
         if headless {
@@ -441,7 +460,7 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
             );
             eprintln!("FATAL PANIC AT {}", location);
             eprintln!("{}", payload);
-            eprintln!("Crash dump saved to {:?}", crash_path);
+            eprintln!("Crash dump saved to {}", display_path(&crash_path));
             eprintln!(
                 "================================================================================"
             );
