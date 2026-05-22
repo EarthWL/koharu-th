@@ -132,7 +132,26 @@ async function isModelAccessible(
     if (res.status === 400 || res.status === 403 || res.status === 404) {
       return false
     }
-    // Transient (429 rate-limit, 5xx, etc.) — keep the model so a
+    // 429 is ambiguous: it can be a *temporary* rate-limit (the model
+    // works, the key just hit its per-minute cap) OR a *permanent*
+    // "this tier has zero quota for this model" (e.g. Nano Banana image
+    // models on the free tier — AI Studio shows them as 0/0). Parse the
+    // quota limit out of the error body to tell them apart:
+    //   - limit: 0  → no quota at all → drop (key can never call it)
+    //   - limit: N>0 → temporary exhaustion → keep
+    if (res.status === 429) {
+      const body = await res.text().catch(() => '')
+      // RetryInfo / QuotaFailure encodes the metric ceiling as
+      // "limit: <n>" or "quota_limit_value": "<n>".
+      const m =
+        body.match(/limit:\s*"?(\d+)"?/i) ||
+        body.match(/quota_limit_value"?\s*:\s*"?(\d+)"?/i)
+      if (m && parseInt(m[1], 10) === 0) {
+        return false // zero quota — model is inaccessible on this tier
+      }
+      return true // genuine temporary rate-limit — keep
+    }
+    // Other transient failures (5xx, etc.) — keep the model so a
     // temporary failure doesn't permanently hide it.
     return true
   } catch {

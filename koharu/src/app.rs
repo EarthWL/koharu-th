@@ -896,49 +896,57 @@ pub async fn run() -> Result<()> {
             move |app| {
                 let handle = app.handle().clone();
                 let file = file.clone();
-                // Auto-install cuDNN in the background on first launch
-                // when an NVIDIA GPU is present but cuDNN isn't yet
-                // extracted. `cuda_is_available()` already returns false
-                // without cuDNN, so this run uses CPU safely; once the
-                // download finishes the user restarts to pick up GPU.
-                // Non-blocking — never delays the splashscreen.
-                {
-                    let gpu_handle = handle.clone();
-                    tauri::async_runtime::spawn(async move {
-                        let runtime_root = APP_ROOT.join("runtime");
-                        if !crate::runtime_install::has_nvidia_gpu()
-                            || crate::runtime_install::is_cudnn_installed(&runtime_root)
-                        {
-                            return;
-                        }
-                        tracing::info!(
-                            "NVIDIA GPU detected, cuDNN missing — auto-installing in background"
-                        );
-                        use tauri::Emitter;
-                        let emit_handle = gpu_handle.clone();
-                        let result = crate::runtime_install::install_cudnn(
-                            &runtime_root,
-                            move |status| {
-                                let _ = emit_handle
-                                    .emit("koharu://runtime/cudnn-progress", &status);
-                            },
-                        )
-                        .await;
-                        match result {
-                            Ok(_) => tracing::info!(
-                                "cuDNN auto-install complete — restart to enable GPU acceleration"
-                            ),
-                            Err(err) => {
-                                tracing::warn!(?err, "cuDNN auto-install failed; staying on CPU")
-                            }
-                        }
-                    });
-                }
-
                 tauri::async_runtime::spawn(async move {
                     handle
                         .plugin(tauri_plugin_updater::Builder::new().build())
                         .ok();
+
+                    // Block-until-ready cuDNN install. On first launch
+                    // with an NVIDIA GPU but no cuDNN, download + extract
+                    // it BEFORE build_resources runs candle's CUDA path,
+                    // then register the DLL dir so the very first ML init
+                    // already sees GPU acceleration — no restart needed.
+                    // Progress streams to the splashscreen so the user
+                    // sees the ~700 MB download instead of a frozen
+                    // window. Skipped instantly when cuDNN already
+                    // exists, so warm launches stay fast.
+                    {
+                        let runtime_root = APP_ROOT.join("runtime");
+                        if crate::runtime_install::has_nvidia_gpu()
+                            && !crate::runtime_install::is_cudnn_installed(&runtime_root)
+                        {
+                            tracing::info!(
+                                "NVIDIA GPU detected, cuDNN missing — installing before ML init (block-until-ready)"
+                            );
+                            use tauri::Emitter;
+                            let emit_handle = handle.clone();
+                            let result = crate::runtime_install::install_cudnn(
+                                &runtime_root,
+                                move |status| {
+                                    let _ = emit_handle
+                                        .emit("koharu://runtime/cudnn-progress", &status);
+                                },
+                            )
+                            .await;
+                            match result {
+                                Ok(_) => {
+                                    // Re-register now that the DLLs exist —
+                                    // the startup register ran before the
+                                    // download, so it was a no-op then.
+                                    let _ = crate::runtime_install::register_cudnn_dll_path(
+                                        &runtime_root,
+                                    );
+                                    tracing::info!("cuDNN ready — GPU acceleration enabled");
+                                }
+                                Err(err) => {
+                                    tracing::warn!(
+                                        ?err,
+                                        "cuDNN install failed; continuing on CPU"
+                                    )
+                                }
+                            }
+                        }
+                    }
 
                     // Per issue #40: the global panic hook (installed in
                     // `initialize`) catches panics on the main thread —
