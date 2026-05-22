@@ -872,6 +872,9 @@ export function ChatTabPanel() {
   const setError = (msg: string | null) =>
     useChatActivityStore.setState({ error: msg })
 
+  const setSending = (val: boolean) =>
+    useChatActivityStore.setState({ sending: val })
+
   const attachCurrentPage = async () => {
     setAttaching(true)
     setError(null)
@@ -935,7 +938,18 @@ export function ChatTabPanel() {
     // Allow attachment-only turns through — image-only QA ("what does
     // this bubble say?") is a legitimate flow and the Send button
     // (see disabled prop below) already enables itself for that case.
-    if ((!input.trim() && pendingAttachments.length === 0) || sending) return
+    if (
+      (!input.trim() && pendingAttachments.length === 0) ||
+      sending ||
+      arenaActive
+    )
+      return
+
+    if (arenaMode) {
+      await sendArena()
+      return
+    }
+
     if (provider === 'none') {
       // Local pre-flight guard surface — the store also no-ops on
       // empty input, but reporting "no provider" here keeps the
@@ -1243,80 +1257,7 @@ export function ChatTabPanel() {
     })
   }
 
-  const send = async () => {
-    // Allow attachment-only turns through — image-only QA ("what does
-    // this bubble say?") is a legitimate flow and the Send button
-    // (see disabled prop below) enables itself for that case.
-    if (
-      (!input.trim() && pendingAttachments.length === 0) ||
-      sending ||
-      arenaActive
-    )
-      return
 
-    if (arenaMode) {
-      await sendArena()
-      return
-    }
-
-    if (provider === 'none') {
-      setError(
-        'Cloud LLM not selected — pick a profile from the LLM badge or Profiles tab.',
-      )
-      return
-    }
-    // Detect "local" profiles (Ollama / LM Studio / llama.cpp etc.) by
-    // their apiUrl pointing at localhost. Those servers either accept
-    // any token or none at all, so the API-key gate doesn't apply.
-    // Without this, picking a local profile silently blocks every send
-    // because cloudApiKey is empty by convention.
-    const isLocal =
-      kindOf({ provider: provider as any, modelName: model, apiUrl }) ===
-      'local'
-    if (!isLocal && !apiKey) {
-      // OpenRouter used to be allowed through without a key because the
-      // model picker works key-less for browsing — but chat completion
-      // always requires Authorization. Letting the request through just
-      // produced a confusing 401.
-      // Pull the provider's key URL from the shared KINDS metadata so we
-      // don't have to keep a parallel switch statement in sync.
-      const keyUrl =
-        KINDS.find((k) => k.dbProvider === provider)?.keyUrl ?? 'your provider'
-      setError(
-        `No API key for the active "${provider}" profile. Open the Profiles tab, edit the profile, paste the key from ${keyUrl}, and click Save (which also re-applies it).`,
-      )
-      return
-    }
-    setSending(true)
-    setError(null)
-    setRedoStack([])
-
-    // Slash expansion: user sees the display, LLM gets the expanded prompt
-    const slash = expandSlash(input)
-    const displayContent = slash ? slash.display : input
-    const sendContent = slash ? slash.prompt : input
-    const turnAttachments = pendingAttachments
-
-    // Persist user message (with attachments if any)
-    try {
-      await api.chatMessageAdd({
-        role: 'user',
-        content: displayContent,
-        attachments: turnAttachments.length
-          ? JSON.stringify(turnAttachments)
-          : null,
-      })
-    } catch (err: any) {
-      setError(err?.message ?? String(err))
-      setSending(false)
-      return
-    }
-    setInput('')
-    setPendingAttachments([])
-    await history.refetch()
-
-    await triggerChatCompletion(sendContent, turnAttachments)
-  }
 
   const switchMessageVersion = async (
     assistantMsgId: number,

@@ -1282,6 +1282,7 @@ mod tests {
                 effect: Some(TextShaderEffect {
                     italic: true,
                     bold: false,
+                    ..Default::default()
                 }),
                 stroke: Some(TextStrokeStyle {
                     enabled: true,
@@ -1331,6 +1332,7 @@ mod tests {
             shader_effect: Some(TextShaderEffect {
                 italic: false,
                 bold: true,
+                ..Default::default()
             }),
             shader_stroke: Some(TextStrokeStyle {
                 enabled: true,
@@ -1353,6 +1355,7 @@ mod tests {
             index: 1,
             text_block_index: Some(0),
             language: Some("zh-CN".to_string()),
+            context: None,
         });
         round_trip(&LlmLoadParams {
             id: "sakura".to_string(),
@@ -1361,6 +1364,7 @@ mod tests {
             index: 1,
             text_block_index: Some(0),
             language: Some("zh-CN".to_string()),
+            context: None,
         });
         round_trip(&ProcessRequest {
             index: Some(1),
@@ -1369,6 +1373,7 @@ mod tests {
             shader_effect: Some(TextShaderEffect {
                 italic: true,
                 bold: true,
+                ..Default::default()
             }),
             shader_stroke: Some(TextStrokeStyle {
                 enabled: false,
