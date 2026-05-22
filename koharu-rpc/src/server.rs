@@ -112,9 +112,11 @@ async fn serve_thumbnail_route(
         header::CACHE_CONTROL,
         HeaderValue::from_static("private, max-age=86400"),
     );
-    response
-        .headers_mut()
-        .insert(header::ETAG, HeaderValue::from_str(&etag).unwrap());
+    // Skip the ETag rather than panicking if it isn't a valid header
+    // value — it's only a cache validator, the image still serves fine.
+    if let Ok(value) = HeaderValue::from_str(&etag) {
+        response.headers_mut().insert(header::ETAG, value);
+    }
     response.into_response()
 }
 
@@ -187,9 +189,11 @@ async fn serve_image_route(
         header::CACHE_CONTROL,
         HeaderValue::from_static("private, max-age=86400"),
     );
-    response
-        .headers_mut()
-        .insert(header::ETAG, HeaderValue::from_str(&etag).unwrap());
+    // Skip the ETag rather than panicking if it isn't a valid header
+    // value — it's only a cache validator, the image still serves fine.
+    if let Ok(value) = HeaderValue::from_str(&etag) {
+        response.headers_mut().insert(header::ETAG, value);
+    }
     response.into_response()
 }
 
