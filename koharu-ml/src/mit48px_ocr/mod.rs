@@ -427,17 +427,18 @@ fn smart_join_lines(lines: &[String]) -> String {
         if trimmed.is_empty() {
             continue;
         }
-        if !result.is_empty() {
-            let mut last_char = result.chars().last().unwrap();
-            let first_char = trimmed.chars().next().unwrap();
-
+        // Both are guaranteed Some by the is_empty guards above, but use
+        // if-let to keep the no-unwrap defensive invariant.
+        if let (Some(mut last_char), Some(first_char)) =
+            (result.chars().last(), trimmed.chars().next())
+        {
             // If the last character is a hyphen ('-'), this represents a syllable
             // break at the end of a line (e.g. WONDER- and FUL). In this case,
             // we remove the hyphen and concatenate directly without any spaces.
             if last_char == '-' {
                 result.pop();
-                if !result.is_empty() {
-                    last_char = result.chars().last().unwrap();
+                if let Some(c) = result.chars().last() {
+                    last_char = c;
                 }
             } else if is_western_char(last_char) || is_western_char(first_char) {
                 // Otherwise, insert a space if either of the characters is a Western char.

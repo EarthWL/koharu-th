@@ -149,7 +149,11 @@ impl FontDetector {
             let font_probs = softmax(&font_logits, 0)?;
             let font_probs_vec: Vec<f32> = font_probs.to_vec1()?;
             let mut ranked: Vec<(usize, f32)> = font_probs_vec.into_iter().enumerate().collect();
-            ranked.sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+            // total_cmp instead of partial_cmp().unwrap(): inference
+            // logits can contain NaN (CUDA OOM partial exec, corrupt
+            // weights, denorm underflow). partial_cmp returns None on
+            // NaN → unwrap panics; total_cmp defines a total order.
+            ranked.sort_unstable_by(|a, b| b.1.total_cmp(&a.1));
             ranked.truncate(top_k.min(FONT_COUNT));
 
             let named_fonts = ranked

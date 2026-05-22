@@ -444,7 +444,11 @@ impl Model {
                 // shape from Mit48pxOcr which slices internally. We
                 // do the cropping here so the rest of the pipeline
                 // doesn't care which engine is active.
-                let ocr = self.manga_ocr().await.expect("checked above");
+                // NOT a guaranteed success despite the `has_ja` probe
+                // above — the model can be offloaded or hit CUDA OOM on
+                // this second init between the two awaits. Propagate the
+                // error instead of `.expect()` panicking the pipeline.
+                let ocr = self.manga_ocr().await?;
                 let crops: Vec<DynamicImage> = doc
                     .text_blocks
                     .iter()
