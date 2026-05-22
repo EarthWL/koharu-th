@@ -115,16 +115,29 @@ impl Renderer {
             let mut surface = tiny_skia::Pixmap::new(width, height)
                 .ok_or_else(|| anyhow::anyhow!("Failed to create composition surface"))?;
 
-            // Draw base image (inpainted or original)
+            // Draw base image (inpainted or original). All three
+            // tiny-skia constructors below return Option and used to
+            // `.unwrap()` — a zero-dimension or stride-mismatched image
+            // (corrupt/partial user upload) would panic the whole render
+            // path. Propagate as errors instead.
             let mut base_rgba = inpainted.to_rgba8().into_raw();
             premultiply_rgba(&mut base_rgba);
+            let base_rect = tiny_skia::Rect::from_xywh(0.0, 0.0, width as f32, height as f32)
+                .ok_or_else(|| {
+                    anyhow::anyhow!("invalid composition rect: {width}x{height}")
+                })?;
+            let base_pixmap = tiny_skia::PixmapRef::from_bytes(&base_rgba, width, height)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "base image byte length mismatch for {width}x{height} (got {} bytes)",
+                        base_rgba.len()
+                    )
+                })?;
             surface.fill_path(
-                &tiny_skia::PathBuilder::from_rect(
-                    tiny_skia::Rect::from_xywh(0.0, 0.0, width as f32, height as f32).unwrap(),
-                ),
+                &tiny_skia::PathBuilder::from_rect(base_rect),
                 &tiny_skia::Paint {
                     shader: tiny_skia::Pattern::new(
-                        tiny_skia::PixmapRef::from_bytes(&base_rgba, width, height).unwrap(),
+                        base_pixmap,
                         tiny_skia::SpreadMode::Pad,
                         tiny_skia::FilterQuality::Bilinear,
                         1.0,
@@ -140,14 +153,26 @@ impl Renderer {
 
             if let Some(brush_layer) = &document.brush_layer {
                 let brush = brush_layer.to_rgba8();
-                surface.draw_pixmap(
-                    0,
-                    0,
-                    tiny_skia::PixmapRef::from_bytes(&brush, width, height).unwrap(),
-                    &tiny_skia::PixmapPaint::default(),
-                    tiny_skia::Transform::identity(),
-                    None,
-                );
+                // Brush layer may differ in size from the base image if
+                // a stale/mismatched layer is loaded — skip it rather
+                // than panic when the byte length doesn't match.
+                match tiny_skia::PixmapRef::from_bytes(&brush, width, height) {
+                    Some(brush_pixmap) => {
+                        surface.draw_pixmap(
+                            0,
+                            0,
+                            brush_pixmap,
+                            &tiny_skia::PixmapPaint::default(),
+                            tiny_skia::Transform::identity(),
+                            None,
+                        );
+                    }
+                    None => {
+                        tracing::warn!(
+                            "brush layer byte length mismatch for {width}x{height} — skipping brush"
+                        );
+                    }
+                }
             }
 
             for text_block in text_blocks {
