@@ -91,7 +91,8 @@ pub fn insert(conn: &Conn, item: ChapterInsert) -> Result<Chapter> {
         ],
     )?;
     let id = conn.last_insert_rowid();
-    Ok(get(conn, id)?.expect("just inserted row"))
+    get(conn, id)?
+        .ok_or_else(|| crate::error::Error::NotFound(format!("chapter id={id} after insert")))
 }
 
 /// Snap an arbitrary chapter title into a filesystem-safe folder name.

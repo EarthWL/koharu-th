@@ -101,17 +101,19 @@ pub fn insert(conn: &Conn, item: TmInsert) -> Result<TmEntry> {
         ],
     )?;
     let id = conn.last_insert_rowid();
-    Ok(conn
-        .query_row(
-            "SELECT id, source_text, source_hash, target_text, source_lang,
-                    target_lang, chapter_id, page_index, text_block_index,
-                    provider, model, prompt_template_id, quality_rating,
-                    is_approved, created_at
-             FROM translation_memory WHERE id = ?1",
-            params![id],
-            row_to_entry,
-        )
-        .expect("just inserted"))
+    // query_row returns Err(QueryReturnedNoRows) if a concurrent
+    // vacuum/delete races the insert — propagate with context instead
+    // of panicking.
+    conn.query_row(
+        "SELECT id, source_text, source_hash, target_text, source_lang,
+                target_lang, chapter_id, page_index, text_block_index,
+                provider, model, prompt_template_id, quality_rating,
+                is_approved, created_at
+         FROM translation_memory WHERE id = ?1",
+        params![id],
+        row_to_entry,
+    )
+    .map_err(|_| crate::error::Error::NotFound(format!("TM entry id={id} after insert")))
 }
 
 pub fn approve(conn: &Conn, id: i64, approved: bool) -> Result<bool> {

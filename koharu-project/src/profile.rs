@@ -118,7 +118,8 @@ pub fn insert(conn: &Conn, item: ProfileInsert) -> Result<ProviderProfile> {
         ],
     )?;
     let id = conn.last_insert_rowid();
-    Ok(get(conn, id)?.expect("just inserted"))
+    get(conn, id)?
+        .ok_or_else(|| crate::error::Error::NotFound(format!("profile id={id} after insert")))
 }
 
 pub fn update(conn: &Conn, id: i64, patch: ProfilePatch) -> Result<Option<ProviderProfile>> {

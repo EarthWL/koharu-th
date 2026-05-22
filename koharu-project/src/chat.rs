@@ -53,7 +53,8 @@ pub fn insert(conn: &Conn, item: ChatMessageInsert) -> Result<ChatMessage> {
         ],
     )?;
     let id = conn.last_insert_rowid();
-    Ok(get(conn, id)?.expect("just inserted row"))
+    get(conn, id)?
+        .ok_or_else(|| crate::error::Error::NotFound(format!("chat message id={id} after insert")))
 }
 
 pub fn get(conn: &Conn, id: i64) -> Result<Option<ChatMessage>> {

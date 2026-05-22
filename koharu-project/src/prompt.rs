@@ -266,7 +266,8 @@ pub fn insert(conn: &Conn, item: PromptTemplateInsert) -> Result<PromptTemplate>
         ],
     )?;
     let id = conn.last_insert_rowid();
-    Ok(get(conn, id)?.expect("just inserted"))
+    get(conn, id)?
+        .ok_or_else(|| crate::error::Error::NotFound(format!("prompt id={id} after insert")))
 }
 
 #[derive(Default)]

@@ -81,7 +81,8 @@ pub fn insert(conn: &Conn, item: GlossaryInsert) -> Result<GlossaryEntry> {
         ],
     )?;
     let id = conn.last_insert_rowid();
-    Ok(get(conn, id)?.expect("just inserted"))
+    get(conn, id)?
+        .ok_or_else(|| crate::error::Error::NotFound(format!("glossary entry id={id} after insert")))
 }
 
 pub fn update(conn: &Conn, id: i64, patch: GlossaryPatch) -> Result<Option<GlossaryEntry>> {
