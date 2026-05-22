@@ -857,6 +857,7 @@ export default function SettingsPage() {
                       <Select
                         value={mlDeviceSelection}
                         onValueChange={async (v) => {
+                          const prev = mlDeviceSelection
                           setMlDeviceSelection(v)
                           try {
                             await invoke('set_ml_device_config', {
@@ -864,7 +865,24 @@ export default function SettingsPage() {
                             })
                             setNeedsRelaunch(true)
                           } catch (err) {
-                            console.error(err)
+                            // Roll back the optimistic selection so the
+                            // dropdown reflects what's actually persisted,
+                            // and surface the failure — the user just made
+                            // an explicit choice that didn't take.
+                            setMlDeviceSelection(prev)
+                            console.error('set_ml_device_config failed', err)
+                            toast.error(
+                              t(
+                                'settings.deviceSaveFailed',
+                                'บันทึก ML device ไม่สำเร็จ: {{error}}',
+                                {
+                                  error:
+                                    err instanceof Error
+                                      ? err.message
+                                      : String(err),
+                                },
+                              ),
+                            )
                           }
                         }}
                       >
@@ -1528,7 +1546,14 @@ function AddonStoreSection() {
       setCloudTargetLanguage(addon.targetLanguage)
       setRelaunchAddon(addon) // Trigger the relaunch modal!
     } catch (e) {
+      // Addon install is a deliberate user action — surface the failure
+      // instead of leaving the spinner to silently stop.
       console.error('Installation failed:', e)
+      toast.error(
+        t('settings.addonInstallFailed', 'ติดตั้ง addon ไม่สำเร็จ: {{error}}', {
+          error: e instanceof Error ? e.message : String(e),
+        }),
+      )
     } finally {
       setInstallingId(null)
       setInstallProgress(0)
@@ -1747,7 +1772,14 @@ function NextGenStudioSection() {
       const list = await api.projectBackupList()
       setBackups(list)
     } catch (err) {
+      // Surface so the user doesn't mistake a load failure for "no
+      // backups exist" — those are very different situations.
       console.error('Failed to load backups:', err)
+      toast.error(
+        t('settings.backupLoadFailed', 'โหลดรายการ backup ไม่สำเร็จ: {{error}}', {
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      )
     }
   }
 
