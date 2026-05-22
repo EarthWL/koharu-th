@@ -72,30 +72,27 @@ export async function fetchGeminiModels(
       // Only surface models we can actually use for translation.
       if (!supportedActions.includes('generateContent')) return null
       const lower = id.toLowerCase()
-      // Drop non-text-chat model families. The translation pipeline
-      // needs text→text (optionally vision-in) chat models; Gemini's
-      // catalog also lists media-generation, robotics, and agentic
-      // endpoints that all advertise `generateContent` but are useless
-      // (or actively broken) for translation:
-      //   - tts / audio / embedding  → not chat
-      //   - image / nano-banana / imagen → image generation
+      // Koharu's manga pipeline spans more than plain translation —
+      // it has vision OCR, multi-tier inpainting (image generation),
+      // and an agentic AI chat with MCP tools. So the picker KEEPS:
+      //   - text chat (gemini flash/pro/flash-lite, gemma) → translation
+      //   - image gen (nano-banana / imagen) → bubble inpaint / redraw
+      //   - agent (computer-use / antigravity) → AI Agents
+      //   - vision is built into the multimodal chat models above
+      //
+      // Only DROP families that have no role in a manga workflow:
+      //   - tts / audio → speech synthesis
+      //   - embedding → vector endpoint, not a generative chat model
       //   - lyria → music generation
       //   - veo → video generation
       //   - robotics → robotics action models
-      //   - computer-use / antigravity → agentic computer-control,
-      //     not a translation chat model
       const DROP_KEYWORDS = [
         'tts',
         'audio',
         'embedding',
-        'image', // covers gemini-2.5-flash-image (Nano Banana)
-        'nano-banana',
-        'imagen',
         'lyria',
         'veo',
         'robotics',
-        'computer-use',
-        'antigravity',
       ]
       if (DROP_KEYWORDS.some((kw) => lower.includes(kw))) {
         return null
