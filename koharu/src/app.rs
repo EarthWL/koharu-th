@@ -999,6 +999,21 @@ pub async fn run() -> Result<()> {
                                 }
                             }
                         }
+
+                        // Warm launch: cuDNN is already installed, so the
+                        // install branch above is skipped and never registers
+                        // the DLL dir. Register it here — plus the system CUDA
+                        // Toolkit bin (cuBLAS/cudart) — BEFORE build_resources,
+                        // so the first `cuda_is_available()` probe sees both and
+                        // the GPU is actually used instead of silently falling
+                        // back to CPU. Both calls are harmless no-ops when the
+                        // files/toolkit are absent.
+                        if crate::runtime_install::has_nvidia_gpu() {
+                            let _ =
+                                crate::runtime_install::register_cudnn_dll_path(&runtime_root);
+                            #[cfg(target_os = "windows")]
+                            crate::windows::register_cuda_toolkit_dll_path();
+                        }
                     }
 
                     // Per issue #40: the global panic hook (installed in
