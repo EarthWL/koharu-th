@@ -206,7 +206,7 @@ function LlmStatusPopover() {
   const { data: backendAddons = [] } = useQuery({
     queryKey: ['app', 'addons'],
     queryFn: () => api.getInstalledAddons(),
-    enabled: !!window.__TAURI__,
+    enabled: !!(window as any).__TAURI__,
   })
 
   // Profiles drive the engine picker — local engine is always available;
