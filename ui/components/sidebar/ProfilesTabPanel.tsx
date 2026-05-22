@@ -720,6 +720,12 @@ function ProfileFormModal({
     }
   }
 
+  // Strip the `[RATE_LIMIT:provider[:sec]]` marker that cloud LLM
+  // clients prepend on HTTP 429 so the Test result shows a clean
+  // human message instead of the internal routing tag.
+  const cleanErrorMessage = (raw: string): string =>
+    raw.replace(/^\[RATE_LIMIT:[^\]]*\]\s*/, '')
+
   const runTest = async () => {
     setTestStatus({ kind: 'pending' })
     const r = await testCloudConnection({
@@ -731,7 +737,7 @@ function ProfileFormModal({
     setTestStatus(
       r.ok
         ? { kind: 'ok', ms: r.durationMs }
-        : { kind: 'err', msg: r.error.slice(0, 200) },
+        : { kind: 'err', msg: cleanErrorMessage(r.error).slice(0, 200) },
     )
   }
 
