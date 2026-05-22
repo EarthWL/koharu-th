@@ -145,7 +145,7 @@ async fn require_project(state: &AppResources) -> anyhow::Result<koharu_project:
 // ---------------------------------------------------------------
 
 const MAX_BYTES: usize = 1_500_000; // ~1.5 MB cap
-const TIMEOUT_SECS: u64 = 12;
+const TIMEOUT_SECS: u64 = 10; // Engineering Standard 1.8: network floor < 10s
 
 pub async fn web_fetch_url(
     _state: AppResources,
