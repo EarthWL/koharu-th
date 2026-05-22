@@ -58,6 +58,23 @@ fn display_path(path: &std::path::Path) -> String {
     s.into_owned()
 }
 
+/// Trim a panic location to its crate-relative tail for user display.
+/// Dependency panics carry the full (remap-sanitized) cargo registry
+/// path, e.g. `/cargo/registry/src/<hash>/cudarc-0.19.7/src/lib.rs:200:5`
+/// — keep only `cudarc-0.19.7/src/lib.rs:200:5` so the dialog names the
+/// crate without the registry noise. Own code (no registry segment) is
+/// returned with separators normalized to `/`.
+fn clean_panic_location(location: &str) -> String {
+    let normalized = location.replace('\\', "/");
+    if let Some(idx) = normalized.find("/registry/src/") {
+        let after = &normalized[idx + "/registry/src/".len()..];
+        if let Some(slash) = after.find('/') {
+            return after[slash + 1..].to_string();
+        }
+    }
+    normalized
+}
+
 static LIB_ROOT: Lazy<PathBuf> = Lazy::new(|| APP_ROOT.join("libs"));
 /// HuggingFace model cache directory.
 ///
@@ -446,7 +463,10 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
              {}\n\n\
              Please report this issue to the Koharu-TH developers.",
             payload,
-            location,
+            // Show the crate-relative panic site (e.g.
+            // `cudarc-0.19.7/src/lib.rs:200:5`) instead of the full
+            // remap-sanitized registry path that leaks into the dialog.
+            clean_panic_location(&location),
             // Strip the verbatim `\\?\` prefix APP_ROOT carries (kept for
             // MAX_PATH-safe file I/O) so the dialog shows a clean path
             // instead of `\\?\C:\Users\...`. Plain Display does NOT strip
