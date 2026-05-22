@@ -72,12 +72,32 @@ export async function fetchGeminiModels(
       // Only surface models we can actually use for translation.
       if (!supportedActions.includes('generateContent')) return null
       const lower = id.toLowerCase()
-      if (
-        lower.includes('tts') ||
-        lower.includes('embedding') ||
-        lower.includes('audio')
-      ) {
-        // We only want text/multimodal chat models, not pure audio/TTS/embedding endpoints.
+      // Drop non-text-chat model families. The translation pipeline
+      // needs text→text (optionally vision-in) chat models; Gemini's
+      // catalog also lists media-generation, robotics, and agentic
+      // endpoints that all advertise `generateContent` but are useless
+      // (or actively broken) for translation:
+      //   - tts / audio / embedding  → not chat
+      //   - image / nano-banana / imagen → image generation
+      //   - lyria → music generation
+      //   - veo → video generation
+      //   - robotics → robotics action models
+      //   - computer-use / antigravity → agentic computer-control,
+      //     not a translation chat model
+      const DROP_KEYWORDS = [
+        'tts',
+        'audio',
+        'embedding',
+        'image', // covers gemini-2.5-flash-image (Nano Banana)
+        'nano-banana',
+        'imagen',
+        'lyria',
+        'veo',
+        'robotics',
+        'computer-use',
+        'antigravity',
+      ]
+      if (DROP_KEYWORDS.some((kw) => lower.includes(kw))) {
         return null
       }
 
