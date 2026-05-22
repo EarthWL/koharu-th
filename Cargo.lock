@@ -3864,7 +3864,9 @@ dependencies = [
  "koharu-runtime",
  "koharu-types",
  "once_cell",
+ "reqwest 0.13.3",
  "rfd",
+ "serde",
  "serde_json",
  "tauri",
  "tauri-build",
@@ -3875,6 +3877,7 @@ dependencies = [
  "windows 0.62.2",
  "windows-sys 0.61.2",
  "winreg",
+ "zip 8.6.0",
 ]
 
 [[package]]
