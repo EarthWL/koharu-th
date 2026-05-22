@@ -85,6 +85,25 @@ pub fn is_cudnn_installed(runtime_root: &Path) -> bool {
         .exists()
 }
 
+/// Quick check for an NVIDIA GPU via `nvidia-smi`. Used to gate the
+/// startup auto-install — no point downloading 700 MB of cuDNN on a
+/// machine that has no NVIDIA card. Mirrors the `CREATE_NO_WINDOW`
+/// trick used in `enumerate_cuda_devices` so no console flashes.
+pub fn has_nvidia_gpu() -> bool {
+    let mut cmd = std::process::Command::new("nvidia-smi");
+    cmd.args(["--query-gpu=name", "--format=csv,noheader"]);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    match cmd.output() {
+        Ok(o) if o.status.success() => !o.stdout.is_empty(),
+        _ => false,
+    }
+}
+
 /// Snapshot of the current cuDNN install state for the UI.
 pub fn cudnn_status(runtime_root: &Path) -> CudnnStatus {
     if is_cudnn_installed(runtime_root) {

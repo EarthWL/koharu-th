@@ -217,11 +217,22 @@ export default function SettingsPage() {
     if (!isTauri()) return
 
     const loadDeviceInfo = async () => {
-      try {
-        const info = await invoke('device')
-        setDeviceInfo(info)
-      } catch (error) {
-        console.error('Failed to load device info', error)
+      // `device` goes through the WS RPC, which may not be connected the
+      // instant Settings mounts. Retry a few times with backoff so the
+      // "Active ML Device" field doesn't get stuck on "Loading…" when
+      // the first probe races the socket handshake.
+      for (let attempt = 0; attempt < 8; attempt++) {
+        try {
+          const info = await invoke('device')
+          setDeviceInfo(info)
+          return
+        } catch (error) {
+          if (attempt === 7) {
+            console.error('Failed to load device info', error)
+            return
+          }
+          await new Promise((r) => setTimeout(r, 500))
+        }
       }
     }
 

@@ -896,6 +896,45 @@ pub async fn run() -> Result<()> {
             move |app| {
                 let handle = app.handle().clone();
                 let file = file.clone();
+                // Auto-install cuDNN in the background on first launch
+                // when an NVIDIA GPU is present but cuDNN isn't yet
+                // extracted. `cuda_is_available()` already returns false
+                // without cuDNN, so this run uses CPU safely; once the
+                // download finishes the user restarts to pick up GPU.
+                // Non-blocking — never delays the splashscreen.
+                {
+                    let gpu_handle = handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let runtime_root = APP_ROOT.join("runtime");
+                        if !crate::runtime_install::has_nvidia_gpu()
+                            || crate::runtime_install::is_cudnn_installed(&runtime_root)
+                        {
+                            return;
+                        }
+                        tracing::info!(
+                            "NVIDIA GPU detected, cuDNN missing — auto-installing in background"
+                        );
+                        use tauri::Emitter;
+                        let emit_handle = gpu_handle.clone();
+                        let result = crate::runtime_install::install_cudnn(
+                            &runtime_root,
+                            move |status| {
+                                let _ = emit_handle
+                                    .emit("koharu://runtime/cudnn-progress", &status);
+                            },
+                        )
+                        .await;
+                        match result {
+                            Ok(_) => tracing::info!(
+                                "cuDNN auto-install complete — restart to enable GPU acceleration"
+                            ),
+                            Err(err) => {
+                                tracing::warn!(?err, "cuDNN auto-install failed; staying on CPU")
+                            }
+                        }
+                    });
+                }
+
                 tauri::async_runtime::spawn(async move {
                     handle
                         .plugin(tauri_plugin_updater::Builder::new().build())
