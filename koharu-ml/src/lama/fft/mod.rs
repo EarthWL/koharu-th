@@ -74,7 +74,9 @@ pub fn rfft2(xs: &Tensor) -> candle_core::Result<Tensor> {
 pub fn irfft2(spectrum: &Tensor, width: usize) -> candle_core::Result<Tensor> {
     let spectrum = spectrum.contiguous()?;
     let dims = spectrum.dims();
-    if dims.len() != 5 || *dims.last().unwrap() != 2 {
+    // `dims[4]` is safe: the `len() != 5` check short-circuits first, so
+    // we only index when there are exactly 5 dims. Avoids last().unwrap().
+    if dims.len() != 5 || dims[4] != 2 {
         bail!("irfft2 expects spectrum shaped [batch, channels, height, width/2+1, 2]")
     }
     let (_b, _c, h, w_half) = (dims[0], dims[1], dims[2], dims[3]);

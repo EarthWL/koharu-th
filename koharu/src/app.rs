@@ -127,7 +127,10 @@ impl RollingFileWriter {
     }
 
     fn write_buf(&self, buf: &[u8]) -> std::io::Result<()> {
-        let mut guard = self.inner.lock().unwrap();
+        // Recover a poisoned lock rather than panicking — the logger
+        // must never crash the app, and a half-written log line from a
+        // prior panic is acceptable.
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
 
         // Ensure directories exist and file is open
         if guard.is_none() {
@@ -144,7 +147,12 @@ impl RollingFileWriter {
             });
         }
 
-        let inner = guard.as_mut().unwrap();
+        // Block above guarantees Some, but use let-else instead of
+        // unwrap — a missing writer drops the line rather than panicking
+        // the logging path.
+        let Some(inner) = guard.as_mut() else {
+            return Ok(());
+        };
 
         // Check size limit (10MB)
         if inner.current_size + buf.len() as u64 > self.max_size {

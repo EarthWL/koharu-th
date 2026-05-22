@@ -163,7 +163,10 @@ async fn worker_loop(
             *guard = None;
             return Ok(());
         }
-        let entry = entry.expect("entry is proven Some here");
+        // Proven Some by the is_none() block above (which returns/continues),
+        // but use let-else instead of expect: a None here just re-polls
+        // rather than panicking the queue worker.
+        let Some(entry) = entry else { continue };
 
         // Reset per-entry signal + advertise current entry to observers.
         cancel_current.store(false, Ordering::Relaxed);

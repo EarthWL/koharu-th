@@ -36,10 +36,14 @@ pub fn create_client_builder() -> reqwest::ClientBuilder {
 }
 
 static HTTP_CLIENT: Lazy<ClientWithMiddleware> = Lazy::new(|| {
+    // Startup-fatal: reqwest build only fails if the TLS backend can't
+    // initialize — the app can't reach any network resource in that
+    // case. Surfaced via the global panic hook (crash dialog), not
+    // swallowed.
     ClientBuilder::new(
         create_client_builder()
             .build()
-            .expect("build reqwest client"),
+            .expect("Failed to build HTTP client — TLS backend init failed"),
     )
     .with(RetryTransientMiddleware::new_with_policy(
         ExponentialBackoff::builder().build_with_max_retries(3),

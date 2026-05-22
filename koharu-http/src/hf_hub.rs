@@ -16,11 +16,16 @@ use crate::progress::progress_bar;
 static CACHE_DIR: OnceCell<PathBuf> = OnceCell::new();
 
 static HF_API: Lazy<Api> = Lazy::new(|| {
+    // Startup-fatal by design: if the HF client can't be built (cache
+    // dir not writable, TLS backend missing) the app cannot download
+    // any model and is unusable. The global panic hook in
+    // koharu/src/app.rs catches this and shows a crash dialog with the
+    // cause — that's the surface path, not a silent swallow.
     ApiBuilder::new()
         .with_cache_dir(get_cache_dir().to_path_buf())
         .high()
         .build()
-        .expect("build HF API client")
+        .expect("Failed to build Hugging Face API client — model cache dir may be unwritable")
 });
 static HF_CACHE: Lazy<Cache> = Lazy::new(|| Cache::new(get_cache_dir().to_path_buf()));
 
@@ -98,9 +103,11 @@ pub fn set_cache_dir(path: PathBuf) -> anyhow::Result<()> {
     // HF_API / HF_CACHE lazy statics fire their fallback initializer
     // before `initialize()` reaches `set_cache_dir` (issue #41).
     if let Err(_rejected) = CACHE_DIR.set(path.clone()) {
-        let existing = CACHE_DIR
-            .get()
-            .expect("set failed so cell must be initialized");
+        // set() only errors when the cell is already initialized, so
+        // get() is guaranteed Some here. Fall back to &path (which makes
+        // the equality check below true → idempotent no-op) instead of
+        // unwrapping, to keep the no-panic invariant.
+        let existing = CACHE_DIR.get().unwrap_or(&path);
         if existing == &path {
             tracing::debug!("set_cache_dir: already set to same path; ignoring duplicate call");
             return Ok(());
