@@ -883,7 +883,7 @@ export const useDocumentMutations = () => {
               const updated = doc.textBlocks.map((b: any) => ({
                 ...b,
                 translation: b.translation
-                  ? applysmartPostProcess(b.translation)
+                  ? applySmartPostProcess(b.translation)
                   : b.translation,
               }))
               await api.updateTextBlocks(resolvedIndex, updated)
@@ -934,7 +934,7 @@ export const useDocumentMutations = () => {
             if (block?.translation) {
               const patched = updated.textBlocks.map((b: any, idx: number) =>
                 idx === i
-                  ? { ...b, translation: applysmartPostProcess(b.translation) }
+                  ? { ...b, translation: applySmartPostProcess(b.translation) }
                   : b,
               )
               await api.updateTextBlocks(resolvedIndex, patched)
