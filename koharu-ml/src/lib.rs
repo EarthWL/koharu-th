@@ -56,6 +56,18 @@ pub fn device(cpu: bool) -> Result<Device> {
     };
 
     if let Some(ref sel) = selection {
+        // `Device::new_cuda` PANICS (via cudarc's dlopen of cuBLAS/cuDNN)
+        // on a machine without a working CUDA toolkit — the `Err` arms
+        // below cannot recover from a panic. Refuse any CUDA selection up
+        // front unless the runtime probe confirms CUDA is usable, falling
+        // back to CPU. DirectML/ONNX acceleration is selected separately,
+        // before this function is ever called.
+        if sel.starts_with("CUDA") && !cuda_is_available() {
+            tracing::warn!(
+                "{sel} requested but CUDA runtime is unavailable (driver/cuBLAS/cuDNN missing); using CPU."
+            );
+            return Ok(Device::Cpu);
+        }
         match sel.as_str() {
             "CPU" => return Ok(Device::Cpu),
             "CUDA:0" => match Device::new_cuda(0) {
