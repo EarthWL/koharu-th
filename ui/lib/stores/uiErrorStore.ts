@@ -2,6 +2,7 @@
 
 import { create } from 'zustand'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
+import { buildTelemetry } from '@/lib/telemetry'
 
 export type DiagnosticErrorPayload = {
   code: string
@@ -18,6 +19,7 @@ export type DiagnosticErrorPayload = {
   appState?: {
     currentDocumentIndex: number
     totalPages: number
+    activeMlDevice: string
     directMlEnabled: boolean
     smartPostProcessEnabled: boolean
     ocrEngine: string
@@ -78,6 +80,7 @@ export const useUiErrorStore = create<UiErrorStoreState>((set) => ({
           code: 'DEV-DEBUG',
           msgTh: message,
           details: message,
+          ...buildTelemetry(),
         }
       }
     }

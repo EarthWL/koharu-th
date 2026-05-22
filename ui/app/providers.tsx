@@ -46,6 +46,17 @@ export function Providers({ children }: { children: ReactNode }) {
         setTotalPages(count)
       } catch (_) {}
 
+      // Seed the device-info cache so error telemetry can report the
+      // active ML backend (CUDA / DirectML / CPU) even before Settings is
+      // opened. Best-effort: the query client retries while the backend
+      // is still booting ("Resources not initialized").
+      try {
+        await queryClient.fetchQuery({
+          queryKey: queryKeys.device.info,
+          queryFn: () => api.deviceInfo(),
+        })
+      } catch (_) {}
+
       try {
         unlisten = await listen<number>('documents:opened', (event) => {
           const count = event.payload ?? 0

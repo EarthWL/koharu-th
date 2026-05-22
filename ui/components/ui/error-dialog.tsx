@@ -41,6 +41,7 @@ interface ErrorDialogProps {
   appState?: {
     currentDocumentIndex: number
     totalPages: number
+    activeMlDevice: string
     directMlEnabled: boolean
     smartPostProcessEnabled: boolean
     ocrEngine: string
@@ -81,7 +82,7 @@ export function ErrorDialog({
       `\n#### 💻 สภาพแวดล้อมและรันไทม์ (Runtime Telemetry)`,
       `*   **Tauri App**: ${platform?.isTauri ? 'ใช่ (Native)' : 'ไม่ใช่ (Browser)'}`,
       `*   **โหมดนักพัฒนา (Dev Mode)**: ${platform?.isDev ? 'ใช่ (Development)' : 'ไม่ใช่ (Production)'}`,
-      `*   **DirectML (การเร่งความเร็วการ์ดจอ)**: ${appState?.directMlEnabled ? 'เปิดการใช้งาน (ON)' : 'ปิดการใช้งาน (OFF)'}`,
+      `*   **อุปกรณ์ ML ที่ใช้งานจริง (Active ML Device)**: \`${appState?.activeMlDevice ?? 'N/A'}\``,
       `*   **Smart Post-Process**: ${appState?.smartPostProcessEnabled ? 'เปิดใช้งาน' : 'ปิดใช้งาน'}`,
       `*   **เอกสารที่เปิดอยู่ (Active Doc)**: ดัชนีที่ ${appState?.currentDocumentIndex ?? 'N/A'} จากทั้งหมด ${appState?.totalPages ?? 0} หน้า`,
       `*   **User Agent**: \`${platform?.userAgent || 'Unknown'}\``,
@@ -234,7 +235,7 @@ export function ErrorDialog({
                     <span>สถานะของเครื่องยนต์ (Engine States)</span>
                   </div>
                   <div className='font-mono text-[10px] flex flex-col gap-1 text-foreground/80'>
-                    <div>DirectML GPU: <span className={cn('font-bold', appState?.directMlEnabled ? 'text-emerald-500' : 'text-zinc-500')}>{appState?.directMlEnabled ? 'ACTIVE (ON)' : 'INACTIVE (OFF)'}</span></div>
+                    <div>Active ML Device: <span className={cn('font-bold', appState?.activeMlDevice && !/cpu|unknown/i.test(appState.activeMlDevice) ? 'text-emerald-500' : 'text-zinc-500')}>{appState?.activeMlDevice ?? 'N/A'}</span></div>
                     <div>Post-Process: <span className='font-semibold'>{appState?.smartPostProcessEnabled ? 'ENABLED' : 'DISABLED'}</span></div>
                     <div>Active Page: <span className='font-semibold'>{appState?.currentDocumentIndex ?? 'N/A'} / {appState?.totalPages ?? 0}</span></div>
                   </div>
