@@ -52,45 +52,90 @@ export interface ModelFilterOptions {
   dropLegacyCompletions?: boolean
 }
 
-/**
- * Classify a Gemini HTTP 429 body. A 429 means one of two very
- * different things and the UI should react differently:
- *
- *   - **no_quota**: the metric ceiling is 0 — the key's tier has *zero*
- *     allowance for this model (e.g. Nano Banana image gen on the free
- *     tier; AI Studio shows it as 0/0). Retrying never helps; the user
- *     must switch model or upgrade tier.
- *   - **rate_limited**: ceiling is N>0 but momentarily exhausted (free
- *     tier text models are 5 req/min). Waiting `retrySec` fixes it.
- *
- * Used by both the model-picker probe and the runtime error handlers so
- * the distinction is consistent everywhere.
- */
-export function classifyGemini429(body: string): {
+export type RateLimitClass = {
   kind: 'no_quota' | 'rate_limited'
   retrySec: number | null
-} {
+}
+
+/**
+ * Classify an HTTP 429 (or quota-related 4xx) across providers. A 429
+ * means one of two very different things and the UI should react
+ * differently:
+ *
+ *   - **no_quota**: the key's tier has *zero* allowance for this model
+ *     or has run out of credits entirely — retrying never helps; the
+ *     user must switch model / upgrade tier / top up. Examples:
+ *       · Gemini: quota metric `limit: 0` (Nano Banana free tier 0/0)
+ *       · OpenAI: `insufficient_quota` (out of credits)
+ *       · OpenRouter: `insufficient_credits` / 402
+ *   - **rate_limited**: ceiling is N>0 but momentarily exhausted
+ *     (free-tier text models, per-minute caps). Waiting `retrySec`
+ *     fixes it.
+ *
+ * Provider-agnostic: pass the raw body + the `Retry-After`/`retry-after`
+ * header value when available (OpenAI & Anthropic put the wait there;
+ * Gemini encodes it in the body). Used by the model-picker probe and
+ * every runtime error handler so the distinction is consistent.
+ */
+export function classifyRateLimit(opts: {
+  body: string
+  retryAfterHeader?: string | null
+}): RateLimitClass {
+  const { body, retryAfterHeader } = opts
+  const lower = body.toLowerCase()
+
+  // ── no_quota markers ──────────────────────────────────────────
+  // Gemini: quota metric ceiling of 0.
   const limitMatch =
     body.match(/limit:\s*"?(\d+)"?/i) ||
     body.match(/quota_limit_value"?\s*:\s*"?(\d+)"?/i)
-  if (limitMatch && parseInt(limitMatch[1], 10) === 0) {
+  const geminiZeroQuota = !!limitMatch && parseInt(limitMatch[1], 10) === 0
+  // OpenAI / OpenRouter: out-of-credits markers.
+  const creditExhausted =
+    lower.includes('insufficient_quota') ||
+    lower.includes('insufficient_credits') ||
+    lower.includes('exceeded your current quota') ||
+    lower.includes('billing_hard_limit')
+  if (geminiZeroQuota || creditExhausted) {
     return { kind: 'no_quota', retrySec: null }
   }
-  // Pull the RetryInfo hint (e.g. "retryDelay": "36s") when present.
+
+  // ── retry hint ────────────────────────────────────────────────
   let retrySec: number | null = null
-  try {
-    const json = JSON.parse(body)
-    const details: any[] = json?.error?.details ?? []
-    for (const d of details) {
-      if (typeof d?.retryDelay === 'string') {
-        const m = d.retryDelay.match(/^(\d+)s$/)
-        if (m) retrySec = parseInt(m[1], 10)
+  // 1. Retry-After header (OpenAI/Anthropic) — integer seconds or HTTP date.
+  if (retryAfterHeader) {
+    const asInt = parseInt(retryAfterHeader, 10)
+    if (Number.isFinite(asInt) && String(asInt) === retryAfterHeader.trim()) {
+      retrySec = asInt
+    } else {
+      const when = Date.parse(retryAfterHeader)
+      if (!Number.isNaN(when)) {
+        retrySec = Math.max(0, Math.round((when - Date.now()) / 1000))
       }
     }
-  } catch {
-    // best-effort
+  }
+  // 2. Gemini RetryInfo body hint (e.g. "retryDelay": "36s").
+  if (retrySec === null) {
+    try {
+      const json = JSON.parse(body)
+      const details: any[] = json?.error?.details ?? []
+      for (const d of details) {
+        if (typeof d?.retryDelay === 'string') {
+          const m = d.retryDelay.match(/^(\d+)s$/)
+          if (m) retrySec = parseInt(m[1], 10)
+        }
+      }
+    } catch {
+      // best-effort
+    }
   }
   return { kind: 'rate_limited', retrySec }
+}
+
+/** @deprecated use `classifyRateLimit`. Kept as a thin Gemini-only
+ *  shim for the model-picker probe which only has the body. */
+export function classifyGemini429(body: string): RateLimitClass {
+  return classifyRateLimit({ body })
 }
 
 /**

@@ -1,7 +1,7 @@
 import { usePreferencesStore } from '../stores/preferencesStore'
 import { useProjectStore } from '../stores/projectStore'
 import { api, type TmEntryDto } from '../api'
-import { classifyGemini429 } from './modelFilters'
+import { classifyRateLimit } from './modelFilters'
 import { toast } from 'sonner'
 
 /** Token counts as reported by the provider. `null` = provider didn't return them. */
@@ -18,6 +18,31 @@ export type CloudResult = {
 
 /** Callback fired for every incremental text chunk during streaming. */
 export type StreamHandler = (delta: string) => void
+
+/**
+ * Build a marked Error for an HTTP 429 from any provider. The
+ * `[NO_QUOTA:...]` / `[RATE_LIMIT:...]` prefix lets the UI render a
+ * soft amber notice (and decide whether retrying helps) instead of a
+ * red crash card. Reads the standard `Retry-After` header (OpenAI /
+ * Anthropic) and provider-specific quota markers via classifyRateLimit.
+ */
+function make429Error(provider: string, res: Response, body: string): Error {
+  const cls = classifyRateLimit({
+    body,
+    retryAfterHeader: res.headers.get('retry-after'),
+  })
+  if (cls.kind === 'no_quota') {
+    return new Error(
+      `[NO_QUOTA:${provider}] โควต้า/เครดิตของ API key หมด — เปลี่ยนโมเดลอื่น/profile หรืออัปเกรด API tier`,
+    )
+  }
+  return new Error(
+    `[RATE_LIMIT:${provider}${cls.retrySec ? `:${cls.retrySec}` : ''}] ` +
+      (cls.retrySec
+        ? `โควต้า ${provider} หมดชั่วคราว — รอ ~${cls.retrySec} วินาที แล้วลองอีกครั้ง`
+        : `โควต้า ${provider} หมดชั่วคราว — รอสักครู่แล้วลองอีกครั้ง`),
+  )
+}
 
 /**
  * Read a Server-Sent Events stream from `body` and yield each
@@ -1105,6 +1130,7 @@ async function fetchOpenAI(
 
   if (!res.ok) {
     const err = await res.text()
+    if (res.status === 429) throw make429Error('openai', res, err)
     throw new Error(`OpenAI API Error: ${err}`)
   }
 
@@ -1191,6 +1217,7 @@ async function fetchOpenRouter(
 
   if (!res.ok) {
     const err = await res.text()
+    if (res.status === 429) throw make429Error('openrouter', res, err)
     throw new Error(`OpenRouter API Error: ${err}`)
   }
 
@@ -1245,25 +1272,7 @@ async function fetchGemini(
     // instead of leaking the raw JSON blob into a toast. Free tier is
     // 5 generate_content req/min — the user mainly needs to know
     // "wait a moment / upgrade tier / switch provider".
-    if (res.status === 429) {
-      const cls = classifyGemini429(err)
-      if (cls.kind === 'no_quota') {
-        // Permanent: this model has zero quota on the key's tier
-        // (e.g. image-gen models on free tier). Retrying won't help —
-        // tell the user to switch model / upgrade.
-        throw new Error(
-          `[NO_QUOTA:gemini] โมเดลนี้ไม่รองรับบน tier ของ API key (โควต้า 0) — เปลี่ยนโมเดลอื่น หรืออัปเกรด API tier`,
-        )
-      }
-      // Temporary rate-limit. Marker lets the UI render a soft amber
-      // "rate limited" toast instead of a red panic card.
-      throw new Error(
-        `[RATE_LIMIT:gemini${cls.retrySec ? `:${cls.retrySec}` : ''}] ` +
-          (cls.retrySec
-            ? `โควต้า Gemini หมดชั่วคราว — รอ ~${cls.retrySec} วินาที แล้วลองอีกครั้ง หรือเปลี่ยน profile / อัปเกรด API tier`
-            : `โควต้า Gemini หมดชั่วคราว — รอสักครู่แล้วลองอีกครั้ง หรือเปลี่ยน profile / อัปเกรด API tier`),
-      )
-    }
+    if (res.status === 429) throw make429Error('gemini', res, err)
     throw new Error(`Gemini API Error: ${err}`)
   }
 
@@ -1348,6 +1357,7 @@ async function fetchAnthropic(
 
   if (!res.ok) {
     const err = await res.text()
+    if (res.status === 429) throw make429Error('anthropic', res, err)
     throw new Error(`Anthropic API Error: ${err}`)
   }
 
