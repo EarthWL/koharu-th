@@ -15,6 +15,8 @@
  * hide it from the picker.
  */
 
+import { isMangaRelevantModel } from './modelFilters'
+
 const GEMINI_MODELS_URL =
   'https://generativelanguage.googleapis.com/v1beta/models'
 
@@ -71,30 +73,13 @@ export async function fetchGeminiModels(
       const supportedActions = raw.supportedGenerationMethods ?? []
       // Only surface models we can actually use for translation.
       if (!supportedActions.includes('generateContent')) return null
-      const lower = id.toLowerCase()
-      // Koharu's manga pipeline spans more than plain translation —
-      // it has vision OCR, multi-tier inpainting (image generation),
-      // and an agentic AI chat with MCP tools. So the picker KEEPS:
-      //   - text chat (gemini flash/pro/flash-lite, gemma) → translation
-      //   - image gen (nano-banana / imagen) → bubble inpaint / redraw
-      //   - agent (computer-use / antigravity) → AI Agents
-      //   - vision is built into the multimodal chat models above
-      //
-      // Only DROP families that have no role in a manga workflow:
-      //   - tts / audio → speech synthesis
-      //   - embedding → vector endpoint, not a generative chat model
-      //   - lyria → music generation
-      //   - veo → video generation
-      //   - robotics → robotics action models
-      const DROP_KEYWORDS = [
-        'tts',
-        'audio',
-        'embedding',
-        'lyria',
-        'veo',
-        'robotics',
-      ]
-      if (DROP_KEYWORDS.some((kw) => lower.includes(kw))) {
+      // Koharu's manga pipeline spans translation + vision OCR +
+      // multi-tier inpainting (image gen) + agentic AI chat. Gemini
+      // routes image generation through the same generateContent
+      // endpoint as chat, so we KEEP image models (allowImage: true) —
+      // unlike OpenAI/OpenRouter where image gen is a separate endpoint.
+      // Shared filter drops audio/music/video/embedding/robotics.
+      if (!isMangaRelevantModel(id, { allowImage: true })) {
         return null
       }
 

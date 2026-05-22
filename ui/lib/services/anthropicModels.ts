@@ -10,6 +10,8 @@
  * practice fits in one page — we still page-through defensively.
  */
 
+import { isMangaRelevantModel } from './modelFilters'
+
 const ANTHROPIC_MODELS_URL = 'https://api.anthropic.com/v1/models'
 const ANTHROPIC_VERSION = '2023-06-01'
 
@@ -66,6 +68,11 @@ export async function fetchAnthropicModels(
     const data = (await res.json()) as RawAnthropicModelsResponse
     const items = data.data ?? []
     for (const raw of items) {
+      // Category filter for consistency with other providers. Claude's
+      // catalog is text/vision-only today (no audio/image/video gen),
+      // so this is mostly a no-op + future-proofing. Image gen isn't a
+      // Claude capability, so allowImage stays false.
+      if (!isMangaRelevantModel(raw.id, { allowImage: false })) continue
       all.push({
         id: raw.id,
         displayName: raw.display_name || raw.id,
