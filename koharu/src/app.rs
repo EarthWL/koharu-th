@@ -638,6 +638,12 @@ async fn build_resources_inner(cpu: bool, file: Option<PathBuf>) -> Result<AppRe
         #[cfg(target_os = "windows")]
         {
             crate::windows::add_dll_directory(&LIB_ROOT).context("Failed to add DLL directory")?;
+            // The cuda_is_available() probe above located cuBLAS via the
+            // process PATH, but add_dll_directory just narrowed the loader
+            // search to USER_DIRS|SYSTEM32, dropping PATH. Re-expose the
+            // system CUDA Toolkit bin (cuBLAS/cudart) so the first real
+            // cuBLAS call doesn't panic inside cudarc on a standalone exe.
+            crate::windows::register_cuda_toolkit_dll_path();
         }
 
         tracing::info!(

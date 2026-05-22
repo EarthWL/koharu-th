@@ -192,3 +192,80 @@ pub fn add_dll_directory(path: &std::path::Path) -> Result<()> {
         Ok(())
     }
 }
+
+/// Expose the system CUDA Toolkit `bin` directory (cuBLAS, cudart, etc.)
+/// to the Windows DLL loader. `cuda_is_available()` finds cuBLAS via the
+/// process PATH during its probe, but `add_dll_directory` then narrows the
+/// loader's default search to USER_DIRS|SYSTEM32 — dropping PATH — so the
+/// first real cuBLAS call would otherwise panic inside cudarc on a
+/// standalone build. Adding the toolkit bin as a user dir keeps it
+/// reachable. Best-effort: logs and returns when no toolkit is found,
+/// leaving the CPU fallback intact.
+pub fn register_cuda_toolkit_dll_path() {
+    for bin in cuda_toolkit_bin_candidates() {
+        if dir_has_cublas(&bin) {
+            match add_dll_directory(&bin) {
+                Ok(()) => {
+                    tracing::info!("Registered CUDA Toolkit DLL dir: {}", bin.display());
+                    return;
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        ?err,
+                        dir = %bin.display(),
+                        "Failed to register CUDA Toolkit DLL dir"
+                    );
+                }
+            }
+        }
+    }
+    tracing::warn!("CUDA Toolkit bin with cuBLAS not found; cuBLAS calls may fail");
+}
+
+/// Candidate CUDA Toolkit `bin` directories in priority order: the
+/// installer-exported `CUDA_PATH` / `CUDA_PATH_V*` env vars first, then the
+/// default install root scanned newest-version-first.
+fn cuda_toolkit_bin_candidates() -> Vec<std::path::PathBuf> {
+    use std::path::PathBuf;
+    let mut out: Vec<PathBuf> = Vec::new();
+
+    for (key, val) in std::env::vars_os() {
+        let key = key.to_string_lossy();
+        if key == "CUDA_PATH" || key.starts_with("CUDA_PATH_V") {
+            let bin = PathBuf::from(val).join("bin");
+            if !out.contains(&bin) {
+                out.push(bin);
+            }
+        }
+    }
+
+    let root = PathBuf::from(r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA");
+    if let Ok(entries) = std::fs::read_dir(&root) {
+        let mut versions: Vec<PathBuf> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
+        versions.sort();
+        versions.reverse();
+        for v in versions {
+            let bin = v.join("bin");
+            if !out.contains(&bin) {
+                out.push(bin);
+            }
+        }
+    }
+
+    out
+}
+
+/// Whether `dir` contains a versioned cuBLAS DLL (`cublas64_*.dll`).
+fn dir_has_cublas(dir: &std::path::Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        name.starts_with("cublas64_") && name.ends_with(".dll")
+    })
+}
