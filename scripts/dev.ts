@@ -268,9 +268,13 @@ function setupRemapPathPrefix() {
   const home = os.homedir()
   // Workspace root is two levels up from scripts/dev.ts
   const workspace = path.resolve(__dirname, '..')
+  // rustc applies the LAST matching --remap-path-prefix, so list the
+  // broadest prefix (home) FIRST and the nested ones (.cargo, workspace)
+  // after. Otherwise `home=/home` shadows `.cargo=/cargo` and registry
+  // paths render as `/home/.cargo/registry/...` instead of `/cargo/...`.
   const flags = [
-    `--remap-path-prefix=${path.join(home, '.cargo')}=/cargo`,
     `--remap-path-prefix=${home}=/home`,
+    `--remap-path-prefix=${path.join(home, '.cargo')}=/cargo`,
     `--remap-path-prefix=${workspace}=/koharu`,
   ]
   const existing = process.env.RUSTFLAGS ?? ''
