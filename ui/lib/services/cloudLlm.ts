@@ -1,6 +1,7 @@
 import { usePreferencesStore } from '../stores/preferencesStore'
 import { useProjectStore } from '../stores/projectStore'
 import { api, type TmEntryDto } from '../api'
+import { classifyGemini429 } from './modelFilters'
 import { toast } from 'sonner'
 
 /** Token counts as reported by the provider. `null` = provider didn't return them. */
@@ -1207,27 +1208,6 @@ async function fetchOpenRouter(
   }
 }
 
-/** Extract the `retryDelay` hint from a Gemini 429 error body. The
- *  payload contains a `details[]` array with a RetryInfo entry that
- *  encodes the recommended wait as e.g. `"36s"`. Returns the seconds
- *  as a number, or null when the field is missing/unparseable. */
-function parseGeminiRetryHint(body: string): number | null {
-  try {
-    const json = JSON.parse(body)
-    const details: any[] = json?.error?.details ?? []
-    for (const d of details) {
-      const retry = d?.retryDelay
-      if (typeof retry === 'string') {
-        const m = retry.match(/^(\d+)s$/)
-        if (m) return parseInt(m[1], 10)
-      }
-    }
-  } catch {
-    // ignore parse errors — caller falls back to generic message
-  }
-  return null
-}
-
 async function fetchGemini(
   prompt: string,
   apiKey: string,
@@ -1266,15 +1246,21 @@ async function fetchGemini(
     // 5 generate_content req/min — the user mainly needs to know
     // "wait a moment / upgrade tier / switch provider".
     if (res.status === 429) {
-      const retryHint = parseGeminiRetryHint(err)
-      // Marker prefix lets the UI's ErrorCard render a soft "rate
-      // limited" toast (amber, Clock icon) instead of the red panic
-      // dialog used for real crashes. Caller code can still parse the
-      // retry hint out of the message tail.
+      const cls = classifyGemini429(err)
+      if (cls.kind === 'no_quota') {
+        // Permanent: this model has zero quota on the key's tier
+        // (e.g. image-gen models on free tier). Retrying won't help —
+        // tell the user to switch model / upgrade.
+        throw new Error(
+          `[NO_QUOTA:gemini] โมเดลนี้ไม่รองรับบน tier ของ API key (โควต้า 0) — เปลี่ยนโมเดลอื่น หรืออัปเกรด API tier`,
+        )
+      }
+      // Temporary rate-limit. Marker lets the UI render a soft amber
+      // "rate limited" toast instead of a red panic card.
       throw new Error(
-        `[RATE_LIMIT:gemini${retryHint ? `:${retryHint}` : ''}] ` +
-          (retryHint
-            ? `โควต้า Gemini หมดชั่วคราว — รอ ~${retryHint} วินาที แล้วลองอีกครั้ง หรือเปลี่ยน profile / อัปเกรด API tier`
+        `[RATE_LIMIT:gemini${cls.retrySec ? `:${cls.retrySec}` : ''}] ` +
+          (cls.retrySec
+            ? `โควต้า Gemini หมดชั่วคราว — รอ ~${cls.retrySec} วินาที แล้วลองอีกครั้ง หรือเปลี่ยน profile / อัปเกรด API tier`
             : `โควต้า Gemini หมดชั่วคราว — รอสักครู่แล้วลองอีกครั้ง หรือเปลี่ยน profile / อัปเกรด API tier`),
       )
     }

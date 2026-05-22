@@ -23,6 +23,7 @@ import { api, type ChatAttachment } from '@/lib/api'
 import { useProjectStore } from '@/lib/stores/projectStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import type { TokenUsage } from './cloudLlm'
+import { classifyGemini429 } from './modelFilters'
 
 /** Provider-call result: the assistant message plus whatever token
  *  counts the provider returned (null if it didn't). */
@@ -827,6 +828,20 @@ async function callGemini(
   })
   if (!res.ok || !res.body) {
     const errBody = res.body ? await res.text().catch(() => '') : ''
+    if (res.status === 429) {
+      const cls = classifyGemini429(errBody)
+      if (cls.kind === 'no_quota') {
+        throw new Error(
+          `[NO_QUOTA:gemini] โมเดลนี้ไม่รองรับบน tier ของ API key (โควต้า 0) — เปลี่ยนโมเดลอื่น หรืออัปเกรด API tier`,
+        )
+      }
+      throw new Error(
+        `[RATE_LIMIT:gemini${cls.retrySec ? `:${cls.retrySec}` : ''}] ` +
+          (cls.retrySec
+            ? `โควต้า Gemini หมดชั่วคราว — รอ ~${cls.retrySec} วินาที แล้วลองอีกครั้ง`
+            : `โควต้า Gemini หมดชั่วคราว — รอสักครู่แล้วลองอีกครั้ง`),
+      )
+    }
     throw new Error(
       `Gemini chat failed (${res.status}): ${errBody.slice(0, 400)}`,
     )

@@ -720,11 +720,11 @@ function ProfileFormModal({
     }
   }
 
-  // Strip the `[RATE_LIMIT:provider[:sec]]` marker that cloud LLM
-  // clients prepend on HTTP 429 so the Test result shows a clean
+  // Strip the `[RATE_LIMIT:...]` / `[NO_QUOTA:...]` markers that cloud
+  // LLM clients prepend on HTTP 429 so the Test result shows a clean
   // human message instead of the internal routing tag.
   const cleanErrorMessage = (raw: string): string =>
-    raw.replace(/^\[RATE_LIMIT:[^\]]*\]\s*/, '')
+    raw.replace(/^\[(?:RATE_LIMIT|NO_QUOTA):[^\]]*\]\s*/, '')
 
   const runTest = async () => {
     setTestStatus({ kind: 'pending' })

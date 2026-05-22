@@ -94,6 +94,17 @@ function parseRateLimit(
   }
 }
 
+/** Detect the `[NO_QUOTA:provider]` marker — a model the key's tier
+ *  has zero quota for (permanent, not transient). Surfaced as an amber
+ *  notice nudging the user to switch model rather than a red crash. */
+function parseNoQuota(
+  raw: string,
+): { provider: string; body: string } | null {
+  const m = raw.match(/^\[NO_QUOTA:([^\]]+)\]\s*([\s\S]*)$/)
+  if (!m) return null
+  return { provider: m[1], body: m[2] }
+}
+
 function ErrorCard({
   message,
   diagnostic,
@@ -108,11 +119,18 @@ function ErrorCard({
   t: TranslateFunc
 }) {
   const rateLimit = parseRateLimit(message)
-  const isRateLimit = !!rateLimit && !diagnostic
+  const noQuota = parseNoQuota(message)
+  // Both rate-limit and no-quota render as amber soft notices (Clock
+  // icon) — neither is a crash. no_quota just isn't time-based.
+  const isSoftNotice = (!!rateLimit || !!noQuota) && !diagnostic
+  const isRateLimit = isSoftNotice
 
-  // Use the cleaned-up body for rate-limit cards so the marker prefix
-  // doesn't leak into the UI.
-  const displayMessage = isRateLimit ? rateLimit!.body : message
+  // Use the cleaned-up body so the marker prefix doesn't leak into UI.
+  const displayMessage = rateLimit
+    ? rateLimit.body
+    : noQuota
+      ? noQuota.body
+      : message
 
   return (
     <div
@@ -164,15 +182,17 @@ function ErrorCard({
                         : 'text-red-700 dark:text-red-300',
                   )}
                 >
-                  {isRateLimit
-                    ? `โควต้า API หมดชั่วคราว (${rateLimit!.provider})`
-                    : diagnostic
-                      ? 'ตรวจพบข้อผิดพลาดระบบการแปล'
-                      : t('errors.title')}
+                  {rateLimit
+                    ? `โควต้า API หมดชั่วคราว (${rateLimit.provider})`
+                    : noQuota
+                      ? `โมเดลไม่รองรับบน tier นี้ (${noQuota.provider})`
+                      : diagnostic
+                        ? 'ตรวจพบข้อผิดพลาดระบบการแปล'
+                        : t('errors.title')}
                 </span>
-                {isRateLimit && rateLimit!.retrySec !== null && (
+                {rateLimit && rateLimit.retrySec !== null && (
                   <span className='bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 font-mono text-[9px] font-bold px-1.5 py-0.5 rounded-sm uppercase tracking-wider'>
-                    ~{rateLimit!.retrySec}s
+                    ~{rateLimit.retrySec}s
                   </span>
                 )}
                 {!isRateLimit && diagnostic && (
