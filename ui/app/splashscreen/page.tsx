@@ -73,6 +73,42 @@ export default function SplashScreen() {
     return () => unsub()
   }, [])
 
+  // Listen for the block-until-ready cuDNN install that runs during
+  // startup (before ML init). Surface its download/extract progress on
+  // the same splash bar so the user sees the ~700 MB fetch instead of a
+  // frozen "Initializing…" screen on first launch.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null
+    void (async () => {
+      const { listen } = await import('@tauri-apps/api/event')
+      unlisten = await listen<{
+        kind: string
+        version?: string
+        bytes_done?: number
+        bytes_total?: number | null
+      }>('koharu://runtime/cudnn-progress', (e) => {
+        const p = e.payload
+        if (p.kind === 'downloading') {
+          const percent =
+            p.bytes_total && p.bytes_done
+              ? Math.min(100, Math.round((p.bytes_done / p.bytes_total) * 100))
+              : undefined
+          setProgress({
+            filename: `cuDNN GPU runtime v${p.version ?? ''}`,
+            percent,
+          })
+        } else if (p.kind === 'extracting') {
+          setProgress({ filename: 'Extracting cuDNN…', percent: undefined })
+        } else if (p.kind === 'ready') {
+          setProgress({ filename: 'cuDNN ready', percent: 100 })
+        }
+      })
+    })()
+    return () => {
+      if (unlisten) unlisten()
+    }
+  }, [])
+
   return (
     <main className='bg-background flex min-h-screen flex-col items-center justify-center select-none'>
       <span className='text-primary text-2xl font-semibold'>Koharu</span>
