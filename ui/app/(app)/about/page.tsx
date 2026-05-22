@@ -14,6 +14,7 @@ import { invoke, isTauri } from '@/lib/backend'
 import { useDocumentMutations } from '@/lib/query/mutations'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { useUiErrorStore } from '@/lib/stores/uiErrorStore'
+import { buildTelemetry } from '@/lib/telemetry'
 import { CodeIcon } from 'lucide-react'
 import Image from 'next/image'
 
@@ -279,6 +280,10 @@ export default function AboutPage() {
                             ),
                             details:
                               'Developer mode enabled. All errors now surface full diagnostics via the debug ErrorDialog.',
+                            // Attach live telemetry so the dev-mode dialog
+                            // shows real platform + active ML device instead
+                            // of N/A placeholders.
+                            ...buildTelemetry(),
                           },
                         )
                     }
