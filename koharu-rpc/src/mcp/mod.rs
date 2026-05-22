@@ -176,7 +176,9 @@ impl KoharuMcp {
             }
         };
 
-        let b64 = encode_png_base64(img, max_size);
+        let b64 = encode_png_base64(img, max_size).map_err(|e| {
+            ErrorData::internal_error(format!("PNG encode failed: {e}"), None)
+        })?;
         Ok(CallToolResult::success(vec![
             Content::text(format!(
                 "Viewing '{}' layer of document '{}' ({}x{})",
@@ -231,7 +233,9 @@ impl KoharuMcp {
         }
 
         let crop = source.crop_imm(x, y, w, h);
-        let b64 = encode_png_base64(&crop, 512);
+        let b64 = encode_png_base64(&crop, 512).map_err(|e| {
+            ErrorData::internal_error(format!("PNG encode failed: {e}"), None)
+        })?;
 
         let mut desc = format!(
             "Text block [{}] at ({},{}) {}x{}",

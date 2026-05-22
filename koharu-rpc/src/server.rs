@@ -90,7 +90,11 @@ async fn serve_thumbnail_route(
             );
             response
                 .headers_mut()
-                .insert(header::ETAG, HeaderValue::from_str(&etag).unwrap());
+                .insert(
+                    header::ETAG,
+                    HeaderValue::from_str(&etag)
+                        .unwrap_or_else(|_| HeaderValue::from_static("W/\"0\"")),
+                );
             return response.into_response();
         }
     }
@@ -161,7 +165,11 @@ async fn serve_image_route(
             );
             response
                 .headers_mut()
-                .insert(header::ETAG, HeaderValue::from_str(&etag).unwrap());
+                .insert(
+                    header::ETAG,
+                    HeaderValue::from_str(&etag)
+                        .unwrap_or_else(|_| HeaderValue::from_static("W/\"0\"")),
+                );
             return response.into_response();
         }
     }
