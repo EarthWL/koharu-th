@@ -1,6 +1,8 @@
 'use client'
 
 import { useUiErrorStore } from '@/lib/stores/uiErrorStore'
+import { DiagnosticError } from './ws'
+import { buildTelemetry } from './telemetry'
 
 const SURFACED_RPC_METHODS = new Set([
   'open_documents',
@@ -35,6 +37,29 @@ export const normalizeErrorMessage = (error: unknown) => {
 
 export const reportRpcError = (method: string, error: unknown) => {
   if (!SURFACED_RPC_METHODS.has(method)) return
-  const message = normalizeErrorMessage(error)
-  useUiErrorStore.getState().showError(message)
+
+  const telemetry = buildTelemetry()
+
+  if (error instanceof DiagnosticError) {
+    useUiErrorStore.getState().showError(error.message, {
+      code: error.code,
+      msgTh: error.msgTh,
+      details: error.details,
+      method,
+      stack: error.stack,
+      ...telemetry,
+    })
+  } else {
+    const rawMessage = normalizeErrorMessage(error)
+    const stack = error instanceof Error ? error.stack : undefined
+
+    useUiErrorStore.getState().showError(rawMessage, {
+      code: 'APP-UNEXPECTED',
+      msgTh: `เกิดข้อผิดพลาดที่ไม่คาดคิดในระบบการเรียกประมวลผลเบื้องหลัง (${method})`,
+      details: rawMessage,
+      method,
+      stack,
+      ...telemetry,
+    })
+  }
 }

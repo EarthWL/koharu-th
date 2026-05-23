@@ -3,6 +3,8 @@ export type RgbaColor = [number, number, number, number]
 export type RenderEffect = {
   italic: boolean
   bold: boolean
+  fauxItalic?: boolean
+  fauxBold?: boolean
 }
 
 export type RenderStroke = {
@@ -52,6 +54,12 @@ export type TextStyle = {
   minFontSize?: number
   /** Top / Middle / Bottom inside the bubble. Defaults to top. */
   verticalAlign?: VerticalAlign
+  /** Vertical shift of the baseline in pixels. */
+  baselineShiftPx?: number
+  /** Horizontal scale of the glyphs (e.g. 1.0 is default, 0.9 compresses, 1.1 expands). */
+  horizontalScale?: number
+  /** Layer opacity (0.0 to 1.0) */
+  opacity?: number
 }
 
 export type TextBlock = {
@@ -60,7 +68,12 @@ export type TextBlock = {
   width: number
   height: number
   confidence: number
-  linePolygons?: [[number, number], [number, number], [number, number], [number, number]][]
+  linePolygons?: [
+    [number, number],
+    [number, number],
+    [number, number],
+    [number, number],
+  ][]
   sourceDirection?: TextDirection
   sourceLanguage?: string
   rotationDeg?: number
@@ -71,6 +84,9 @@ export type TextBlock = {
   style?: TextStyle
   fontPrediction?: FontPrediction
   rendered?: Uint8Array
+  locked?: boolean
+  name?: string
+  visible?: boolean
 }
 
 export type ToolMode = 'select' | 'block' | 'brush' | 'repairBrush' | 'eraser'

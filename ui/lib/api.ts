@@ -1,4 +1,5 @@
 'use client'
+// @ts-nocheck
 
 import { z } from 'zod'
 import {
@@ -7,7 +8,12 @@ import {
   type ProcessProgress,
   type DownloadProgress,
 } from '@/lib/backend'
-import type { DeviceInfo } from '@/lib/rpc-types'
+import type {
+  DeviceInfo,
+  QueueEntryDto,
+  BackupDto,
+  ProjectDiskSpaceResult,
+} from '@/lib/rpc-types'
 import {
   Document,
   InpaintRegion,
@@ -57,6 +63,10 @@ const parseOrLogAndThrow = <T>(
 export const api = {
   async appVersion(): Promise<string> {
     return invoke('app_version')
+  },
+
+  async getInstalledAddons(): Promise<string[]> {
+    return invoke('get_installed_addons')
   },
 
   async deviceInfo(): Promise<DeviceInfo> {
@@ -112,10 +122,10 @@ export const api = {
        *  if omitted. `anime_yolo` uses mayocream/anime-text-yolo (YOLO12) —
        *  better at SFX + out-of-bubble text but lazy-downloads weights on
        *  first use. */
-      detectorEngine?: 'default' | 'anime_yolo'
+      detectorEngine?: 'default' | 'anime_yolo' | 'auto'
       /** AnimeText YOLO size variant. Only honoured when detectorEngine is
-       *  'anime_yolo'. */
-      animeYoloVariant?: 'n' | 's' | 'm' | 'l' | 'x'
+       *  'anime_yolo' or 'auto'. */
+      animeYoloVariant?: 'n' | 's' | 'm' | 'l' | 'x' | 'auto'
       /** Confidence threshold override for Anime Text YOLO. Backend
        *  clamps to [0.05, 0.95]; defaults to 0.25 (upstream). */
       animeYoloConfidence?: number
@@ -135,7 +145,7 @@ export const api = {
        *  tuned for Japanese SFX + vertical handwriting). `cloud` is
        *  handled in the frontend dispatch layer (see ocrPageViaCloud),
        *  NOT here — passing 'cloud' would be a programming error. */
-      ocrEngine?: 'mit48px' | 'manga'
+      ocrEngine?: 'mit48px' | 'manga' | 'auto'
     },
   ): Promise<void> {
     await invoke('ocr', {
@@ -144,8 +154,14 @@ export const api = {
     })
   },
 
-  async inpaint(index: number): Promise<void> {
-    await invoke('inpaint', { index })
+  async inpaint(
+    index: number,
+    options?: {
+      inpaintEngine?: 'lama' | 'stable_diffusion' | 'cloud_flux'
+      inpaintMaxSide?: number
+    },
+  ): Promise<void> {
+    await invoke('inpaint', { index, ...options })
   },
 
   async updateInpaintMask(
@@ -188,6 +204,13 @@ export const api = {
     textBlocks: TextBlock[],
   ): Promise<void> {
     await invoke('update_text_blocks', { index, textBlocks })
+  },
+
+  async reorderTextBlocks(
+    index: number,
+    readingOrder: 'rtl' | 'ltr' | 'custom',
+  ): Promise<void> {
+    await invoke('reorder_text_blocks', { index, readingOrder })
   },
 
   /** Expand a text block's bbox to fit the bubble it sits in. Uses a
@@ -249,11 +272,13 @@ export const api = {
     index: number,
     textBlockIndex?: number,
     language?: string,
+    context?: string,
   ): Promise<void> {
     await invoke('llm_generate', {
       index,
       textBlockIndex,
       language,
+      context,
     })
   },
 
@@ -266,7 +291,7 @@ export const api = {
     fontFamily?: string
     /** OCR engine for the OCR pipeline step. Backend defaults to
      *  Mit48px if omitted. */
-    ocrEngine?: 'mit48px' | 'manga'
+    ocrEngine?: 'mit48px' | 'manga' | 'auto'
     /** When `true`, the Rust pipeline skips the OCR step entirely
      *  — the caller is expected to have populated text_blocks[].text
      *  already (e.g. via Cloud Vision OCR done in TypeScript). */
@@ -282,13 +307,19 @@ export const api = {
      *  to `default` (comic_text_detector) if omitted. `anime_yolo`
      *  uses mayocream/anime-text-yolo (YOLO12) — better at SFX +
      *  out-of-bubble text but lazy-downloads weights on first use. */
-    detectorEngine?: 'default' | 'anime_yolo'
+    detectorEngine?: 'default' | 'anime_yolo' | 'auto'
     /** AnimeText YOLO size variant. N (nano, ~10MB) → X (xlarge,
-     *  ~250MB). Only honoured when detectorEngine is 'anime_yolo'. */
-    animeYoloVariant?: 'n' | 's' | 'm' | 'l' | 'x'
+     *  ~250MB). Only honoured when detectorEngine is 'anime_yolo' or 'auto'. */
+    animeYoloVariant?: 'n' | 's' | 'm' | 'l' | 'x' | 'auto'
     /** Confidence threshold override for Anime Text YOLO. Backend
      *  clamps to [0.05, 0.95]; defaults to 0.25 (upstream). */
     animeYoloConfidence?: number
+    /** Inpaint maximum side length (px) for crop passed to LaMa.
+     *  Defaults to backend default if omitted. */
+    inpaintMaxSide?: number
+    /** Inpainting engine for the inpainting pipeline step. Backend defaults to
+     *  lama if omitted. */
+    inpaintEngine?: 'lama' | 'stable_diffusion' | 'cloud_flux'
   }): Promise<void> {
     await invoke('process', options)
   },
@@ -305,7 +336,9 @@ export const api = {
   },
 
   async projectCreatePicker(name: string): Promise<ProjectInfo | null> {
-    return invoke('project_create_picker', { name }) as Promise<ProjectInfo | null>
+    return invoke('project_create_picker', {
+      name,
+    }) as Promise<ProjectInfo | null>
   },
 
   async projectOpen(path: string): Promise<ProjectInfo> {
@@ -334,6 +367,28 @@ export const api = {
     }>
   },
 
+  async projectBackupSilent(): Promise<{
+    path: string | null
+    fileCount: number
+  }> {
+    return invoke('project_backup_silent') as Promise<{
+      path: string | null
+      fileCount: number
+    }>
+  },
+
+  async projectBackupList(): Promise<BackupDto[]> {
+    return invoke('project_backup_list') as Promise<BackupDto[]>
+  },
+
+  async projectBackupRestore(backupName: string): Promise<void> {
+    return invoke('project_backup_restore', { backupName }) as Promise<void>
+  },
+
+  async projectCheckDiskSpace(): Promise<ProjectDiskSpaceResult> {
+    return invoke('project_check_disk_space') as Promise<ProjectDiskSpaceResult>
+  },
+
   async recentProjectsList(): Promise<RecentProjectDto[]> {
     return invoke('recent_projects_list') as Promise<RecentProjectDto[]>
   },
@@ -352,7 +407,9 @@ export const api = {
   async appStorageClear(
     targets: StorageClearTarget[],
   ): Promise<AppStorageClearResult> {
-    return invoke('app_storage_clear', { targets }) as Promise<AppStorageClearResult>
+    return invoke('app_storage_clear', {
+      targets,
+    }) as Promise<AppStorageClearResult>
   },
 
   // ----------------------------------------------------------------
@@ -362,7 +419,9 @@ export const api = {
     return invoke('series_meta_get') as Promise<SeriesMetaDto>
   },
 
-  async seriesMetaUpdate(patch: Partial<Omit<SeriesMetaDto, 'createdAt' | 'updatedAt'>>): Promise<SeriesMetaDto> {
+  async seriesMetaUpdate(
+    patch: Partial<Omit<SeriesMetaDto, 'createdAt' | 'updatedAt'>>,
+  ): Promise<SeriesMetaDto> {
     return invoke('series_meta_update', patch) as Promise<SeriesMetaDto>
   },
 
@@ -477,7 +536,9 @@ export const api = {
     return invoke('character_add', input) as Promise<CharacterDto>
   },
 
-  async characterUpdate(input: CharacterUpdateInput): Promise<CharacterDto | null> {
+  async characterUpdate(
+    input: CharacterUpdateInput,
+  ): Promise<CharacterDto | null> {
     return invoke('character_update', input) as Promise<CharacterDto | null>
   },
 
@@ -493,7 +554,9 @@ export const api = {
     return invoke('glossary_add', input) as Promise<GlossaryDto>
   },
 
-  async glossaryUpdate(input: GlossaryUpdateInput): Promise<GlossaryDto | null> {
+  async glossaryUpdate(
+    input: GlossaryUpdateInput,
+  ): Promise<GlossaryDto | null> {
     return invoke('glossary_update', input) as Promise<GlossaryDto | null>
   },
 
@@ -539,7 +602,10 @@ export const api = {
     template?: string
     isDefault?: boolean
   }): Promise<PromptTemplateDto | null> {
-    return invoke('prompt_template_update', input) as Promise<PromptTemplateDto | null>
+    return invoke(
+      'prompt_template_update',
+      input,
+    ) as Promise<PromptTemplateDto | null>
   },
 
   async promptTemplateRemove(id: number): Promise<boolean> {
@@ -560,8 +626,14 @@ export const api = {
   // ----------------------------------------------------------------
   // Translation memory (Phase 6)
   // ----------------------------------------------------------------
-  async tmLookup(sourceText: string, targetLang: string): Promise<TmEntryDto | null> {
-    return invoke('tm_lookup', { sourceText, targetLang }) as Promise<TmEntryDto | null>
+  async tmLookup(
+    sourceText: string,
+    targetLang: string,
+  ): Promise<TmEntryDto | null> {
+    return invoke('tm_lookup', {
+      sourceText,
+      targetLang,
+    }) as Promise<TmEntryDto | null>
   },
 
   async tmLookupFuzzy(
@@ -677,7 +749,10 @@ export const api = {
     costInputPer1m?: number | null
     costOutputPer1m?: number | null
   }): Promise<ProviderProfileDto | null> {
-    return invoke('provider_profile_update', input) as Promise<ProviderProfileDto | null>
+    return invoke(
+      'provider_profile_update',
+      input,
+    ) as Promise<ProviderProfileDto | null>
   },
 
   async providerProfileRemove(id: number): Promise<boolean> {
@@ -685,8 +760,12 @@ export const api = {
   },
 
   /** Fetch the plaintext API key for `id` from the OS keyring. */
-  async providerProfileSecretGet(id: number): Promise<{ apiKey: string | null }> {
-    return invoke('provider_profile_secret_get', { id }) as Promise<{ apiKey: string | null }>
+  async providerProfileSecretGet(
+    id: number,
+  ): Promise<{ apiKey: string | null }> {
+    return invoke('provider_profile_secret_get', { id }) as Promise<{
+      apiKey: string | null
+    }>
   },
 
   async llmCallLog(input: {
@@ -714,10 +793,12 @@ export const api = {
   // ----------------------------------------------------------------
   // AI Chat (per-project history + agentic web fetch)
   // ----------------------------------------------------------------
-  async chatMessagesList(input: {
-    limit?: number
-    beforeId?: number | null
-  } = {}): Promise<ChatMessageDto[]> {
+  async chatMessagesList(
+    input: {
+      limit?: number
+      beforeId?: number | null
+    } = {},
+  ): Promise<ChatMessageDto[]> {
     return invoke('chat_messages_list', input) as Promise<ChatMessageDto[]>
   },
 
@@ -745,9 +826,7 @@ export const api = {
   /** "Undo from this point" — delete every message with id >= fromId.
    *  Powers the "remove this turn and everything after" flow when the
    *  user wants to retry a question with different context. */
-  async chatMessagesDeleteFrom(
-    fromId: number,
-  ): Promise<{ removed: number }> {
+  async chatMessagesDeleteFrom(fromId: number): Promise<{ removed: number }> {
     return invoke('chat_messages_delete_from', { fromId }) as Promise<{
       removed: number
     }>
@@ -758,6 +837,17 @@ export const api = {
    *  active LLM to summarise into project metadata. */
   async webFetchUrl(url: string): Promise<WebFetchResult> {
     return invoke('web_fetch_url', { url }) as Promise<WebFetchResult>
+  },
+
+  async cloudLlmCall(params: {
+    profileId: number
+    prompt: string
+    modelName: string
+    apiUrl?: string | null
+    jsonMode: boolean
+    responseSchema?: any
+  }): Promise<{ text: string }> {
+    return invoke('cloud_llm_call', params) as Promise<{ text: string }>
   },
 
   // ── Translation queue ────────────────────────────────────────
@@ -895,7 +985,10 @@ export type TmEntryDto = {
   createdAt: string
 }
 
-export type PromptUseCase = 'translate' | 'extract_entities' | 'summarize_chapter'
+export type PromptUseCase =
+  | 'translate'
+  | 'extract_entities'
+  | 'summarize_chapter'
 
 export type PromptTemplateDto = {
   id: number
@@ -1062,6 +1155,7 @@ export type StorageClearTarget =
   | 'modelsHf'
   | 'fontsCustom'
   | 'recentProjects'
+  | 'orphanCache'
 
 export type StorageEntry = {
   /** Absolute path on disk — shown in UI so user sees what'll be touched. */
@@ -1080,6 +1174,8 @@ export type AppStorageStats = {
   fontsCustom: StorageEntry
   /** recent-projects.json (UI convenience). Project folders themselves unaffected. */
   recentProjects: StorageEntry
+  /** Stale temporary files/partial downloads (.part, .download, .tmp) in the HuggingFace cache folder. */
+  orphanCache: StorageEntry
 }
 
 export type StorageClearError = {

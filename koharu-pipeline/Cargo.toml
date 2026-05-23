@@ -14,10 +14,12 @@ publish.workspace = true
 [dependencies]
 koharu-api = { workspace = true }
 koharu-types = { workspace = true }
+koharu-http = { workspace = true }
 koharu-ml = { workspace = true }
 koharu-project = { workspace = true }
 koharu-renderer = { workspace = true }
 anyhow = { workspace = true }
+chrono = { workspace = true }
 image = { workspace = true }
 imageproc = { workspace = true }
 once_cell = { workspace = true }
@@ -33,3 +35,5 @@ strum = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 walkdir = "2"
+libc = { workspace = true }
+zip = { workspace = true }

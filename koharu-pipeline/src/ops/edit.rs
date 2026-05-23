@@ -3,12 +3,12 @@ use image::GenericImageView;
 use imageproc::distance_transform::Norm;
 use koharu_api::commands::{
     AddTextBlockPayload, InpaintPartialPayload, MaskMorphPayload, RemoveTextBlockPayload,
-    UpdateBrushLayerPayload, UpdateInpaintMaskPayload, UpdateTextBlockPayload,
-    UpdateTextBlocksPayload,
+    ReorderTextBlocksPayload, UpdateBrushLayerPayload, UpdateInpaintMaskPayload,
+    UpdateTextBlockPayload, UpdateTextBlocksPayload,
 };
 use koharu_api::parse::parse_hex_color;
 use koharu_api::views::{TextBlockInfo, to_block_info};
-use koharu_types::{SerializableDynamicImage, TextBlock, TextStyle};
+use koharu_types::{ReadingOrder, SerializableDynamicImage, TextBlock, TextStyle};
 use tracing::instrument;
 
 use crate::{AppResources, state_tx};
@@ -228,46 +228,69 @@ pub async fn update_text_block(
     state: AppResources,
     payload: UpdateTextBlockPayload,
 ) -> anyhow::Result<TextBlockInfo> {
-    state_tx::mutate_doc(&state.state, payload.index, |document| {
-        let block = document
-            .text_blocks
-            .get_mut(payload.text_block_index)
-            .ok_or_else(|| anyhow::anyhow!("Text block {} not found", payload.text_block_index))?;
-        let mut geometry_changed = false;
+    let index = payload.index;
+    let block_index = payload.text_block_index;
+    state_tx::mutate_doc(&state.state, index, |document| {
+        let block_count = document.text_blocks.len();
+        let block = document.text_blocks.get_mut(block_index).ok_or_else(|| {
+            // Actionable message: a common failure is the caller (e.g. the
+            // AI-chat agent) passing a 1-based page number as the 0-based
+            // document `index`, or targeting a page whose blocks aren't the
+            // ones it inspected. Report the doc index + block count so the
+            // mismatch is visible instead of a bare "not found".
+            anyhow::anyhow!(
+                "Text block {block_index} not found: document index {index} has {block_count} block(s) (valid block indices 0..{block_count}). Check the document index (0-based) matches the page you mean."
+            )
+        })?;
+        // Self-test fix #2: track whether the change invalidates
+        // the rendered sprite. Pure-position moves (x/y only) do
+        // NOT change the sprite contents — only its placement on
+        // the canvas — so we preserve `block.rendered` and the
+        // frontend's TextBlockSpriteLayer keeps showing the
+        // translation. Pre-fix every update_text_block call
+        // unconditionally cleared `rendered`, so dragging a block
+        // to reposition it made the translated text vanish until
+        // the user pressed Render again.
+        let mut size_changed = false; // affects sprite content
+        let mut moved = false; // pure-position, sprite unchanged
 
         if let Some(translation) = payload.translation {
             block.translation = Some(translation);
+            size_changed = true; // text content rebaked
         }
         if let Some(x) = payload.x {
             block.x = x;
-            geometry_changed = true;
+            moved = true;
         }
         if let Some(y) = payload.y {
             block.y = y;
-            geometry_changed = true;
+            moved = true;
         }
         if let Some(width) = payload.width {
             block.width = width;
-            geometry_changed = true;
+            size_changed = true;
             block.lock_layout_box = true;
         }
         if let Some(height) = payload.height {
             block.height = height;
-            geometry_changed = true;
+            size_changed = true;
             block.lock_layout_box = true;
         }
         if let Some(rotation_deg) = payload.rotation_deg {
             block.rotation_deg = Some(rotation_deg);
+            size_changed = true; // sprite rotation baked-in
         }
-        if geometry_changed {
+        if size_changed || moved {
             block.set_layout_seed(block.x, block.y, block.width, block.height);
         }
 
+        let mut style_changed = false;
         if payload.font_families.is_some()
             || payload.font_size.is_some()
             || payload.color.is_some()
             || payload.shader_effect.is_some()
         {
+            style_changed = true;
             let style = block.style.get_or_insert_with(|| TextStyle {
                 font_families: Vec::new(),
                 font_size: None,
@@ -279,6 +302,8 @@ pub async fn update_text_block(
                 letter_spacing_px: None,
                 min_font_size: None,
                 vertical_align: None,
+                baseline_shift_px: None,
+                horizontal_scale: None,
             });
 
             if let Some(families) = payload.font_families {
@@ -295,7 +320,11 @@ pub async fn update_text_block(
             }
         }
 
-        block.rendered = None;
+        if size_changed || style_changed {
+            // Sprite content changed → stale rebake.
+            block.rendered = None;
+        }
+        // Pure `moved` (x/y only) preserves rendered.
         Ok(to_block_info(payload.text_block_index, block))
     })
     .await
@@ -350,27 +379,88 @@ pub async fn text_block_fit_to_bubble(
         const LUMA_THRESHOLD: u8 = 200;
 
         // BFS flood from seeds = all pixels inside the original bbox
-        // that pass the threshold. Using multiple seeds (not just centre)
-        // is more robust when text characters split the bubble interior
-        // into several regions through the bbox centre.
+        // that pass the threshold. To prevent merging multiple disjoint speech bubbles
+        // (in case the bbox overlaps multiple bubbles), we first group the white pixels inside
+        // the bbox into connected components, and then use only the component that is
+        // closest to the center of the bounding box as our seed region.
         let bbox_w = (cap_x1 - cap_x0 + 1) as usize;
         let bbox_h = (cap_y1 - cap_y0 + 1) as usize;
         let mut visited = vec![false; bbox_w * bbox_h];
         let mut queue: std::collections::VecDeque<(i32, i32)> =
             std::collections::VecDeque::new();
 
+        // Find connected components of white pixels strictly inside bx0..=bx1 and by0..=by1
+        let mut local_visited = vec![false; ((bx1 - bx0 + 1) * (by1 - by0 + 1)) as usize];
+        let local_w = (bx1 - bx0 + 1) as usize;
+        let mut components: Vec<Vec<(i32, i32)>> = Vec::new();
+
         for y in by0..=by1 {
             for x in bx0..=bx1 {
                 let p = luma.get_pixel(x as u32, y as u32)[0];
                 if p >= LUMA_THRESHOLD {
-                    let idx = ((y - cap_y0) as usize) * bbox_w + ((x - cap_x0) as usize);
-                    if !visited[idx] {
-                        visited[idx] = true;
-                        queue.push_back((x, y));
+                    let local_idx = ((y - by0) as usize) * local_w + ((x - bx0) as usize);
+                    if !local_visited[local_idx] {
+                        let mut comp = Vec::new();
+                        let mut local_q = std::collections::VecDeque::new();
+
+                        local_visited[local_idx] = true;
+                        local_q.push_back((x, y));
+
+                        while let Some((cx, cy)) = local_q.pop_front() {
+                            comp.push((cx, cy));
+
+                            for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                                let nx = cx + dx;
+                                let ny = cy + dy;
+                                if nx >= bx0 && nx <= bx1 && ny >= by0 && ny <= by1 {
+                                    let n_idx = ((ny - by0) as usize) * local_w + ((nx - bx0) as usize);
+                                    if !local_visited[n_idx] {
+                                        let np = luma.get_pixel(nx as u32, ny as u32)[0];
+                                        if np >= LUMA_THRESHOLD {
+                                            local_visited[n_idx] = true;
+                                            local_q.push_back((nx, ny));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        components.push(comp);
                     }
                 }
             }
         }
+
+        // Find the component closest to the center of the bounding box
+        let center_x = (bx0 + bx1) as f32 / 2.0;
+        let center_y = (by0 + by1) as f32 / 2.0;
+        let mut best_comp_idx = None;
+        let mut min_dist_sq = f32::MAX;
+
+        for (idx, comp) in components.iter().enumerate() {
+            let mut comp_min_dist = f32::MAX;
+            for &(x, y) in comp {
+                let dx = x as f32 - center_x;
+                let dy = y as f32 - center_y;
+                let dist_sq = dx * dx + dy * dy;
+                if dist_sq < comp_min_dist {
+                    comp_min_dist = dist_sq;
+                }
+            }
+            if comp_min_dist < min_dist_sq {
+                min_dist_sq = comp_min_dist;
+                best_comp_idx = Some(idx);
+            }
+        }
+
+        // Seed BFS strictly using only the closest connected component
+        if let Some(idx) = best_comp_idx {
+            for &(x, y) in &components[idx] {
+                let idx = ((y - cap_y0) as usize) * bbox_w + ((x - cap_x0) as usize);
+                visited[idx] = true;
+                queue.push_back((x, y));
+            }
+        }
+
         if queue.is_empty() {
             anyhow::bail!(
                 "No bubble interior detected inside current bbox (page is too dark / bubble outline crosses bbox)"
@@ -428,7 +518,7 @@ pub async fn text_block_fit_to_bubble(
         let block = document
             .text_blocks
             .get_mut(payload.text_block_index)
-            .unwrap();
+            .ok_or_else(|| anyhow::anyhow!("Text block {} not found", payload.text_block_index))?;
         block.x = new_x;
         block.y = new_y;
         block.width = new_w;
@@ -488,7 +578,7 @@ pub async fn dilate_mask(state: AppResources, payload: MaskMorphPayload) -> anyh
 
         let gray = segment.to_luma8();
         let dilated = imageproc::morphology::dilate(&gray, Norm::LInf, payload.radius);
-        document.segment = Some(SerializableDynamicImage(DynamicImage::ImageLuma8(dilated)));
+        document.segment = Some(DynamicImage::ImageLuma8(dilated).into());
         Ok(())
     })
     .await
@@ -507,7 +597,7 @@ pub async fn erode_mask(state: AppResources, payload: MaskMorphPayload) -> anyho
 
         let gray = segment.to_luma8();
         let eroded = imageproc::morphology::erode(&gray, Norm::LInf, payload.radius);
-        document.segment = Some(SerializableDynamicImage(DynamicImage::ImageLuma8(eroded)));
+        document.segment = Some(DynamicImage::ImageLuma8(eroded).into());
         Ok(())
     })
     .await
@@ -662,9 +752,18 @@ pub async fn inpaint_partial(
         return Ok(());
     }
 
-    let image_crop =
-        SerializableDynamicImage(snapshot.image.crop_imm(x0, y0, crop_width, crop_height));
-    let mask_crop = SerializableDynamicImage(mask_image.crop_imm(x0, y0, crop_width, crop_height));
+    let image_crop = SerializableDynamicImage(std::sync::Arc::new(snapshot.image.crop_imm(
+        x0,
+        y0,
+        crop_width,
+        crop_height,
+    )));
+    let mask_crop = SerializableDynamicImage(std::sync::Arc::new(mask_image.crop_imm(
+        x0,
+        y0,
+        crop_width,
+        crop_height,
+    )));
 
     let inpainted_crop = state
         .ml
@@ -686,14 +785,312 @@ pub async fn inpaint_partial(
     state_tx::update_doc(&state.state, payload.index, updated).await
 }
 
+fn recursive_xy_cut(
+    indices: &[usize],
+    blocks: &[TextBlock],
+    reading_order: ReadingOrder,
+) -> Vec<usize> {
+    if indices.len() <= 1 {
+        return indices.to_vec();
+    }
+
+    // 1. Sanitize dimensions and get medians
+    let mut widths = Vec::new();
+    let mut heights = Vec::new();
+    for &idx in indices {
+        if let Some(b) = blocks.get(idx) {
+            let w = if b.width.is_finite() && b.width >= 0.0 {
+                b.width
+            } else {
+                0.0
+            };
+            let h = if b.height.is_finite() && b.height >= 0.0 {
+                b.height
+            } else {
+                0.0
+            };
+            widths.push(w);
+            heights.push(h);
+        }
+    }
+    widths.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    heights.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let median_w = if widths.is_empty() {
+        50.0
+    } else {
+        widths[widths.len() / 2]
+    };
+    let median_h = if heights.is_empty() {
+        20.0
+    } else {
+        heights[heights.len() / 2]
+    };
+
+    let min_gap_x = (median_w * 0.15).max(10.0);
+    let min_gap_y = (median_h * 0.10).max(8.0);
+
+    // 2. Find best horizontal (Y) gap
+    let mut y_intervals = Vec::new();
+    for &idx in indices {
+        if let Some(b) = blocks.get(idx) {
+            let y = if b.y.is_finite() { b.y } else { 0.0 };
+            let h = if b.height.is_finite() && b.height >= 0.0 {
+                b.height
+            } else {
+                0.0
+            };
+            y_intervals.push((y, y + h));
+        }
+    }
+    y_intervals.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    let mut y_merged: Vec<(f32, f32)> = Vec::new();
+    for &(start, end) in &y_intervals {
+        if let Some(last) = y_merged.last_mut() {
+            if start <= last.1 {
+                last.1 = last.1.max(end);
+            } else {
+                y_merged.push((start, end));
+            }
+        } else {
+            y_merged.push((start, end));
+        }
+    }
+    let mut best_y_gap: Option<(f32, f32, f32)> = None; // (start, end, size)
+    for i in 0..y_merged.len().saturating_sub(1) {
+        let size = y_merged[i + 1].0 - y_merged[i].1;
+        if size > min_gap_y {
+            if best_y_gap.map_or(true, |(_, _, best_size)| size > best_size) {
+                best_y_gap = Some((y_merged[i].1, y_merged[i + 1].0, size));
+            }
+        }
+    }
+
+    // 3. Find best vertical (X) gap
+    let mut x_intervals = Vec::new();
+    for &idx in indices {
+        if let Some(b) = blocks.get(idx) {
+            let x = if b.x.is_finite() { b.x } else { 0.0 };
+            let w = if b.width.is_finite() && b.width >= 0.0 {
+                b.width
+            } else {
+                0.0
+            };
+            x_intervals.push((x, x + w));
+        }
+    }
+    x_intervals.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    let mut x_merged: Vec<(f32, f32)> = Vec::new();
+    for &(start, end) in &x_intervals {
+        if let Some(last) = x_merged.last_mut() {
+            if start <= last.1 {
+                last.1 = last.1.max(end);
+            } else {
+                x_merged.push((start, end));
+            }
+        } else {
+            x_merged.push((start, end));
+        }
+    }
+    let mut best_x_gap: Option<(f32, f32, f32)> = None;
+    for i in 0..x_merged.len().saturating_sub(1) {
+        let size = x_merged[i + 1].0 - x_merged[i].1;
+        if size > min_gap_x {
+            if best_x_gap.map_or(true, |(_, _, best_size)| size > best_size) {
+                best_x_gap = Some((x_merged[i].1, x_merged[i + 1].0, size));
+            }
+        }
+    }
+
+    // 4. Decide where to cut
+    match (best_x_gap, best_y_gap) {
+        (Some((x_start, x_end, x_size)), Some((y_start, y_end, y_size))) => {
+            if x_size > y_size {
+                // Cut X
+                let cut_coord = (x_start + x_end) / 2.0;
+                let (part1, part2) = partition_by_x(indices, blocks, cut_coord, reading_order);
+                let mut sorted = recursive_xy_cut(&part1, blocks, reading_order);
+                sorted.extend(recursive_xy_cut(&part2, blocks, reading_order));
+                sorted
+            } else {
+                // Cut Y
+                let cut_coord = (y_start + y_end) / 2.0;
+                let (part1, part2) = partition_by_y(indices, blocks, cut_coord);
+                let mut sorted = recursive_xy_cut(&part1, blocks, reading_order);
+                sorted.extend(recursive_xy_cut(&part2, blocks, reading_order));
+                sorted
+            }
+        }
+        (Some((x_start, x_end, _)), None) => {
+            // Cut X
+            let cut_coord = (x_start + x_end) / 2.0;
+            let (part1, part2) = partition_by_x(indices, blocks, cut_coord, reading_order);
+            let mut sorted = recursive_xy_cut(&part1, blocks, reading_order);
+            sorted.extend(recursive_xy_cut(&part2, blocks, reading_order));
+            sorted
+        }
+        (None, Some((y_start, y_end, _))) => {
+            // Cut Y
+            let cut_coord = (y_start + y_end) / 2.0;
+            let (part1, part2) = partition_by_y(indices, blocks, cut_coord);
+            let mut sorted = recursive_xy_cut(&part1, blocks, reading_order);
+            sorted.extend(recursive_xy_cut(&part2, blocks, reading_order));
+            sorted
+        }
+        (None, None) => {
+            // No gaps found, fallback sorting
+            let mut fallback_indices = indices.to_vec();
+            let tolerance_y = (median_h * 0.5).max(5.0);
+            fallback_indices.sort_by(|&idx_a, &idx_b| {
+                let a = &blocks[idx_a];
+                let b = &blocks[idx_b];
+                let ay = if a.y.is_finite() { a.y } else { 0.0 };
+                let by = if b.y.is_finite() { b.y } else { 0.0 };
+                let ax = if a.x.is_finite() { a.x } else { 0.0 };
+                let bx = if b.x.is_finite() { b.x } else { 0.0 };
+                let aw = if a.width.is_finite() && a.width >= 0.0 {
+                    a.width
+                } else {
+                    0.0
+                };
+                let bw = if b.width.is_finite() && b.width >= 0.0 {
+                    b.width
+                } else {
+                    0.0
+                };
+                let center_ax = ax + aw / 2.0;
+                let center_bx = bx + bw / 2.0;
+
+                if (ay - by).abs() < tolerance_y {
+                    match reading_order {
+                        ReadingOrder::Rtl => {
+                            // Right to Left: larger X first
+                            center_bx
+                                .partial_cmp(&center_ax)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        }
+                        _ => {
+                            // Left to Right: smaller X first
+                            center_ax
+                                .partial_cmp(&center_bx)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        }
+                    }
+                } else {
+                    // Top to bottom: smaller Y first
+                    ay.partial_cmp(&by).unwrap_or(std::cmp::Ordering::Equal)
+                }
+            });
+            fallback_indices
+        }
+    }
+}
+
+fn partition_by_x(
+    indices: &[usize],
+    blocks: &[TextBlock],
+    cut_coord: f32,
+    reading_order: ReadingOrder,
+) -> (Vec<usize>, Vec<usize>) {
+    let mut part1 = Vec::new();
+    let mut part2 = Vec::new();
+    for &idx in indices {
+        if let Some(b) = blocks.get(idx) {
+            let x = if b.x.is_finite() { b.x } else { 0.0 };
+            let w = if b.width.is_finite() && b.width >= 0.0 {
+                b.width
+            } else {
+                0.0
+            };
+            let center_x = x + w / 2.0;
+            match reading_order {
+                ReadingOrder::Rtl => {
+                    // Right to Left: Right comes first
+                    if center_x >= cut_coord {
+                        part1.push(idx);
+                    } else {
+                        part2.push(idx);
+                    }
+                }
+                _ => {
+                    // Left to Right: Left comes first
+                    if center_x < cut_coord {
+                        part1.push(idx);
+                    } else {
+                        part2.push(idx);
+                    }
+                }
+            }
+        }
+    }
+    (part1, part2)
+}
+
+fn partition_by_y(
+    indices: &[usize],
+    blocks: &[TextBlock],
+    cut_coord: f32,
+) -> (Vec<usize>, Vec<usize>) {
+    let mut part1 = Vec::new();
+    let mut part2 = Vec::new();
+    for &idx in indices {
+        if let Some(b) = blocks.get(idx) {
+            let y = if b.y.is_finite() { b.y } else { 0.0 };
+            let h = if b.height.is_finite() && b.height >= 0.0 {
+                b.height
+            } else {
+                0.0
+            };
+            let center_y = y + h / 2.0;
+            // Top to bottom: Top comes first
+            if center_y < cut_coord {
+                part1.push(idx);
+            } else {
+                part2.push(idx);
+            }
+        }
+    }
+    (part1, part2)
+}
+
+pub async fn reorder_text_blocks(
+    state: AppResources,
+    payload: ReorderTextBlocksPayload,
+) -> anyhow::Result<()> {
+    state_tx::mutate_doc(&state.state, payload.index, |document| {
+        if payload.reading_order == ReadingOrder::Custom {
+            return Ok(());
+        }
+
+        let indices: Vec<usize> = (0..document.text_blocks.len()).collect();
+        let sorted_indices =
+            recursive_xy_cut(&indices, &document.text_blocks, payload.reading_order);
+
+        let mut sorted_blocks = Vec::with_capacity(document.text_blocks.len());
+        for idx in sorted_indices {
+            if let Some(block) = document.text_blocks.get(idx) {
+                sorted_blocks.push(block.clone());
+            }
+        }
+
+        if sorted_blocks.len() == document.text_blocks.len() {
+            document.text_blocks = sorted_blocks;
+        } else {
+            tracing::warn!("Mismatched block count during XY-cut reordering; aborting mutation");
+        }
+
+        Ok(())
+    })
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        find_matching_previous, localize_inpaint_text_blocks, paste_crop,
+        find_matching_previous, localize_inpaint_text_blocks, paste_crop, recursive_xy_cut,
         rehydrate_runtime_text_block_state,
     };
     use image::{Rgba, RgbaImage};
-    use koharu_types::TextBlock;
+    use koharu_types::{ReadingOrder, TextBlock};
 
     #[test]
     fn resized_block_locks_layout_box() {
@@ -861,5 +1258,42 @@ mod tests {
 
         let matched = find_matching_previous(&current, 0, &previous, &[false, false]);
         assert_eq!(matched, Some(1));
+    }
+
+    #[test]
+    fn xy_cut_sorting_rtl_ltr() {
+        let blocks = vec![
+            TextBlock {
+                x: 100.0,
+                y: 10.0,
+                width: 20.0,
+                height: 20.0,
+                ..Default::default()
+            }, // 0: Right column, top
+            TextBlock {
+                x: 10.0,
+                y: 10.0,
+                width: 20.0,
+                height: 20.0,
+                ..Default::default()
+            }, // 1: Left column, top
+            TextBlock {
+                x: 50.0,
+                y: 80.0,
+                width: 20.0,
+                height: 20.0,
+                ..Default::default()
+            }, // 2: Bottom row
+        ];
+
+        let indices = vec![0, 1, 2];
+
+        // For RTL: Right column top (0) -> Left column top (1) -> Bottom row (2)
+        let rtl_sorted = recursive_xy_cut(&indices, &blocks, ReadingOrder::Rtl);
+        assert_eq!(rtl_sorted, vec![0, 1, 2]);
+
+        // For LTR: Left column top (1) -> Right column top (0) -> Bottom row (2)
+        let ltr_sorted = recursive_xy_cut(&indices, &blocks, ReadingOrder::Ltr);
+        assert_eq!(ltr_sorted, vec![1, 0, 2]);
     }
 }

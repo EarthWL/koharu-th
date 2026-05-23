@@ -17,6 +17,19 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::sync::{broadcast, mpsc};
 
 use crate::shared::{SharedResources, get_resources_wait};
+use once_cell::sync::Lazy;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollabEvent {
+    pub session_id: String,
+    pub event_type: String,
+    pub payload: rmpv::Value,
+}
+
+static COLLAB_CHANNEL: Lazy<(
+    broadcast::Sender<CollabEvent>,
+    broadcast::Receiver<CollabEvent>,
+)> = Lazy::new(|| broadcast::channel(2048));
 
 #[derive(Debug, Deserialize)]
 struct RawIncoming {
@@ -53,6 +66,19 @@ fn err_response(id: u32, msg: &str) -> OutgoingMessage {
         id,
         result: None,
         error: Some(msg.to_string()),
+    }
+}
+
+fn diag_err_response(id: u32, err: &anyhow::Error) -> OutgoingMessage {
+    let diag = koharu_types::classify_error(err);
+    let error_str = match serde_json::to_string(&diag) {
+        Ok(json) => json,
+        Err(_) => format!("{err:#}"),
+    };
+    OutgoingMessage::Response {
+        id,
+        result: None,
+        error: Some(error_str),
     }
 }
 
@@ -111,6 +137,7 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::InpaintPartial => call(operations::inpaint_partial, state, params).await,
         Method::Render => call(operations::render, state, params).await,
         Method::UpdateTextBlocks => call(operations::update_text_blocks, state, params).await,
+        Method::ReorderTextBlocks => call(operations::reorder_text_blocks, state, params).await,
         Method::UpdateTextBlock => call(operations::update_text_block, state, params).await,
         Method::TextBlockFitToBubble => {
             call(operations::text_block_fit_to_bubble, state, params).await
@@ -119,16 +146,18 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::LlmGenerate => call(operations::llm_generate, state, params).await,
         Method::Process => call(operations::process, state, params).await,
         Method::ProjectCreate => call(operations::project_create, state, params).await,
-        Method::ProjectCreatePicker => {
-            call(operations::project_create_picker, state, params).await
-        }
+        Method::ProjectCreatePicker => call(operations::project_create_picker, state, params).await,
         Method::ProjectOpen => call(operations::project_open, state, params).await,
         Method::ProjectOpenPicker => call0(operations::project_open_picker, state).await,
         Method::ProjectClose => call0(operations::project_close, state).await,
         Method::ProjectCurrent => call0(operations::project_current, state).await,
-        Method::ProjectBackupPicker => {
-            call0(operations::project_backup_picker, state).await
+        Method::ProjectBackupPicker => call0(operations::project_backup_picker, state).await,
+        Method::ProjectBackupSilent => call0(operations::project_backup_silent, state).await,
+        Method::ProjectBackupList => call0(operations::project_backup_list, state).await,
+        Method::ProjectBackupRestore => {
+            call(operations::project_backup_restore, state, params).await
         }
+        Method::ProjectCheckDiskSpace => call0(operations::project_check_disk_space, state).await,
         Method::RecentProjectsList => call0(operations::recent_projects_list, state).await,
         Method::RecentProjectsRemove => {
             call(operations::recent_projects_remove, state, params).await
@@ -146,12 +175,8 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         }
         Method::ChapterUpdate => call(operations::chapter_update, state, params).await,
         Method::ChapterRemove => call(operations::chapter_remove, state, params).await,
-        Method::ChapterClearPages => {
-            call(operations::chapter_clear_pages, state, params).await
-        }
-        Method::ChapterExportCbz => {
-            call(operations::chapter_export_cbz, state, params).await
-        }
+        Method::ChapterClearPages => call(operations::chapter_clear_pages, state, params).await,
+        Method::ChapterExportCbz => call(operations::chapter_export_cbz, state, params).await,
         Method::CharactersList => call0(operations::characters_list, state).await,
         Method::CharacterAdd => call(operations::character_add, state, params).await,
         Method::CharacterUpdate => call(operations::character_update, state, params).await,
@@ -176,20 +201,12 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::TmInsert => call(operations::tm_insert, state, params).await,
         Method::TmExportTmx => call0(operations::tm_export_tmx, state).await,
         Method::TmImportTmx => call0(operations::tm_import_tmx, state).await,
-        Method::TmPendingEmbeddings => {
-            call(operations::tm_pending_embeddings, state, params).await
-        }
+        Method::TmPendingEmbeddings => call(operations::tm_pending_embeddings, state, params).await,
         Method::TmPendingCount => call(operations::tm_pending_count, state, params).await,
         Method::TmSetEmbedding => call(operations::tm_set_embedding, state, params).await,
-        Method::TmLookupSemantic => {
-            call(operations::tm_lookup_semantic, state, params).await
-        }
-        Method::ProviderProfilesList => {
-            call0(operations::provider_profiles_list, state).await
-        }
-        Method::ProviderProfileAdd => {
-            call(operations::provider_profile_add, state, params).await
-        }
+        Method::TmLookupSemantic => call(operations::tm_lookup_semantic, state, params).await,
+        Method::ProviderProfilesList => call0(operations::provider_profiles_list, state).await,
+        Method::ProviderProfileAdd => call(operations::provider_profile_add, state, params).await,
         Method::ProviderProfileUpdate => {
             call(operations::provider_profile_update, state, params).await
         }
@@ -202,22 +219,24 @@ async fn dispatch(method: Method, params: rmpv::Value, state: AppResources) -> R
         Method::LlmCallLog => call(operations::llm_call_log, state, params).await,
         Method::LlmCostStats => call0(operations::llm_cost_stats, state).await,
         Method::LlmCostBreakdown => call0(operations::llm_cost_breakdown, state).await,
-        Method::ChatMessagesList => {
-            call(operations::chat_messages_list, state, params).await
-        }
+        Method::ChatMessagesList => call(operations::chat_messages_list, state, params).await,
         Method::ChatMessageAdd => call(operations::chat_message_add, state, params).await,
-        Method::ChatMessageDelete => {
-            call(operations::chat_message_delete, state, params).await
-        }
+        Method::ChatMessageDelete => call(operations::chat_message_delete, state, params).await,
         Method::ChatMessagesDeleteFrom => {
             call(operations::chat_messages_delete_from, state, params).await
         }
         Method::ChatMessagesClear => call0(operations::chat_messages_clear, state).await,
         Method::WebFetchUrl => call(operations::web_fetch_url, state, params).await,
+        Method::CloudLlmCall => call(operations::cloud_llm_call, state, params).await,
         Method::QueueList => call0(operations::queue_list, state).await,
         Method::QueueEnqueue => call(operations::queue_enqueue, state, params).await,
         Method::QueueCancel => call(operations::queue_cancel, state, params).await,
         Method::QueueClearFinished => call0(operations::queue_clear_finished, state).await,
+        Method::CollabPublish => {
+            let event: CollabEvent = from_value(params)?;
+            let _ = COLLAB_CHANNEL.0.send(event);
+            to_value(&true)
+        }
     }
 }
 
@@ -245,6 +264,28 @@ async fn handle_socket(socket: WebSocket, state: WsState) {
         koharu_pipeline::pipeline::subscribe(),
         tx.clone(),
     );
+
+    let mut collab_rx = COLLAB_CHANNEL.0.subscribe();
+    let collab_tx = tx.clone();
+    tokio::spawn(async move {
+        loop {
+            match collab_rx.recv().await {
+                Ok(event) => {
+                    if let Ok(params) = to_value(&event) {
+                        let msg = OutgoingMessage::Notification {
+                            method: "collab_sync".to_string(),
+                            params,
+                        };
+                        if collab_tx.send(msg).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
 
     let send_task = tokio::spawn(async move {
         while let Some(msg) = send_rx.recv().await {
@@ -284,18 +325,13 @@ async fn handle_socket(socket: WebSocket, state: WsState) {
             // pipeline init takes a couple of seconds — without this
             // wait, the very first RPC of the session pops a scary
             // "Resources not initialized" error in the UI.
-            let response = match get_resources_wait(
-                &resources,
-                Duration::from_secs(20),
-            )
-            .await
-            {
+            let response = match get_resources_wait(&resources, Duration::from_secs(20)).await {
                 Ok(res) => {
                     let parsed_method: Result<Method> = raw.method.parse();
                     let method = match parsed_method {
                         Ok(method) => method,
                         Err(err) => {
-                            let _ = tx.send(err_response(id, &format!("{err:#}"))).await;
+                            let _ = tx.send(diag_err_response(id, &err)).await;
                             return;
                         }
                     };
@@ -308,11 +344,11 @@ async fn handle_socket(socket: WebSocket, state: WsState) {
                     .await
                     {
                         Ok(Ok(result)) => ok_response(id, result),
-                        Ok(Err(err)) => err_response(id, &format!("{err:#}")),
+                        Ok(Err(err)) => diag_err_response(id, &err),
                         Err(_) => err_response(id, "Request timed out"),
                     }
                 }
-                Err(err) => err_response(id, &format!("{err:#}")),
+                Err(err) => diag_err_response(id, &err),
             };
             let _ = tx.send(response).await;
         });

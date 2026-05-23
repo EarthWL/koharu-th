@@ -12,20 +12,19 @@ use rmcp::model::{
 use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 
 use koharu_api::commands::{
-    AddTextBlockPayload, ChapterCreatePayload, ChapterIdPayload,
-    ChapterUpdatePayload, CharacterAddPayload, CharacterIdPayload, CharacterUpdatePayload,
-    DetectPayload, OcrPayload, WebFetchPayload,
+    AddTextBlockPayload, ChapterCreatePayload, ChapterIdPayload, ChapterUpdatePayload,
+    CharacterAddPayload, CharacterIdPayload, CharacterUpdatePayload, DetectPayload,
     ExportDocumentParams, FileEntry, GlossaryAddPayload, GlossaryBulkAddPayload,
     GlossaryBumpUsagePayload, GlossaryIdPayload, GlossaryUpdatePayload, IndexPayload,
-    InpaintPartialPayload, InpaintRegion, InpaintRegionParams, LlmCallLogPayload,
+    InpaintPartialPayload, InpaintPayload, InpaintRegion, InpaintRegionParams, LlmCallLogPayload,
     LlmGenerateParams, LlmGeneratePayload, LlmListPayload, LlmLoadParams, LlmLoadPayload,
-    MaskMorphPayload, OpenDocumentsParams, OpenDocumentsPayload, ProcessParams, ProcessRequest,
-    ProjectCreatePayload, ProjectOpenPayload, PromptRenderPayload, PromptTemplateAddPayload,
-    PromptTemplateIdPayload, PromptTemplateUpdatePayload, ProviderProfileAddPayload,
-    ProviderProfileIdPayload, ProviderProfileUpdatePayload, RecentProjectRemovePayload,
-    RemoveTextBlockPayload, RenderParams, RenderPayload, SeriesMetaUpdatePayload, TmInsertPayload,
-    TmLookupFuzzyPayload, TmLookupPayload, UpdateTextBlockPayload, ViewImageParams,
-    ViewTextBlockParams,
+    MaskMorphPayload, OcrPayload, OpenDocumentsParams, OpenDocumentsPayload, ProcessParams,
+    ProcessRequest, ProjectCreatePayload, ProjectOpenPayload, PromptRenderPayload,
+    PromptTemplateAddPayload, PromptTemplateIdPayload, PromptTemplateUpdatePayload,
+    ProviderProfileAddPayload, ProviderProfileIdPayload, ProviderProfileUpdatePayload,
+    RecentProjectRemovePayload, RemoveTextBlockPayload, RenderParams, RenderPayload,
+    SeriesMetaUpdatePayload, TmInsertPayload, TmLookupFuzzyPayload, TmLookupPayload,
+    UpdateTextBlockPayload, ViewImageParams, ViewTextBlockParams, WebFetchPayload,
 };
 use koharu_api::views::to_doc_info;
 use koharu_pipeline::AppResources;
@@ -177,7 +176,9 @@ impl KoharuMcp {
             }
         };
 
-        let b64 = encode_png_base64(img, max_size);
+        let b64 = encode_png_base64(img, max_size).map_err(|e| {
+            ErrorData::internal_error(format!("PNG encode failed: {e}"), None)
+        })?;
         Ok(CallToolResult::success(vec![
             Content::text(format!(
                 "Viewing '{}' layer of document '{}' ({}x{})",
@@ -232,7 +233,9 @@ impl KoharuMcp {
         }
 
         let crop = source.crop_imm(x, y, w, h);
-        let b64 = encode_png_base64(&crop, 512);
+        let b64 = encode_png_base64(&crop, 512).map_err(|e| {
+            ErrorData::internal_error(format!("PNG encode failed: {e}"), None)
+        })?;
 
         let mut desc = format!(
             "Text block [{}] at ({},{}) {}x{}",
@@ -363,9 +366,16 @@ impl KoharuMcp {
     )]
     async fn inpaint(&self, Parameters(p): Parameters<IndexPayload>) -> Result<String, String> {
         let res = self.resources()?;
-        operations::inpaint(res, p)
-            .await
-            .map_err(|e| e.to_string())?;
+        operations::inpaint(
+            res,
+            InpaintPayload {
+                index: p.index,
+                inpaint_engine: None,
+                inpaint_max_side: None,
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
         Ok("Inpainting complete".to_string())
     }
 
@@ -431,6 +441,7 @@ impl KoharuMcp {
                 index: p.index,
                 text_block_index: p.text_block_index,
                 language: p.language,
+                context: p.context,
             },
         )
         .await
@@ -470,17 +481,7 @@ impl KoharuMcp {
                 shader_effect: effect,
                 shader_stroke: None,
                 font_family: p.font_family,
-                // MCP callers use the backend default OCR engine.
-                // Cloud Vision OCR is frontend-orchestrated, no
-                // exposed MCP entry point for it (see roadmap
-                // Tier B #3 for the backend-port plan).
-                ocr_engine: None,
-                skip_ocr: None,
-                skip_detect: None,
-                skip_inpaint: None,
-                detector_engine: None,
-                anime_yolo_variant: None,
-                anime_yolo_confidence: None,
+                ..Default::default()
             },
         )
         .await

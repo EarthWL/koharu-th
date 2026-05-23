@@ -11,6 +11,10 @@ export function setCanvasViewport(element: HTMLDivElement | null) {
   canvasViewportRef.current = element
 }
 
+export function getCanvasViewport() {
+  return canvasViewportRef.current
+}
+
 export function fitCanvasToViewport() {
   const { setScale, setAutoFitEnabled, currentDocumentIndex } =
     useEditorUiStore.getState()
@@ -32,4 +36,36 @@ export function resetCanvasScale() {
   const { setScale, setAutoFitEnabled } = useEditorUiStore.getState()
   setAutoFitEnabled(false)
   setScale(100)
+}
+
+export function fitCanvasWidthToViewport() {
+  const { setScale, setAutoFitEnabled, currentDocumentIndex } =
+    useEditorUiStore.getState()
+  const doc = getQueryClient().getQueryData<Document>(
+    queryKeys.documents.current(currentDocumentIndex),
+  )
+  const viewport = canvasViewportRef.current
+  if (!doc || !viewport) return
+  const rect = viewport.getBoundingClientRect()
+  if (!rect.width || !doc.width) return
+  const scaleW = ((rect.width - 24) / doc.width) * 100 // leave 24px for scrollbar
+  const fit = Math.max(10, Math.min(300, scaleW))
+  setAutoFitEnabled(false)
+  setScale(fit)
+}
+
+export function fitCanvasHeightToViewport() {
+  const { setScale, setAutoFitEnabled, currentDocumentIndex } =
+    useEditorUiStore.getState()
+  const doc = getQueryClient().getQueryData<Document>(
+    queryKeys.documents.current(currentDocumentIndex),
+  )
+  const viewport = canvasViewportRef.current
+  if (!doc || !viewport) return
+  const rect = viewport.getBoundingClientRect()
+  if (!rect.height || !doc.height) return
+  const scaleH = ((rect.height - 24) / doc.height) * 100 // leave 24px for margin
+  const fit = Math.max(10, Math.min(300, scaleH))
+  setAutoFitEnabled(false)
+  setScale(fit)
 }

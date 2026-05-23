@@ -10,11 +10,16 @@ import {
   ArrowDownToLineIcon,
   ArrowUpToLineIcon,
   BoldIcon,
+  Copy,
+  ClipboardPaste,
   ItalicIcon,
   LanguagesIcon,
   MinusIcon,
+  Pipette,
   PlusIcon,
+  RefreshCwIcon,
   SquareIcon,
+  StarIcon,
 } from 'lucide-react'
 import { useTextBlocks } from '@/hooks/useTextBlocks'
 import {
@@ -27,6 +32,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { ColorPicker } from '@/components/ui/color-picker'
 import { Input } from '@/components/ui/input'
+import { Slider } from '@/components/ui/slider'
 import {
   Tooltip,
   TooltipContent,
@@ -39,14 +45,21 @@ import {
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import { useFontsQuery } from '@/lib/query/hooks'
-import { useTextBlockMutations } from '@/lib/query/mutations'
+import {
+  useTextBlockMutations,
+  useDocumentMutations,
+} from '@/lib/query/mutations'
 import { cn } from '@/lib/utils'
+import { useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query/keys'
 
 const DEFAULT_COLOR: RgbaColor = [0, 0, 0, 255]
 const DEFAULT_FONT_FAMILIES = ['Arial']
 const DEFAULT_EFFECT: RenderEffect = {
   italic: false,
   bold: false,
+  fauxItalic: false,
+  fauxBold: false,
 }
 const DEFAULT_STROKE: RenderStroke = {
   enabled: true,
@@ -103,6 +116,8 @@ const uniqueStrings = (values: string[]) => {
 const normalizeEffect = (effect?: Partial<RenderEffect>): RenderEffect => ({
   italic: effect?.italic ?? false,
   bold: effect?.bold ?? false,
+  fauxItalic: effect?.fauxItalic ?? false,
+  fauxBold: effect?.fauxBold ?? false,
 })
 
 const normalizeStroke = (stroke?: Partial<RenderStroke>): RenderStroke => ({
@@ -156,10 +171,26 @@ export function RenderControlsPanel() {
   const renderStroke = useEditorUiStore((state) => state.renderStroke)
   const setRenderEffect = useEditorUiStore((state) => state.setRenderEffect)
   const setRenderStroke = useEditorUiStore((state) => state.setRenderStroke)
+  const showHud = useEditorUiStore((state) => state.showHud)
+  const hideHud = useEditorUiStore((state) => state.hideHud)
+  const startBatchHistory = useEditorUiStore((state) => state.startBatchHistory)
+  const endBatchHistory = useEditorUiStore((state) => state.endBatchHistory)
+  const currentDocumentIndex = useEditorUiStore(
+    (state) => state.currentDocumentIndex,
+  )
+  const copiedStyle = useEditorUiStore((state) => state.copiedStyle)
+  const setCopiedStyle = useEditorUiStore((state) => state.setCopiedStyle)
+  const queryClient = useQueryClient()
   const { updateTextBlocks } = useTextBlockMutations()
+  const { retranslateImage } = useDocumentMutations()
   const { data: availableFonts = [] } = useFontsQuery()
   const fontFamily = usePreferencesStore((state) => state.fontFamily)
   const setFontFamily = usePreferencesStore((state) => state.setFontFamily)
+  const favoriteFonts =
+    usePreferencesStore((state) => state.favoriteFonts) || []
+  const toggleFavoriteFont = usePreferencesStore(
+    (state) => state.toggleFavoriteFont,
+  )
   const { textBlocks, selectedBlockIndex, replaceBlock } = useTextBlocks()
   const { t } = useTranslation()
   const selectedBlock =
@@ -213,6 +244,16 @@ export function RenderControlsPanel() {
     selectedBlock?.style?.verticalAlign ??
     firstBlock?.style?.verticalAlign ??
     'top'
+  const currentBaselineShift =
+    selectedBlock?.style?.baselineShiftPx ??
+    firstBlock?.style?.baselineShiftPx ??
+    0
+  const currentHorizontalScale =
+    selectedBlock?.style?.horizontalScale ??
+    firstBlock?.style?.horizontalScale ??
+    1.0
+  const currentOpacity =
+    selectedBlock?.style?.opacity ?? firstBlock?.style?.opacity ?? 1.0
   const fontLabel = t('render.fontLabel')
   const effectLabel = t('render.effectLabel')
   const strokeLabel = t('render.effectBorder')
@@ -244,8 +285,7 @@ export function RenderControlsPanel() {
     updates: Partial<TextStyle>,
   ): TextStyle => ({
     fontFamilies: updates.fontFamilies ?? style?.fontFamilies ?? [],
-    fontSize:
-      'fontSize' in updates ? updates.fontSize : style?.fontSize,
+    fontSize: 'fontSize' in updates ? updates.fontSize : style?.fontSize,
     color: updates.color ?? resolveStyleColor(style, block, fallbackColor),
     effect: updates.effect ?? style?.effect,
     stroke: updates.stroke ?? style?.stroke,
@@ -260,6 +300,15 @@ export function RenderControlsPanel() {
       'minFontSize' in updates ? updates.minFontSize : style?.minFontSize,
     verticalAlign:
       'verticalAlign' in updates ? updates.verticalAlign : style?.verticalAlign,
+    baselineShiftPx:
+      'baselineShiftPx' in updates
+        ? updates.baselineShiftPx
+        : style?.baselineShiftPx,
+    horizontalScale:
+      'horizontalScale' in updates
+        ? updates.horizontalScale
+        : style?.horizontalScale,
+    opacity: 'opacity' in updates ? updates.opacity : style?.opacity,
   })
 
   const applyStyleToSelected = (updates: Partial<TextStyle>) => {
@@ -276,6 +325,29 @@ export function RenderControlsPanel() {
       style: buildStyle(block, block.style, updates),
     }))
     void updateTextBlocks(nextBlocks)
+  }
+
+  const handleOpenEyeDropper = async (target: 'fill' | 'stroke') => {
+    if (typeof window === 'undefined' || !('EyeDropper' in window)) return
+    try {
+      // @ts-ignore
+      const eyeDropper = new window.EyeDropper()
+      const result = await eyeDropper.open()
+      if (result.sRGBHex) {
+        if (target === 'fill') {
+          const nextColor = hexToColor(result.sRGBHex, currentColor[3] ?? 255)
+          if (applyStyleToSelected({ color: nextColor })) return
+          applyStyleToAll({ color: nextColor })
+        } else {
+          applyStrokeSetting({
+            ...currentStroke,
+            color: hexToColor(result.sRGBHex, currentStroke.color[3] ?? 255),
+          })
+        }
+      }
+    } catch (err) {
+      console.log('Eyedropper closed or failed:', err)
+    }
   }
 
   const mergeFontFamilies = (
@@ -302,10 +374,31 @@ export function RenderControlsPanel() {
   const effectItems: {
     key: keyof RenderEffect
     label: string
-    Icon: ComponentType<{ className?: string }>
+    element?: React.ReactNode
+    Icon?: ComponentType<{ className?: string }>
   }[] = [
     { key: 'italic', label: t('render.effectItalic'), Icon: ItalicIcon },
     { key: 'bold', label: t('render.effectBold'), Icon: BoldIcon },
+    {
+      key: 'fauxItalic',
+      label: t('render.effectFauxItalic', {
+        defaultValue: 'Faux Italic (Slant)',
+      }),
+      element: (
+        <span className='text-[10px] font-bold tracking-tighter italic'>
+          I+
+        </span>
+      ),
+    },
+    {
+      key: 'fauxBold',
+      label: t('render.effectFauxBold', {
+        defaultValue: 'Faux Bold (Thicken)',
+      }),
+      element: (
+        <span className='text-[10px] font-extrabold tracking-tighter'>B+</span>
+      ),
+    },
   ]
 
   const textAlignItems: {
@@ -320,7 +413,42 @@ export function RenderControlsPanel() {
 
   return (
     <div className='flex w-full min-w-0 flex-col gap-1.5'>
-      <div className='flex items-center justify-end'>
+      <div className='flex items-center justify-between'>
+        <div className='flex items-center gap-1'>
+          <Button
+            variant='outline'
+            size='sm'
+            className='h-6 gap-1 px-1.5 text-[9px] font-semibold'
+            disabled={!selectedBlock}
+            onClick={() => {
+              if (selectedBlock?.style) {
+                setCopiedStyle(selectedBlock.style)
+                showHud('คัดลอกสไตล์แล้ว!')
+                setTimeout(() => hideHud(), 1500)
+              }
+            }}
+          >
+            <Copy className='size-2.5' />
+            {t('render.copyStyleBtn', 'คัดลอกสไตล์')}
+          </Button>
+          <Button
+            variant='outline'
+            size='sm'
+            className='h-6 gap-1 px-1.5 text-[9px] font-semibold'
+            disabled={!copiedStyle || !selectedBlock}
+            onClick={() => {
+              if (copiedStyle) {
+                if (applyStyleToSelected(copiedStyle)) return
+                applyStyleToAll(copiedStyle)
+                showHud('วางสไตล์แล้ว!')
+                setTimeout(() => hideHud(), 1500)
+              }
+            }}
+          >
+            <ClipboardPaste className='size-2.5' />
+            {t('render.pasteStyleBtn', 'วางสไตล์')}
+          </Button>
+        </div>
         <span
           data-testid='render-scope-indicator'
           className={cn(
@@ -337,70 +465,175 @@ export function RenderControlsPanel() {
           {fontLabel}
         </span>
 
-        <div className='flex min-w-0 items-center gap-1.5'>
-          <div className='min-w-0 flex-1'>
-            <SearchableSelect
-              value={currentFont}
-              onValueChange={(value) => {
-                const nextFamilies = mergeFontFamilies(
-                  value,
-                  selectedBlock?.style?.fontFamilies,
-                )
-                if (applyStyleToSelected({ fontFamilies: nextFamilies })) return
-                setFontFamily(value)
-                if (!hasBlocks) return
-                const nextBlocks = textBlocks.map((block) => ({
-                  ...block,
-                  style: buildStyle(block, block.style, {
-                    fontFamilies: mergeFontFamilies(
-                      value,
-                      block.style?.fontFamilies,
+        <div className='flex min-w-0 items-start gap-1.5'>
+          <div className='flex min-w-0 flex-1 flex-col gap-1.5'>
+            <div className='flex w-full items-center gap-1'>
+              <SearchableSelect
+                value={currentFont}
+                onValueChange={(value) => {
+                  const nextFamilies = mergeFontFamilies(
+                    value,
+                    selectedBlock?.style?.fontFamilies,
+                  )
+                  if (applyStyleToSelected({ fontFamilies: nextFamilies }))
+                    return
+                  setFontFamily(value)
+                  if (!hasBlocks) return
+                  const nextBlocks = textBlocks.map((block) => ({
+                    ...block,
+                    style: buildStyle(block, block.style, {
+                      fontFamilies: mergeFontFamilies(
+                        value,
+                        block.style?.fontFamilies,
+                      ),
+                    }),
+                  }))
+                  void updateTextBlocks(nextBlocks)
+                }}
+                options={fontOptions.map(
+                  (font): SearchableSelectOption => ({
+                    value: font,
+                    label: (
+                      <div className='flex w-full items-center justify-between pr-1'>
+                        <span
+                          style={{ fontFamily: font }}
+                          className='truncate font-medium'
+                        >
+                          {font}
+                        </span>
+                        <span
+                          style={{ fontFamily: font }}
+                          className='text-muted-foreground/60 ml-4 shrink-0 text-[10px] select-none'
+                        >
+                          Sample ไทย
+                        </span>
+                      </div>
                     ),
+                    searchText: font,
                   }),
-                }))
-                void updateTextBlocks(nextBlocks)
-              }}
-              options={fontOptions.map(
-                (font): SearchableSelectOption => ({
-                  value: font,
-                  label: (
-                    <span style={{ fontFamily: font }}>{font}</span>
-                  ),
-                  searchText: font,
-                }),
-              )}
-              placeholder={t('render.fontPlaceholder')}
-              searchPlaceholder={t('render.fontSearchPlaceholder')}
-              emptyMessage={t('render.fontEmptyMessage')}
-              disabled={fontOptions.length === 0}
-              className='h-8 w-full min-w-0'
-            />
+                )}
+                placeholder={t('render.fontPlaceholder')}
+                searchPlaceholder={t('render.fontSearchPlaceholder')}
+                emptyMessage={t('render.fontEmptyMessage')}
+                disabled={fontOptions.length === 0}
+                className='h-8 w-full min-w-0'
+              />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant='ghost'
+                    size='icon-sm'
+                    onClick={() => toggleFavoriteFont(currentFont)}
+                    disabled={!currentFont}
+                    className={cn(
+                      'size-7 shrink-0 transition-colors',
+                      favoriteFonts.includes(currentFont) &&
+                        'bg-amber-400/10 text-amber-400 hover:text-amber-500',
+                    )}
+                  >
+                    <StarIcon
+                      className={cn(
+                        'size-3.5',
+                        favoriteFonts.includes(currentFont) && 'fill-current',
+                      )}
+                    />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side='bottom' sideOffset={4}>
+                  {favoriteFonts.includes(currentFont)
+                    ? t('render.unfavoriteFont', 'Remove from Favorites')
+                    : t('render.favoriteFont', 'Add to Favorites')}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+
+            {favoriteFonts.length > 0 && (
+              <div className='mt-0.5 flex flex-wrap gap-1'>
+                {favoriteFonts.map((font) => (
+                  <Button
+                    key={font}
+                    variant='outline'
+                    size='sm'
+                    className={cn(
+                      'border-border/60 hover:bg-accent/50 h-5 px-1.5 text-[9px] font-medium transition-colors',
+                      currentFont === font &&
+                        'bg-primary/10 border-primary/30 text-primary',
+                    )}
+                    style={{ fontFamily: font }}
+                    onClick={() => {
+                      const nextFamilies = mergeFontFamilies(
+                        font,
+                        selectedBlock?.style?.fontFamilies,
+                      )
+                      if (applyStyleToSelected({ fontFamilies: nextFamilies }))
+                        return
+                      setFontFamily(font)
+                      if (!hasBlocks) return
+                      const nextBlocks = textBlocks.map((block) => ({
+                        ...block,
+                        style: buildStyle(block, block.style, {
+                          fontFamilies: mergeFontFamilies(
+                            font,
+                            block.style?.fontFamilies,
+                          ),
+                        }),
+                      }))
+                      void updateTextBlocks(nextBlocks)
+                    }}
+                    title={font}
+                  >
+                    {font}
+                  </Button>
+                ))}
+              </div>
+            )}
           </div>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div>
-                <ColorPicker
-                  value={currentColorHex}
-                  disabled={!hasBlocks}
-                  triggerTestId='render-color-trigger'
-                  pickerTestId='render-color-picker'
-                  swatchTestId='render-color-swatch'
-                  inputTestId='render-color-input'
-                  pickButtonTestId='render-color-pick'
-                  onChange={(hex) => {
-                    const nextColor = hexToColor(hex, currentColor[3] ?? 255)
-                    if (applyStyleToSelected({ color: nextColor })) return
-                    applyStyleToAll({ color: nextColor })
-                  }}
-                  className='h-7 w-7'
-                />
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side='bottom' sideOffset={4}>
-              {t('render.fontColorLabel')}
-            </TooltipContent>
-          </Tooltip>
+          <div className='flex shrink-0 items-center gap-1'>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div>
+                  <ColorPicker
+                    value={currentColorHex}
+                    disabled={!hasBlocks}
+                    triggerTestId='render-color-trigger'
+                    pickerTestId='render-color-picker'
+                    swatchTestId='render-color-swatch'
+                    inputTestId='render-color-input'
+                    pickButtonTestId='render-color-pick'
+                    onChange={(hex) => {
+                      const nextColor = hexToColor(hex, currentColor[3] ?? 255)
+                      if (applyStyleToSelected({ color: nextColor })) return
+                      applyStyleToAll({ color: nextColor })
+                    }}
+                    className='h-7 w-7'
+                  />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side='bottom' sideOffset={4}>
+                {t('render.fontColorLabel')}
+              </TooltipContent>
+            </Tooltip>
+
+            {typeof window !== 'undefined' && 'EyeDropper' in window && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant='outline'
+                    size='icon-sm'
+                    disabled={!hasBlocks}
+                    onClick={() => handleOpenEyeDropper('fill')}
+                    className='size-7 shrink-0'
+                  >
+                    <Pipette className='size-3.5' />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side='bottom' sideOffset={4}>
+                  {t('render.eyedropperFill', 'ดูดสีฟอนต์')}
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
         </div>
       </div>
 
@@ -436,7 +669,7 @@ export function RenderControlsPanel() {
                       setRenderEffect(nextEffect)
                     }}
                   >
-                    <Icon className='size-3.5' />
+                    {Icon ? <Icon className='size-3.5' /> : item.element}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side='bottom' sideOffset={4}>
@@ -522,31 +755,52 @@ export function RenderControlsPanel() {
             </TooltipContent>
           </Tooltip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div>
-                <ColorPicker
-                  value={currentStrokeColorHex}
-                  disabled={!hasBlocks}
-                  triggerTestId='render-stroke-color-trigger'
-                  pickerTestId='render-stroke-color-picker'
-                  swatchTestId='render-stroke-color-swatch'
-                  inputTestId='render-stroke-color-input'
-                  pickButtonTestId='render-stroke-color-pick'
-                  onChange={(hex) => {
-                    applyStrokeSetting({
-                      ...currentStroke,
-                      color: hexToColor(hex, currentStroke.color[3] ?? 255),
-                    })
-                  }}
-                  className='h-7 w-7'
-                />
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side='bottom' sideOffset={4}>
-              {strokeColorLabel}
-            </TooltipContent>
-          </Tooltip>
+          <div className='flex shrink-0 items-center gap-1'>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div>
+                  <ColorPicker
+                    value={currentStrokeColorHex}
+                    disabled={!hasBlocks}
+                    triggerTestId='render-stroke-color-trigger'
+                    pickerTestId='render-stroke-color-picker'
+                    swatchTestId='render-stroke-color-swatch'
+                    inputTestId='render-stroke-color-input'
+                    pickButtonTestId='render-stroke-color-pick'
+                    onChange={(hex) => {
+                      applyStrokeSetting({
+                        ...currentStroke,
+                        color: hexToColor(hex, currentStroke.color[3] ?? 255),
+                      })
+                    }}
+                    className='h-7 w-7'
+                  />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side='bottom' sideOffset={4}>
+                {strokeColorLabel}
+              </TooltipContent>
+            </Tooltip>
+
+            {typeof window !== 'undefined' && 'EyeDropper' in window && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant='outline'
+                    size='icon-sm'
+                    disabled={!hasBlocks}
+                    onClick={() => handleOpenEyeDropper('stroke')}
+                    className='size-7 shrink-0'
+                  >
+                    <Pipette className='size-3.5' />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side='bottom' sideOffset={4}>
+                  {t('render.eyedropperStroke', 'ดูดสีขอบ')}
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
 
           <Tooltip>
             <TooltipTrigger asChild>
@@ -609,7 +863,41 @@ export function RenderControlsPanel() {
       {/* Layout controls — Thai-friendly text shaping                  */}
       {/* ============================================================ */}
       <div className='grid w-full min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-1.5'>
-        <span className='text-muted-foreground text-[10px] font-medium tracking-wide uppercase'>
+        <span
+          className='text-muted-foreground hover:text-primary cursor-ew-resize text-[10px] font-medium tracking-wide uppercase transition-colors select-none'
+          title='Drag to adjust size'
+          onMouseDown={(e) => {
+            if (!hasBlocks) return
+            e.preventDefault()
+            startBatchHistory()
+            const startX = e.clientX
+            const startVal = currentFontSize ?? 16
+            const handleMouseMove = (moveEvent: MouseEvent) => {
+              const deltaX = moveEvent.clientX - startX
+              const nextVal = Math.max(
+                6,
+                Math.min(300, startVal + Math.round(deltaX / 2)),
+              )
+              applyStyleToSelected({ fontSize: nextVal }) ||
+                applyStyleToAll({ fontSize: nextVal })
+              showHud(`Font Size: ${nextVal}px`)
+            }
+            const handleMouseUp = () => {
+              window.removeEventListener('mousemove', handleMouseMove)
+              window.removeEventListener('mouseup', handleMouseUp)
+              hideHud()
+              const currentDoc = queryClient.getQueryData<any>(
+                queryKeys.documents.current(currentDocumentIndex),
+              )
+              endBatchHistory(
+                'Change Font Size',
+                currentDoc?.textBlocks ?? textBlocks,
+              )
+            }
+            window.addEventListener('mousemove', handleMouseMove)
+            window.addEventListener('mouseup', handleMouseUp)
+          }}
+        >
           {t('render.sizeLabel')}
         </span>
         <div className='flex items-center gap-1.5'>
@@ -633,39 +921,345 @@ export function RenderControlsPanel() {
       </div>
 
       <div className='grid w-full min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-1.5'>
-        <span className='text-muted-foreground text-[10px] font-medium tracking-wide uppercase'>
+        <span
+          className='text-muted-foreground hover:text-primary cursor-ew-resize text-[10px] font-medium tracking-wide uppercase transition-colors select-none'
+          title='Drag to adjust line height'
+          onMouseDown={(e) => {
+            if (!hasBlocks) return
+            e.preventDefault()
+            startBatchHistory()
+            const startX = e.clientX
+            const startVal = currentLineHeight
+            const handleMouseMove = (moveEvent: MouseEvent) => {
+              const deltaX = moveEvent.clientX - startX
+              const nextVal = Number(
+                Math.max(0.8, Math.min(2.0, startVal + deltaX * 0.005)).toFixed(
+                  2,
+                ),
+              )
+              applyStyleToSelected({ lineHeight: nextVal }) ||
+                applyStyleToAll({ lineHeight: nextVal })
+              showHud(`Line Height: ${nextVal}`)
+            }
+            const handleMouseUp = () => {
+              window.removeEventListener('mousemove', handleMouseMove)
+              window.removeEventListener('mouseup', handleMouseUp)
+              hideHud()
+              const currentDoc = queryClient.getQueryData<any>(
+                queryKeys.documents.current(currentDocumentIndex),
+              )
+              endBatchHistory(
+                'Change Line Height',
+                currentDoc?.textBlocks ?? textBlocks,
+              )
+            }
+            window.addEventListener('mousemove', handleMouseMove)
+            window.addEventListener('mouseup', handleMouseUp)
+          }}
+        >
           {t('render.lineHeightLabel')}
         </span>
         <div className='flex items-center gap-1.5'>
-          <NumericStepper
-            value={currentLineHeight}
-            min={0.8}
-            max={2.0}
-            step={0.05}
-            decimals={2}
-            ariaLabel={t('render.ariaLineHeight')}
-            disabled={!hasBlocks}
-            onChange={(v) =>
-              applyStyleToSelected({ lineHeight: v }) ||
-              applyStyleToAll({ lineHeight: v })
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className='flex items-center gap-1'>
+                <span
+                  className='text-muted-foreground/70 bg-muted/40 border-border/60 hover:bg-accent hover:text-primary flex size-7 shrink-0 cursor-ew-resize flex-col items-center justify-center rounded-md border text-[9px] leading-none font-bold transition-colors select-none'
+                  title='Drag to adjust line height'
+                  onMouseDown={(e) => {
+                    if (!hasBlocks) return
+                    e.preventDefault()
+                    startBatchHistory()
+                    const startX = e.clientX
+                    const startVal = currentLineHeight
+                    const handleMouseMove = (moveEvent: MouseEvent) => {
+                      const deltaX = moveEvent.clientX - startX
+                      const nextVal = Number(
+                        Math.max(
+                          0.8,
+                          Math.min(2.0, startVal + deltaX * 0.005),
+                        ).toFixed(2),
+                      )
+                      applyStyleToSelected({ lineHeight: nextVal }) ||
+                        applyStyleToAll({ lineHeight: nextVal })
+                      showHud(`Line Height: ${nextVal}`)
+                    }
+                    const handleMouseUp = () => {
+                      window.removeEventListener('mousemove', handleMouseMove)
+                      window.removeEventListener('mouseup', handleMouseUp)
+                      hideHud()
+                      const currentDoc = queryClient.getQueryData<any>(
+                        queryKeys.documents.current(currentDocumentIndex),
+                      )
+                      endBatchHistory(
+                        'Change Line Height',
+                        currentDoc?.textBlocks ?? textBlocks,
+                      )
+                    }
+                    window.addEventListener('mousemove', handleMouseMove)
+                    window.addEventListener('mouseup', handleMouseUp)
+                  }}
+                >
+                  <span className='translate-y-[1px]'>A</span>
+                  <span className='border-muted-foreground/30 my-[1px] w-3 border-t'></span>
+                  <span className='-translate-y-[1px]'>A</span>
+                </span>
+                <NumericStepper
+                  value={currentLineHeight}
+                  min={0.8}
+                  max={2.0}
+                  step={0.05}
+                  decimals={2}
+                  ariaLabel={t('render.ariaLineHeight')}
+                  disabled={!hasBlocks}
+                  onChange={(v) =>
+                    applyStyleToSelected({ lineHeight: v }) ||
+                    applyStyleToAll({ lineHeight: v })
+                  }
+                />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side='bottom' sideOffset={4}>
+              {t('render.lineHeightTooltip', {
+                defaultValue: 'ระยะห่างบรรทัด (Leading A/A) - ตัวคูณความสูง',
+              })}
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className='flex items-center gap-1'>
+                <span
+                  className='text-muted-foreground/70 bg-muted/40 border-border/60 hover:bg-accent hover:text-primary flex size-7 shrink-0 cursor-ew-resize items-center justify-center rounded-md border text-[8px] font-extrabold tracking-tighter transition-colors select-none'
+                  title='Drag to adjust letter spacing'
+                  onMouseDown={(e) => {
+                    if (!hasBlocks) return
+                    e.preventDefault()
+                    startBatchHistory()
+                    const startX = e.clientX
+                    const startVal = currentLetterSpacing
+                    const handleMouseMove = (moveEvent: MouseEvent) => {
+                      const deltaX = moveEvent.clientX - startX
+                      const nextVal = Number(
+                        Math.max(
+                          -2,
+                          Math.min(8, startVal + deltaX * 0.05),
+                        ).toFixed(1),
+                      )
+                      applyStyleToSelected({ letterSpacingPx: nextVal }) ||
+                        applyStyleToAll({ letterSpacingPx: nextVal })
+                      showHud(`Letter Spacing: ${nextVal}px`)
+                    }
+                    const handleMouseUp = () => {
+                      window.removeEventListener('mousemove', handleMouseMove)
+                      window.removeEventListener('mouseup', handleMouseUp)
+                      hideHud()
+                      const currentDoc = queryClient.getQueryData<any>(
+                        queryKeys.documents.current(currentDocumentIndex),
+                      )
+                      endBatchHistory(
+                        'Change Letter Spacing',
+                        currentDoc?.textBlocks ?? textBlocks,
+                      )
+                    }
+                    window.addEventListener('mousemove', handleMouseMove)
+                    window.addEventListener('mouseup', handleMouseUp)
+                  }}
+                >
+                  VA
+                </span>
+                <NumericStepper
+                  value={currentLetterSpacing}
+                  min={-2}
+                  max={8}
+                  step={0.5}
+                  decimals={1}
+                  ariaLabel={t('render.ariaLetterSpacing')}
+                  disabled={!hasBlocks}
+                  onChange={(v) =>
+                    applyStyleToSelected({ letterSpacingPx: v }) ||
+                    applyStyleToAll({ letterSpacingPx: v })
+                  }
+                />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side='bottom' sideOffset={4}>
+              {t('render.letterSpacingTooltip', {
+                defaultValue: 'ระยะห่างตัวอักษร (Tracking VA) - พิกเซล',
+              })}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+
+      <div className='grid w-full min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-1.5'>
+        <span
+          className='text-muted-foreground hover:text-primary cursor-ew-resize text-[10px] font-medium tracking-wide uppercase transition-colors select-none'
+          title='Drag to adjust baseline shift'
+          onMouseDown={(e) => {
+            if (!hasBlocks) return
+            e.preventDefault()
+            startBatchHistory()
+            const startX = e.clientX
+            const startVal = currentBaselineShift
+            const handleMouseMove = (moveEvent: MouseEvent) => {
+              const deltaX = moveEvent.clientX - startX
+              const nextVal = Math.max(
+                -100,
+                Math.min(100, startVal + Math.round(deltaX / 2)),
+              )
+              applyStyleToSelected({ baselineShiftPx: nextVal }) ||
+                applyStyleToAll({ baselineShiftPx: nextVal })
+              showHud(`Baseline Shift: ${nextVal}px`)
             }
-          />
-          <NumericStepper
-            value={currentLetterSpacing}
-            min={-2}
-            max={8}
-            step={0.5}
-            decimals={1}
-            ariaLabel={t('render.ariaLetterSpacing')}
-            disabled={!hasBlocks}
-            onChange={(v) =>
-              applyStyleToSelected({ letterSpacingPx: v }) ||
-              applyStyleToAll({ letterSpacingPx: v })
+            const handleMouseUp = () => {
+              window.removeEventListener('mousemove', handleMouseMove)
+              window.removeEventListener('mouseup', handleMouseUp)
+              hideHud()
+              const currentDoc = queryClient.getQueryData<any>(
+                queryKeys.documents.current(currentDocumentIndex),
+              )
+              endBatchHistory(
+                'Change Baseline Shift',
+                currentDoc?.textBlocks ?? textBlocks,
+              )
             }
-          />
-          <span className='text-muted-foreground text-[10px]'>
-            {t('render.lineHeightLetterHint')}
-          </span>
+            window.addEventListener('mousemove', handleMouseMove)
+            window.addEventListener('mouseup', handleMouseUp)
+          }}
+        >
+          {t('render.baselineShiftLabel', { defaultValue: 'Shift/Scale' })}
+        </span>
+        <div className='flex items-center gap-1.5'>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className='flex items-center gap-1'>
+                <span
+                  className='text-muted-foreground/70 bg-muted/40 border-border/60 hover:bg-accent hover:text-primary flex size-7 shrink-0 cursor-ew-resize items-center justify-center rounded-md border text-[9px] font-bold transition-colors select-none'
+                  title='Drag to adjust baseline shift'
+                  onMouseDown={(e) => {
+                    if (!hasBlocks) return
+                    e.preventDefault()
+                    startBatchHistory()
+                    const startX = e.clientX
+                    const startVal = currentBaselineShift
+                    const handleMouseMove = (moveEvent: MouseEvent) => {
+                      const deltaX = moveEvent.clientX - startX
+                      const nextVal = Math.max(
+                        -100,
+                        Math.min(100, startVal + Math.round(deltaX / 2)),
+                      )
+                      applyStyleToSelected({ baselineShiftPx: nextVal }) ||
+                        applyStyleToAll({ baselineShiftPx: nextVal })
+                      showHud(`Baseline Shift: ${nextVal}px`)
+                    }
+                    const handleMouseUp = () => {
+                      window.removeEventListener('mousemove', handleMouseMove)
+                      window.removeEventListener('mouseup', handleMouseUp)
+                      hideHud()
+                      const currentDoc = queryClient.getQueryData<any>(
+                        queryKeys.documents.current(currentDocumentIndex),
+                      )
+                      endBatchHistory(
+                        'Change Baseline Shift',
+                        currentDoc?.textBlocks ?? textBlocks,
+                      )
+                    }
+                    window.addEventListener('mousemove', handleMouseMove)
+                    window.addEventListener('mouseup', handleMouseUp)
+                  }}
+                >
+                  ΔY
+                </span>
+                <NumericStepper
+                  value={currentBaselineShift}
+                  min={-100}
+                  max={100}
+                  step={1}
+                  ariaLabel={t('render.ariaBaselineShift', {
+                    defaultValue: 'Baseline Shift',
+                  })}
+                  disabled={!hasBlocks}
+                  onChange={(v) =>
+                    applyStyleToSelected({ baselineShiftPx: v }) ||
+                    applyStyleToAll({ baselineShiftPx: v })
+                  }
+                />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side='bottom' sideOffset={4}>
+              {t('render.baselineShiftTooltip', {
+                defaultValue: 'เลื่อนตำแหน่งแนวตั้ง (Baseline Shift) - พิกเซล',
+              })}
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className='flex items-center gap-1'>
+                <span
+                  className='text-muted-foreground/70 bg-muted/40 border-border/60 hover:bg-accent hover:text-primary flex size-7 shrink-0 cursor-ew-resize items-center justify-center rounded-md border text-[9px] font-bold transition-colors select-none'
+                  title='Drag to adjust horizontal scale'
+                  onMouseDown={(e) => {
+                    if (!hasBlocks) return
+                    e.preventDefault()
+                    startBatchHistory()
+                    const startX = e.clientX
+                    const startVal = currentHorizontalScale
+                    const handleMouseMove = (moveEvent: MouseEvent) => {
+                      const deltaX = moveEvent.clientX - startX
+                      const nextVal = Number(
+                        Math.max(
+                          0.2,
+                          Math.min(3.0, startVal + deltaX * 0.005),
+                        ).toFixed(2),
+                      )
+                      applyStyleToSelected({ horizontalScale: nextVal }) ||
+                        applyStyleToAll({ horizontalScale: nextVal })
+                      showHud(`Horizontal Scale: ${nextVal}`)
+                    }
+                    const handleMouseUp = () => {
+                      window.removeEventListener('mousemove', handleMouseMove)
+                      window.removeEventListener('mouseup', handleMouseUp)
+                      hideHud()
+                      const currentDoc = queryClient.getQueryData<any>(
+                        queryKeys.documents.current(currentDocumentIndex),
+                      )
+                      endBatchHistory(
+                        'Change Horizontal Scale',
+                        currentDoc?.textBlocks ?? textBlocks,
+                      )
+                    }
+                    window.addEventListener('mousemove', handleMouseMove)
+                    window.addEventListener('mouseup', handleMouseUp)
+                  }}
+                >
+                  ↔
+                </span>
+                <NumericStepper
+                  value={currentHorizontalScale}
+                  min={0.2}
+                  max={3.0}
+                  step={0.05}
+                  decimals={2}
+                  ariaLabel={t('render.ariaHorizontalScale', {
+                    defaultValue: 'Horizontal Scale',
+                  })}
+                  disabled={!hasBlocks}
+                  onChange={(v) =>
+                    applyStyleToSelected({ horizontalScale: v }) ||
+                    applyStyleToAll({ horizontalScale: v })
+                  }
+                />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side='bottom' sideOffset={4}>
+              {t('render.horizontalScaleTooltip', {
+                defaultValue:
+                  'ยืด/หดตัวอักษรแนวนอน (Horizontal Scale) - ตัวคูณ',
+              })}
+            </TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
@@ -704,7 +1298,7 @@ export function RenderControlsPanel() {
                     aria-label={label}
                     data-active={currentVerticalAlign === value}
                     className={cn(
-                      'size-7 rounded-none data-[active=true]:bg-accent data-[active=true]:text-foreground',
+                      'data-[active=true]:bg-accent data-[active=true]:text-foreground size-7 rounded-none',
                       i === 0 && 'rounded-l-md',
                       i === 2 && 'rounded-r-md',
                       i !== 0 && 'border-l',
@@ -785,6 +1379,88 @@ export function RenderControlsPanel() {
           </span>
         </div>
       </div>
+
+      {/* Opacity Control */}
+      <div className='grid w-full min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-1.5'>
+        <span
+          className='text-muted-foreground hover:text-primary cursor-ew-resize text-[10px] font-medium tracking-wide uppercase transition-colors select-none'
+          title='Drag to adjust opacity'
+          onMouseDown={(e) => {
+            if (!hasBlocks) return
+            e.preventDefault()
+            startBatchHistory()
+            const startX = e.clientX
+            const startVal = currentOpacity
+            const handleMouseMove = (moveEvent: MouseEvent) => {
+              const deltaX = moveEvent.clientX - startX
+              const nextVal = Number(
+                Math.max(0, Math.min(1.0, startVal + deltaX * 0.01)).toFixed(2),
+              )
+              applyStyleToSelected({ opacity: nextVal }) ||
+                applyStyleToAll({ opacity: nextVal })
+              showHud(`Opacity: ${Math.round(nextVal * 100)}%`)
+            }
+            const handleMouseUp = () => {
+              window.removeEventListener('mousemove', handleMouseMove)
+              window.removeEventListener('mouseup', handleMouseUp)
+              hideHud()
+              const currentDoc = queryClient.getQueryData<any>(
+                queryKeys.documents.current(currentDocumentIndex),
+              )
+              endBatchHistory(
+                'Change Opacity',
+                currentDoc?.textBlocks ?? textBlocks,
+              )
+            }
+            window.addEventListener('mousemove', handleMouseMove)
+            window.addEventListener('mouseup', handleMouseUp)
+          }}
+        >
+          {t('render.opacityLabel', 'Opacity')}
+        </span>
+        <div className='flex min-w-0 items-center gap-1.5'>
+          <Slider
+            value={[currentOpacity * 100]}
+            min={0}
+            max={100}
+            step={1}
+            disabled={!hasBlocks}
+            onValueChange={([val]) => {
+              const nextVal = Number((val / 100).toFixed(2))
+              applyStyleToSelected({ opacity: nextVal }) ||
+                applyStyleToAll({ opacity: nextVal })
+            }}
+            className='flex-1 py-2'
+          />
+          <span className='text-muted-foreground w-8 shrink-0 text-right text-[10px] tabular-nums'>
+            {Math.round(currentOpacity * 100)}%
+          </span>
+        </div>
+      </div>
+
+      {/* Re-translate ปุ่มด่วน — ข้าม detect/OCR/inpaint ใช้ผลลัพธ์เดิม */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            disabled={!hasBlocks}
+            data-testid='render-retranslate'
+            className='mt-1 h-7 w-full gap-1.5 px-2 text-[10px]'
+            onClick={() => void retranslateImage()}
+          >
+            <RefreshCwIcon className='size-3' />
+            {t('render.retranslate', 'Re-translate (skip inpaint)')}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side='bottom' sideOffset={4} className='max-w-64'>
+          {t(
+            'render.retranslateHint',
+            'แปลใหม่โดยไม่รอ inpaint ซ้ำ — ใช้ผลลัพธ์ inpaint เดิม เหมาะสำหรับเปลี่ยน LLM หรือปรับ prompt',
+          )}
+        </TooltipContent>
+      </Tooltip>
     </div>
   )
 }

@@ -22,8 +22,13 @@ import {
   flushMaskSync as flushMaskSyncQueue,
   flushTextBlockSync,
 } from '@/lib/services/syncQueues'
-import { applyThaiPostProcessToBlocks } from '@/lib/util/thaiPostProcess'
+import { applySmartPostProcessToBlocks } from '@/lib/util/postProcess'
 import i18n from '@/lib/i18n'
+import { toast } from 'sonner'
+import {
+  applySmartPostProcess,
+  detectDominantLanguage,
+} from '@/lib/smartPostProcess'
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => {
@@ -51,25 +56,25 @@ const invalidateThumbnailAtIndex = async (
 
 /**
  * After any translation flow lands on disk (Rust pipeline LLM step
- * or local llm_generate), run the Thai post-process pass over the
+ * or local llm_generate), run the smart post-process pass over the
  * persisted text_blocks if the user has it enabled. No-op if disabled
- * or if no Thai content exists (regex skips it). Cheap — single doc
+ * or if no content needs it (regex skips it). Cheap — single doc
  * fetch + at most one updateTextBlocks if anything changed.
  * Issue #21.
  */
-const maybeApplyThaiPostProcess = async (index: number) => {
-  if (!usePreferencesStore.getState().thaiPostProcessEnabled) return
+const maybeApplySmartPostProcess = async (index: number) => {
+  if (!usePreferencesStore.getState().smartPostProcessEnabled) return
   try {
     const doc = await api.getDocument(index)
     if (!doc?.textBlocks?.length) return
-    const cleaned = applyThaiPostProcessToBlocks(doc.textBlocks)
+    const cleaned = applySmartPostProcessToBlocks(doc.textBlocks)
     if (cleaned !== doc.textBlocks) {
       await api.updateTextBlocks(index, cleaned)
     }
   } catch (err) {
     // Post-process is cosmetic — never block the translation flow if
     // it fails. Log once and continue.
-    console.warn('[thai-postprocess] skipped:', err)
+    console.warn('[smart-postprocess] skipped:', err)
   }
 }
 
@@ -124,7 +129,8 @@ export const useTextBlockMutations = () => {
 
   const updateTextBlocks = useCallback(
     async (textBlocks: TextBlock[], index?: number) => {
-      const resolvedIndex = index ?? useEditorUiStore.getState().currentDocumentIndex
+      const resolvedIndex =
+        index ?? useEditorUiStore.getState().currentDocumentIndex
       const queryKey = queryKeys.documents.current(resolvedIndex)
       const currentDocument = queryClient.getQueryData<any>(queryKey)
       if (!currentDocument) return
@@ -256,6 +262,7 @@ export const useMaskMutations = () => {
 export const useDocumentMutations = () => {
   const queryClient = useQueryClient()
   const { setProgress, clearProgress } = useProgressActions()
+  const { updateTextBlocks } = useTextBlockMutations()
 
   const refreshDocuments = useCallback(async () => {
     await queryClient.invalidateQueries({
@@ -365,9 +372,22 @@ export const useDocumentMutations = () => {
           animeYoloVariant,
           animeYoloConfidence,
         })
-        await invalidateCurrentDocument(queryClient, resolvedIndex)
+        // Force-fetch the document directly instead of invalidating.
+        // invalidateQueries only triggers a background refetch when there
+        // is an active React Query observer — if the user clicks Detect
+        // immediately after opening an image, openDocuments' prefetchQuery
+        // may still be in-flight or have just completed with pre-detect
+        // data, leaving no active observer at the time of invalidation.
+        // fetchQuery bypasses the observer/enabled check and always waits
+        // for fresh data, so text blocks are guaranteed to be in the cache
+        // before setShowTextBlocksOverlay(true) is called.
+        await queryClient.fetchQuery({
+          queryKey: queryKeys.documents.current(resolvedIndex),
+          queryFn: () => api.getDocument(resolvedIndex),
+        })
         await invalidateThumbnailAtIndex(queryClient, resolvedIndex)
         useEditorUiStore.getState().setShowRenderedImage(false)
+        useEditorUiStore.getState().setShowTextBlocksOverlay(true)
       } finally {
         finishOperation()
       }
@@ -387,6 +407,7 @@ export const useDocumentMutations = () => {
       try {
         const {
           ocrEngine,
+          ocrSmartCloudFallback,
           ocrCloudProfileId,
           cloudProvider,
           cloudModelName,
@@ -436,16 +457,118 @@ export const useDocumentMutations = () => {
             await api.updateTextBlocks(resolvedIndex, updated)
           }
         } else {
-          // Local OCR — thread the engine choice through so the user's
-          // Settings → OCR pick (Manga OCR vs MIT-48px) actually
-          // applies. Same bug pattern as standalone Detect: without
-          // this the backend silently defaults to MIT-48px and the
-          // user sees garbage for Japanese vertical text even though
-          // they explicitly chose Manga OCR.
-          await api.ocr(resolvedIndex, { ocrEngine })
+          // Local OCR or Auto OCR
+          let finalEngine: 'mit48px' | 'manga' | 'auto' | 'cloud' = ocrEngine
+          if (ocrEngine === 'auto') {
+            const series = queryClient.getQueryData<{
+              sourceLanguage?: string
+            }>(['project', 'series-meta'])
+            const sourceLang = series?.sourceLanguage ?? ''
+            const isJapanese =
+              sourceLang.toLowerCase().includes('ja') ||
+              sourceLang.toLowerCase().includes('jp') ||
+              sourceLang.toLowerCase().includes('日本語')
+            finalEngine = isJapanese ? 'manga' : 'cloud'
+          }
+
+          if (finalEngine === 'cloud') {
+            // Auto resolved to cloud (non-Japanese source). Run the
+            // same cloud-OCR path as when the user explicitly picks
+            // Cloud Vision — `api.ocr` only accepts local engines
+            // (mit48px / manga / auto), so passing `'cloud'` would
+            // surface as a Rust deserialize error.
+            const profiles = await api.providerProfilesList()
+            const resolved = await resolveOcrCloudProfile(
+              ocrCloudProfileId,
+              profiles,
+              cloudProvider,
+              cloudModelName,
+              cloudApiKey,
+            )
+            if (!resolved) {
+              throw new Error(
+                'Auto OCR resolved to Cloud Vision (non-Japanese source) but no vision-capable profile is available. Configure one in Sidebar → Profiles or set OCR engine to a local one in Settings.',
+              )
+            }
+            let doc = await api.getDocument(resolvedIndex)
+            if (doc.textBlocks.length === 0) {
+              await api.detect(resolvedIndex, {
+                detectorEngine,
+                animeYoloVariant,
+                animeYoloConfidence,
+              })
+              doc = await api.getDocument(resolvedIndex)
+            }
+            if (doc.textBlocks.length > 0) {
+              const { texts } = await ocrPageViaCloud(
+                resolved.profile,
+                resolved.apiKey,
+                doc.image,
+                doc.textBlocks,
+              )
+              const updated = doc.textBlocks.map((b, i) => ({
+                ...b,
+                text: texts[i] ?? b.text,
+              }))
+              await api.updateTextBlocks(resolvedIndex, updated)
+            }
+            await invalidateCurrentDocument(queryClient, resolvedIndex)
+            await invalidateThumbnailAtIndex(queryClient, resolvedIndex)
+            useEditorUiStore.getState().setShowTextBlocksOverlay(true)
+            return
+          }
+
+          // Trigger OCR using the final chosen local engine
+          await api.ocr(resolvedIndex, { ocrEngine: finalEngine })
+
+          // Post-local OCR: Smart Cloud Fallback logic!
+          if (ocrEngine === 'auto' && ocrSmartCloudFallback) {
+            let doc = await api.getDocument(resolvedIndex)
+            if (doc.textBlocks.length > 0) {
+              const fallbackIndices = doc.textBlocks
+                .map((b, idx) => ({ block: b, idx }))
+                .filter(({ block }) => {
+                  const text = block.text ?? ''
+                  return text.trim() === ''
+                })
+                .map(({ idx }) => idx)
+
+              if (fallbackIndices.length > 0) {
+                const profiles = await api.providerProfilesList()
+                const resolved = await resolveOcrCloudProfile(
+                  ocrCloudProfileId,
+                  profiles,
+                  cloudProvider,
+                  cloudModelName,
+                  cloudApiKey,
+                )
+                if (resolved) {
+                  const subsetBlocks = fallbackIndices.map(
+                    (idx) => doc.textBlocks[idx],
+                  )
+                  const { texts } = await ocrPageViaCloud(
+                    resolved.profile,
+                    resolved.apiKey,
+                    doc.image,
+                    subsetBlocks,
+                  )
+                  const updatedBlocks = [...doc.textBlocks]
+                  for (let i = 0; i < fallbackIndices.length; i++) {
+                    const origIdx = fallbackIndices[i]
+                    const cloudText = texts[i]
+                    if (cloudText && cloudText.trim() !== '') {
+                      updatedBlocks[origIdx].text = cloudText
+                    }
+                  }
+                  await api.updateTextBlocks(resolvedIndex, updatedBlocks)
+                }
+              }
+            }
+          }
         }
         await invalidateCurrentDocument(queryClient, resolvedIndex)
         await invalidateThumbnailAtIndex(queryClient, resolvedIndex)
+        useEditorUiStore.getState().setShowTextBlocksOverlay(true)
       } finally {
         finishOperation()
       }
@@ -465,7 +588,8 @@ export const useDocumentMutations = () => {
       try {
         await flushTextBlockSync()
         await flushMaskSyncQueue()
-        await api.inpaint(resolvedIndex)
+        const { inpaintEngine, inpaintMaxSide } = usePreferencesStore.getState()
+        await api.inpaint(resolvedIndex, { inpaintEngine, inpaintMaxSide })
         await invalidateCurrentDocument(queryClient, resolvedIndex)
         await invalidateThumbnailAtIndex(queryClient, resolvedIndex)
         useEditorUiStore.getState().setShowInpaintedImage(true)
@@ -512,43 +636,6 @@ export const useDocumentMutations = () => {
     [inpaint, render],
   )
 
-  // แปลใหม่โดยไม่ต้องรอ inpaint ซ้ำ — ใช้ผลลัพธ์ inpaint เดิม
-  // เหมาะสำหรับเมื่อต้องการลอง LLM อื่นหรือเปลี่ยน prompt โดยไม่เสียเวลา
-  const retranslateImage = useCallback(
-    async (_?: any, index?: number) => {
-      const resolvedIndex =
-        index ?? useEditorUiStore.getState().currentDocumentIndex
-      const { selectedModel, selectedLanguage } = useLlmUiStore.getState()
-      const { renderEffect, renderStroke } = useEditorUiStore.getState()
-      const { fontFamily } = usePreferencesStore.getState()
-      const { startOperation, finishOperation } = useOperationStore.getState()
-      startOperation({
-        type: 'process-current',
-        cancellable: true,
-        current: 0,
-        total: 2, // translate + render เท่านั้น
-      })
-      try {
-        await api.process({
-          index: resolvedIndex,
-          llmModelId: selectedModel,
-          language: selectedLanguage,
-          shaderEffect: renderEffect,
-          shaderStroke: renderStroke,
-          fontFamily,
-          skipDetect: true,
-          skipOcr: true,
-          skipInpaint: true,
-        })
-      } catch (error) {
-        console.error('Failed to retranslate:', error)
-        finishOperation()
-        await clearProgress()
-      }
-    },
-    [startOperation, finishOperation],
-  )
-
   const processImage = useCallback(
     async (_?: any, index?: number) => {
       const resolvedIndex =
@@ -565,6 +652,8 @@ export const useDocumentMutations = () => {
         detectorEngine,
         animeYoloVariant,
         animeYoloConfidence,
+        inpaintMaxSide,
+        inpaintEngine,
       } = usePreferencesStore.getState()
       const { startOperation, finishOperation } = useOperationStore.getState()
       startOperation({
@@ -619,6 +708,8 @@ export const useDocumentMutations = () => {
             fontFamily,
             skipDetect: true,
             skipOcr: true,
+            inpaintMaxSide,
+            inpaintEngine,
           })
         } else {
           await api.process({
@@ -632,6 +723,8 @@ export const useDocumentMutations = () => {
             detectorEngine,
             animeYoloVariant,
             animeYoloConfidence,
+            inpaintMaxSide,
+            inpaintEngine,
           })
         }
       } catch (error) {
@@ -654,13 +747,10 @@ export const useDocumentMutations = () => {
     // worker support yet — see roadmap Tier B #3) which would burn
     // tokens fast across many pages. Fall back to MIT-48px for batch
     // and let the user know once.
-    const effectiveEngine: 'mit48px' | 'manga' =
+    const effectiveEngine: 'mit48px' | 'manga' | 'auto' =
       ocrEngine === 'cloud' ? 'mit48px' : ocrEngine
-    if (ocrEngine === 'cloud') {
-      console.info(
-        '[processAll] Cloud Vision OCR is not used for batch — falling back to MIT-48px. Use Process current for individual pages with Cloud Vision.',
-      )
-    }
+    // Cloud Vision OCR is not supported in batch mode; falls back to MIT-48px.
+    // Use "Process current page" for Cloud Vision on individual pages.
     startOperation({
       type: 'process-all',
       cancellable: true,
@@ -668,8 +758,13 @@ export const useDocumentMutations = () => {
       total: totalPages,
     })
     try {
-      const { detectorEngine, animeYoloVariant, animeYoloConfidence } =
-        usePreferencesStore.getState()
+      const {
+        detectorEngine,
+        animeYoloVariant,
+        animeYoloConfidence,
+        inpaintEngine,
+        inpaintMaxSide,
+      } = usePreferencesStore.getState()
       await api.process({
         llmModelId: selectedModel,
         language: selectedLanguage,
@@ -680,6 +775,8 @@ export const useDocumentMutations = () => {
         detectorEngine,
         animeYoloVariant,
         animeYoloConfidence,
+        inpaintEngine,
+        inpaintMaxSide,
       })
     } catch (error) {
       console.error('Failed to start processing:', error)
@@ -687,6 +784,202 @@ export const useDocumentMutations = () => {
       await clearProgress()
     }
   }, [clearProgress])
+
+  // Re-translate โดยไม่รอ inpaint ซ้ำ — ใช้ผลลัพธ์ inpaint เดิม
+  const retranslateImage = useCallback(
+    async (_?: any, index?: number) => {
+      const resolvedIndex =
+        index ?? useEditorUiStore.getState().currentDocumentIndex
+      const { selectedModel, selectedLanguage } = useLlmUiStore.getState()
+      const { renderEffect, renderStroke } = useEditorUiStore.getState()
+      const {
+        cloudProvider,
+        cloudTargetLanguage,
+        fontFamily,
+        inpaintMaxSide,
+        smartPostProcess,
+      } = usePreferencesStore.getState()
+      const { startOperation, finishOperation } = useOperationStore.getState()
+      startOperation({
+        type: 'process-current',
+        cancellable: true,
+        current: 0,
+        total: 2,
+      })
+      try {
+        if (cloudProvider !== 'none') {
+          // Cloud path: skip Rust LLM step entirely — Rust pipeline has no
+          // knowledge of cloud providers. Instead: re-translate all blocks
+          // that have OCR text (force — no existing-translation filter) then
+          // render via the normal Rust render step.
+          const queryKey = queryKeys.documents.current(resolvedIndex)
+          const cached = queryClient.getQueryData<any>(queryKey)
+          const doc = cached ?? (await api.getDocument(resolvedIndex))
+          const blocks: any[] = doc?.textBlocks ?? []
+
+          const blocksToTranslate = blocks
+            .map((b: any, i: number) => ({ index: i, text: b.text ?? '' }))
+            .filter((b) => b.text) // force: no !translation filter
+
+          if (blocksToTranslate.length > 0) {
+            const { generateCloudBatchTranslation } =
+              await import('@/lib/services/cloudLlm')
+            const language = cloudTargetLanguage || 'Thai'
+            const context = await getTranslationContext(
+              queryClient,
+              resolvedIndex,
+            )
+            const translatedResult = await generateCloudBatchTranslation(
+              blocksToTranslate,
+              language,
+              context,
+            )
+            const nextBlocks = [...blocks]
+            for (const result of translatedResult) {
+              if (
+                result &&
+                typeof result.index === 'number' &&
+                typeof result.translation === 'string'
+              ) {
+                const b = nextBlocks[result.index]
+                if (b) {
+                  nextBlocks[result.index] = {
+                    ...b,
+                    translation: result.translation,
+                  }
+                }
+              }
+            }
+            const processed = smartPostProcess
+              ? applySmartPostProcessToBlocks(nextBlocks)
+              : nextBlocks
+            await updateTextBlocks(processed, resolvedIndex)
+          }
+
+          // Render with existing inpaint (skip inpaint in Rust)
+          await api.render(resolvedIndex, {
+            shaderEffect: renderEffect,
+            shaderStroke: renderStroke,
+            fontFamily,
+          })
+        } else {
+          // Local LLM path — Rust pipeline handles translate + render
+          await api.process({
+            index: resolvedIndex,
+            llmModelId: selectedModel,
+            language: selectedLanguage,
+            shaderEffect: renderEffect,
+            shaderStroke: renderStroke,
+            fontFamily,
+            skipDetect: true,
+            skipOcr: true,
+            skipInpaint: true,
+            inpaintMaxSide,
+          })
+          // Apply Thai post-processing ถ้าเปิดใช้งาน
+          if (smartPostProcess) {
+            const doc = await api.getDocument(resolvedIndex)
+            if (doc.textBlocks.some((b: any) => b.translation)) {
+              const updated = doc.textBlocks.map((b: any) => ({
+                ...b,
+                translation: b.translation
+                  ? applySmartPostProcess(b.translation)
+                  : b.translation,
+              }))
+              await api.updateTextBlocks(resolvedIndex, updated)
+            }
+          }
+        }
+        await invalidateCurrentDocument(queryClient, resolvedIndex)
+        await invalidateThumbnailAtIndex(queryClient, resolvedIndex)
+        useEditorUiStore.getState().setShowRenderedImage(true)
+      } catch (error) {
+        console.error('Failed to retranslate:', error)
+        await clearProgress()
+      } finally {
+        finishOperation()
+      }
+    },
+    [queryClient, clearProgress, updateTextBlocks],
+  )
+
+  // Stream-translate ทีละ block — แปลและแสดงผลแต่ละ bubble ทันทีที่เสร็จ
+  // ปลอดภัย: ใช้ api.llmGenerate() ที่มีอยู่แล้ว ไม่แตะ main pipeline
+  const streamTranslateImage = useCallback(
+    async (_?: any, index?: number) => {
+      const resolvedIndex =
+        index ?? useEditorUiStore.getState().currentDocumentIndex
+      const { selectedLanguage } = useLlmUiStore.getState()
+      const { smartPostProcess } = usePreferencesStore.getState()
+      const { startOperation, finishOperation } = useOperationStore.getState()
+
+      const doc = await api.getDocument(resolvedIndex)
+      const blocks = doc.textBlocks ?? []
+      const total = blocks.length
+      if (total === 0) return
+
+      startOperation({
+        type: 'process-current',
+        cancellable: false,
+        current: 0,
+        total,
+      })
+      try {
+        for (let i = 0; i < total; i++) {
+          await api.llmGenerate(resolvedIndex, i, selectedLanguage ?? undefined)
+          // Apply Thai post-processing ต่อ block นี้
+          if (smartPostProcess) {
+            const updated = await api.getDocument(resolvedIndex)
+            const block = updated.textBlocks[i]
+            if (block?.translation) {
+              const patched = updated.textBlocks.map((b: any, idx: number) =>
+                idx === i
+                  ? { ...b, translation: applySmartPostProcess(b.translation) }
+                  : b,
+              )
+              await api.updateTextBlocks(resolvedIndex, patched)
+            }
+          }
+          // อัปเดต UI หลังแต่ละ block
+          await invalidateCurrentDocument(queryClient, resolvedIndex)
+        }
+      } catch (error) {
+        console.error('Stream translate error:', error)
+      } finally {
+        finishOperation()
+      }
+    },
+    [queryClient],
+  )
+
+  // ตรวจจับภาษาต้นฉบับจากผล OCR อัตโนมัติ และตั้งค่า selectedLanguage ใน LLM UI
+  const autoDetectSourceLanguage = useCallback(
+    async (_?: any, index?: number): Promise<string | null> => {
+      const resolvedIndex =
+        index ?? useEditorUiStore.getState().currentDocumentIndex
+      try {
+        // Strategy: use whichever source actually has OCR text.
+        // - Cloud OCR: cache is updated immediately via setQueryData but
+        //   the sync queue to Rust may still be in-flight → prefer cache.
+        // - Local Rust OCR: Rust has the text but cache may still be stale
+        //   (not yet re-fetched) → fall back to api.getDocument().
+        const cached = queryClient.getQueryData<{
+          textBlocks?: { text?: string | null }[]
+        }>(queryKeys.documents.current(resolvedIndex))
+        const cacheHasText = (cached?.textBlocks ?? []).some((b: any) => b.text)
+        const doc = cacheHasText
+          ? cached!
+          : await api.getDocument(resolvedIndex)
+        const texts = (doc.textBlocks ?? [])
+          .map((b: any) => b.text ?? '')
+          .filter(Boolean)
+        return detectDominantLanguage(texts)
+      } catch {
+        return null
+      }
+    },
+    [queryClient],
+  )
 
   const exportDocument = useCallback(async () => {
     const { currentDocumentIndex } = useEditorUiStore.getState()
@@ -719,7 +1012,6 @@ export const useDocumentMutations = () => {
     processImage,
     processAllImages,
     inpaintAndRenderImage,
-    retranslateImage,
 
     exportDocument,
     exportAllInpainted,
@@ -727,7 +1019,67 @@ export const useDocumentMutations = () => {
     cancelOperation,
     setProgress,
     clearProgress,
+    retranslateImage,
+    streamTranslateImage,
+    autoDetectSourceLanguage,
   }
+}
+
+const getTranslationContext = async (
+  queryClient: QueryClient,
+  resolvedIndex: number,
+  textBlockIndex?: number,
+): Promise<string | undefined> => {
+  const contextParts: string[] = []
+
+  // 1. Gather previous page translations
+  if (resolvedIndex > 0) {
+    const prevKey = queryKeys.documents.current(resolvedIndex - 1)
+    let prevDoc = queryClient.getQueryData<any>(prevKey)
+    if (!prevDoc) {
+      try {
+        prevDoc = await api.getDocument(resolvedIndex - 1)
+      } catch (e) {
+        console.warn(
+          '[getTranslationContext] Failed to fetch previous document context',
+          e,
+        )
+      }
+    }
+    if (prevDoc?.textBlocks) {
+      const prevTranslations = prevDoc.textBlocks
+        .map((b: any) => b.translation?.trim())
+        .filter((t: any) => t)
+      if (prevTranslations.length > 0) {
+        contextParts.push(
+          `Previous Page Translations:\n` + prevTranslations.join('\n'),
+        )
+      }
+    }
+  }
+
+  // 2. Gather current page already-translated blocks (if translating a single block)
+  if (typeof textBlockIndex === 'number') {
+    const currentKey = queryKeys.documents.current(resolvedIndex)
+    const currentDoc = queryClient.getQueryData<any>(currentKey)
+    if (currentDoc?.textBlocks) {
+      const currentTranslations = currentDoc.textBlocks
+        .map((b: any, idx: number) => {
+          if (idx !== textBlockIndex && b.translation?.trim()) {
+            return b.translation.trim()
+          }
+          return null
+        })
+        .filter((t: any) => t)
+      if (currentTranslations.length > 0) {
+        contextParts.push(
+          `Same Page Other Translations:\n` + currentTranslations.join('\n'),
+        )
+      }
+    }
+  }
+
+  return contextParts.length > 0 ? contextParts.join('\n\n') : undefined
 }
 
 export const useLlmMutations = () => {
@@ -813,34 +1165,67 @@ export const useLlmMutations = () => {
     }
   }, [clearProgress, queryClient, setProgress])
 
+  /**
+   * [llmGenerate] — จุดรวมศูนย์การเรียก LLM ทั้ง local และ cloud
+   *
+   * ทำงาน 2 โหมด:
+   *  - Cloud Provider (cloudProvider !== 'none'): ส่งตรงไปยัง cloudLlm.ts
+   *    โดย inject `style` เข้า prompt ก่อนยิง API
+   *  - Local LLM (cloudProvider === 'none'): เรียก Rust backend ผ่าน api.llmGenerate()
+   *    ไม่รองรับ style parameter (Rust pipeline ไม่รู้จัก style)
+   *
+   * @param style - น้ำเสียงการแปล ('standard' | 'shonen' | 'polite')
+   *   ใช้ได้เฉพาะ cloud provider — local LLM ไม่ได้รับ parameter นี้
+   *   ถ้าไม่ส่ง (undefined) → cloud path ใช้ prompt แบบ default
+   */
   const llmGenerate = useCallback(
-    async (_?: any, index?: number, textBlockIndex?: number) => {
+    async (
+      _?: any,
+      index?: number,
+      textBlockIndex?: number,
+      style?: 'standard' | 'shonen' | 'polite',
+    ) => {
       const resolvedIndex =
         index ?? useEditorUiStore.getState().currentDocumentIndex
-      
-      const { cloudProvider, cloudTargetLanguage } = usePreferencesStore.getState()
+
+      const { cloudProvider, cloudTargetLanguage, smartPostProcess } =
+        usePreferencesStore.getState()
       const selectedLanguage = useLlmUiStore.getState().selectedLanguage
 
       if (cloudProvider !== 'none') {
         const queryKey = queryKeys.documents.current(resolvedIndex)
         const currentDocument = queryClient.getQueryData<any>(queryKey)
-        const { generateCloudTranslation } = await import('@/lib/services/cloudLlm')
+        const { generateCloudTranslation } =
+          await import('@/lib/services/cloudLlm')
         const language = cloudTargetLanguage || 'Thai'
 
         if (typeof textBlockIndex === 'number') {
-          // Single block translation
+          // [Single block] แปลแค่ bubble เดียวที่ผู้ใช้กดปุ่ม
+          // ส่ง style ไปด้วยเพื่อให้ cloudLlm.ts inject style instruction ลง prompt
           const block = currentDocument?.textBlocks?.[textBlockIndex]
           if (block?.text) {
             try {
-              const translation = await generateCloudTranslation(block.text, language)
-              const nextBlocks = currentDocument.textBlocks.map((b: any, i: number) =>
-                 i === textBlockIndex ? { ...b, translation } : b
+              const context = await getTranslationContext(
+                queryClient,
+                resolvedIndex,
+                textBlockIndex,
+              )
+              const translation = await generateCloudTranslation(
+                block.text,
+                language,
+                undefined,
+                style,
+                context,
+              )
+              const nextBlocks = (currentDocument?.textBlocks ?? []).map(
+                (b: any, i: number) =>
+                  i === textBlockIndex ? { ...b, translation } : b,
               )
               // Issue #21 — Thai post-process before save (no extra
               // round-trip vs the local-LLM path; we have the blocks
               // in-memory already).
-              const processed = usePreferencesStore.getState().thaiPostProcessEnabled
-                ? applyThaiPostProcessToBlocks(nextBlocks)
+              const processed = smartPostProcess
+                ? applySmartPostProcessToBlocks(nextBlocks)
                 : nextBlocks
               // Pass the resolved page index explicitly so a mid-flight
               // page switch can't redirect the save to the wrong doc.
@@ -851,36 +1236,64 @@ export const useLlmMutations = () => {
               await updateTextBlocks(processed, resolvedIndex)
             } catch (e: any) {
               console.error('Cloud LLM Generation failed:', e)
-              alert(e.message || 'Translation failed')
+              toast.error(e.message || 'Translation failed')
             }
           }
         } else if (currentDocument?.textBlocks) {
           // Batch translation utilizing structured JSON
           try {
+            // Generate = Inpaint first so bubble backgrounds are cleared
+            // before translations are painted. Re-translate skips this step.
+            await api.inpaint(resolvedIndex)
+
             const nextBlocks = [...currentDocument.textBlocks]
-            
-            // Collect only the blocks that need translation
-            const blocksToTranslate = nextBlocks
+
+            // Prefer untranslated blocks. If every block already has a
+            // translation (user re-clicked Generate), force-retranslate all
+            // so the button never silently does nothing.
+            const untranslated = nextBlocks
               .map((b, i) => ({ index: i, text: b.text || '' }))
-              .filter(b => b.text && !nextBlocks[b.index].translation)
+              .filter((b) => b.text && !nextBlocks[b.index].translation)
+            const blocksToTranslate =
+              untranslated.length > 0
+                ? untranslated
+                : nextBlocks
+                    .map((b, i) => ({ index: i, text: b.text || '' }))
+                    .filter((b) => b.text)
 
             if (blocksToTranslate.length > 0) {
-              const { generateCloudBatchTranslation } = await import('@/lib/services/cloudLlm')
-              const translatedResult = await generateCloudBatchTranslation(blocksToTranslate, language)
+              const { generateCloudBatchTranslation } =
+                await import('@/lib/services/cloudLlm')
+              const context = await getTranslationContext(
+                queryClient,
+                resolvedIndex,
+              )
+              const translatedResult = await generateCloudBatchTranslation(
+                blocksToTranslate,
+                language,
+                context,
+              )
 
               // Map the returned JSON translations back to the blocks array
               for (const result of translatedResult) {
-                if (result && typeof result.index === 'number' && typeof result.translation === 'string') {
+                if (
+                  result &&
+                  typeof result.index === 'number' &&
+                  typeof result.translation === 'string'
+                ) {
                   const b = nextBlocks[result.index]
                   if (b) {
-                     nextBlocks[result.index] = { ...b, translation: result.translation }
+                    nextBlocks[result.index] = {
+                      ...b,
+                      translation: result.translation,
+                    }
                   }
                 }
               }
 
               // Issue #21 — Thai post-process before save.
-              const processed = usePreferencesStore.getState().thaiPostProcessEnabled
-                ? applyThaiPostProcessToBlocks(nextBlocks)
+              const processed = smartPostProcess
+                ? applySmartPostProcessToBlocks(nextBlocks)
                 : nextBlocks
               // Pin to resolvedIndex (see comment on the single-block
               // path above — same race fix completion).
@@ -910,7 +1323,10 @@ export const useLlmMutations = () => {
             }
           } catch (e: any) {
             console.error('Cloud LLM Batch JSON Generation failed:', e)
-            alert(e.message || 'Batch JSON translation failed. The AI or API might have failed to return a proper JSON structure.')
+            toast.error(
+              e.message ||
+                'Batch JSON translation failed. The AI or API might have failed to return a proper JSON structure.',
+            )
           }
         }
       } else {
@@ -925,17 +1341,69 @@ export const useLlmMutations = () => {
               : languages[0]
             : undefined
 
-        await api.llmGenerate(resolvedIndex, textBlockIndex, language)
+        if (typeof textBlockIndex === 'number') {
+          // Single block — translate only (inpaint per-block is not meaningful)
+          const context = await getTranslationContext(
+            queryClient,
+            resolvedIndex,
+            textBlockIndex,
+          )
+          await api.llmGenerate(
+            resolvedIndex,
+            textBlockIndex,
+            language,
+            context,
+          )
+        } else {
+          // Batch mode: Generate = Inpaint + Translate + Render via Rust pipeline.
+          // api.process() with skipDetect+skipOcr runs inpaint then LLM then render
+          // in one shot — Re-translate uses skipInpaint:true to skip this step.
+          const { renderEffect, renderStroke } = useEditorUiStore.getState()
+          const { fontFamily, inpaintMaxSide } = usePreferencesStore.getState()
+          await api.process({
+            index: resolvedIndex,
+            llmModelId: selectedModel,
+            language,
+            shaderEffect: renderEffect,
+            shaderStroke: renderStroke,
+            fontFamily,
+            skipDetect: true,
+            skipOcr: true,
+            inpaintMaxSide,
+          })
+        }
         // Issue #21 — local LLM writes translations directly via Rust
         // pipeline, so we post-process server-side state via the helper
         // (fetch + apply + save back if changed).
-        await maybeApplyThaiPostProcess(resolvedIndex)
+        await maybeApplySmartPostProcess(resolvedIndex)
         await invalidateCurrentDocument(queryClient, resolvedIndex)
       }
 
       useEditorUiStore.getState().setShowTextBlocksOverlay(true)
       if (typeof textBlockIndex === 'number') {
         await renderTextBlock(undefined, resolvedIndex, textBlockIndex)
+      } else {
+        // Auto-render the full page after batch translate so the new
+        // translations paint immediately. Without this, blocks sit
+        // in the data model but the canvas doesn't repaint until
+        // the user clicks Render or twiddles a font setting.
+        try {
+          const { renderEffect, renderStroke } = useEditorUiStore.getState()
+          const { fontFamily } = usePreferencesStore.getState()
+          await api.render(resolvedIndex, {
+            shaderEffect: renderEffect,
+            shaderStroke: renderStroke,
+            fontFamily,
+          })
+          await invalidateCurrentDocument(queryClient, resolvedIndex)
+          await invalidateThumbnailAtIndex(queryClient, resolvedIndex)
+          useEditorUiStore.getState().setShowRenderedImage(true)
+        } catch (renderErr) {
+          console.warn(
+            '[llmGenerate] auto-render after batch translate failed',
+            renderErr,
+          )
+        }
       }
     },
     [queryClient, renderTextBlock, updateTextBlocks],

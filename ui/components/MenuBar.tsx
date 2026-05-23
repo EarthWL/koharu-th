@@ -2,10 +2,16 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { MinusIcon, SquareIcon, XIcon, CopyIcon } from 'lucide-react'
 import { isTauri, isMacOS, windowControls } from '@/lib/backend'
 import { useTranslation } from 'react-i18next'
-import { fitCanvasToViewport, resetCanvasScale } from '@/components/Canvas'
+import {
+  fitCanvasToViewport,
+  resetCanvasScale,
+  fitCanvasWidthToViewport,
+  fitCanvasHeightToViewport,
+} from '@/components/Canvas'
 import Image from 'next/image'
 import {
   Menubar,
@@ -21,8 +27,9 @@ import { useProjectStore } from '@/lib/stores/projectStore'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { checkForUpdates } from '@/lib/services/updateCheck'
+import { triggerUpdateCheck } from '@/lib/services/autoUpdater'
 import { flushAllSyncQueues } from '@/lib/services/syncQueues'
+import { toast } from 'sonner'
 
 type MenuItem = {
   label: string
@@ -39,6 +46,7 @@ type MenuSection = {
 
 export function MenuBar() {
   const { t } = useTranslation()
+  const router = useRouter()
   const {
     addDocuments,
     openDocuments,
@@ -46,6 +54,7 @@ export function MenuBar() {
     processImage,
     retranslateImage,
     inpaintAndRenderImage,
+    streamTranslateImage,
     processAllImages,
     exportDocument,
     exportAllInpainted,
@@ -95,7 +104,7 @@ export function MenuBar() {
             useProjectStore.getState().setInfo(info)
             void refreshCurrent()
           } catch (err: any) {
-            alert(err?.message ?? String(err))
+            toast.error(err?.message ?? String(err))
           }
         })()
       },
@@ -155,6 +164,16 @@ export function MenuBar() {
           disabled: !hasDocument,
         },
         {
+          label: t('menu.fitWidth', 'Fit Width'),
+          onSelect: fitCanvasWidthToViewport,
+          disabled: !hasDocument,
+        },
+        {
+          label: t('menu.fitHeight', 'Fit Height'),
+          onSelect: fitCanvasHeightToViewport,
+          disabled: !hasDocument,
+        },
+        {
           label: t('menu.originalSize'),
           onSelect: resetCanvasScale,
           disabled: !hasDocument,
@@ -162,7 +181,7 @@ export function MenuBar() {
         {
           label: t('menu.qaReview'),
           onSelect: () => {
-            window.location.href = '/qa'
+            router.push('/qa')
           },
           disabled: !projectInfo,
         },
@@ -196,6 +215,16 @@ export function MenuBar() {
           disabled: !hasDocument,
         },
         {
+          label: t('menu.retranslate', 'Re-translate (skip inpaint)'),
+          onSelect: retranslateImage,
+          testId: 'menu-process-retranslate',
+        },
+        {
+          label: t('menu.streamTranslate', 'Stream Translate (per-block)'),
+          onSelect: streamTranslateImage,
+          testId: 'menu-process-stream-translate',
+        },
+        {
           label: t('menu.processAll'),
           onSelect: processAllImages,
           testId: 'menu-process-all',
@@ -206,13 +235,20 @@ export function MenuBar() {
   ]
 
   const runUpdateCheck = async () => {
+    if (isTauri()) {
+      await triggerUpdateCheck(true)
+      return
+    }
+
+    // Fallback for Web/Headless Client
     let current = '0.0.0'
     try {
       current = (await api.appVersion()) ?? '0.0.0'
     } catch {}
+    const { checkForUpdates } = await import('@/lib/services/updateCheck')
     const result = await checkForUpdates(current)
     if (result.kind === 'up-to-date') {
-      alert(
+      toast.error(
         t('menu.updateUpToDate', {
           current: result.currentVersion,
           latest: result.latestVersion,
@@ -221,7 +257,7 @@ export function MenuBar() {
       return
     }
     if (result.kind === 'error') {
-      alert(t('menu.updateCheckFailed', { message: result.message }))
+      toast.error(t('menu.updateCheckFailed', { message: result.message }))
       return
     }
     const open = confirm(

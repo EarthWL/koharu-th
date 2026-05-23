@@ -18,6 +18,7 @@ use crate::{define_models, device, loading};
 
 define_models! {
     Lama => ("mayocream/lama-manga", "lama-manga.safetensors"),
+    OnnxModel => ("mayocream/lama-manga-onnx", "model.onnx"),
 }
 
 const BALLOON_CANNY_LOW: f32 = 70.0;
@@ -36,6 +37,13 @@ const ALPHA_RING_RADIUS: u8 = 7;
 /// โดยที่คุณภาพที่ขนาดอ่านมังงะปกติไม่ต่างกัน
 const MAX_INPAINT_SIDE: u32 = 512;
 
+/// ขนาดด้านสั้นสุด (px) ที่ LaMa รับได้ ก่อน internal narrow/split op พัง
+/// LaMa downsample ภาพหลายชั้น ถ้า crop บางกว่านี้ (เช่น eraser brush ลด
+/// mask เหลือเส้น 1px) intermediate tensor จะมี dim เหลือ 1 แล้ว candle
+/// narrow ล้มกลาง inference ได้ error อ่านไม่รู้เรื่อง (`narrow invalid args
+/// ... [1, 128, 1, 13]`) — gate ที่ input ดีกว่าปล่อยให้พังกลางทาง (KI-3)
+const MIN_INPAINT_DIM: u32 = 16;
+
 type Xyxy = [u32; 4];
 
 struct BalloonMasks {
@@ -43,25 +51,155 @@ struct BalloonMasks {
     non_text_mask: GrayImage,
 }
 
+pub enum LamaBackend {
+    Candle {
+        model: model::Lama,
+        device: Device,
+    },
+    #[cfg(feature = "dml")]
+    Onnx {
+        session: ort::Session,
+    },
+}
+
 pub struct Lama {
-    model: model::Lama,
-    device: Device,
+    backend: LamaBackend,
 }
 
 impl Lama {
     pub async fn load(use_cpu: bool) -> Result<Self> {
+        #[cfg(feature = "dml")]
+        {
+            if !use_cpu && crate::dml_is_available() {
+                match Self::load_onnx().await {
+                    Ok(lama) => return Ok(lama),
+                    Err(err) => {
+                        tracing::warn!("Failed to load ONNX Lama under DirectML: {err}. Falling back to native Candle CPU/GPU...");
+                    }
+                }
+            }
+        }
+
         let device = device(use_cpu)?;
         let model = loading::load_buffered_safetensors(Manifest::Lama.get(), &device, |vb| {
             model::Lama::load(&vb)
         })
         .await?;
 
-        Ok(Self { model, device })
+        Ok(Self {
+            backend: LamaBackend::Candle { model, device },
+        })
+    }
+
+    #[cfg(feature = "dml")]
+    async fn load_onnx() -> Result<Self> {
+        let onnx_path = loading::resolve_manifest_path(Manifest::OnnxModel.get()).await?;
+        let session = ort::Session::builder()?
+            .with_execution_providers([ort::DirectMLExecutionProvider::default().build()])?
+            .commit_from_file(onnx_path)?;
+        Ok(Self {
+            backend: LamaBackend::Onnx { session },
+        })
+    }
+
+    fn device(&self) -> &Device {
+        match &self.backend {
+            LamaBackend::Candle { device, .. } => device,
+            #[cfg(feature = "dml")]
+            LamaBackend::Onnx { .. } => &Device::Cpu,
+        }
     }
 
     #[instrument(level = "debug", skip_all)]
     fn forward(&self, image: &Tensor, mask: &Tensor) -> Result<Tensor> {
-        self.model.forward(image, mask)
+        match &self.backend {
+            LamaBackend::Candle { model, .. } => model.forward(image, mask),
+            #[cfg(feature = "dml")]
+            LamaBackend::Onnx { session } => {
+                let inputs = session.inputs();
+                let image_name = inputs.get(0).map(|i| i.name.as_str()).unwrap_or("image");
+                let mask_input = inputs.get(1);
+                let mask_name = mask_input.map(|i| i.name.as_str()).unwrap_or("mask");
+
+                let mut mask_dtype = "f32";
+                if let Some(i) = mask_input {
+                    let type_str = format!("{:?}", i.input_type);
+                    if type_str.contains("I64") {
+                        mask_dtype = "i64";
+                    } else if type_str.contains("I32") {
+                        mask_dtype = "i32";
+                    } else if type_str.contains("U8") {
+                        mask_dtype = "u8";
+                    }
+                }
+
+                let shape = image.shape().dims();
+                let flat_vec = image.flatten_all()?.to_vec1::<f32>()?;
+                let input_image = ndarray::Array4::from_shape_vec(
+                    (shape[0], shape[1], shape[2], shape[3]),
+                    flat_vec,
+                )?;
+
+                let mask_shape = mask.shape().dims();
+                let mask_flat = mask.flatten_all()?.to_vec1::<u8>()?;
+
+                let outputs = match mask_dtype {
+                    "i64" => {
+                        let mask_vec: Vec<i64> = mask_flat.iter().map(|&x| x as i64).collect();
+                        let input_mask = ndarray::Array4::from_shape_vec(
+                            (mask_shape[0], mask_shape[1], mask_shape[2], mask_shape[3]),
+                            mask_vec,
+                        )?;
+                        session.run(ort::inputs![
+                            image_name => input_image,
+                            mask_name => input_mask,
+                        ]?)?
+                    }
+                    "i32" => {
+                        let mask_vec: Vec<i32> = mask_flat.iter().map(|&x| x as i32).collect();
+                        let input_mask = ndarray::Array4::from_shape_vec(
+                            (mask_shape[0], mask_shape[1], mask_shape[2], mask_shape[3]),
+                            mask_vec,
+                        )?;
+                        session.run(ort::inputs![
+                            image_name => input_image,
+                            mask_name => input_mask,
+                        ]?)?
+                    }
+                    "u8" => {
+                        let input_mask = ndarray::Array4::from_shape_vec(
+                            (mask_shape[0], mask_shape[1], mask_shape[2], mask_shape[3]),
+                            mask_flat,
+                        )?;
+                        session.run(ort::inputs![
+                            image_name => input_image,
+                            mask_name => input_mask,
+                        ]?)?
+                    }
+                    _ => {
+                        let mask_vec: Vec<f32> = mask_flat.iter().map(|&x| x as f32).collect();
+                        let input_mask = ndarray::Array4::from_shape_vec(
+                            (mask_shape[0], mask_shape[1], mask_shape[2], mask_shape[3]),
+                            mask_vec,
+                        )?;
+                        session.run(ort::inputs![
+                            image_name => input_image,
+                            mask_name => input_mask,
+                        ]?)?
+                    }
+                };
+
+                let output_view = outputs[0].try_extract_tensor::<f32>()?;
+                let out_shape = output_view.shape();
+                let out_vec = output_view.to_slice().ok_or_else(|| anyhow::anyhow!("failed to slice output"))?.to_vec();
+                let output_tensor = Tensor::from_vec(
+                    out_vec,
+                    (out_shape[0], out_shape[1], out_shape[2], out_shape[3]),
+                    &Device::Cpu,
+                )?;
+                Ok(output_tensor)
+            }
+        }
     }
 
     #[instrument(level = "debug", skip_all)]
@@ -77,7 +215,7 @@ impl Lama {
 
     #[instrument(level = "debug", skip_all)]
     pub fn inference(&self, image: &DynamicImage, mask: &DynamicImage) -> Result<DynamicImage> {
-        self.inference_with_blocks(image, mask, None)
+        self.inference_with_blocks(image, mask, None, None)
     }
 
     #[instrument(level = "debug", skip_all)]
@@ -86,6 +224,7 @@ impl Lama {
         image: &DynamicImage,
         mask: &DynamicImage,
         text_blocks: Option<&[TextBlock]>,
+        max_side: Option<u32>,
     ) -> Result<DynamicImage> {
         if image.dimensions() != mask.dimensions() {
             bail!(
@@ -98,9 +237,9 @@ impl Lama {
         let binary_mask = binarize_mask(mask);
         let output_rgb = if let Some(blocks) = text_blocks.filter(|blocks| !blocks.is_empty()) {
             let image_rgb = image.to_rgb8();
-            self.inference_blockwise(&image_rgb, &binary_mask, blocks)?
+            self.inference_blockwise(&image_rgb, &binary_mask, blocks, max_side)?
         } else {
-            self.inference_crop(&image.to_rgb8(), &binary_mask)?
+            self.inference_crop(&image.to_rgb8(), &binary_mask, max_side)?
         };
 
         if image.color().has_alpha() {
@@ -114,12 +253,17 @@ impl Lama {
     }
 
     #[instrument(level = "debug", skip_all)]
-    fn inference_crop(&self, image: &RgbImage, mask: &GrayImage) -> Result<RgbImage> {
+    fn inference_crop(
+        &self,
+        image: &RgbImage,
+        mask: &GrayImage,
+        max_side: Option<u32>,
+    ) -> Result<RgbImage> {
         if let Some(filled) = try_fill_balloon(image, mask) {
             return Ok(filled);
         }
 
-        self.inference_model_rgb(image, mask)
+        self.inference_model_rgb(image, mask, max_side)
     }
 
     #[instrument(level = "debug", skip_all)]
@@ -128,6 +272,7 @@ impl Lama {
         image: &RgbImage,
         mask: &GrayImage,
         text_blocks: &[TextBlock],
+        max_side: Option<u32>,
     ) -> Result<RgbImage> {
         let (im_w, im_h) = image.dimensions();
 
@@ -163,7 +308,11 @@ impl Lama {
                 if count_nonzero(&crop_mask) == 0 {
                     return None; // ไม่มี mask — ข้ามทันที ไม่ต้อง spawn thread
                 }
-                Some(Crop { xyxy_e, image: crop_image, mask: crop_mask })
+                Some(Crop {
+                    xyxy_e,
+                    image: crop_image,
+                    mask: crop_mask,
+                })
             })
             .collect();
 
@@ -177,7 +326,7 @@ impl Lama {
             let output = if let Some(filled) = try_fill_balloon(&crop.image, &crop.mask) {
                 filled
             } else {
-                self.inference_model_rgb(&crop.image, &crop.mask)?
+                self.inference_model_rgb(&crop.image, &crop.mask, max_side)?
             };
             let mut result = image.clone();
             replace(
@@ -200,7 +349,7 @@ impl Lama {
                         let out = if let Some(filled) = try_fill_balloon(&crop.image, &crop.mask) {
                             Ok(filled)
                         } else {
-                            self.inference_model_rgb(&crop.image, &crop.mask)
+                            self.inference_model_rgb(&crop.image, &crop.mask, max_side)
                         };
                         (crop.xyxy_e, out)
                     })
@@ -208,7 +357,14 @@ impl Lama {
                 .collect();
             handles
                 .into_iter()
-                .map(|h| h.join().unwrap_or_else(|_| (([0, 0, 0, 0]), Err(anyhow::anyhow!("inpaint thread panicked")))))
+                .map(|h| {
+                    h.join().unwrap_or_else(|_| {
+                        (
+                            ([0, 0, 0, 0]),
+                            Err(anyhow::anyhow!("inpaint thread panicked")),
+                        )
+                    })
+                })
                 .collect()
         });
 
@@ -228,12 +384,19 @@ impl Lama {
     }
 
     #[instrument(level = "debug", skip_all)]
-    fn inference_model_rgb(&self, image: &RgbImage, mask: &GrayImage) -> Result<RgbImage> {
+    fn inference_model_rgb(
+        &self,
+        image: &RgbImage,
+        mask: &GrayImage,
+        max_side: Option<u32>,
+    ) -> Result<RgbImage> {
         let (w, h) = image.dimensions();
-        let max_side = w.max(h);
+        check_min_inpaint_dims(w, h)?;
+        let cap = max_side.unwrap_or(MAX_INPAINT_SIDE);
+        let long_side = w.max(h);
 
         // Fast path: crop เล็กพอ ส่ง ML โดยตรง
-        if max_side <= MAX_INPAINT_SIDE {
+        if long_side <= cap {
             return Ok(self
                 .inference_model(
                     &DynamicImage::ImageRgb8(image.clone()),
@@ -242,11 +405,13 @@ impl Lama {
                 .to_rgb8());
         }
 
-        // Crop ใหญ่เกิน: downscale → inference → upscale กลับ
+        // Crop ใหญ่เกิน cap: downscale → inference → upscale กลับ
         // ใช้ proportional scaling เพื่อรักษา aspect ratio
-        let scale = MAX_INPAINT_SIDE as f32 / max_side as f32;
-        let new_w = ((w as f32 * scale).round() as u32).max(1);
-        let new_h = ((h as f32 * scale).round() as u32).max(1);
+        // clamp ที่ MIN_INPAINT_DIM ไม่ใช่ 1: crop ทรงยาว-แบน (เช่น 2000×20)
+        // ผ่าน gate ด้านบน (ทั้งสองด้าน ≥16) แต่ proportional downscale อาจย่อ
+        // ด้านสั้นเหลือ <16 → candle narrow op พังเหมือน KI-3 เดิม. clamp ด้านสั้น
+        // ให้ ≥16 เพี้ยน aspect นิดเดียวบนด้านที่เล็กอยู่แล้ว แต่ inpaint สำเร็จ
+        let (new_w, new_h) = downscale_dims(w, h, cap, MIN_INPAINT_DIM);
 
         let image_small = DynamicImage::ImageRgb8(image.clone())
             .resize_exact(new_w, new_h, image::imageops::FilterType::Lanczos3)
@@ -283,12 +448,12 @@ impl Lama {
         let rgb = image.to_rgb8().into_raw();
         let luma = mask.to_luma8().into_raw();
 
-        let image_tensor = (Tensor::from_vec(rgb, (1, h, w, 3), &self.device)?
+        let image_tensor = (Tensor::from_vec(rgb, (1, h, w, 3), self.device())?
             .permute((0, 3, 1, 2))?
             .to_dtype(DType::F32)?
             * (1. / 255.))?;
 
-        let mask_tensor = Tensor::from_vec(luma, (1, h, w, 1), &self.device)?
+        let mask_tensor = Tensor::from_vec(luma, (1, h, w, 1), self.device())?
             .permute((0, 3, 1, 2))?
             .to_dtype(DType::F32)?
             .gt(1.0f32)?;
@@ -314,6 +479,31 @@ impl Lama {
     }
 }
 
+/// Reject crops too thin for LaMa before they reach candle (KI-3).
+/// `inference_blockwise`'s single degenerate crop fails the whole
+/// batch — acceptable: such crops come from an eraser-narrowed mask
+/// the user can re-widen, and a friendly toast beats the cryptic
+/// `narrow invalid args ... [1, 128, 1, 13]` tensor error.
+/// Proportional downscale of `(w, h)` so the long side hits `max_side`,
+/// but never letting either side fall below `min_dim` (KI-3): a long-thin
+/// crop that passes `check_min_inpaint_dims` can still proportionally shrink
+/// its short side below the model floor and crash candle's narrow op.
+fn downscale_dims(w: u32, h: u32, max_side: u32, min_dim: u32) -> (u32, u32) {
+    let scale = max_side as f32 / w.max(h) as f32;
+    let new_w = ((w as f32 * scale).round() as u32).max(min_dim);
+    let new_h = ((h as f32 * scale).round() as u32).max(min_dim);
+    (new_w, new_h)
+}
+
+fn check_min_inpaint_dims(w: u32, h: u32) -> Result<()> {
+    if w < MIN_INPAINT_DIM || h < MIN_INPAINT_DIM {
+        bail!(
+            "พื้นที่เล็กเกินไปสำหรับการลบข้อความ ({w}×{h}px, ขั้นต่ำ {MIN_INPAINT_DIM}×{MIN_INPAINT_DIM}px) \
+             — ลองขยายพื้นที่ด้วยแปรง mask หรือใช้ Fit to Bubble"
+        );
+    }
+    Ok(())
+}
 fn binarize_mask(mask: &DynamicImage) -> GrayImage {
     let mut binary = mask.to_luma8();
     for pixel in binary.pixels_mut() {
@@ -610,6 +800,7 @@ fn non_zero_bbox(mask: &GrayImage) -> Option<Xyxy> {
     ])
 }
 
+#[allow(dead_code)]
 fn clear_mask_bbox(mask: &mut GrayImage, bbox: Xyxy) {
     for y in bbox[1]..bbox[3] {
         for x in bbox[0]..bbox[2] {
@@ -708,9 +899,9 @@ fn stddev3(values: [f64; 3]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        ALPHA_RING_RADIUS, BALLOON_WINDOW_ASPECT_RATIO, BALLOON_WINDOW_RATIO, clear_mask_bbox,
-        count_nonzero, enlarge_window, extract_balloon_mask, restore_alpha_channel,
-        try_fill_balloon,
+        ALPHA_RING_RADIUS, BALLOON_WINDOW_ASPECT_RATIO, BALLOON_WINDOW_RATIO, MAX_INPAINT_SIDE,
+        MIN_INPAINT_DIM, check_min_inpaint_dims, clear_mask_bbox, count_nonzero, downscale_dims,
+        enlarge_window, extract_balloon_mask, restore_alpha_channel, try_fill_balloon,
     };
     use image::{GrayImage, Luma, Rgb, RgbImage};
     use imageproc::drawing::draw_hollow_rect_mut;
@@ -824,6 +1015,33 @@ mod tests {
         let restored = restore_alpha_channel(&image, &alpha, &mask);
         assert_eq!(restored.get_pixel(15, 15).0[3], 64);
         assert_eq!(restored.get_pixel(2, 2).0[3], 255);
+    }
+
+    #[test]
+    fn rejects_crops_thinner_than_model_minimum() {
+        let min = MIN_INPAINT_DIM;
+        // a 1px-tall strip (the eraser-brush degenerate case) is rejected
+        assert!(check_min_inpaint_dims(200, 1).is_err());
+        assert!(check_min_inpaint_dims(min - 1, 100).is_err());
+        assert!(check_min_inpaint_dims(min, min - 1).is_err());
+        // a square crop at exactly the minimum is accepted
+        assert!(check_min_inpaint_dims(min, min).is_ok());
+        assert!(check_min_inpaint_dims(512, 512).is_ok());
+    }
+
+    #[test]
+    fn downscale_never_shrinks_a_side_below_model_minimum() {
+        let min = MIN_INPAINT_DIM;
+        let max = MAX_INPAINT_SIDE;
+        // long-thin crop that passes the gate (both sides >= 16) but whose
+        // short side proportionally downscales to < 16 — the KI-3 hole.
+        let (w, h) = downscale_dims(2000, 20, max, min);
+        assert_eq!(w, max);
+        assert!(h >= min, "short side must be clamped, got {h}");
+        // a normal-aspect large crop keeps proportional scaling
+        let (w, h) = downscale_dims(1024, 768, max, min);
+        assert_eq!(w, max);
+        assert_eq!(h, 384);
     }
 
     #[test]

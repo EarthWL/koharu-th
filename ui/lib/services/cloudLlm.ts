@@ -1,6 +1,8 @@
 import { usePreferencesStore } from '../stores/preferencesStore'
 import { useProjectStore } from '../stores/projectStore'
 import { api, type TmEntryDto } from '../api'
+import { classifyRateLimit } from './modelFilters'
+import { toast } from 'sonner'
 
 /** Token counts as reported by the provider. `null` = provider didn't return them. */
 export type TokenUsage = {
@@ -16,6 +18,31 @@ export type CloudResult = {
 
 /** Callback fired for every incremental text chunk during streaming. */
 export type StreamHandler = (delta: string) => void
+
+/**
+ * Build a marked Error for an HTTP 429 from any provider. The
+ * `[NO_QUOTA:...]` / `[RATE_LIMIT:...]` prefix lets the UI render a
+ * soft amber notice (and decide whether retrying helps) instead of a
+ * red crash card. Reads the standard `Retry-After` header (OpenAI /
+ * Anthropic) and provider-specific quota markers via classifyRateLimit.
+ */
+function make429Error(provider: string, res: Response, body: string): Error {
+  const cls = classifyRateLimit({
+    body,
+    retryAfterHeader: res.headers.get('retry-after'),
+  })
+  if (cls.kind === 'no_quota') {
+    return new Error(
+      `[NO_QUOTA:${provider}] โควต้า/เครดิตของ API key หมด — เปลี่ยนโมเดลอื่น/profile หรืออัปเกรด API tier`,
+    )
+  }
+  return new Error(
+    `[RATE_LIMIT:${provider}${cls.retrySec ? `:${cls.retrySec}` : ''}] ` +
+      (cls.retrySec
+        ? `โควต้า ${provider} หมดชั่วคราว — รอ ~${cls.retrySec} วินาที แล้วลองอีกครั้ง`
+        : `โควต้า ${provider} หมดชั่วคราว — รอสักครู่แล้วลองอีกครั้ง`),
+  )
+}
 
 /**
  * Read a Server-Sent Events stream from `body` and yield each
@@ -134,7 +161,10 @@ const FUZZY_TM_MIN_SIMILARITY = 0.92
 
 type TmHit = { entry: TmEntryDto; similarity: number }
 
-async function tryTmHit(sourceText: string, targetLang: string): Promise<TmHit | null> {
+async function tryTmHit(
+  sourceText: string,
+  targetLang: string,
+): Promise<TmHit | null> {
   if (!useProjectStore.getState().info) return null
   try {
     // Exact-match short-circuit first — fastest path.
@@ -148,12 +178,6 @@ async function tryTmHit(sourceText: string, targetLang: string): Promise<TmHit |
       FUZZY_TM_MIN_SIMILARITY,
     )
     if (fuzzy) {
-      console.info(
-        '[cloudLlm] TM fuzzy hit',
-        Math.round(fuzzy.similarity * 100) + '%',
-        '←',
-        fuzzy.entry.sourceText.slice(0, 40),
-      )
       return fuzzy
     }
     return null
@@ -208,7 +232,11 @@ function defaultRetryable(err: unknown): boolean {
   if (msg.includes('429')) return true
   if (/\b5\d{2}\b/.test(msg)) return true
   // Common transient transports: timeouts, resets, etc.
-  if (msg.includes('etimedout') || msg.includes('network') || msg.includes('fetch failed')) {
+  if (
+    msg.includes('etimedout') ||
+    msg.includes('network') ||
+    msg.includes('fetch failed')
+  ) {
     return true
   }
   return false
@@ -273,53 +301,137 @@ export type ProviderOverride = {
   model: string
 }
 
-/** Detailed sibling of {@link generateCloudTranslation} — returns
- *  metadata about TM/glossary/template alongside the text. */
+/**
+ * [ฟังก์ชัน public แบบ Detailed]
+ * คืนผลการแปลพร้อม metadata ครบชุด (TM hit, glossary, template ที่ใช้, เวลาที่ใช้)
+ * เหมาะสำหรับ QA Page หรือ Debug UI ที่ต้องการข้อมูลเชิงลึก
+ *
+ * @param style - สไตล์การแปล (ดู generateCloudTranslationImpl สำหรับรายละเอียด)
+ */
 export async function generateCloudTranslationDetailed(
   text: string,
   language: string,
   onChunk?: StreamHandler,
   override?: ProviderOverride,
+  style?: 'standard' | 'shonen' | 'polite',
+  context?: string,
 ): Promise<TranslationDetailed> {
-  return generateCloudTranslationImpl(text, language, onChunk, override)
+  return generateCloudTranslationImpl(
+    text,
+    language,
+    onChunk,
+    override,
+    style,
+    context,
+  )
 }
 
+/**
+ * [ฟังก์ชัน public แบบ Simple]
+ * คืนแค่ข้อความที่แปลแล้ว (string ล้วนๆ) ไม่มี metadata พ่วงมาด้วย
+ * เรียกใช้จาก llmGenerate() ใน mutations.ts เพื่อแปลแต่ละ bubble
+ *
+ * @param style - กำหนดน้ำเสียงการแปล:
+ *   - 'standard'  → ภาษาทั่วไป สมดุล เหมาะกับการ์ตูนทุกแนว (default)
+ *   - 'shonen'    → ดุดัน ร้อนแรง มีพลัง เหมาะกับมังงะแนวต่อสู้
+ *   - 'polite'    → สุภาพ อ่อนโยน เหมาะกับมังงะแนวดราม่า ชีวิต โรแมนซ์
+ */
 export async function generateCloudTranslation(
   text: string,
   language: string,
   onChunk?: StreamHandler,
+  style?: 'standard' | 'shonen' | 'polite',
+  context?: string,
 ): Promise<string> {
-  return (await generateCloudTranslationImpl(text, language, onChunk)).text
+  return (
+    await generateCloudTranslationImpl(
+      text,
+      language,
+      onChunk,
+      undefined,
+      style,
+      context,
+    )
+  ).text
 }
 
+// Map of profile ID to recovery timestamp (Date.now() + cooldownDuration)
+const profileRecoveryTimestamps = new Map<number, number>()
+
+function getCooldownDurationForProvider(
+  provider: string,
+  errorMessage: string,
+): number {
+  const msg = errorMessage.toLowerCase()
+
+  if (provider === 'gemini') {
+    // Check if it's a daily limit or rate limit
+    if (
+      msg.includes('daily') ||
+      msg.includes('quota exceeded') ||
+      msg.includes('limit exceeded')
+    ) {
+      return 4 * 60 * 60 * 1000 // 4 hours check back for Gemini daily limits
+    }
+    return 1 * 60 * 1000 // 1 minute rolling limit (standard RPM)
+  }
+
+  if (provider === 'anthropic') {
+    // Anthropic free tier has 5 hours cooldown if token limit is hit
+    if (
+      msg.includes('usage limit') ||
+      msg.includes('exceeded') ||
+      msg.includes('free tier') ||
+      msg.includes('hours') ||
+      msg.includes('exhausted')
+    ) {
+      return 5 * 60 * 60 * 1000 // 5 hours
+    }
+    return 1 * 60 * 1000 // 1 minute rolling RPM limit
+  }
+
+  if (provider === 'openai' || provider === 'openrouter') {
+    // OpenAI billing issues, credit exhausted
+    if (
+      msg.includes('billing') ||
+      msg.includes('quota') ||
+      msg.includes('insufficient') ||
+      msg.includes('credit')
+    ) {
+      return 2 * 60 * 60 * 1000 // 2 hours check in case user filled it
+    }
+    return 1 * 60 * 1000 // 1 minute rolling RPM limit
+  }
+
+  return 1 * 60 * 1000 // Default 1 minute
+}
+
+/**
+ * [ฟังก์ชัน core — ไม่ export โดยตรง]
+ * รับ text + language + style แล้วสร้าง prompt → ส่งไปหา Cloud LLM
+ * ผ่าน failover หลายโปรไฟล์ → คืน TranslationDetailed
+ *
+ * ลำดับการทำงาน:
+ *  1. ตรวจ Translation Memory (TM) ก่อน — ถ้า hit ตรงๆ ไม่เปลือง token เลย
+ *  2. ถ้าไม่มี TM hit → ดึง Project Prompt จาก backend (ถ้ามี project เปิดอยู่)
+ *  3. เติม style instruction ต่อท้าย prompt ตามค่า `style` ที่รับมา
+ *  4. วน failover ลิสต์โปรไฟล์ → ส่ง request → คืนผลตัวแรกที่สำเร็จ
+ *  5. บันทึกผลลงใน TM เพื่อใช้ซ้ำในอนาคต (best-effort)
+ */
 async function generateCloudTranslationImpl(
   text: string,
   language: string,
   onChunk?: StreamHandler,
   override?: ProviderOverride,
+  style?: 'standard' | 'shonen' | 'polite',
+  context?: string,
 ): Promise<TranslationDetailed> {
   const live = usePreferencesStore.getState()
-  const cloudProvider = override?.provider ?? live.cloudProvider
-  const cloudApiKey = override?.apiKey ?? live.cloudApiKey
-  const cloudApiUrl = override?.apiUrl ?? live.cloudApiUrl
-  const cloudModelName = override?.model ?? live.cloudModelName
 
-  if (!cloudApiKey) {
-    throw new Error(
-      cloudProvider === 'none'
-        ? 'No LLM profile applied. Open the Profiles sidebar tab and click Apply on a saved profile (or pick one from the LLM badge in the toolbar).'
-        : `No API key for the active "${cloudProvider}" profile. Open Profiles tab → edit the active profile and re-enter your API key, then Apply.`,
-    )
-  }
-
-  // Cache key = (source text, target language). The language arg is
-  // whatever the caller passed (project's target_language or a free-text
-  // value), so identical pages on the same project bucket together.
+  // [ด่านที่ 1] ตรวจ TM ก่อนเลย — ถ้าเจอ exact/fuzzy match ไม่ต้องยิง API เลย
+  // ช่วยประหยัด token ได้มากสำหรับ dialogue ที่ซ้ำบ่อยในมังงะ
   const tmHit = await tryTmHit(text, language)
   if (tmHit) {
-    // TM hits skip the API entirely — also skip the streaming UX
-    // since there's nothing to stream. Caller's onChunk just fires
-    // once with the full cached result.
     if (onChunk) onChunk(tmHit.entry.targetText)
     return {
       text: tmHit.entry.targetText,
@@ -336,47 +448,241 @@ async function generateCloudTranslationImpl(
     }
   }
 
+  // [ด่านที่ 2] ดึง Project Prompt — ถ้ามี project เปิดอยู่ backend จะ inject
+  // glossary + ตัวละคร + rolling context เข้าไปในตัว prompt อัตโนมัติ
+  // ถ้าไม่มี project → ใช้ fallback prompt stub ทั่วไปแทน
   const projectPrompt = await tryProjectPrompt(text, language)
   const t0 = performance.now()
-  const prompt = projectPrompt?.prompt ??
+  let basePrompt =
+    projectPrompt?.prompt ??
     `You are a professional manga translator. Translate the following text to ${language}.
 The translation should sound natural, conversational, and appropriate for comic book characters, keeping the original tone and context intact.
 Only return the translation, no extra text:\n\n${text}`
 
-  let raw: CloudResult
-  try {
-    raw = await withRetry(
-      () => {
-        if (cloudProvider === 'openai') {
-          return fetchOpenAI(prompt, cloudApiKey, cloudApiUrl, cloudModelName, false, onChunk)
-        } else if (cloudProvider === 'openrouter') {
-          return fetchOpenRouter(prompt, cloudApiKey, cloudModelName, false, onChunk)
-        } else if (cloudProvider === 'gemini') {
-          return fetchGemini(prompt, cloudApiKey, cloudModelName, false, onChunk)
-        } else if (cloudProvider === 'anthropic') {
-          return fetchAnthropic(prompt, cloudApiKey, cloudModelName, false, onChunk)
-        } else {
-          throw new Error(`Unsupported cloud provider: ${cloudProvider}`)
+  if (context && context.trim()) {
+    basePrompt = `[Translation Context]\n${context}\n\n[Instructions]\nUse the above context to keep translation consistency if applicable.\n\n[Text to Translate]\n${basePrompt}`
+  }
+
+  // [ด่านที่ 3] เติม Style Instruction ท้าย prompt
+  // หมายเหตุ: ถ้า projectPrompt มีอยู่ (project mode) style instruction จะ append ต่อท้าย
+  // project prompt นั้น — ไม่ override ทั้งหมด เพื่อรักษา glossary/character context ไว้
+  if (style === 'shonen') {
+    // โชเน็น: ดุดัน ร้อนแรง มีพลังงาน เหมาะกับมังงะต่อสู้อย่าง Dragon Ball, Naruto, One Piece
+    basePrompt += `\n\n[STYLE INSTRUCTION: Translate with an energetic, raw, passionate, and aggressive Shonen battle manga tone. Use energetic pronouns (e.g. in Thai, use 'แก'/'ฉัน', 'ข้า'/'เจ้า') and passionate exclamation endings (e.g. 'ว้อย!', 'ย้าก!', 'เซ่!').]`
+  } else if (style === 'polite') {
+    // สุภาพ: อ่อนโยน ประณีต เหมาะกับมังงะแนวดราม่า ชีวิต โรแมนซ์ หรือตัวละครผู้ใหญ่
+    basePrompt += `\n\n[STYLE INSTRUCTION: Translate with a highly polite, soft, respectful, and elegant tone. Use formal/gentle pronouns (e.g. in Thai, use 'คุณ'/'ผม'/'ดิฉัน'/'ฉัน') and polite sentence endings (e.g. 'ครับ'/'ค่ะ'/'นะคะ').]`
+  } else if (style === 'standard') {
+    // ทั่วไป: สมดุล เป็นธรรมชาติ ไม่เอนไปทางใดทางหนึ่ง ใช้ได้กับมังงะทุกแนว
+    basePrompt += `\n\n[STYLE INSTRUCTION: Translate in a standard manga dialogue tone - natural, conversational, expressive, and fitting the general scene without being overly aggressive or overly formal.]`
+  }
+  // style === undefined → ไม่เติมอะไร ใช้ prompt ตามที่มีอยู่โดยตรง
+
+  const prompt = basePrompt
+
+  // Build failover attempts list if enabled
+  type ConfigAttempt = {
+    id: number | null
+    name: string
+    provider: string
+    apiKey: string
+    apiUrl: string
+    modelName: string
+  }
+
+  let attempts: ConfigAttempt[] = []
+
+  if (!override && live.llmFailoverEnabled) {
+    try {
+      const profiles = await api.providerProfilesList()
+      const sorted = [...profiles].sort((a, b) => {
+        let idxA = live.llmFailoverPriority.indexOf(a.id)
+        let idxB = live.llmFailoverPriority.indexOf(b.id)
+        if (idxA === -1) idxA = 9999
+        if (idxB === -1) idxB = 9999
+        return idxA - idxB
+      })
+
+      const now = Date.now()
+      const isCooldown = (id: number) => {
+        const recovery = profileRecoveryTimestamps.get(id)
+        return recovery ? now < recovery : false
+      }
+
+      // Filter out candidates that are currently in cooldown unless ALL are in cooldown
+      let candidates = sorted
+      const workingCandidates = sorted.filter((p) => !isCooldown(p.id))
+      if (workingCandidates.length > 0) {
+        candidates = workingCandidates
+      }
+
+      const activeId = live.activeProfileId
+      const activeCandidate = candidates.find((c) => c.id === activeId)
+      const otherCandidates = candidates.filter((c) => c.id !== activeId)
+
+      const getDetails = async (
+        p: (typeof profiles)[0],
+      ): Promise<ConfigAttempt> => {
+        let key = ''
+        if (p.provider !== 'local') {
+          try {
+            const secret = await api.providerProfileSecretGet(p.id)
+            key = secret.apiKey ?? ''
+          } catch (e) {
+            console.warn(`[failover] Failed to get API key for ${p.name}`, e)
+          }
         }
-      },
-      {
-        onRetry: (attempt, err, waitMs) =>
-          console.warn(
-            `[cloudLlm] retry ${attempt} after ${waitMs}ms:`,
-            err instanceof Error ? err.message : err,
-          ),
-      },
-    )
-  } catch (err: any) {
+        return {
+          id: p.id,
+          name: p.name,
+          provider: p.provider,
+          apiKey: key,
+          apiUrl:
+            p.apiUrl ??
+            (p.provider === 'openai' ? 'https://api.openai.com/v1' : ''),
+          modelName: p.modelName,
+        }
+      }
+
+      if (activeCandidate) {
+        attempts.push(await getDetails(activeCandidate))
+      }
+      for (const p of otherCandidates) {
+        attempts.push(await getDetails(p))
+      }
+    } catch (err) {
+      console.error('[failover] Failed to build failover candidates list', err)
+    }
+  }
+
+  if (attempts.length === 0) {
+    const cloudProvider = override?.provider ?? live.cloudProvider
+    const cloudApiKey = override?.apiKey ?? live.cloudApiKey
+    const cloudApiUrl = override?.apiUrl ?? live.cloudApiUrl
+    const cloudModelName = override?.model ?? live.cloudModelName
+
+    attempts.push({
+      id: live.activeProfileId,
+      name: 'Active Profile',
+      provider: cloudProvider,
+      apiKey: cloudApiKey,
+      apiUrl: cloudApiUrl,
+      modelName: cloudModelName,
+    })
+  }
+
+  let raw: CloudResult | null = null
+  let successfulAttempt: ConfigAttempt | null = null
+  let lastError: any = null
+
+  for (let i = 0; i < attempts.length; i++) {
+    const att = attempts[i]
+    if (!att.apiKey && att.provider !== 'local') {
+      lastError = new Error(`No API key for profile "${att.name}"`)
+      continue
+    }
+
+    try {
+      raw = await withRetry(
+        () => {
+          if (att.provider === 'openai') {
+            return fetchOpenAI(
+              prompt,
+              att.apiKey,
+              att.apiUrl,
+              att.modelName,
+              false,
+              onChunk,
+            )
+          } else if (att.provider === 'openrouter') {
+            return fetchOpenRouter(
+              prompt,
+              att.apiKey,
+              att.modelName,
+              false,
+              onChunk,
+            )
+          } else if (att.provider === 'gemini') {
+            return fetchGemini(
+              prompt,
+              att.apiKey,
+              att.modelName,
+              false,
+              onChunk,
+            )
+          } else if (att.provider === 'anthropic') {
+            return fetchAnthropic(
+              prompt,
+              att.apiKey,
+              att.modelName,
+              false,
+              onChunk,
+            )
+          } else {
+            throw new Error(`Unsupported cloud provider: ${att.provider}`)
+          }
+        },
+        {
+          onRetry: (attemptNum, err, waitMs) =>
+            console.warn(
+              `[cloudLlm] retry ${attemptNum} for profile "${att.name}" after ${waitMs}ms:`,
+              err instanceof Error ? err.message : err,
+            ),
+        },
+      )
+      successfulAttempt = att
+      if (att.id !== null) {
+        profileRecoveryTimestamps.delete(att.id)
+      }
+      break
+    } catch (err: any) {
+      console.warn(
+        `[cloudLlm] Profile "${att.name}" failed:`,
+        err?.message ?? err,
+      )
+      lastError = err
+
+      if (att.id !== null) {
+        const errorMsg = err?.message ?? String(err)
+        const cooldown = getCooldownDurationForProvider(att.provider, errorMsg)
+        const recoveryTime = Date.now() + cooldown
+        profileRecoveryTimestamps.set(att.id, recoveryTime)
+      }
+    }
+  }
+
+  if (!raw || !successfulAttempt) {
     logCallSafe({
       useCase: 'translate',
       success: false,
       usage: null,
       durationMs: Math.round(performance.now() - t0),
-      errorMessage: err?.message ?? String(err),
+      errorMessage: lastError?.message ?? String(lastError),
     })
-    throw err
+    throw lastError || new Error('All translation profiles failed')
   }
+
+  if (
+    live.llmFailoverEnabled &&
+    successfulAttempt.id !== live.activeProfileId &&
+    successfulAttempt.id !== null
+  ) {
+    const origName = attempts[0]?.name ?? 'โปรไฟล์เดิม'
+    setTimeout(() => {
+      toast.error(
+        `⚠️ ระบบสลับผู้ให้บริการสำรองอัตโนมัติทำงาน!\n\nเนื่องจากโปรไฟล์หลัก "${origName}" ขัดข้องหรือโควตาหมด ระบบจึงสลับไปใช้โปรไฟล์สำรอง "${successfulAttempt!.name}" เพื่อแปลข้อความให้ท่านอย่างต่อเนื่องเรียบร้อยครับ`,
+      )
+    }, 10)
+
+    usePreferencesStore.setState({
+      activeProfileId: successfulAttempt.id,
+      cloudProvider: successfulAttempt.provider as any,
+      cloudApiKey: successfulAttempt.apiKey,
+      cloudApiUrl: successfulAttempt.apiUrl,
+      cloudModelName: successfulAttempt.modelName,
+    })
+  }
+
   const result = raw.text
 
   // Bump glossary usage after a successful generation so the dashboard
@@ -394,8 +700,8 @@ Only return the translation, no extra text:\n\n${text}`
       sourceText: text,
       targetText: result,
       targetLang: language,
-      provider: cloudProvider,
-      model: cloudModelName,
+      provider: successfulAttempt.provider,
+      model: successfulAttempt.modelName,
     })
   }
 
@@ -452,9 +758,7 @@ export async function extractEntitiesFromText(
   }
   if (!cloudApiKey) {
     throw new Error(
-      cloudProvider === 'none'
-        ? 'No LLM profile applied. Open the Profiles sidebar tab and click Apply on a saved profile (or pick one from the LLM badge in the toolbar).'
-        : `No API key for the active "${cloudProvider}" profile. Open Profiles tab → edit the active profile and re-enter your API key, then Apply.`,
+      `No API key for the active "${cloudProvider}" profile. Open Profiles tab → edit the active profile and re-enter your API key, then Apply.`,
     )
   }
 
@@ -467,13 +771,34 @@ export async function extractEntitiesFromText(
   let raw: CloudResult
   try {
     if (cloudProvider === 'openai') {
-      raw = await fetchOpenAI(rendered.prompt, cloudApiKey, cloudApiUrl, cloudModelName, true)
+      raw = await fetchOpenAI(
+        rendered.prompt,
+        cloudApiKey,
+        cloudApiUrl,
+        cloudModelName,
+        true,
+      )
     } else if (cloudProvider === 'openrouter') {
-      raw = await fetchOpenRouter(rendered.prompt, cloudApiKey, cloudModelName, true)
+      raw = await fetchOpenRouter(
+        rendered.prompt,
+        cloudApiKey,
+        cloudModelName,
+        true,
+      )
     } else if (cloudProvider === 'gemini') {
-      raw = await fetchGemini(rendered.prompt, cloudApiKey, cloudModelName, true)
+      raw = await fetchGemini(
+        rendered.prompt,
+        cloudApiKey,
+        cloudModelName,
+        true,
+      )
     } else if (cloudProvider === 'anthropic') {
-      raw = await fetchAnthropic(rendered.prompt, cloudApiKey, cloudModelName, true)
+      raw = await fetchAnthropic(
+        rendered.prompt,
+        cloudApiKey,
+        cloudModelName,
+        true,
+      )
     } else {
       throw new Error(`Unsupported cloud provider: ${cloudProvider}`)
     }
@@ -499,7 +824,9 @@ export async function extractEntitiesFromText(
   const start = trimmed.indexOf('[')
   const end = trimmed.lastIndexOf(']')
   if (start === -1 || end === -1 || end < start) {
-    throw new Error(`Model did not return a JSON array. Raw: ${trimmed.slice(0, 120)}…`)
+    throw new Error(
+      `Model did not return a JSON array. Raw: ${trimmed.slice(0, 120)}…`,
+    )
   }
   const slice = trimmed.slice(start, end + 1)
   const parsed = JSON.parse(slice) as unknown
@@ -522,43 +849,67 @@ export async function extractEntitiesFromText(
     .filter((e) => e.original && e.translation)
 }
 
-export async function generateCloudBatchTranslation(blocks: {index: number, text: string}[], language: string): Promise<{index: number, translation: string}[]> {
-  const { cloudProvider, cloudApiKey, cloudApiUrl, cloudModelName } = usePreferencesStore.getState()
-  
-  if (!cloudApiKey) {
+export async function generateCloudBatchTranslation(
+  blocks: { index: number; text: string }[],
+  language: string,
+  context?: string,
+): Promise<{ index: number; translation: string }[]> {
+  const { cloudProvider, cloudApiUrl, cloudModelName, activeProfileId } =
+    usePreferencesStore.getState()
+
+  if (!activeProfileId) {
     throw new Error(
-      cloudProvider === 'none'
-        ? 'No LLM profile applied. Open the Profiles sidebar tab and click Apply on a saved profile (or pick one from the LLM badge in the toolbar).'
-        : `No API key for the active "${cloudProvider}" profile. Open Profiles tab → edit the active profile and re-enter your API key, then Apply.`,
+      'No LLM profile applied. Open the Profiles sidebar tab and click Apply on a saved profile (or pick one from the LLM badge in the toolbar).',
     )
   }
 
   const blocksJson = JSON.stringify(blocks, null, 2)
-  const prompt = `You are an expert manga translator.
-Your task is to translate the 'text' fields in the following JSON array to ${language}.
-The texts are sequential dialogue balloons and sound effects from a manga page. 
-Ensure the translation sounds natural, conversational, and flows logically between the sequential index blocks as characters speaking to each other.
+  const prompt = `You are an expert manga translator translating to ${language}.
 
-Return ONLY a valid JSON array of objects with the exact same 'index' values and your translated strings in the 'translation' fields.
-Do not include any other text, conversational filler, markdown formatting, or code blocks.
+${context ? `Here is the translation context from previous pages/bubbles to keep consistency:\n${context}\n\n` : ''}INPUT FORMAT (read but do NOT echo this shape):
+[ { "index": <n>, "text": "<source>" }, ... ]
+
+OUTPUT FORMAT (mandatory — MUST use the key "translation", NOT "text"):
+[ { "index": <n>, "translation": "<${language} translation>" }, ... ]
+
+Critical rules:
+1. The output key MUST be "translation". Do NOT echo the input key "text" — that is a common mistake.
+2. The "translation" value MUST be in ${language}. Do NOT return the original ${blocks.length > 0 ? 'source' : 'text'} unchanged.
+3. Translate every entry. Sequential indices are sequential dialogue from a manga page; make it sound natural and conversational and flow between speakers.
+4. Output ONLY the JSON array. No markdown fences, no preface, no trailing commentary.
+
+Example output for [ { "index": 0, "text": "こんにちは" } ] → [ { "index": 0, "translation": "<${language} version of \\"hello\\">" } ]
+
 Input:
 ${blocksJson}`
 
   let resultJson = ''
   const t0 = performance.now()
-  let raw: CloudResult
   try {
-    if (cloudProvider === 'openai') {
-      raw = await fetchOpenAI(prompt, cloudApiKey, cloudApiUrl, cloudModelName, true)
-    } else if (cloudProvider === 'openrouter') {
-      raw = await fetchOpenRouter(prompt, cloudApiKey, cloudModelName, true)
-    } else if (cloudProvider === 'gemini') {
-      raw = await fetchGemini(prompt, cloudApiKey, cloudModelName, true)
-    } else if (cloudProvider === 'anthropic') {
-      raw = await fetchAnthropic(prompt, cloudApiKey, cloudModelName, true)
-    } else {
-      throw new Error(`Unsupported cloud provider: ${cloudProvider}`)
-    }
+    const responseSchema =
+      cloudProvider === 'gemini'
+        ? {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                index: { type: 'integer' },
+                translation: { type: 'string' },
+              },
+              required: ['index', 'translation'],
+            },
+          }
+        : undefined
+
+    const res = await api.cloudLlmCall({
+      profileId: activeProfileId,
+      prompt,
+      modelName: cloudModelName,
+      apiUrl: cloudApiUrl || null,
+      jsonMode: true,
+      responseSchema,
+    })
+    resultJson = res.text
   } catch (err: any) {
     logCallSafe({
       useCase: 'translate',
@@ -572,47 +923,68 @@ ${blocksJson}`
   logCallSafe({
     useCase: 'translate',
     success: true,
-    usage: raw.usage,
+    usage: null,
     durationMs: Math.round(performance.now() - t0),
   })
-  resultJson = raw.text
+  resultJson = resultJson
 
   // Try to find a JSON array within the response if it's wrapped in other text
   let jsonString = resultJson.trim()
   const arrayStart = jsonString.indexOf('[')
   const arrayEnd = jsonString.lastIndexOf(']')
-  
+
   if (arrayStart !== -1 && arrayEnd !== -1 && arrayEnd > arrayStart) {
     jsonString = jsonString.substring(arrayStart, arrayEnd + 1)
   } else {
     // If no array brackets found, it might be heavily malformed or not JSON at all
-    throw new Error(`AI did not return a JSON array. Raw output: ${resultJson.substring(0, 100)}...`)
+    throw new Error(
+      `AI did not return a JSON array. Raw output: ${resultJson.substring(0, 100)}...`,
+    )
   }
-  
+
   try {
     const parsed = JSON.parse(jsonString)
     if (Array.isArray(parsed)) {
-      // Validate that the array actually contains what we need (at least partially)
-      const validItems = parsed.filter(item => typeof item.index === 'number' && typeof item.translation === 'string')
-      if (validItems.length > 0) {
-         return validItems
-      } else {
-         throw new Error('JSON array is missing required "index" and "translation" fields')
+      // Strict schema: require the "translation" key. Earlier
+      // attempt at leniency (accepting "text" as a translation
+      // fallback) silently stored the SOURCE Japanese into the
+      // translation field when the model echoed the input shape
+      // without actually translating. Better to throw and let the
+      // user retry / pick a better model than to apply garbage.
+      // The reinforced prompt above carries an explicit example
+      // showing the correct output key.
+      const validItems = parsed.filter(
+        (item) =>
+          typeof item.index === 'number' &&
+          typeof item.translation === 'string',
+      )
+      if (validItems.length === 0) {
+        // Diagnose the common failure mode: model returned
+        // {index, text} (Gemini 3.5 echo pattern). Surface a
+        // clearer error so the user knows to retry or change
+        // model — not a silent untranslated paste-back.
+        const echoedTextShape = parsed.some(
+          (item) =>
+            typeof item.index === 'number' && typeof item.text === 'string',
+        )
+        if (echoedTextShape) {
+          throw new Error(
+            'Model echoed the input shape (returned "text" instead of "translation") — translation did not run. Retry, or try a different model / provider.',
+          )
+        }
+        throw new Error('JSON array is missing required "index" and "translation" fields')
       }
+      return validItems
     }
     throw new Error('Parsed result is not an array')
   } catch (err: any) {
     console.error('Failed to parse batch translation JSON:', jsonString)
-    throw new Error(`Failed to parse AI response as JSON: ${err.message}. Raw: ${jsonString.substring(0, 100)}...`)
+    throw new Error(
+      `Failed to parse AI response as JSON: ${err.message}. Raw: ${jsonString.substring(0, 100)}...`,
+    )
   }
 }
 
-
-/**
- * Send a single one-shot prompt to whatever cloud provider is named.
- * Shared by the chapter-summariser and entity-extractor flows; does
- * NOT touch the project's TM (those callers want a fresh response).
- */
 export async function callCloudOnce(args: {
   prompt: string
   provider: string
@@ -623,8 +995,47 @@ export async function callCloudOnce(args: {
   /** Use-case string for cost log. Defaults to "translate". */
   useCase?: string
 }): Promise<string> {
-  const { prompt, provider, apiKey, apiUrl, model, jsonMode = false, useCase = 'translate' } = args
+  const {
+    prompt,
+    provider,
+    apiKey,
+    apiUrl,
+    model,
+    jsonMode = false,
+    useCase = 'translate',
+  } = args
   const t0 = performance.now()
+  const { activeProfileId } = usePreferencesStore.getState()
+
+  // หากมี activeProfileId ให้รันบนหลังบ้าน Rust ทันทีเพื่อความปลอดภัยระดับสูงสุด
+  if (activeProfileId) {
+    try {
+      const res = await api.cloudLlmCall({
+        profileId: activeProfileId,
+        prompt,
+        modelName: model,
+        apiUrl: apiUrl || null,
+        jsonMode,
+      })
+      logCallSafe({
+        useCase,
+        success: true,
+        usage: null,
+        durationMs: Math.round(performance.now() - t0),
+      })
+      return res.text
+    } catch (err: any) {
+      logCallSafe({
+        useCase,
+        success: false,
+        usage: null,
+        durationMs: Math.round(performance.now() - t0),
+        errorMessage: err?.message ?? String(err),
+      })
+      throw err
+    }
+  }
+
   let result: CloudResult
   try {
     result = await withRetry(() => {
@@ -730,7 +1141,7 @@ async function fetchOpenAI(
   const body: any = {
     model: model,
     messages: [{ role: 'user', content: prompt }],
-    temperature: 0.1
+    temperature: 0.1,
   }
 
   if (isJsonMode) {
@@ -754,13 +1165,14 @@ async function fetchOpenAI(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
+      Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
   })
 
   if (!res.ok) {
     const err = await res.text()
+    if (res.status === 429) throw make429Error('openai', res, err)
     throw new Error(`OpenAI API Error: ${err}`)
   }
 
@@ -838,7 +1250,7 @@ async function fetchOpenRouter(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
+      Authorization: `Bearer ${apiKey}`,
       'HTTP-Referer': 'https://github.com/EarthWL/koharu-th',
       'X-Title': 'Koharu-TH',
     },
@@ -847,6 +1259,7 @@ async function fetchOpenRouter(
 
   if (!res.ok) {
     const err = await res.text()
+    if (res.status === 429) throw make429Error('openrouter', res, err)
     throw new Error(`OpenRouter API Error: ${err}`)
   }
 
@@ -870,6 +1283,12 @@ async function fetchGemini(
   model: string,
   isJsonMode = false,
   onChunk?: StreamHandler,
+  /** Optional response schema for structured output. When provided
+   *  alongside isJsonMode, Gemini is FORCED to produce JSON matching
+   *  this schema — instruction-following becomes irrelevant. Used by
+   *  the batch translate path to pin `{index, translation}` even
+   *  when Gemini 3.5 wants to echo the input `text` key.  */
+  responseSchema?: object,
 ): Promise<CloudResult> {
   // Gemini exposes a separate :streamGenerateContent endpoint for SSE
   // streaming. We use alt=sse to get the data:-prefixed framing that
@@ -880,23 +1299,31 @@ async function fetchGemini(
 
   const body: any = {
     contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.1 }
+    generationConfig: { temperature: 0.1 },
   }
 
   if (isJsonMode) {
     body.generationConfig.responseMimeType = 'application/json'
+    if (responseSchema) {
+      body.generationConfig.responseSchema = responseSchema
+    }
   }
 
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
   })
 
   if (!res.ok) {
     const err = await res.text()
+    // Surface Google's rate-limit payload as a user-readable message
+    // instead of leaking the raw JSON blob into a toast. Free tier is
+    // 5 generate_content req/min — the user mainly needs to know
+    // "wait a moment / upgrade tier / switch provider".
+    if (res.status === 429) throw make429Error('gemini', res, err)
     throw new Error(`Gemini API Error: ${err}`)
   }
 
@@ -958,10 +1385,7 @@ async function fetchAnthropic(
   // model output limits (Haiku tops out around there). Char-to-token
   // ratio of ~3 is a rough mixed-text approximation.
   const estimatedInputTokens = Math.ceil(prompt.length / 3)
-  const maxTokens = Math.min(
-    8192,
-    Math.max(4096, estimatedInputTokens * 2),
-  )
+  const maxTokens = Math.min(8192, Math.max(4096, estimatedInputTokens * 2))
   const body: any = {
     model: model,
     max_tokens: maxTokens,
@@ -977,13 +1401,14 @@ async function fetchAnthropic(
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true' // Necessary for browser calls
+      'anthropic-dangerous-direct-browser-access': 'true', // Necessary for browser calls
     },
     body: JSON.stringify(body),
   })
 
   if (!res.ok) {
     const err = await res.text()
+    if (res.status === 429) throw make429Error('anthropic', res, err)
     throw new Error(`Anthropic API Error: ${err}`)
   }
 

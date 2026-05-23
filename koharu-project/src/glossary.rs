@@ -1,7 +1,7 @@
 //! Glossary CRUD plus the smart-filter helper used by Phase 5.
 
 use chrono::{DateTime, TimeZone, Utc};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 
 use crate::db::Conn;
 use crate::error::Result;
@@ -81,7 +81,8 @@ pub fn insert(conn: &Conn, item: GlossaryInsert) -> Result<GlossaryEntry> {
         ],
     )?;
     let id = conn.last_insert_rowid();
-    Ok(get(conn, id)?.expect("just inserted"))
+    get(conn, id)?
+        .ok_or_else(|| crate::error::Error::NotFound(format!("glossary entry id={id} after insert")))
 }
 
 pub fn update(conn: &Conn, id: i64, patch: GlossaryPatch) -> Result<Option<GlossaryEntry>> {
@@ -149,10 +150,7 @@ pub fn remove(conn: &Conn, id: i64) -> Result<bool> {
 ///
 /// Each item is best-effort: a single bad row doesn't abort the whole
 /// batch — it just gets counted under `skipped`.
-pub fn bulk_insert(
-    conn: &mut Conn,
-    items: Vec<GlossaryInsert>,
-) -> Result<(usize, usize)> {
+pub fn bulk_insert(conn: &mut Conn, items: Vec<GlossaryInsert>) -> Result<(usize, usize)> {
     let mut inserted = 0usize;
     let mut skipped = 0usize;
     let now = Utc::now().timestamp();
@@ -195,9 +193,8 @@ pub fn bump_usage(conn: &Conn, ids: &[i64]) -> Result<()> {
     if ids.is_empty() {
         return Ok(());
     }
-    let mut stmt = conn.prepare(
-        "UPDATE glossary SET usage_count = usage_count + 1 WHERE id = ?1",
-    )?;
+    let mut stmt =
+        conn.prepare("UPDATE glossary SET usage_count = usage_count + 1 WHERE id = ?1")?;
     for id in ids {
         stmt.execute(params![id])?;
     }

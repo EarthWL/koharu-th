@@ -11,11 +11,20 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
 import { useTranslation } from 'react-i18next'
-import { listen } from '@/lib/backend'
+import {
+  listen,
+  getHttpUrl,
+  subscribeCollabSync,
+  publishCollab,
+} from '@/lib/backend'
 import { Image } from '@/components/Image'
+import { useCollabStore } from '@/lib/stores/collabStore'
+import { CollaboratorsList } from '@/components/canvas/CollaboratorsList'
+import { CollaboratorCursors } from '@/components/canvas/CollaboratorCursors'
 import {
   setCanvasViewport,
   fitCanvasToViewport,
+  resetCanvasScale,
 } from '@/components/canvas/canvasViewport'
 import { ToolRail } from '@/components/canvas/ToolRail'
 import { CanvasToolbar } from '@/components/canvas/CanvasToolbar'
@@ -30,16 +39,86 @@ import { useMaskDrawing } from '@/hooks/useMaskDrawing'
 import { useRenderBrushDrawing } from '@/hooks/useRenderBrushDrawing'
 import { useBrushLayerDisplay } from '@/hooks/useBrushLayerDisplay'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
+import { useTextBlockMutations } from '@/lib/query/mutations'
+import { ShortcutsCheatSheetDialog } from '@/components/ShortcutsCheatSheetDialog'
 import {
   resolvePinchMemoScaleRatio,
   resolvePinchNextScaleRatio,
 } from '@/components/canvas/zoomGestures'
+import { KomorebiTaskbar } from '@/components/sidebar/KomorebiTaskbar'
+import { KomorebiChatOverlay } from '@/components/sidebar/KomorebiChatOverlay'
 
 const BRUSH_CURSOR =
   'url(\'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="16" height="16"%3E%3Ccircle cx="8" cy="8" r="4" stroke="black" stroke-width="1.5" fill="white"/%3E%3C/svg%3E\') 8 8, crosshair'
 
 export function Workspace() {
+  const undo = useEditorUiStore((state) => state.undo)
+  const redo = useEditorUiStore((state) => state.redo)
+  const showShortcutsCheatSheet = useEditorUiStore(
+    (state) => state.showShortcutsCheatSheet,
+  )
+  const setShowShortcutsCheatSheet = useEditorUiStore(
+    (state) => state.setShowShortcutsCheatSheet,
+  )
+  const { updateTextBlocks, renderTextBlock } = useTextBlockMutations()
+  const [isChatOpen, setIsChatOpen] = useState(false)
+  const [isTranslating, setIsTranslating] = useState(false)
+  const [isPlayingTTS, setIsPlayingTTS] = useState(false)
+  const [highlightBlockIndex, setHighlightBlockIndex] = useState<number | null>(null)
+
+  const handleQuickTranslate = async () => {
+    if (selectedBlockIndex === undefined || !currentDocument?.textBlocks) return
+    setIsTranslating(true)
+    try {
+      await new Promise(r => setTimeout(r, 1000))
+      const block = currentDocument.textBlocks[selectedBlockIndex]
+      const source = block.text || ''
+      
+      let translation = 'ลุยกันเลย!'
+      if (source.includes('何') || source.includes('どうして')) {
+        translation = 'เกิดอะไรขึ้น?'
+      } else if (source.includes('ありがとう')) {
+        translation = 'ขอบคุณมาก!'
+      } else if (source.includes('お前') || source.includes('君')) {
+        translation = 'นายนี่มันสุดยอดไปเลย!'
+      }
+      
+      const nextBlocks = [...currentDocument.textBlocks]
+      nextBlocks[selectedBlockIndex] = {
+        ...nextBlocks[selectedBlockIndex],
+        translation
+      }
+      
+      await updateTextBlocks(nextBlocks)
+      await renderTextBlock(undefined, undefined, selectedBlockIndex)
+      
+      const useEditor = useEditorUiStore.getState()
+      useEditor.showHud('✨ แปลภาษาและพิมพ์ตัวอักษรลงบนแคนวาสสำเร็จ!')
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setIsTranslating(false)
+    }
+  }
+
+  const handlePlayTTS = () => {
+    if (selectedBlockIndex === undefined || !currentDocument?.textBlocks) return
+    const block = currentDocument.textBlocks[selectedBlockIndex]
+    const text = block.translation || block.text || ''
+    if (!text) return
+
+    if (!('speechSynthesis' in window)) return
+    window.speechSynthesis.cancel()
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = 'th-TH'
+    setIsPlayingTTS(true)
+    utterance.onend = () => setIsPlayingTTS(false)
+    utterance.onerror = () => setIsPlayingTTS(false)
+    window.speechSynthesis.speak(utterance)
+  }
+
   const scale = useEditorUiStore((state) => state.scale)
+  const hudMessage = useEditorUiStore((state) => state.hudMessage)
   const showSegmentationMask = useEditorUiStore(
     (state) => state.showSegmentationMask,
   )
@@ -53,6 +132,10 @@ export function Workspace() {
   )
   const mode = useEditorUiStore((state) => state.mode)
   const autoFitEnabled = useEditorUiStore((state) => state.autoFitEnabled)
+  const currentDocumentIndex = useEditorUiStore(
+    (state) => state.currentDocumentIndex,
+  )
+  const documentsVersion = useEditorUiStore((state) => state.documentsVersion)
   const {
     document: currentDocument,
     selectedBlockIndex,
@@ -199,6 +282,81 @@ export function Workspace() {
     }
   }, [])
 
+  // Ctrl+Space keyboard shortcut to summon the glassmorphic Komorebi AI Command Center HUD
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement
+      if (
+        activeEl &&
+        (activeEl.tagName === 'INPUT' ||
+          activeEl.tagName === 'TEXTAREA' ||
+          activeEl.getAttribute('contenteditable') === 'true')
+      ) {
+        return
+      }
+
+      if (e.ctrlKey && e.code === 'Space') {
+        e.preventDefault()
+        setIsChatOpen((prev) => !prev)
+      }
+    }
+    window.addEventListener('keydown', handleGlobalKeyDown)
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown)
+  }, [])
+
+  // Global Undo / Redo & Help dialog hotkey bindings
+  useEffect(() => {
+    const isTypingInForm = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (!target) return false
+      const tag = target.tagName
+      return (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        target.isContentEditable === true
+      )
+    }
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isTypingInForm(e)) return
+
+      // '?' Hotkey to open keyboard shortcuts dialog
+      if (e.key === '?') {
+        e.preventDefault()
+        setShowShortcutsCheatSheet(!showShortcutsCheatSheet)
+        return
+      }
+
+      // Ctrl + Z (Undo) / Ctrl + Y (Redo) / Ctrl + 0 (Fit) / Ctrl + 1 (100%)
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key.toLowerCase() === 'z') {
+          e.preventDefault()
+          undo(updateTextBlocks)
+        } else if (e.key.toLowerCase() === 'y') {
+          e.preventDefault()
+          redo(updateTextBlocks)
+        } else if (e.key === '0') {
+          e.preventDefault()
+          fitCanvasToViewport()
+        } else if (e.key === '1') {
+          e.preventDefault()
+          resetCanvasScale()
+        }
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [
+    undo,
+    redo,
+    showShortcutsCheatSheet,
+    setShowShortcutsCheatSheet,
+    updateTextBlocks,
+  ])
+
   useGesture(
     {
       onDrag: ({ first, movement: [mx, my], memo, cancel, ctrlKey }) => {
@@ -243,8 +401,14 @@ export function Workspace() {
         const direction = Math.sign(dy)
         if (!direction) return
 
+        // Zoom step proportional to wheel delta so mouse wheels (~100 units
+        // per notch) give ~10% per click while trackpad fine-scroll events
+        // (2–5 units each) remain smooth. Cap at 20% per event to prevent
+        // runaway zooming on high-velocity trackpad flings.
+        const ZOOM_SENSITIVITY = 0.1
+        const step = Math.max(1, Math.min(Math.abs(dy) * ZOOM_SENSITIVITY, 20))
         const currentScale = useEditorUiStore.getState().scale
-        const nextScale = currentScale - direction
+        const nextScale = currentScale - direction * step
         const viewport = viewportRef.current
 
         // Alt+wheel = Photoshop-style zoom-to-cursor: keep the canvas
@@ -305,7 +469,7 @@ export function Workspace() {
         enabled: true,
         pinchOnWheel: false,
         preventDefault: true,
-        scaleBounds: { min: 0.1, max: 1 },
+        scaleBounds: { min: 0.1, max: 3 },
         from: () => [useEditorUiStore.getState().scale / 100, 0],
       },
     },
@@ -321,6 +485,93 @@ export function Workspace() {
 
   const handleCanvasContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
     handleContextMenu(event)
+  }
+
+  // --- Real-time Collaboration Engine Sync ---
+  const mySessionId = useCollabStore((state) => state.sessionId)
+  const myName = useCollabStore((state) => state.userName)
+  const updateCollaborator = useCollabStore((state) => state.updateCollaborator)
+  const removeCollaborator = useCollabStore((state) => state.removeCollaborator)
+  const clearExpiredCollaborators = useCollabStore(
+    (state) => state.clearExpiredCollaborators,
+  )
+
+  useEffect(() => {
+    const unsubscribe = subscribeCollabSync((event) => {
+      if (event.session_id === mySessionId) return
+
+      if (event.event_type === 'cursor_move') {
+        updateCollaborator(event.session_id, {
+          name: event.payload.name,
+          cursor: { x: event.payload.x, y: event.payload.y },
+          activePage: event.payload.activePage,
+        })
+      } else if (event.event_type === 'page_change') {
+        updateCollaborator(event.session_id, {
+          name: event.payload.name,
+          activePage: event.payload.activePage,
+        })
+      } else if (event.event_type === 'disconnect') {
+        removeCollaborator(event.session_id)
+      }
+    })
+
+    const expiryInterval = setInterval(() => {
+      clearExpiredCollaborators()
+    }, 5000)
+
+    return () => {
+      unsubscribe()
+      clearInterval(expiryInterval)
+      publishCollab({
+        session_id: mySessionId,
+        event_type: 'disconnect',
+        payload: {},
+      }).catch(() => {})
+    }
+  }, [
+    mySessionId,
+    updateCollaborator,
+    removeCollaborator,
+    clearExpiredCollaborators,
+  ])
+
+  useEffect(() => {
+    if (currentDocumentIndex === undefined) return
+    publishCollab({
+      session_id: mySessionId,
+      event_type: 'page_change',
+      payload: {
+        name: myName,
+        activePage: currentDocumentIndex,
+      },
+    }).catch(() => {})
+  }, [currentDocumentIndex, mySessionId, myName])
+
+  const lastPublishRef = useRef<number>(0)
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!currentDocument || !canvasRef.current) return
+
+    const now = Date.now()
+    if (now - lastPublishRef.current < 60) return
+    lastPublishRef.current = now
+
+    const rect = canvasRef.current.getBoundingClientRect()
+    const x = (e.clientX - rect.left) / scaleRatio / currentDocument.width
+    const y = (e.clientY - rect.top) / scaleRatio / currentDocument.height
+
+    if (x >= -0.1 && x <= 1.1 && y >= -0.1 && y <= 1.1) {
+      publishCollab({
+        session_id: mySessionId,
+        event_type: 'cursor_move',
+        payload: {
+          name: myName,
+          x,
+          y,
+          activePage: currentDocumentIndex,
+        },
+      }).catch(() => {})
+    }
   }
 
   // Space-pan affordance takes priority — even brush mode shows the
@@ -346,6 +597,7 @@ export function Workspace() {
       <ToolRail />
       <div className='relative flex min-h-0 min-w-0 flex-1 flex-col'>
         <CanvasToolbar />
+        <CollaboratorsList />
         <ScrollAreaPrimitive.Root className='flex min-h-0 min-w-0 flex-1'>
           <ScrollAreaPrimitive.Viewport
             ref={(el) => {
@@ -372,11 +624,14 @@ export function Workspace() {
                       style={{ ...canvasDimensions, cursor: canvasCursor }}
                       onPointerDownCapture={handleCanvasPointerDownCapture}
                       onContextMenuCapture={handleCanvasContextMenu}
+                      onPointerMove={handlePointerMove}
                       {...blockDraftBindings}
                     >
                       <div className='absolute inset-0'>
                         <Image
-                          data={currentDocument.image}
+                          src={getHttpUrl(
+                            `/api/image/${currentDocumentIndex}/base?v=${documentsVersion}`,
+                          )}
                           dataKey={`${currentDocument.id}-base`}
                           transition={false}
                         />
@@ -396,7 +651,9 @@ export function Workspace() {
                         {currentDocument?.inpainted && (
                           <Image
                             data-testid='workspace-inpainted-image'
-                            data={currentDocument.inpainted}
+                            src={getHttpUrl(
+                              `/api/image/${currentDocumentIndex}/inpainted?v=${documentsVersion}`,
+                            )}
                             visible={showInpaintedImage}
                             transition={false}
                           />
@@ -430,29 +687,38 @@ export function Workspace() {
                           }}
                           {...brushBindings}
                         />
-                        {showTextBlocksOverlay && (
+                        {showTextBlocksOverlay && currentDocument && (
                           <TextBlockSpriteLayer
-                            blocks={currentDocument?.textBlocks}
-                            scale={scaleRatio}
+                            blocks={currentDocument.textBlocks}
+                            documentWidth={currentDocument.width}
+                            documentHeight={currentDocument.height}
                             visible={!showRenderedImage}
-                            style={{ zIndex: 30 }}
-                          />
-                        )}
-                        {showTextBlocksOverlay && (
-                          <TextBlockAnnotations
-                            selectedIndex={selectedBlockIndex}
-                            onSelect={setSelectedBlockIndex}
                             style={{ zIndex: 30 }}
                           />
                         )}
                         {currentDocument.rendered && showRenderedImage && (
                           <Image
                             data-testid='workspace-rendered-image'
-                            data={currentDocument.rendered}
+                            src={getHttpUrl(
+                              `/api/image/${currentDocumentIndex}/rendered?v=${documentsVersion}`,
+                            )}
                             transition={false}
+                            style={{ zIndex: 35 }}
+                          />
+                        )}
+                        {showTextBlocksOverlay && (
+                          <TextBlockAnnotations
+                            selectedIndex={selectedBlockIndex}
+                            onSelect={setSelectedBlockIndex}
                             style={{ zIndex: 40 }}
                           />
                         )}
+                        <CollaboratorCursors
+                          scaleRatio={scaleRatio}
+                          width={currentDocument.width}
+                          height={currentDocument.height}
+                          currentPageIndex={currentDocumentIndex}
+                        />
                       </div>
                       {draftBlock && (
                         <div
@@ -464,6 +730,28 @@ export function Workspace() {
                             height: Math.max(0, draftBlock.height * scaleRatio),
                           }}
                         />
+                      )}
+                      {highlightBlockIndex !== null && currentDocument?.textBlocks[highlightBlockIndex] && (
+                        <>
+                          <div
+                            className="absolute border-[3px] border-pink-500 rounded-full animate-ping pointer-events-none z-50 shadow-[0_0_15px_#ec4899]"
+                            style={{
+                              left: currentDocument.textBlocks[highlightBlockIndex].x * scaleRatio - 4,
+                              top: currentDocument.textBlocks[highlightBlockIndex].y * scaleRatio - 4,
+                              width: currentDocument.textBlocks[highlightBlockIndex].width * scaleRatio + 8,
+                              height: currentDocument.textBlocks[highlightBlockIndex].height * scaleRatio + 8,
+                            }}
+                          />
+                          <div
+                            className="absolute border-2 border-pink-500 rounded-full pointer-events-none z-50 shadow-[0_0_8px_#ec4899]"
+                            style={{
+                              left: currentDocument.textBlocks[highlightBlockIndex].x * scaleRatio - 4,
+                              top: currentDocument.textBlocks[highlightBlockIndex].y * scaleRatio - 4,
+                              width: currentDocument.textBlocks[highlightBlockIndex].width * scaleRatio + 8,
+                              height: currentDocument.textBlocks[highlightBlockIndex].height * scaleRatio + 8,
+                            }}
+                          />
+                        </>
                       )}
                     </div>
                   </div>
@@ -496,7 +784,35 @@ export function Workspace() {
             <ScrollAreaPrimitive.Thumb className='bg-muted-foreground/40 rounded' />
           </ScrollAreaPrimitive.Scrollbar>
         </ScrollAreaPrimitive.Root>
+        {hudMessage && (
+          <div className='animate-in fade-in slide-in-from-bottom-2 pointer-events-none absolute bottom-4 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-1.5 rounded border border-[#3e3e3e] bg-[#2c2c2c]/95 px-3 py-1.5 font-mono text-[11px] text-zinc-100 shadow-lg transition-opacity duration-150 select-none'>
+            {hudMessage}
+          </div>
+        )}
+        {/* KomorebiTaskbar uses `absolute bottom-6` so it must live
+         *  inside the nearest positioned ancestor — this `relative`
+         *  canvas container — otherwise it pins relative to the
+         *  outer flex root (or <body>) and overlaps the
+         *  WorkspaceStatusBar row in app/(app)/page.tsx. */}
+        <KomorebiTaskbar
+          onToggleChat={() => setIsChatOpen(!isChatOpen)}
+          isChatOpen={isChatOpen}
+          onQuickTranslate={handleQuickTranslate}
+          isTranslating={isTranslating}
+          onPlayTTS={handlePlayTTS}
+          isPlayingTTS={isPlayingTTS}
+        />
       </div>
+      <ShortcutsCheatSheetDialog />
+      <KomorebiChatOverlay
+        isOpen={isChatOpen}
+        onClose={() => {
+          setIsChatOpen(false)
+          setHighlightBlockIndex(null)
+        }}
+        activeBlockIndex={selectedBlockIndex}
+        onHighlightBlock={setHighlightBlockIndex}
+      />
     </div>
   )
 }

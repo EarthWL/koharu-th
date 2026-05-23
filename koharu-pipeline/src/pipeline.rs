@@ -184,15 +184,43 @@ async fn run_pipeline_inner(
                 }
                 PipelineStep::Inpaint => {
                     if req.skip_inpaint.unwrap_or(false) {
-                        // ผู้ใช้ต้องการ re-translate โดยใช้ผลลัพธ์ inpaint เดิม
-                        // ข้ามขั้นตอนนี้เพื่อประหยัดเวลา
+                        // ผู้ใช้ต้องการ re-translate โดยใช้ผลลัพธ์ inpaint เดิม ข้ามขั้นตอนนี้เพื่อประหยัดเวลา
                     } else {
-                        res.ml.inpaint(&mut snapshot).await?
+                        res.ml
+                            .inpaint_with(
+                                &mut snapshot,
+                                req.inpaint_engine.unwrap_or_default(),
+                                req.inpaint_max_side,
+                            )
+                            .await?
                     }
                 }
                 PipelineStep::LlmGenerate => {
+                    let mut context = None;
+                    let context_string;
+                    if doc_index > 0 {
+                        if let Ok(prev_snapshot) =
+                            state_tx::read_doc(&res.state, doc_index - 1).await
+                        {
+                            let prev_translations: Vec<String> = prev_snapshot
+                                .text_blocks
+                                .iter()
+                                .filter_map(|b| b.translation.as_deref())
+                                .filter(|t| !t.trim().is_empty())
+                                .map(|t| t.to_string())
+                                .collect();
+                            if !prev_translations.is_empty() {
+                                context_string = prev_translations.join("\n");
+                                context = Some(&context_string);
+                            }
+                        }
+                    }
                     res.llm
-                        .translate(&mut snapshot, req.language.as_deref())
+                        .translate(
+                            &mut snapshot,
+                            req.language.as_deref(),
+                            context.map(|s| s.as_str()),
+                        )
                         .await?;
                 }
                 PipelineStep::Render => {

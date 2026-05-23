@@ -42,7 +42,8 @@ const createClient = () =>
           return failureCount < 1
         },
         retryDelay: (failureCount, error) => {
-          if (isBackendBooting(error)) return Math.min(2_000, 250 * (failureCount + 1))
+          if (isBackendBooting(error))
+            return Math.min(2_000, 250 * (failureCount + 1))
           return Math.min(30_000, 1_000 * 2 ** failureCount)
         },
         refetchOnWindowFocus: false,

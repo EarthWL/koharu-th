@@ -30,7 +30,7 @@ use rusqlite::params;
 
 use crate::db::Conn;
 use crate::error::{Error, Result};
-use crate::tm::{hash_source, TmInsert};
+use crate::tm::{TmInsert, hash_source};
 
 /// Stream every TM entry whose `target_lang == target_lang_filter` (or
 /// every entry when None) into a TMX file. Returns the count written.
@@ -108,8 +108,7 @@ pub fn export_to_tmx(
     Ok(count)
 }
 
-const TMX_HEAD: &str =
-    r#"<?xml version="1.0" encoding="UTF-8"?>
+const TMX_HEAD: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE tmx SYSTEM "tmx14.dtd">"#;
 
 #[derive(Debug, Clone)]
@@ -130,7 +129,8 @@ pub fn import_from_tmx(
 ) -> Result<TmxImportResult> {
     let mut file = File::open(in_path).map_err(|e| Error::io(in_path, e))?;
     let mut xml = String::new();
-    file.read_to_string(&mut xml).map_err(|e| Error::io(in_path, e))?;
+    file.read_to_string(&mut xml)
+        .map_err(|e| Error::io(in_path, e))?;
 
     let mut inserted = 0usize;
     let mut skipped = 0usize;
@@ -196,7 +196,10 @@ fn iter_tu_blocks(xml: &str) -> Vec<&str> {
         // Skip if it's actually <tuv ...> by looking at the next char.
         let after_open = &xml[start + 3..];
         let first = after_open.chars().next();
-        if first != Some(' ') && first != Some('>') && first != Some('\t') && first != Some('\n')
+        if first != Some(' ')
+            && first != Some('>')
+            && first != Some('\t')
+            && first != Some('\n')
             && first != Some('\r')
         {
             // <tuv or <tu… something — only accept `<tu ` / `<tu>`
@@ -244,12 +247,8 @@ fn extract_pair(tu: &str, src_lang: &str, tgt_lang: &str) -> Option<(String, Str
             .map(|s| xml_unescape(&s));
 
         match (lang.as_deref(), seg_text) {
-            (Some(l), Some(text)) if lang_matches(l, src_lang) && src.is_none() => {
-                src = Some(text)
-            }
-            (Some(l), Some(text)) if lang_matches(l, tgt_lang) && tgt.is_none() => {
-                tgt = Some(text)
-            }
+            (Some(l), Some(text)) if lang_matches(l, src_lang) && src.is_none() => src = Some(text),
+            (Some(l), Some(text)) if lang_matches(l, tgt_lang) && tgt.is_none() => tgt = Some(text),
             _ => {}
         }
 

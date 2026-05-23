@@ -16,7 +16,12 @@
 
 import type { ProviderProfileDto } from '@/lib/api'
 
-export type ProviderKind = 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'local'
+export type ProviderKind =
+  | 'openai'
+  | 'anthropic'
+  | 'gemini'
+  | 'openrouter'
+  | 'local'
 
 export type KindMeta = {
   kind: ProviderKind
@@ -122,10 +127,7 @@ export const KIND_LABEL: Record<ProviderKind, string> = Object.fromEntries(
  *  Accepts the full DTO from the DB list, OR a synthetic on-the-fly
  *  object built from `preferencesStore.{cloudProvider, cloudModelName,
  *  cloudApiUrl}` for the "active translation profile" fallback path. */
-export type ProfileLike = Pick<
-  ProviderProfileDto,
-  'provider' | 'modelName'
-> & {
+export type ProfileLike = Pick<ProviderProfileDto, 'provider' | 'modelName'> & {
   apiUrl?: string | null
 }
 

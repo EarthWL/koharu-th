@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { api, type PromptTemplateDto, type PromptUseCase } from '@/lib/api'
+import { toast } from 'sonner'
 
 const USE_CASES: { value: PromptUseCase; label: string }[] = [
   { value: 'translate', label: 'Translate' },
@@ -72,7 +73,7 @@ export function PromptsTabPanel() {
               // alert is acceptable here since the button isn't part of
               // any open form. Keeps the user aware that creation failed
               // instead of silently doing nothing.
-              alert(`Failed to create template: ${err?.message ?? err}`)
+              toast.error(`Failed to create template: ${err?.message ?? err}`)
             }
           }}
         >
@@ -98,7 +99,7 @@ export function PromptsTabPanel() {
                 }
               >
                 {tpl.isDefault && (
-                  <StarIcon className='fill-amber-400 size-3 text-amber-400' />
+                  <StarIcon className='size-3 fill-amber-400 text-amber-400' />
                 )}
                 <span className='min-w-0 flex-1 truncate font-medium'>
                   {tpl.name}
@@ -171,10 +172,7 @@ function TemplateEditor({
     // confirm flow makes the override deliberate.
     if (checked) {
       const existing = siblings.find(
-        (s) =>
-          s.id !== draft.id &&
-          s.useCase === draft.useCase &&
-          s.isDefault,
+        (s) => s.id !== draft.id && s.useCase === draft.useCase && s.isDefault,
       )
       if (
         existing &&
@@ -254,7 +252,7 @@ function TemplateEditor({
         value={draft.template}
         onChange={(e) => patch('template', e.target.value)}
         style={{ fieldSizing: 'fixed' as any, width: '100%' }}
-        className='block min-h-40 w-full resize-y font-mono text-[10px] whitespace-pre-wrap break-words'
+        className='block min-h-40 w-full resize-y font-mono text-[10px] break-words whitespace-pre-wrap'
       />
       <label className='flex items-center gap-1 text-[10px]'>
         <input

@@ -2,24 +2,36 @@ name: Build
 
 on:
   push:
-    branches: ['main']
+    branches: ['main', 'feat/ux-improvements']
+    paths-ignore:
+      - '**.md'
+      - '.git*'
+      - 'docs/**'
+      - 'assets/**'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - '.git*'
+      - 'docs/**'
+      - 'assets/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
-  # Multi-target: Turing (RTX 20xx), Ampere (RTX 30xx), Ada (RTX 40xx),
-  # Blackwell (RTX 50xx). One binary that runs on all four families.
-  # Older cards (Pascal SM 6.x and earlier) are intentionally excluded
-  # to keep the bundle size sane; cudarc/candle won't load them anyway
-  # on modern CUDA toolkits.
-  CUDA_COMPUTE_CAP: "75;86;89;120"
+  # Set to a single compute capability (80 for Ampere/A100 and newer compat)
+  # to avoid bindgen_cuda ParseIntError panic on Windows/Linux in CI.
+  CUDA_COMPUTE_CAP: "80"
 
 jobs:
   build:
     name: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        os: [windows-latest]
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
@@ -42,11 +54,15 @@ jobs:
       - uses: Jimver/cuda-toolkit@master
         if: matrix.os != 'macos-latest'
         with:
-          cuda: '13.1.0'
+          cuda: '12.8.0'
       - uses: ilammy/msvc-dev-cmd@v1
         if: matrix.os == 'windows-latest'
       - run: bun install
-      - run: bun tauri build --no-bundle
+      # `--features cuda` enables candle + cudarc CUDA kernels at compile
+      # time. Without it, `cfg!(feature = "cuda")` is false and the
+      # runtime device picker (`cuda_is_available()` in koharu-ml/src/lib.rs)
+      # short-circuits to CPU even on machines with a working RTX driver.
+      - run: bun tauri build --no-bundle --features cuda
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:

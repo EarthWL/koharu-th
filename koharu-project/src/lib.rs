@@ -15,8 +15,9 @@ pub mod cbz;
 pub mod chapter;
 pub mod character;
 pub mod chat;
-mod db;
+pub mod db;
 mod error;
+mod fs_atomic;
 pub mod glossary;
 mod manifest;
 pub mod profile;
@@ -33,7 +34,7 @@ mod types;
 
 pub use db::{Conn, Pool};
 pub use error::{Error, Result};
-pub use manifest::{Manifest, ManifestPaths, MANIFEST_FILENAME, SUPPORTED_SCHEMA_VERSION};
+pub use manifest::{MANIFEST_FILENAME, Manifest, ManifestPaths, SUPPORTED_SCHEMA_VERSION};
 pub use project::Project;
 pub use types::{
     Chapter, ChapterStatus, Character, Confidence, GlossaryCategory, GlossaryEntry, NameAlias,

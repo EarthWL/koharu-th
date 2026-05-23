@@ -1,5 +1,6 @@
 use koharu_types::{
-    AnimeYoloVariant, DetectorEngine, OcrEngine, TextBlock, TextShaderEffect, TextStrokeStyle,
+    AnimeYoloVariant, DetectorEngine, InpaintEngine, OcrEngine, ReadingOrder, TextBlock,
+    TextShaderEffect, TextStrokeStyle,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -72,6 +73,13 @@ pub struct UpdateTextBlocksPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ReorderTextBlocksPayload {
+    pub index: usize,
+    pub reading_order: ReadingOrder,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LlmListPayload {
     pub language: Option<String>,
 }
@@ -88,6 +96,7 @@ pub struct LlmGeneratePayload {
     pub index: usize,
     pub text_block_index: Option<usize>,
     pub language: Option<String>,
+    pub context: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -102,9 +111,10 @@ pub struct LlmGenerateParams {
     pub index: usize,
     pub text_block_index: Option<usize>,
     pub language: Option<String>,
+    pub context: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessRequest {
     pub index: Option<usize>,
@@ -143,6 +153,19 @@ pub struct ProcessRequest {
     /// module default (0.25). Clamped backend-side to [0.05, 0.95].
     /// Only honoured when `detector_engine == Some(AnimeYolo)`.
     pub anime_yolo_confidence: Option<f32>,
+    /// ความละเอียด inpaint: ขนาดด้านยาวสูงสุด (px) สำหรับ crop ที่ส่ง LaMa.
+    /// None ⇒ ใช้ค่า backend default. 256 = เร็ว / 512 = สมดุล / 768 = คุณภาพสูง
+    pub inpaint_max_side: Option<u32>,
+    /// เครื่องยนต์ลบอักษร AI: Lama (Tier 1), StableDiffusion (Tier 2), CloudFlux (Tier 3)
+    pub inpaint_engine: Option<InpaintEngine>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InpaintPayload {
+    pub index: usize,
+    pub inpaint_engine: Option<InpaintEngine>,
+    pub inpaint_max_side: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -334,6 +357,27 @@ pub struct ProjectBackupResult {
     pub file_count: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectBackupRestorePayload {
+    pub backup_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupDto {
+    pub name: String,
+    pub path: String,
+    pub size_bytes: u64,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectDiskSpaceResult {
+    pub free_bytes: u64,
+}
+
 /// Summary returned by project_open / project_create / project_current.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -506,6 +550,9 @@ pub struct AppStorageStats {
     /// recent-projects.json (UI convenience list). Removing only forgets
     /// the recent list — actual project folders are untouched.
     pub recent_projects: StorageEntry,
+    /// Stale temporary files / partial downloads (.part, .download, .tmp)
+    /// left in the HuggingFace model cache folder. Safe to clear anytime.
+    pub orphan_cache: StorageEntry,
 }
 
 /// Which artefact group to clear. Maps 1:1 to AppStorageStats fields.
@@ -518,6 +565,7 @@ pub enum StorageClearTarget {
     ModelsHf,
     FontsCustom,
     RecentProjects,
+    OrphanCache,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -1234,6 +1282,7 @@ mod tests {
                 effect: Some(TextShaderEffect {
                     italic: true,
                     bold: false,
+                    ..Default::default()
                 }),
                 stroke: Some(TextStrokeStyle {
                     enabled: true,
@@ -1245,6 +1294,8 @@ mod tests {
                 letter_spacing_px: None,
                 min_font_size: None,
                 vertical_align: None,
+                baseline_shift_px: None,
+                horizontal_scale: None,
             }),
             ..Default::default()
         };
@@ -1281,6 +1332,7 @@ mod tests {
             shader_effect: Some(TextShaderEffect {
                 italic: false,
                 bold: true,
+                ..Default::default()
             }),
             shader_stroke: Some(TextStrokeStyle {
                 enabled: true,
@@ -1303,6 +1355,7 @@ mod tests {
             index: 1,
             text_block_index: Some(0),
             language: Some("zh-CN".to_string()),
+            context: None,
         });
         round_trip(&LlmLoadParams {
             id: "sakura".to_string(),
@@ -1311,6 +1364,7 @@ mod tests {
             index: 1,
             text_block_index: Some(0),
             language: Some("zh-CN".to_string()),
+            context: None,
         });
         round_trip(&ProcessRequest {
             index: Some(1),
@@ -1319,6 +1373,7 @@ mod tests {
             shader_effect: Some(TextShaderEffect {
                 italic: true,
                 bold: true,
+                ..Default::default()
             }),
             shader_stroke: Some(TextStrokeStyle {
                 enabled: false,
@@ -1326,6 +1381,7 @@ mod tests {
                 width_px: Some(2.0),
             }),
             font_family: Some("Noto Sans".to_string()),
+            ..Default::default()
         });
         round_trip(&InpaintRegion {
             x: 10,
@@ -1469,3 +1525,19 @@ pub struct QueueClearResult {
     pub removed: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudLlmCallPayload {
+    pub profile_id: i64,
+    pub prompt: String,
+    pub model_name: String,
+    pub api_url: Option<String>,
+    pub json_mode: bool,
+    pub response_schema: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudLlmCallResult {
+    pub text: String,
+}

@@ -71,17 +71,23 @@ pub trait Translatable {
         &mut self,
         llm: &mut Llm,
         target_language: Option<&str>,
+        context: Option<&str>,
     ) -> anyhow::Result<()> {
         let text = self.get_source()?;
-        // Upstream fix (cherry-picked from mayocream/koharu commit
-        // 82454e03): skip the LLM call entirely when there's no source
-        // — the model would otherwise hallucinate output from empty
-        // input and the pipeline crashes downstream.
         if text.is_empty() {
             tracing::debug!("skipping translate: no source text");
             return Ok(());
         }
-        let response = llm.generate(&text, &GenerateOptions::default(), target_language)?;
+        let prompt = match context {
+            Some(ctx) if !ctx.trim().is_empty() => {
+                format!(
+                    "Previous translation context:\n{}\n\nTranslate the following:\n{}",
+                    ctx, text
+                )
+            }
+            _ => text,
+        };
+        let response = llm.generate(&prompt, &GenerateOptions::default(), target_language)?;
         let response = response.trim().to_string();
         self.set_translation(response)
     }
@@ -419,17 +425,23 @@ impl Translatable for Document {
         &mut self,
         llm: &mut Llm,
         target_language: Option<&str>,
+        context: Option<&str>,
     ) -> anyhow::Result<()> {
         let text = self.get_source()?;
-        // Upstream fix (cherry-picked from mayocream/koharu commit
-        // 82454e03): skip the LLM call entirely when there's no source
-        // — the model would otherwise hallucinate output from empty
-        // input and the pipeline crashes downstream.
         if text.is_empty() {
             tracing::debug!("skipping translate: no source text");
             return Ok(());
         }
-        let response = llm.generate(&text, &GenerateOptions::default(), target_language)?;
+        let prompt = match context {
+            Some(ctx) if !ctx.trim().is_empty() => {
+                format!(
+                    "Previous translation context:\n{}\n\nTranslate the following:\n{}",
+                    ctx, text
+                )
+            }
+            _ => text,
+        };
+        let response = llm.generate(&prompt, &GenerateOptions::default(), target_language)?;
         let response = response.trim().to_string();
         self.set_translation(response)
     }
@@ -507,10 +519,11 @@ impl Model {
         &self,
         doc: &mut impl Translatable,
         target_language: Option<&str>,
+        context: Option<&str>,
     ) -> anyhow::Result<()> {
         let mut guard = self.state.write().await;
         match &mut *guard {
-            State::Ready(llm) => doc.translate_with_llm(llm, target_language),
+            State::Ready(llm) => doc.translate_with_llm(llm, target_language, context),
             State::Loading => Err(anyhow::anyhow!("Model is still loading")),
             State::Failed(e) => Err(anyhow::anyhow!("Model failed to load: {e}")),
             State::Empty => Err(anyhow::anyhow!("No model is loaded")),

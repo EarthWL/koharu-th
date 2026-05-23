@@ -33,7 +33,12 @@ const TABS: {
   fallback: string
   needsProject?: boolean
 }[] = [
-  { key: 'pages', icon: ImagesIcon, labelKey: 'sidebar.tabPages', fallback: 'Pages' },
+  {
+    key: 'pages',
+    icon: ImagesIcon,
+    labelKey: 'sidebar.tabPages',
+    fallback: 'Pages',
+  },
   {
     key: 'chapters',
     icon: FilesIcon,
@@ -121,40 +126,40 @@ export function SidebarTabs() {
        *    parent's flex height calculation. */}
       <div className='border-border bg-background/60 flex w-10 shrink-0 flex-col border-r'>
         <div className='flex min-h-0 flex-1 flex-col overflow-y-auto py-1'>
-        {TABS.map(({ key, icon: Icon, labelKey, fallback, needsProject }) => {
-          const disabled = needsProject && !projectInfo
-          const badge =
-            key === 'chapters' && chapters.data?.length
-              ? chapters.data.length
-              : null
-          return (
-            <button
-              key={key}
-              onClick={() => !disabled && setActive(key)}
-              disabled={disabled}
-              data-active={active === key}
-              title={t(labelKey, fallback)}
-              className={cn(
-                'group relative mx-1 my-0.5 flex h-8 items-center justify-center rounded-md transition disabled:cursor-not-allowed disabled:opacity-30',
-                active === key
-                  ? 'bg-accent text-foreground'
-                  : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-              )}
-            >
-              <Icon className='size-4' />
-              {badge != null && (
-                <span className='bg-primary text-primary-foreground absolute -top-0.5 -right-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full px-0.5 text-[8px] font-semibold'>
-                  {badge > 99 ? '99+' : badge}
-                </span>
-              )}
-            </button>
-          )
-        })}
+          {TABS.map(({ key, icon: Icon, labelKey, fallback, needsProject }) => {
+            const disabled = needsProject && !projectInfo
+            const badge =
+              key === 'chapters' && chapters.data?.length
+                ? chapters.data.length
+                : null
+            return (
+              <button
+                key={key}
+                onClick={() => !disabled && setActive(key)}
+                disabled={disabled}
+                data-active={active === key}
+                title={t(labelKey, fallback)}
+                className={cn(
+                  'group relative mx-1 my-0.5 flex h-8 items-center justify-center rounded-md transition disabled:cursor-not-allowed disabled:opacity-30',
+                  active === key
+                    ? 'bg-accent text-foreground'
+                    : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+                )}
+              >
+                <Icon className='size-4' />
+                {badge != null && (
+                  <span className='bg-primary text-primary-foreground absolute -top-0.5 -right-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full px-0.5 text-[8px] font-semibold'>
+                    {badge > 99 ? '99+' : badge}
+                  </span>
+                )}
+              </button>
+            )
+          })}
         </div>
       </div>
 
       {/* Active tab content */}
-      <div className='flex min-w-0 min-h-0 flex-1 flex-col'>
+      <div className='flex min-h-0 min-w-0 flex-1 flex-col'>
         {active === 'pages' && <Navigator />}
         {active === 'chapters' && projectInfo && <ChaptersTabPanel />}
         {active === 'project' && projectInfo && <ProjectTabPanel />}

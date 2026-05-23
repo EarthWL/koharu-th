@@ -9,7 +9,7 @@ use rusqlite::params;
 
 use crate::db::{self, Pool};
 use crate::error::{Error, Result};
-use crate::manifest::{Manifest, MANIFEST_FILENAME};
+use crate::manifest::{MANIFEST_FILENAME, Manifest};
 
 /// Open project handle. Cheap to clone (the pool is internally Arc-shared).
 #[derive(Clone, Debug)]
@@ -67,7 +67,74 @@ impl Project {
             return Err(Error::NotAProject(root.into()));
         }
         let manifest = Manifest::read(&manifest_path)?;
-        let pool = db::open(root.join(&manifest.paths.db))?;
+        let db_path = root.join(&manifest.paths.db);
+        let bak_path = db_path.with_extension("db.bak");
+
+        // 1. SQLite Pre-flight Integrity Check & Auto-Recovery
+        if db_path.exists() {
+            let mut is_corrupted = false;
+            match rusqlite::Connection::open(&db_path) {
+                Ok(conn) => {
+                    let _ = conn.busy_timeout(std::time::Duration::from_secs(2));
+                    let integrity: std::result::Result<String, rusqlite::Error> =
+                        conn.query_row("PRAGMA integrity_check;", [], |row| row.get(0));
+                    match integrity {
+                        Ok(status) => {
+                            if status != "ok" {
+                                is_corrupted = true;
+                                tracing::warn!(
+                                    "SQLite integrity check failed for {:?}: {}",
+                                    db_path,
+                                    status
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            is_corrupted = true;
+                            tracing::warn!(
+                                "SQLite integrity check error for {:?}: {:?}",
+                                db_path,
+                                e
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    is_corrupted = true;
+                    tracing::warn!(
+                        "Failed to open SQLite database for integrity check: {:?}",
+                        e
+                    );
+                }
+            }
+
+            if is_corrupted {
+                if bak_path.exists() {
+                    tracing::info!(
+                        "SQLite database is corrupted. Attempting self-healing using backup shadow: {:?}",
+                        bak_path
+                    );
+                    if let Err(e) = std::fs::copy(&bak_path, &db_path) {
+                        tracing::error!("Failed to recover SQLite from backup shadow: {:?}", e);
+                    } else {
+                        tracing::info!(
+                            "SQLite self-healing completed successfully from backup shadow."
+                        );
+                    }
+                } else {
+                    tracing::error!(
+                        "SQLite database is corrupted but no backup shadow file exists."
+                    );
+                }
+            } else {
+                // Database is healthy, update/refresh the backup shadow file
+                if let Err(e) = std::fs::copy(&db_path, &bak_path) {
+                    tracing::warn!("Failed to update SQLite backup shadow file: {:?}", e);
+                }
+            }
+        }
+
+        let pool = db::open(&db_path)?;
         // Legacy file_path-only chapters (V001 schema) get auto-wrapped
         // into the new folder layout on first open after the V002 migration.
         {
@@ -135,7 +202,9 @@ mod tests {
             .pool()
             .get()
             .unwrap()
-            .query_row("SELECT title FROM series_meta WHERE id = 1", [], |r| r.get(0))
+            .query_row("SELECT title FROM series_meta WHERE id = 1", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(title, "Onmyouji Tales");
     }

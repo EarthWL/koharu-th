@@ -55,20 +55,11 @@ pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
         nb += b[i] * b[i];
     }
     let denom = na.sqrt() * nb.sqrt();
-    if denom == 0.0 {
-        0.0
-    } else {
-        dot / denom
-    }
+    if denom == 0.0 { 0.0 } else { dot / denom }
 }
 
 /// Persist a freshly-computed embedding for a TM entry.
-pub fn set_embedding(
-    conn: &Conn,
-    tm_id: i64,
-    embedding: &[f32],
-    model: &str,
-) -> Result<()> {
+pub fn set_embedding(conn: &Conn, tm_id: i64, embedding: &[f32], model: &str) -> Result<()> {
     let bytes = encode_vec(embedding);
     conn.execute(
         "UPDATE translation_memory SET embedding = ?1, embedding_model = ?2 WHERE id = ?3",
@@ -79,11 +70,7 @@ pub fn set_embedding(
 
 /// List TM entries that don't yet have an embedding for the given
 /// model — driver of the backfill loop.
-pub fn list_pending_embeddings(
-    conn: &Conn,
-    model: &str,
-    limit: u32,
-) -> Result<Vec<(i64, String)>> {
+pub fn list_pending_embeddings(conn: &Conn, model: &str, limit: u32) -> Result<Vec<(i64, String)>> {
     let mut stmt = conn.prepare(
         "SELECT id, source_text
          FROM translation_memory

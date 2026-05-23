@@ -20,6 +20,7 @@ define_models! {
     Config => ("mayocream/mit48px-ocr", "config.json"),
     Dictionary => ("mayocream/mit48px-ocr", "alphabet-all-v7.txt"),
     Model => ("mayocream/mit48px-ocr", "model.safetensors"),
+    OnnxModel => ("mayocream/mit48px-ocr", "model.onnx"),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,21 +72,63 @@ struct ModelFiles {
     weights: PathBuf,
 }
 
+pub enum OcrBackend {
+    Candle {
+        model: Mit48pxModel,
+        device: Device,
+    },
+    #[cfg(feature = "dml")]
+    Onnx {
+        session: ort::Session,
+    },
+}
+
 pub struct Mit48pxOcr {
-    model: Mit48pxModel,
+    backend: OcrBackend,
     config: Mit48pxConfig,
     dictionary: Vec<String>,
-    device: Device,
 }
 
 impl Mit48pxOcr {
     pub async fn load(use_cpu: bool) -> Result<Self> {
+        #[cfg(feature = "dml")]
+        {
+            if !use_cpu && crate::dml_is_available() {
+                match Self::load_onnx().await {
+                    Ok(ocr) => return Ok(ocr),
+                    Err(err) => {
+                        tracing::warn!("Failed to load ONNX Mit48pxOcr under DirectML: {err}. Falling back to native Candle CPU/GPU...");
+                    }
+                }
+            }
+        }
+
         let files = ModelFiles {
             config: loading::resolve_manifest_path(Manifest::Config.get()).await?,
             dictionary: loading::resolve_manifest_path(Manifest::Dictionary.get()).await?,
             weights: loading::resolve_manifest_path(Manifest::Model.get()).await?,
         };
         Self::load_from_files(files, use_cpu)
+    }
+
+    #[cfg(feature = "dml")]
+    async fn load_onnx() -> Result<Self> {
+        let config_path = loading::resolve_manifest_path(Manifest::Config.get()).await?;
+        let dict_path = loading::resolve_manifest_path(Manifest::Dictionary.get()).await?;
+        let onnx_path = loading::resolve_manifest_path(Manifest::OnnxModel.get()).await?;
+
+        let config: Mit48pxConfig = loading::read_json(&config_path)?;
+        let dictionary = read_dictionary(&dict_path)?;
+
+        let session = ort::Session::builder()?
+            .with_execution_providers([ort::DirectMLExecutionProvider::default().build()])?
+            .commit_from_file(onnx_path)?;
+
+        Ok(Self {
+            backend: OcrBackend::Onnx { session },
+            config,
+            dictionary,
+        })
     }
 
     pub fn load_from_dir(dir: impl AsRef<Path>, use_cpu: bool) -> Result<Self> {
@@ -110,11 +153,18 @@ impl Mit48pxOcr {
         let vb = VarBuilder::from_buffered_safetensors(data, DType::F32, &device)?;
         let model = Mit48pxModel::new(config.clone(), dictionary.len(), vb, device.clone())?;
         Ok(Self {
-            model,
+            backend: OcrBackend::Candle { model, device },
             config,
             dictionary,
-            device,
         })
+    }
+
+    fn device(&self) -> &Device {
+        match &self.backend {
+            OcrBackend::Candle { device, .. } => device,
+            #[cfg(feature = "dml")]
+            OcrBackend::Onnx { .. } => &Device::Cpu,
+        }
     }
 
     #[instrument(level = "debug", skip_all)]
@@ -125,10 +175,112 @@ impl Mit48pxOcr {
 
         let mut predictions = Vec::with_capacity(regions.len());
         for chunk in regions.chunks(OCR_CHUNK_SIZE) {
-            let batch = preprocess_regions(chunk, &self.config, &self.device)?;
-            let raw = self.model.infer_batch(&batch.tensor, &batch.widths)?;
-            for prediction in raw {
-                predictions.push(self.decode_prediction(prediction));
+            let batch = preprocess_regions(chunk, &self.config, self.device())?;
+            match &self.backend {
+                OcrBackend::Candle { model, .. } => {
+                    let raw = model.infer_batch(&batch.tensor, &batch.widths)?;
+                    for prediction in raw {
+                        predictions.push(self.decode_prediction(prediction));
+                    }
+                }
+                #[cfg(feature = "dml")]
+                OcrBackend::Onnx { session } => {
+                    let shape = batch.tensor.shape().dims();
+                    let flat_vec = batch.tensor.flatten_all()?.to_vec1::<f32>()?;
+                    let input_images = ndarray::Array4::from_shape_vec(
+                        (shape[0], shape[1], shape[2], shape[3]),
+                        flat_vec,
+                    )?;
+                    
+                    let widths_i64: Vec<i64> = batch.widths.iter().map(|&w| w as i64).collect();
+                    let input_widths = ndarray::Array1::from_shape_vec(
+                        batch.widths.len(),
+                        widths_i64,
+                    )?;
+
+                    let outputs = session.run(ort::inputs![
+                        input_images,
+                        input_widths,
+                    ]?)?;
+
+                    let token_ids_view = outputs[0].try_extract_tensor::<i64>();
+                    let (batch_size, seq_len) = match &token_ids_view {
+                        Ok(view) => {
+                            let shape = view.shape();
+                            (shape[0], shape[1])
+                        }
+                        Err(_) => {
+                            let view = outputs[0].try_extract_tensor::<i32>()?;
+                            let shape = view.shape();
+                            (shape[0], shape[1])
+                        }
+                    };
+
+                    let fg_colors_view = outputs[1].try_extract_tensor::<f32>()?;
+                    let bg_colors_view = outputs[2].try_extract_tensor::<f32>()?;
+                    let fg_indicators_view = outputs[3].try_extract_tensor::<f32>()?;
+                    let bg_indicators_view = outputs[4].try_extract_tensor::<f32>()?;
+
+                    let fg_slice = fg_colors_view.to_slice().ok_or_else(|| anyhow::anyhow!("failed to slice fg_colors"))?;
+                    let bg_slice = bg_colors_view.to_slice().ok_or_else(|| anyhow::anyhow!("failed to slice bg_colors"))?;
+                    let fg_ind_slice = fg_indicators_view.to_slice().ok_or_else(|| anyhow::anyhow!("failed to slice fg_indicators"))?;
+                    let bg_ind_slice = bg_indicators_view.to_slice().ok_or_else(|| anyhow::anyhow!("failed to slice bg_indicators"))?;
+
+                    for b in 0..batch_size {
+                        let mut token_ids = Vec::with_capacity(seq_len);
+                        if let Ok(view) = &token_ids_view {
+                            let slice = view.to_slice().ok_or_else(|| anyhow::anyhow!("failed to slice token_ids"))?;
+                            for s in 0..seq_len {
+                                token_ids.push(slice[b * seq_len + s] as u32);
+                            }
+                        } else {
+                            let view = outputs[0].try_extract_tensor::<i32>()?;
+                            let slice = view.to_slice().ok_or_else(|| anyhow::anyhow!("failed to slice token_ids"))?;
+                            for s in 0..seq_len {
+                                token_ids.push(slice[b * seq_len + s] as u32);
+                            }
+                        }
+
+                        let mut fg_colors = Vec::with_capacity(seq_len);
+                        let mut bg_colors = Vec::with_capacity(seq_len);
+                        let mut fg_indicators = Vec::with_capacity(seq_len);
+                        let mut bg_indicators = Vec::with_capacity(seq_len);
+
+                        for s in 0..seq_len {
+                            let color_offset = (b * seq_len + s) * 3;
+                            fg_colors.push([
+                                fg_slice[color_offset],
+                                fg_slice[color_offset + 1],
+                                fg_slice[color_offset + 2],
+                            ]);
+                            bg_colors.push([
+                                bg_slice[color_offset],
+                                bg_slice[color_offset + 1],
+                                bg_slice[color_offset + 2],
+                            ]);
+
+                            let ind_offset = (b * seq_len + s) * 2;
+                            fg_indicators.push([
+                                fg_ind_slice[ind_offset],
+                                fg_ind_slice[ind_offset + 1],
+                            ]);
+                            bg_indicators.push([
+                                bg_ind_slice[ind_offset],
+                                bg_ind_slice[ind_offset + 1],
+                            ]);
+                        }
+
+                        let raw_pred = RawPrediction {
+                            token_ids,
+                            confidence: 1.0,
+                            fg_colors,
+                            bg_colors,
+                            fg_indicators,
+                            bg_indicators,
+                        };
+                        predictions.push(self.decode_prediction(raw_pred));
+                    }
+                }
             }
         }
         Ok(predictions)
@@ -168,35 +320,11 @@ impl Mit48pxOcr {
                 continue;
             }
 
-            // Join per-line OCR results with a script-aware separator.
-            // Upstream koharu joined with "" (correct for CJK — no
-            // inter-character spacing). On Latin / Thai bubbles a line
-            // break is usually a word boundary, so an empty join
-            // collapses adjacent words ("HOW" + "DO" → "HOWDO"). Insert
-            // a single space when both sides of the break are ASCII
-            // alphanumeric; otherwise keep upstream's empty join so
-            // mixed-script and pure-CJK bubbles render unchanged.
-            // Tracking: https://github.com/EarthWL/koharu-th/issues/11
-            let normalized: Vec<String> = lines
+            let processed_lines = lines
                 .iter()
                 .map(|line| normalize_ocr_text(&line.text))
-                .collect();
-            let mut text = String::new();
-            for (i, segment) in normalized.iter().enumerate() {
-                if i > 0 {
-                    let prev_last = text.chars().last();
-                    let next_first = segment.chars().next();
-                    let both_word_like = matches!(
-                        (prev_last, next_first),
-                        (Some(p), Some(n))
-                            if p.is_ascii_alphanumeric() && n.is_ascii_alphanumeric()
-                    );
-                    if both_word_like {
-                        text.push(' ');
-                    }
-                }
-                text.push_str(segment);
-            }
+                .collect::<Vec<String>>();
+            let text = smart_join_lines(&processed_lines);
             let confidence =
                 lines.iter().map(|line| line.confidence).sum::<f32>() / lines.len() as f32;
             let text_color = average_rgb(lines.iter().map(|line| line.text_color));
@@ -287,6 +415,58 @@ fn normalize_ocr_text(text: &str) -> String {
     text.chars()
         .filter(|&ch| ch != '\n' && ch != '\r')
         .collect()
+}
+
+fn smart_join_lines(lines: &[String]) -> String {
+    if lines.is_empty() {
+        return String::new();
+    }
+    let mut result = String::new();
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        // Both are guaranteed Some by the is_empty guards above, but use
+        // if-let to keep the no-unwrap defensive invariant.
+        if let (Some(mut last_char), Some(first_char)) =
+            (result.chars().last(), trimmed.chars().next())
+        {
+            // If the last character is a hyphen ('-'), this represents a syllable
+            // break at the end of a line (e.g. WONDER- and FUL). In this case,
+            // we remove the hyphen and concatenate directly without any spaces.
+            if last_char == '-' {
+                result.pop();
+                if let Some(c) = result.chars().last() {
+                    last_char = c;
+                }
+            } else if is_western_char(last_char) || is_western_char(first_char) {
+                // Otherwise, insert a space if either of the characters is a Western char.
+                result.push(' ');
+            }
+        }
+        result.push_str(trimmed);
+    }
+    result
+}
+
+fn is_western_char(c: char) -> bool {
+    let val = c as u32;
+    // Western characters are alphanumeric/punctuation outside CJK/Japanese/Korean ranges:
+    // CJK Unified Ideographs: 0x4E00..=0x9FFF
+    // Hiragana: 0x3040..=0x309F
+    // Katakana: 0x30A0..=0x30FF
+    // Hangul: 0xAC00..=0xD7AF, 0x1100..=0x11FF, 0x3130..=0x318F
+    // CJK Symbols/Punctuation: 0x3000..=0x303F
+    // Fullwidth Forms: 0xFF00..=0xFFEF
+    !((val >= 0x4E00 && val <= 0x9FFF)
+        || (val >= 0x3040 && val <= 0x309F)
+        || (val >= 0x30A0 && val <= 0x30FF)
+        || (val >= 0xAC00 && val <= 0xD7AF)
+        || (val >= 0x1100 && val <= 0x11FF)
+        || (val >= 0x3130 && val <= 0x318F)
+        || (val >= 0x3000 && val <= 0x303F)
+        || (val >= 0xFF00 && val <= 0xFFEF))
 }
 
 fn read_dictionary(path: &Path) -> Result<Vec<String>> {
@@ -397,6 +577,7 @@ mod tests {
 
     use super::{
         Mit48pxConfig, Mit48pxPrediction, finish_rgb, normalize_ocr_text, preprocess_regions,
+        smart_join_lines,
     };
 
     fn test_config() -> Mit48pxConfig {
@@ -450,6 +631,41 @@ mod tests {
     #[test]
     fn normalize_ocr_text_removes_newlines() {
         assert_eq!(normalize_ocr_text("ab\ncd\r\nef"), "abcdef");
+    }
+
+    #[test]
+    fn smart_join_lines_handles_cjk_and_western() {
+        let english_lines = vec![
+            "...BUT HOW".to_string(),
+            "DO I FIGHT".to_string(),
+            "SOMETHING".to_string(),
+            "SO HUGE?".to_string(),
+        ];
+        assert_eq!(
+            smart_join_lines(&english_lines),
+            "...BUT HOW DO I FIGHT SOMETHING SO HUGE?"
+        );
+
+        let japanese_lines = vec!["いつもの".to_string(), "ところ".to_string()];
+        assert_eq!(smart_join_lines(&japanese_lines), "いつものところ");
+
+        let mixed_lines = vec!["レベル".to_string(), "UP".to_string()];
+        assert_eq!(smart_join_lines(&mixed_lines), "レベル UP");
+
+        let hyphenated_lines = vec!["self-".to_string(), "contained".to_string()];
+        assert_eq!(smart_join_lines(&hyphenated_lines), "selfcontained");
+
+        let english_with_layout_break = vec![
+            "HOW".to_string(),
+            "WONDER-".to_string(),
+            "FUL IT IS".to_string(),
+            "TO SEE YOU".to_string(),
+            "AWAKE!".to_string(),
+        ];
+        assert_eq!(
+            smart_join_lines(&english_with_layout_break),
+            "HOW WONDERFUL IT IS TO SEE YOU AWAKE!"
+        );
     }
 
     #[test]

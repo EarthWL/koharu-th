@@ -45,7 +45,9 @@ pub fn font_families_for_text(text: &str) -> Vec<String> {
     let has_arabic = text
         .chars()
         .any(|c| matches!(script_map.get(c), Script::Arabic | Script::Hebrew));
-    let has_thai = text.chars().any(|c| matches!(script_map.get(c), Script::Thai));
+    let has_thai = text
+        .chars()
+        .any(|c| matches!(script_map.get(c), Script::Thai));
 
     let names: &[&str] = if has_cjk {
         #[cfg(target_os = "windows")]

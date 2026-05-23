@@ -21,10 +21,7 @@ const SUPPORTED: VisionCheck = {
 }
 
 /** Check if the given (provider, model) accepts image inputs. */
-export function supportsVision(
-  provider: string,
-  modelId: string,
-): VisionCheck {
+export function supportsVision(provider: string, modelId: string): VisionCheck {
   if (!modelId) {
     return { supported: false, reason: 'No model selected.' }
   }
@@ -91,7 +88,8 @@ export function supportsVision(
       if (m === 'gemini-pro' || m === 'models/gemini-pro') {
         return {
           supported: false,
-          reason: 'Legacy gemini-pro is text-only — use gemini-1.5+ or 2.x for images.',
+          reason:
+            'Legacy gemini-pro is text-only — use gemini-1.5+ or 2.x for images.',
         }
       }
       // Default optimistic for unknown gemini variants — they're newer.

@@ -60,7 +60,10 @@ fn get_or_create_plan(
         batch,
         kind,
     };
-    let mut cache = plan_cache().lock().expect("cufft cache poisoned");
+    // Recover from a poisoned lock instead of cascading the panic — the
+    // cufft plan cache is rebuildable; a prior panic holding the lock
+    // shouldn't take down every later inference.
+    let mut cache = plan_cache().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(plan) = cache.get(&key) {
         return Ok(plan.clone());
     }
@@ -138,7 +141,7 @@ pub fn rfft2(storage: &CudaStorage, layout: &Layout) -> Result<(CudaStorage, Sha
     let stream = dev.cuda_stream();
 
     {
-        let _plan_guard = plan.lock.lock().expect("cufft rfft plan mutex poisoned");
+        let _plan_guard = plan.lock.lock().unwrap_or_else(|e| e.into_inner());
         unsafe { cufft::set_stream(plan.handle, stream.cu_stream() as sys::cudaStream_t) }
             .map_err(|e| candle_core::Error::Cuda(Box::new(e)))?;
         let mut output_view = output.as_view_mut();
@@ -193,7 +196,7 @@ pub fn irfft2(
     let stream = dev.cuda_stream();
 
     {
-        let _plan_guard = plan.lock.lock().expect("cufft irfft plan mutex poisoned");
+        let _plan_guard = plan.lock.lock().unwrap_or_else(|e| e.into_inner());
         unsafe { cufft::set_stream(plan.handle, stream.cu_stream() as sys::cudaStream_t) }
             .map_err(|e| candle_core::Error::Cuda(Box::new(e)))?;
         let mut output_view = output.as_view_mut();

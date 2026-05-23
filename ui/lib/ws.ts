@@ -2,6 +2,20 @@
 
 import { encode, decode } from '@msgpack/msgpack'
 
+export class DiagnosticError extends Error {
+  code: string
+  msgTh: string
+  details: string
+
+  constructor(code: string, msgTh: string, details: string) {
+    super(`[${code}] ${msgTh}`)
+    this.code = code
+    this.msgTh = msgTh
+    this.details = details
+    this.name = 'DiagnosticError'
+  }
+}
+
 type OutgoingRequest = {
   type: 'req'
   id: number
@@ -76,6 +90,28 @@ export class WsRpcClient {
         if (p) {
           this.pending.delete(msg.id)
           if (msg.error) {
+            try {
+              if (msg.error.startsWith('{') && msg.error.endsWith('}')) {
+                const parsed = JSON.parse(msg.error)
+                if (
+                  parsed &&
+                  typeof parsed === 'object' &&
+                  'code' in parsed &&
+                  'msg_th' in parsed
+                ) {
+                  p.reject(
+                    new DiagnosticError(
+                      parsed.code,
+                      parsed.msg_th,
+                      parsed.details || '',
+                    ),
+                  )
+                  return
+                }
+              }
+            } catch {
+              // fallback
+            }
             p.reject(new Error(msg.error))
           } else {
             p.resolve(msg.result)

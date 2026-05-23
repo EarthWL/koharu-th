@@ -1,12 +1,17 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query/keys'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { useLlmUiStore } from '@/lib/stores/llmUiStore'
 import i18n from '@/lib/i18n'
+import { getHttpUrl } from '@/lib/backend'
 
 export const useDocumentsCountQuery = () =>
   useQuery({
@@ -25,14 +30,63 @@ export const useCurrentDocumentQuery = (index: number, enabled = true) =>
   })
 
 export const useCurrentDocumentState = () => {
+  const queryClient = useQueryClient()
   const currentDocumentIndex = useEditorUiStore(
     (state) => state.currentDocumentIndex,
   )
+  const documentsVersion = useEditorUiStore((state) => state.documentsVersion)
   const { data: totalPages = 0 } = useDocumentsCountQuery()
   const currentDocumentQuery = useCurrentDocumentQuery(
     currentDocumentIndex,
     totalPages > 0,
   )
+
+  useEffect(() => {
+    if (totalPages <= 0) return
+
+    const preloadImage = (url: string) => {
+      if (typeof window !== 'undefined') {
+        const img = new window.Image()
+        img.src = url
+      }
+    }
+
+    const preloadAdjacent = (idx: number) => {
+      // 1. Prefetch query document metadata
+      void queryClient.prefetchQuery({
+        queryKey: queryKeys.documents.current(idx),
+        queryFn: () => api.getDocument(idx),
+      })
+
+      // 2. Prefetch actual high-resolution images for base, inpainted, and rendered versions
+      const baseUrl = getHttpUrl(`/api/image/${idx}/base?v=${documentsVersion}`)
+      preloadImage(baseUrl)
+
+      const inpaintedUrl = getHttpUrl(
+        `/api/image/${idx}/inpainted?v=${documentsVersion}`,
+      )
+      preloadImage(inpaintedUrl)
+
+      const renderedUrl = getHttpUrl(
+        `/api/image/${idx}/rendered?v=${documentsVersion}`,
+      )
+      preloadImage(renderedUrl)
+
+      // Also prefetch thumbnail
+      const thumbUrl = getHttpUrl(`/api/thumbnail/${idx}?v=${documentsVersion}`)
+      preloadImage(thumbUrl)
+    }
+
+    // Prefetch next page
+    if (currentDocumentIndex + 1 < totalPages) {
+      preloadAdjacent(currentDocumentIndex + 1)
+    }
+
+    // Prefetch previous page
+    if (currentDocumentIndex - 1 >= 0) {
+      preloadAdjacent(currentDocumentIndex - 1)
+    }
+  }, [currentDocumentIndex, totalPages, documentsVersion, queryClient])
 
   return {
     currentDocumentIndex,

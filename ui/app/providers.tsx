@@ -17,7 +17,11 @@ import { queryKeys } from '@/lib/query/keys'
 import { api, parseProcessProgress } from '@/lib/api'
 import { useDownloadStore } from '@/lib/downloads'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
+import { usePreferencesStore } from '@/lib/stores/preferencesStore'
+import { triggerUpdateCheck } from '@/lib/services/autoUpdater'
+import { UpdateDialog } from '@/components/UpdateDialog'
 import { useOperationStore } from '@/lib/stores/operationStore'
+import { Toaster } from '@/components/ui/sonner'
 
 export function Providers({ children }: { children: ReactNode }) {
   const [mounted, setMounted] = useState(false)
@@ -40,6 +44,17 @@ export function Providers({ children }: { children: ReactNode }) {
           queryFn: () => api.getDocumentsCount(),
         })
         setTotalPages(count)
+      } catch (_) {}
+
+      // Seed the device-info cache so error telemetry can report the
+      // active ML backend (CUDA / DirectML / CPU) even before Settings is
+      // opened. Best-effort: the query client retries while the backend
+      // is still booting ("Resources not initialized").
+      try {
+        await queryClient.fetchQuery({
+          queryKey: queryKeys.device.info,
+          queryFn: () => api.deviceInfo(),
+        })
       } catch (_) {}
 
       try {
@@ -115,23 +130,21 @@ export function Providers({ children }: { children: ReactNode }) {
         // 'failed' / 'cancelled' (helper is a no-op when no Thai
         // content exists, so safe to over-call).
         void (async () => {
-          const { applyThaiPostProcessToBlocks } = await import(
-            '@/lib/util/thaiPostProcess'
-          )
-          const { usePreferencesStore } = await import(
-            '@/lib/stores/preferencesStore'
-          )
-          if (!usePreferencesStore.getState().thaiPostProcessEnabled) return
+          const { applySmartPostProcessToBlocks } =
+            await import('@/lib/util/postProcess')
+          const { usePreferencesStore } =
+            await import('@/lib/stores/preferencesStore')
+          if (!usePreferencesStore.getState().smartPostProcessEnabled) return
           try {
             const { api } = await import('@/lib/api')
             const doc = await api.getDocument(currentDocumentIndex)
             if (!doc?.textBlocks?.length) return
-            const cleaned = applyThaiPostProcessToBlocks(doc.textBlocks)
+            const cleaned = applySmartPostProcessToBlocks(doc.textBlocks)
             if (cleaned !== doc.textBlocks) {
               await api.updateTextBlocks(currentDocumentIndex, cleaned)
             }
           } catch (err) {
-            console.warn('[thai-postprocess] pipeline-end skipped:', err)
+            console.warn('[smart-postprocess] pipeline-end skipped:', err)
           }
         })()
 
@@ -168,6 +181,19 @@ export function Providers({ children }: { children: ReactNode }) {
 
     handleLanguageChange(i18n.language)
     i18n.on('languageChanged', handleLanguageChange)
+
+    // Startup update check if enabled
+    const mode = usePreferencesStore.getState().autoUpdateMode
+    if (mode === 'auto' || mode === 'notify') {
+      const timer = setTimeout(() => {
+        void triggerUpdateCheck(false)
+      }, 3000)
+      return () => {
+        clearTimeout(timer)
+        i18n.off('languageChanged', handleLanguageChange)
+      }
+    }
+
     return () => {
       i18n.off('languageChanged', handleLanguageChange)
     }
@@ -179,7 +205,11 @@ export function Providers({ children }: { children: ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <I18nextProvider i18n={i18n}>
         <ThemeProvider attribute='class' defaultTheme='system' enableSystem>
-          <TooltipProvider delayDuration={0}>{children}</TooltipProvider>
+          <TooltipProvider delayDuration={0}>
+            {children}
+            <UpdateDialog />
+            <Toaster position="bottom-center" />
+          </TooltipProvider>
         </ThemeProvider>
       </I18nextProvider>
     </QueryClientProvider>

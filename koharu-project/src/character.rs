@@ -1,7 +1,7 @@
 //! Character CRUD.
 
 use chrono::{DateTime, TimeZone, Utc};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 
 use crate::db::Conn;
 use crate::error::Result;
@@ -96,7 +96,8 @@ pub fn insert(conn: &Conn, item: CharacterInsert) -> Result<Character> {
         ],
     )?;
     let id = conn.last_insert_rowid();
-    Ok(get(conn, id)?.expect("just inserted"))
+    get(conn, id)?
+        .ok_or_else(|| crate::error::Error::NotFound(format!("character id={id} after insert")))
 }
 
 pub fn update(conn: &Conn, id: i64, patch: CharacterPatch) -> Result<Option<Character>> {

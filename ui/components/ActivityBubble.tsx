@@ -1,14 +1,16 @@
 'use client'
 
-import { type ReactNode, useEffect } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CircleXIcon } from 'lucide-react'
+import { CircleXIcon, AlertTriangle, Terminal, Clock } from 'lucide-react'
 import { useDownloadStore } from '@/lib/downloads'
 import { Button } from '@/components/ui/button'
 import { type OperationState } from '@/lib/operations'
 import { useOperationStore } from '@/lib/stores/operationStore'
-import { useUiErrorStore } from '@/lib/stores/uiErrorStore'
+import { useUiErrorStore, type DiagnosticErrorPayload } from '@/lib/stores/uiErrorStore'
 import { useDocumentMutations } from '@/lib/query/mutations'
+import { ErrorDialog } from '@/components/ui/error-dialog'
+import { cn } from '@/lib/utils'
 
 type TranslateFunc = ReturnType<typeof useTranslation>['t']
 
@@ -74,41 +76,175 @@ function DownloadCard({
   )
 }
 
+/** Detect the `[RATE_LIMIT:provider[:seconds]]` marker injected by
+ *  cloud LLM clients for HTTP 429 responses. We surface those as
+ *  amber soft-warning toasts instead of red panic cards so users
+ *  don't think the app crashed. */
+function parseRateLimit(
+  raw: string,
+): { provider: string; retrySec: number | null; body: string } | null {
+  // Avoid the `s` flag (dotall) — TS targets pre-ES2018; use
+  // `[\s\S]` instead so multi-line bodies still match.
+  const m = raw.match(/^\[RATE_LIMIT:([^:\]]+)(?::(\d+))?\]\s*([\s\S]*)$/)
+  if (!m) return null
+  return {
+    provider: m[1],
+    retrySec: m[2] ? parseInt(m[2], 10) : null,
+    body: m[3],
+  }
+}
+
+/** Detect the `[NO_QUOTA:provider]` marker — a model the key's tier
+ *  has zero quota for (permanent, not transient). Surfaced as an amber
+ *  notice nudging the user to switch model rather than a red crash. */
+function parseNoQuota(
+  raw: string,
+): { provider: string; body: string } | null {
+  const m = raw.match(/^\[NO_QUOTA:([^\]]+)\]\s*([\s\S]*)$/)
+  if (!m) return null
+  return { provider: m[1], body: m[2] }
+}
+
 function ErrorCard({
   message,
+  diagnostic,
   onDismiss,
+  onDebugClick,
   t,
 }: {
   message: string
+  diagnostic?: DiagnosticErrorPayload
   onDismiss: () => void
+  onDebugClick?: () => void
   t: TranslateFunc
 }) {
+  const rateLimit = parseRateLimit(message)
+  const noQuota = parseNoQuota(message)
+  // Both rate-limit and no-quota render as amber soft notices (Clock
+  // icon) — neither is a crash. no_quota just isn't time-based.
+  const isSoftNotice = (!!rateLimit || !!noQuota) && !diagnostic
+  const isRateLimit = isSoftNotice
+
+  // Use the cleaned-up body so the marker prefix doesn't leak into UI.
+  const displayMessage = rateLimit
+    ? rateLimit.body
+    : noQuota
+      ? noQuota.body
+      : message
+
   return (
-    <div className='bg-card/95 rounded-2xl border border-red-200/80 p-4 shadow-[0_15px_60px_rgba(0,0,0,0.12)] backdrop-blur dark:border-red-900/80'>
+    <div
+      className={cn(
+        'relative bg-card/90 rounded-2xl border p-4 backdrop-blur transition-all duration-300 animate-in fade-in slide-in-from-bottom-5',
+        isRateLimit
+          ? 'border-amber-500/30 bg-linear-to-b from-card/95 to-amber-500/5 shadow-[0_15px_60px_rgba(245,158,11,0.18)]'
+          : diagnostic
+            ? 'border-red-500/30 bg-linear-to-b from-card/95 to-red-500/5 shadow-[0_15px_60px_rgba(239,68,68,0.2)]'
+            : 'border-red-200/80 dark:border-red-950/80 shadow-[0_15px_60px_rgba(239,68,68,0.12)]',
+      )}
+    >
+      {/* Visual top border glow for diagnostic errors */}
+      {diagnostic && !isRateLimit && (
+        <div className='absolute top-0 left-4 right-4 h-[2px] bg-linear-to-r from-red-500/50 via-rose-500 to-red-500/50 blur-[1px]' />
+      )}
+
       <div className='flex items-start gap-3'>
-        <div className='mt-0.5 flex h-8 w-8 items-center justify-center rounded-full bg-red-100 text-red-600 dark:bg-red-950/70 dark:text-red-400'>
-          <CircleXIcon className='size-4' />
+        <div
+          className={cn(
+            'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-all duration-300',
+            isRateLimit
+              ? 'bg-amber-500/10 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400'
+              : diagnostic
+                ? 'bg-red-500/10 text-red-500 dark:bg-red-950/40 dark:text-red-400 animate-pulse'
+                : 'bg-red-100 text-red-600 dark:bg-red-950/70 dark:text-red-400',
+          )}
+        >
+          {isRateLimit ? (
+            <Clock className='size-4' />
+          ) : diagnostic ? (
+            <AlertTriangle className='size-4' />
+          ) : (
+            <CircleXIcon className='size-4' />
+          )}
         </div>
+        
         <div className='min-w-0 flex-1'>
           <div className='flex items-start justify-between gap-3'>
-            <div className='min-w-0'>
-              <div className='text-sm font-semibold text-red-700 dark:text-red-300'>
-                {t('errors.title')}
+            <div className='min-w-0 flex-1'>
+              <div className='flex items-center gap-1.5 flex-wrap'>
+                <span
+                  className={cn(
+                    'text-sm font-semibold tracking-wide',
+                    isRateLimit
+                      ? 'text-amber-600 dark:text-amber-400'
+                      : diagnostic
+                        ? 'text-red-600 dark:text-red-400'
+                        : 'text-red-700 dark:text-red-300',
+                  )}
+                >
+                  {rateLimit
+                    ? `โควต้า API หมดชั่วคราว (${rateLimit.provider})`
+                    : noQuota
+                      ? `โมเดลไม่รองรับบน tier นี้ (${noQuota.provider})`
+                      : diagnostic
+                        ? 'ตรวจพบข้อผิดพลาดระบบการแปล'
+                        : t('errors.title')}
+                </span>
+                {rateLimit && rateLimit.retrySec !== null && (
+                  <span className='bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 font-mono text-[9px] font-bold px-1.5 py-0.5 rounded-sm uppercase tracking-wider'>
+                    ~{rateLimit.retrySec}s
+                  </span>
+                )}
+                {!isRateLimit && diagnostic && (
+                  <span className='bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 font-mono text-[9px] font-bold px-1.5 py-0.5 rounded-sm uppercase tracking-wider'>
+                    {diagnostic.code}
+                  </span>
+                )}
               </div>
-              <div className='mt-1 border-l-2 border-red-500 pl-3 text-xs break-words text-red-700/90 dark:text-red-200/90'>
-                {message}
+              <div
+                className={cn(
+                  'mt-1.5 border-l-2 pl-3 text-xs leading-relaxed break-words',
+                  isRateLimit
+                    ? 'border-amber-500/50 text-foreground/90'
+                    : diagnostic
+                      ? 'border-red-500/50 text-foreground/90 font-medium'
+                      : 'border-red-500 text-red-700/90 dark:text-red-200/90',
+                )}
+              >
+                {displayMessage}
               </div>
             </div>
+            
             <Button
               variant='ghost'
               size='icon-xs'
               onClick={onDismiss}
-              className='text-red-700 hover:bg-red-50 hover:text-red-800 dark:text-red-300 dark:hover:bg-red-950/60'
+              className='text-muted-foreground hover:bg-muted hover:text-foreground shrink-0 rounded-lg'
               aria-label={t('errors.dismiss')}
             >
               <CircleXIcon className='size-3.5' />
             </Button>
           </div>
+
+          {/* Action buttons for diagnostics */}
+          {diagnostic && onDebugClick && (
+            <div className='mt-3 flex items-center justify-between gap-2 border-t border-red-500/10 pt-3'>
+              <span className='font-mono text-[9px] text-muted-foreground truncate max-w-[120px]'>
+                Method: {diagnostic.method || 'Unknown'}
+              </span>
+              <Button
+                variant='ghost'
+                size='xs'
+                onClick={onDebugClick}
+                className={cn(
+                  'h-7 px-3 text-[11px] font-semibold transition-all duration-200 border border-red-500/20 hover:border-red-500/40 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40 gap-1 rounded-lg shrink-0'
+                )}
+              >
+                <Terminal className='size-3' />
+                <span>วิเคราะห์เชิงลึก (Debug)</span>
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -255,10 +391,17 @@ export function ActivityBubble() {
   const { cancelOperation } = useDocumentMutations()
   const downloads = useDownloadStore((s) => s.downloads)
   const ensureSubscribed = useDownloadStore((s) => s.ensureSubscribed)
+  const [debugDialogOpen, setDebugDialogOpen] = useState(false)
 
   useEffect(() => {
     ensureSubscribed()
   }, [ensureSubscribed])
+
+  useEffect(() => {
+    if (!error) {
+      setDebugDialogOpen(false)
+    }
+  }, [error])
 
   const activeDownloads = Array.from(downloads.values()).filter(
     (d) => d.status === 'started' || d.status === 'downloading',
@@ -280,7 +423,31 @@ export function ActivityBubble() {
       className='pointer-events-auto fixed right-6 bottom-6 z-100 flex w-80 max-w-[calc(100%-1.5rem)] flex-col gap-3'
     >
       {error && (
-        <ErrorCard message={error.message} onDismiss={clearError} t={t} />
+        <ErrorCard 
+          message={error.diagnostic ? error.diagnostic.msgTh : error.message}
+          diagnostic={error.diagnostic}
+          onDismiss={clearError} 
+          onDebugClick={() => setDebugDialogOpen(true)}
+          t={t} 
+        />
+      )}
+      {error && error.diagnostic && (
+        <ErrorDialog
+          open={debugDialogOpen}
+          onOpenChange={(open) => {
+            setDebugDialogOpen(open)
+            if (!open) {
+              clearError()
+            }
+          }}
+          code={error.diagnostic.code}
+          msgTh={error.diagnostic.msgTh}
+          details={error.diagnostic.details}
+          method={error.diagnostic.method}
+          stack={error.diagnostic.stack}
+          platform={error.diagnostic.platform}
+          appState={error.diagnostic.appState}
+        />
       )}
       {operation && (
         <OperationCard operation={operation} onCancel={cancelOperation} t={t} />

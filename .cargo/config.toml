@@ -8,3 +8,10 @@ NVCC_PREPEND_FLAGS = "-std=c++17"
 # paths out of panic-backtrace metadata are set dynamically in
 # scripts/dev.ts (so we don't have to commit any contributor's
 # filesystem layout). See `setupRemapPathPrefix` there.
+
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+    "-L", "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\lib\\onecore\\x64",
+    "-L", "C:\\Program Files (x86)\\Windows Kits\\10\\Lib\\10.0.26100.0\\ucrt\\x64",
+    "-L", "C:\\Program Files (x86)\\Windows Kits\\10\\Lib\\10.0.26100.0\\um\\x64"
+]

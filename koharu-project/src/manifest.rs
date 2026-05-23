@@ -93,10 +93,7 @@ impl Manifest {
         if manifest.format != FORMAT_TAG {
             return Err(Error::InvalidManifest {
                 path: path.into(),
-                reason: format!(
-                    "expected format='{FORMAT_TAG}', got '{}'",
-                    manifest.format
-                ),
+                reason: format!("expected format='{FORMAT_TAG}', got '{}'", manifest.format),
             });
         }
         if manifest.schema_version > SUPPORTED_SCHEMA_VERSION {
@@ -109,10 +106,13 @@ impl Manifest {
     }
 
     /// Write the manifest to disk, pretty-printed for human readability.
+    ///
+    /// Crash-safe (#49): serialised to a sibling temp file + fsync +
+    /// atomic rename, so a crash never leaves a torn/empty `.koharuproj`.
     pub fn write(&self, path: impl AsRef<Path>) -> Result<()> {
         let path = path.as_ref();
         let bytes = serde_json::to_vec_pretty(self)?;
-        std::fs::write(path, bytes).map_err(|e| Error::io(path, e))
+        crate::fs_atomic::atomic_write(path, &bytes).map_err(|e| Error::io(path, e))
     }
 }
 

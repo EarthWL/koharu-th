@@ -26,6 +26,7 @@ import { useProjectMutations } from '@/lib/query/projectMutations'
 import { useProjectStore } from '@/lib/stores/projectStore'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { useDocumentMutations } from '@/lib/query/mutations'
+import { toast } from 'sonner'
 
 type WizardStep =
   | { kind: 'home' }
@@ -69,8 +70,7 @@ export function Welcome() {
     }
   }, [])
 
-  const onStartCreate = () =>
-    setStep({ kind: 'create-name', name: '' })
+  const onStartCreate = () => setStep({ kind: 'create-name', name: '' })
 
   const onOpen = async () => {
     setLoading(true)
@@ -99,9 +99,8 @@ export function Welcome() {
       // "no such file" messages are safe to act on. Anything else
       // (permission denied, DB corrupt) is a transient — leave the
       // row so the user can retry later.
-      const looksMissing = /not found|does not exist|no such file|cannot find/i.test(
-        msg,
-      )
+      const looksMissing =
+        /not found|does not exist|no such file|cannot find/i.test(msg)
       if (looksMissing) {
         try {
           await api.recentProjectsRemove(p.path)
@@ -109,7 +108,7 @@ export function Welcome() {
         } catch {
           // Best-effort prune; if it fails the row just stays.
         }
-        alert(
+        toast.error(
           t(
             'welcome.openRecentMissing',
             'Project folder no longer exists at "{{path}}" — removed from recents.',
@@ -117,7 +116,7 @@ export function Welcome() {
           ),
         )
       } else {
-        alert(
+        toast.error(
           t('welcome.openRecentFailed', 'Could not open project: {{msg}}', {
             msg,
           }),
@@ -137,10 +136,14 @@ export function Welcome() {
       // leaving the backend row intact while the user sees it gone.
       // Now: keep the row in the list and surface the failure so the
       // user can retry (or check disk/permissions).
-      alert(
-        t('welcome.removeRecentFailed', 'Could not remove from recent: {{msg}}', {
-          msg: err?.message ?? String(err),
-        }),
+      toast.error(
+        t(
+          'welcome.removeRecentFailed',
+          'Could not remove from recent: {{msg}}',
+          {
+            msg: err?.message ?? String(err),
+          },
+        ),
       )
     }
   }
@@ -221,10 +224,7 @@ export function Welcome() {
           />
         )}
         {step.kind === 'create-chapters' && (
-          <ChaptersStep
-            t={t}
-            onDone={() => router.push('/')}
-          />
+          <ChaptersStep t={t} onDone={() => router.push('/')} />
         )}
       </div>
     </div>
@@ -244,7 +244,7 @@ function HomeStep({
   onRemoveRecent,
   onStandalone,
 }: {
-  t: (key: string, fallback?: any, opts?: any) => string
+  t: any
   recent: RecentProjectDto[] | null
   loading: boolean
   onCreate: () => void
@@ -291,7 +291,7 @@ function HomeStep({
       </div>
       {recent && recent.length > 0 && (
         <div className='mt-6'>
-          <div className='text-muted-foreground mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide'>
+          <div className='text-muted-foreground mb-2 flex items-center gap-1.5 text-[10px] font-bold tracking-wide uppercase'>
             <ClockIcon className='size-3' />
             {t('welcome.recent', 'Recent projects')}
           </div>
@@ -327,7 +327,7 @@ function HomeStep({
         </div>
       )}
       <div className='border-border mt-6 border-t pt-4'>
-        <div className='text-muted-foreground mb-2 text-[10px] font-bold uppercase tracking-wide'>
+        <div className='text-muted-foreground mb-2 text-[10px] font-bold tracking-wide uppercase'>
           {t('welcome.standalone', 'Without a project')}
         </div>
         <p className='text-muted-foreground mb-3 text-xs'>
@@ -361,7 +361,7 @@ function NameStep({
   onBack,
   onSubmit,
 }: {
-  t: (key: string, fallback?: any, opts?: any) => string
+  t: any
   name: string
   loading: boolean
   onChange: (name: string) => void
@@ -416,7 +416,7 @@ function SetupStep({
   onSaved,
   onSkip,
 }: {
-  t: (key: string, fallback?: any, opts?: any) => string
+  t: any
   info: ProjectInfo
   onSaved: () => void
   onSkip: () => void
@@ -549,7 +549,9 @@ function SetupStep({
       </div>
       {saveError && (
         <p className='text-destructive mt-3 text-xs leading-relaxed'>
-          {t('welcome.saveFailed', 'Failed to save: {{msg}}', { msg: saveError })}
+          {t('welcome.saveFailed', 'Failed to save: {{msg}}', {
+            msg: saveError,
+          })}
         </p>
       )}
       <div className='mt-4 flex justify-between gap-2'>
@@ -581,13 +583,7 @@ type WizardChapter = {
   pageCount: number
 }
 
-function ChaptersStep({
-  t,
-  onDone,
-}: {
-  t: (key: string, fallback?: any, opts?: any) => string
-  onDone: () => void
-}) {
+function ChaptersStep({ t, onDone }: { t: any; onDone: () => void }) {
   const [chapters, setChapters] = useState<WizardChapter[]>([])
   const [title, setTitle] = useState('')
   const [chapterNumber, setChapterNumber] = useState<string>('1')
@@ -726,20 +722,13 @@ function ChaptersStep({
         <Input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder={t(
-            'welcome.chapterTitlePh',
-            'Chapter title (optional)',
-          )}
+          placeholder={t('welcome.chapterTitlePh', 'Chapter title (optional)')}
           className='h-8 flex-1 text-xs'
           onKeyDown={(e) => {
             if (e.key === 'Enter') void createChapter()
           }}
         />
-        <Button
-          size='sm'
-          disabled={busy}
-          onClick={() => void createChapter()}
-        >
+        <Button size='sm' disabled={busy} onClick={() => void createChapter()}>
           {busy ? (
             <Loader2Icon className='size-3.5 animate-spin' />
           ) : (
@@ -814,9 +803,8 @@ function ChaptersStep({
       )}
 
       <div className='text-muted-foreground mb-2 text-center text-[10px]'>
-        {chapters.length}{' '}
-        {t('welcome.chaptersCount', 'chapters')} · {totalPages}{' '}
-        {t('welcome.pagesCount', 'pages')}
+        {chapters.length} {t('welcome.chaptersCount', 'chapters')} ·{' '}
+        {totalPages} {t('welcome.pagesCount', 'pages')}
       </div>
 
       <div className='flex justify-between gap-2'>
@@ -883,7 +871,7 @@ function Field({
 }) {
   return (
     <div className='flex flex-col gap-1'>
-      <label className='text-foreground text-[10px] font-semibold uppercase tracking-wide'>
+      <label className='text-foreground text-[10px] font-semibold tracking-wide uppercase'>
         {label}
       </label>
       {children}
@@ -912,8 +900,8 @@ function ActionCard({
       disabled={disabled}
       className={
         primary
-          ? 'border-primary bg-primary/5 hover:bg-primary/10 disabled:opacity-50 group flex flex-col items-start gap-1 rounded-md border p-3 text-left transition'
-          : 'border-border bg-card hover:bg-accent/30 disabled:opacity-50 group flex flex-col items-start gap-1 rounded-md border p-3 text-left transition'
+          ? 'border-primary bg-primary/5 hover:bg-primary/10 group flex flex-col items-start gap-1 rounded-md border p-3 text-left transition disabled:opacity-50'
+          : 'border-border bg-card hover:bg-accent/30 group flex flex-col items-start gap-1 rounded-md border p-3 text-left transition disabled:opacity-50'
       }
     >
       <div className='flex items-center gap-2'>
@@ -947,6 +935,8 @@ export function WelcomeGate() {
     void refreshCurrent()
   }, [refreshCurrent])
 
-  if (projectInfo || standaloneAllowed) return null
+  const hasRealProject = projectInfo && projectInfo.name !== 'Global Scratchpad'
+
+  if (hasRealProject || standaloneAllowed) return null
   return <Welcome />
 }
