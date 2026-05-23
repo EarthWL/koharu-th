@@ -1026,6 +1026,23 @@ pub async fn run() -> Result<()> {
                                 crate::runtime_install::register_cudnn_dll_path(&runtime_root);
                             #[cfg(target_os = "windows")]
                             crate::windows::register_cuda_toolkit_dll_path();
+                            // Active cuDNN is installed + registered — mark any
+                            // superseded versions stale so gc_stale_runtimes
+                            // reclaims them after the grace window. Without this
+                            // an upgrade / CUDA-major switch (v9.8 cuda12 ->
+                            // v9.18 cuda13) leaves the old ~1 GB dir forever.
+                            match crate::runtime_install::mark_superseded_versions_stale(
+                                &runtime_root,
+                            ) {
+                                Ok(0) => {}
+                                Ok(n) => tracing::info!(
+                                    "Marked {n} superseded cuDNN version(s) for cleanup"
+                                ),
+                                Err(err) => tracing::warn!(
+                                    ?err,
+                                    "Failed to mark superseded cuDNN versions"
+                                ),
+                            }
                         }
                     }
 
