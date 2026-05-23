@@ -858,7 +858,20 @@ pub async fn run() -> Result<()> {
         let _ = crate::runtime_install::register_cudnn_dll_path(&runtime_root);
         #[cfg(target_os = "windows")]
         crate::windows::register_cuda_toolkit_dll_path();
-        let ok = koharu_ml::run_cuda_conv_probe();
+        // Run the probe on a thread with a large explicit stack. This
+        // branch executes on the process's OS main thread (~1 MB reserve
+        // for a windows-subsystem build), and candle's CUDA conv overflows
+        // it — the child was dying with STATUS_STACK_OVERFLOW (0xC00000FD)
+        // mid-conv2d, which `catch_unwind` can't catch (it's an OS-level
+        // crash, not a Rust panic). A 64 MB stack makes the probe match the
+        // headroom the real inference threads get from `RUST_MIN_STACK`.
+        let ok = std::thread::Builder::new()
+            .name("cuda-smoke".into())
+            .stack_size(64 * 1024 * 1024)
+            .spawn(koharu_ml::run_cuda_conv_probe)
+            .ok()
+            .and_then(|h| h.join().ok())
+            .unwrap_or(false);
         std::process::exit(if ok { 0 } else { 1 });
     }
 
