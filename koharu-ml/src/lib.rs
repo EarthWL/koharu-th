@@ -191,17 +191,48 @@ pub fn set_cuda_probe_ok(ok: bool) {
 /// child after a timeout. Do NOT call this in the main process — a hung cuDNN
 /// load would freeze it.
 pub fn run_cuda_conv_probe() -> bool {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let dev = candle_core::Device::new_cuda(0).ok()?;
-        let input =
-            candle_core::Tensor::zeros((1usize, 1, 8, 8), candle_core::DType::F32, &dev).ok()?;
-        let kernel =
-            candle_core::Tensor::zeros((1usize, 1, 3, 3), candle_core::DType::F32, &dev).ok()?;
-        let out = input.conv2d(&kernel, 0, 1, 1, 1).ok()?;
-        out.flatten_all().ok()?.to_vec1::<f32>().ok()?;
-        Some(())
-    }))
-    .ok()
-    .flatten()
-    .is_some()
+    // Report each step on STDERR (not tracing) so the parent can capture
+    // exactly where the GPU stack breaks — driver/cuBLAS at `new_cuda`,
+    // the conv kernel at `conv2d`, or device→host readback. This runs in
+    // the throwaway `--cuda-smoke-test` child BEFORE any tracing
+    // subscriber is installed, so `tracing::*` would go nowhere; `eprintln!`
+    // always reaches stderr, which `run_cuda_smoke_subprocess` pipes back
+    // and logs. Prefix lets the parent grep the relevant lines.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<()> {
+        eprintln!("[cuda-probe] creating CUDA device 0…");
+        let dev = candle_core::Device::new_cuda(0)
+            .map_err(|e| anyhow::anyhow!("new_cuda(0) failed (driver/cuBLAS load): {e}"))?;
+        eprintln!("[cuda-probe] device OK; allocating tensors…");
+        let input = candle_core::Tensor::zeros((1usize, 1, 8, 8), candle_core::DType::F32, &dev)
+            .map_err(|e| anyhow::anyhow!("input tensor alloc failed: {e}"))?;
+        let kernel = candle_core::Tensor::zeros((1usize, 1, 3, 3), candle_core::DType::F32, &dev)
+            .map_err(|e| anyhow::anyhow!("kernel tensor alloc failed: {e}"))?;
+        eprintln!("[cuda-probe] running conv2d…");
+        let out = input
+            .conv2d(&kernel, 0, 1, 1, 1)
+            .map_err(|e| anyhow::anyhow!("conv2d failed: {e}"))?;
+        eprintln!("[cuda-probe] reading result back to host…");
+        out.flatten_all()
+            .and_then(|t| t.to_vec1::<f32>())
+            .map_err(|e| anyhow::anyhow!("GPU readback failed: {e}"))?;
+        eprintln!("[cuda-probe] conv2d + readback OK — GPU usable");
+        Ok(())
+    }));
+
+    match result {
+        Ok(Ok(())) => true,
+        Ok(Err(e)) => {
+            eprintln!("[cuda-probe] FAILED: {e:#}");
+            false
+        }
+        Err(panic) => {
+            let msg = panic
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_string())
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown panic payload".to_string());
+            eprintln!("[cuda-probe] PANICKED: {msg}");
+            false
+        }
+    }
 }

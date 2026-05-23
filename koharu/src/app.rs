@@ -620,6 +620,12 @@ fn run_cuda_smoke_subprocess() -> bool {
     };
     let mut cmd = std::process::Command::new(exe);
     cmd.arg("--cuda-smoke-test");
+    // Pipe the child's stderr so its `[cuda-probe] …` diagnostics (which
+    // pinpoint whether the GPU stack broke at cuBLAS load, the conv
+    // kernel, or readback) get captured and logged here — the child runs
+    // before any tracing subscriber, so this is the only channel that
+    // survives. Surfaces the real reason instead of a bare "unusable".
+    cmd.stderr(std::process::Stdio::piped());
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -633,17 +639,47 @@ fn run_cuda_smoke_subprocess() -> bool {
             return false;
         }
     };
+    let mut stderr_pipe = child.stderr.take();
+    // The probe prints <1 KB, well under the pipe buffer, so draining only
+    // after exit can't deadlock. read_to_string blocks until EOF, which the
+    // child reaches on exit (or after we kill it), so this returns promptly.
+    let drain = |pipe: &mut Option<std::process::ChildStderr>| -> String {
+        use std::io::Read;
+        let mut buf = String::new();
+        if let Some(mut s) = pipe.take() {
+            let _ = s.read_to_string(&mut buf);
+        }
+        buf.trim().to_string()
+    };
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     loop {
         match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
+            Ok(Some(status)) => {
+                let detail = drain(&mut stderr_pipe);
+                if status.success() {
+                    if !detail.is_empty() {
+                        tracing::info!("CUDA probe child: {detail}");
+                    }
+                    return true;
+                }
+                tracing::warn!(
+                    "CUDA probe child failed (exit {:?}) — using CPU. Detail: {}",
+                    status.code(),
+                    if detail.is_empty() { "<no output>" } else { &detail }
+                );
+                return false;
+            }
             Ok(None) => {
                 if std::time::Instant::now() >= deadline {
                     // Child hung (likely a cuDNN loader-lock hang) — kill it
                     // and treat the GPU as unusable.
                     let _ = child.kill();
                     let _ = child.wait();
-                    tracing::warn!("CUDA probe process timed out — using CPU");
+                    let detail = drain(&mut stderr_pipe);
+                    tracing::warn!(
+                        "CUDA probe process timed out — using CPU. Last output: {}",
+                        if detail.is_empty() { "<none>" } else { &detail }
+                    );
                     return false;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(100));
