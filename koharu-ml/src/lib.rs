@@ -159,80 +159,49 @@ pub fn cuda_is_available() -> bool {
         return false;
     }
 
-    // Do NOT probe cuBLAS/cuDNN with a bare `libloading::Library::new` here:
-    // loading the cuDNN DLL can itself HANG on some toolkits (observed: cuDNN
-    // 9.18 `_cuda13`), and a bare probe has no timeout — which froze the
-    // splash on "Initializing…". Instead the smoke test below does the real
-    // check: a `Device::new_cuda` + `conv2d` on a dedicated thread with an 8s
-    // timeout + silenced panic hook. That loads cuBLAS + cuDNN AND verifies
-    // they actually EXECUTE, so a missing, broken, mismatched, OR hanging
-    // toolkit all degrade to CPU without freezing startup or crashing.
-    if !cuda_smoke_test_passes() {
-        return false;
-    }
-
-    true
+    // cuBLAS/cuDNN are NOT probed in-process. Loading a broken/mismatched
+    // cuDNN DLL can HANG inside the Windows loader lock, which deadlocks the
+    // WHOLE process — an in-process thread + timeout can't rescue it (the
+    // timeout returns but the loader lock stays poisoned, so the main thread
+    // can't make progress either). Instead the app runs a real conv probe in
+    // a SEPARATE child process (`--cuda-smoke-test`) and publishes the result
+    // here via `set_cuda_probe_ok`. Until that runs we conservatively stay on
+    // CPU. (1 = GPU verified usable.)
+    matches!(CUDA_PROBE.load(std::sync::atomic::Ordering::Relaxed), 1)
 }
 
-static CUDA_SMOKE_OK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+/// Out-of-process CUDA probe result: 0 = not run yet, 1 = GPU works,
+/// 2 = GPU unusable. Set by the app after running the `--cuda-smoke-test`
+/// child process.
+static CUDA_PROBE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
-/// Run a one-shot GPU smoke test: a tiny `conv2d` (the op routed through
-/// cuBLAS + cuDNN). A broken/mismatched toolkit can either PANIC inside
-/// cudarc OR HANG the first GPU op (e.g. cuDNN 9.8 against CUDA 13.2), and
-/// `catch_unwind` cannot rescue a hang. So we run the probe on a dedicated
-/// named thread (the app panic hook suppresses fatal handling for it, its own
-/// `catch_unwind` keeps a panic local) and bound the wait with a timeout —
-/// any panic, error, or hang falls back to CPU. Cached: one real run.
-fn cuda_smoke_test_passes() -> bool {
-    *CUDA_SMOKE_OK.get_or_init(|| {
-        let (tx, rx) = std::sync::mpsc::channel();
-        let spawned = std::thread::Builder::new()
-            .name("koharu-cuda-smoke".to_string())
-            .spawn(move || {
-                let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let dev = candle_core::Device::new_cuda(0).ok()?;
-                    let input = candle_core::Tensor::zeros(
-                        (1usize, 1, 8, 8),
-                        candle_core::DType::F32,
-                        &dev,
-                    )
-                    .ok()?;
-                    let kernel = candle_core::Tensor::zeros(
-                        (1usize, 1, 3, 3),
-                        candle_core::DType::F32,
-                        &dev,
-                    )
-                    .ok()?;
-                    // conv2d exercises the cuDNN path; flatten_all + to_vec1
-                    // forces the lazy GPU op to execute + copy to host so a
-                    // cuBLAS/cuDNN failure surfaces here.
-                    let out = input.conv2d(&kernel, 0, 1, 1, 1).ok()?;
-                    out.flatten_all().ok()?.to_vec1::<f32>().ok()?;
-                    Some(())
-                }))
-                .ok()
-                .flatten()
-                .is_some();
-                let _ = tx.send(ok);
-            });
+/// Publish the out-of-process CUDA probe result (see `run_cuda_conv_probe`).
+pub fn set_cuda_probe_ok(ok: bool) {
+    CUDA_PROBE.store(
+        if ok { 1 } else { 2 },
+        std::sync::atomic::Ordering::Relaxed,
+    );
+}
 
-        if spawned.is_err() {
-            tracing::warn!("Could not spawn CUDA smoke-test thread — using CPU.");
-            return false;
-        }
-
-        match rx.recv_timeout(std::time::Duration::from_secs(8)) {
-            Ok(true) => true,
-            Ok(false) => {
-                tracing::warn!("CUDA smoke test failed (cuBLAS/cuDNN runtime error) — using CPU.");
-                false
-            }
-            Err(_) => {
-                tracing::warn!(
-                    "CUDA smoke test timed out (hung/incompatible cuDNN/CUDA) — using CPU."
-                );
-                false
-            }
-        }
-    })
+/// The actual GPU exercise — meant to run in a DEDICATED CHILD PROCESS
+/// (`koharu --cuda-smoke-test`): a `Device::new_cuda` + `conv2d` (the op that
+/// loads cuBLAS + cuDNN and drives the cuDNN path). Returns whether it
+/// succeeded. Wrapped in `catch_unwind` so a cudarc panic becomes `false`
+/// instead of aborting the child; a HANG is handled by the parent killing the
+/// child after a timeout. Do NOT call this in the main process — a hung cuDNN
+/// load would freeze it.
+pub fn run_cuda_conv_probe() -> bool {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let dev = candle_core::Device::new_cuda(0).ok()?;
+        let input =
+            candle_core::Tensor::zeros((1usize, 1, 8, 8), candle_core::DType::F32, &dev).ok()?;
+        let kernel =
+            candle_core::Tensor::zeros((1usize, 1, 3, 3), candle_core::DType::F32, &dev).ok()?;
+        let out = input.conv2d(&kernel, 0, 1, 1, 1).ok()?;
+        out.flatten_all().ok()?.to_vec1::<f32>().ok()?;
+        Some(())
+    }))
+    .ok()
+    .flatten()
+    .is_some()
 }

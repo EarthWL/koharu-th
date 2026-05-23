@@ -608,6 +608,51 @@ fn get_ml_device_selection() -> String {
     "AUTO".to_string()
 }
 
+/// Run the CUDA conv probe in a throwaway child process
+/// (`koharu --cuda-smoke-test`) with a hard timeout, so a hung or broken
+/// cuDNN/cuBLAS load can't deadlock the main app's Windows loader lock.
+/// Returns true only when the child cleanly exits 0 (GPU verified usable);
+/// a non-zero exit, spawn failure, OR a timeout (child killed) → false → CPU.
+fn run_cuda_smoke_subprocess() -> bool {
+    let exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    let mut cmd = std::process::Command::new(exe);
+    cmd.arg("--cuda-smoke-test");
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(err) => {
+            tracing::warn!(?err, "Could not spawn CUDA probe process — using CPU");
+            return false;
+        }
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    // Child hung (likely a cuDNN loader-lock hang) — kill it
+                    // and treat the GPU as unusable.
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    tracing::warn!("CUDA probe process timed out — using CPU");
+                    return false;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(_) => return false,
+        }
+    }
+}
+
 async fn build_resources(cpu_cli: bool, file: Option<PathBuf>) -> Result<AppResources> {
     let selection = if cpu_cli {
         "CPU".to_string()
@@ -764,6 +809,23 @@ async fn build_resources_inner(cpu: bool, file: Option<PathBuf>) -> Result<AppRe
 }
 
 pub async fn run() -> Result<()> {
+    // Out-of-process CUDA probe. When launched with `--cuda-smoke-test`,
+    // register the cuDNN + CUDA Toolkit DLL dirs, run a real conv, and exit
+    // 0 (GPU works) / 1 (unusable). Loading a broken/mismatched cuDNN can
+    // HANG inside the Windows loader lock — doing it here, in a throwaway
+    // child process, means the parent (the real app) can kill/timeout this
+    // probe and fall back to CPU without poisoning its own loader lock. Must
+    // run before `Cli::parse` (the flag isn't a declared arg) and before any
+    // UI/init.
+    if std::env::args().any(|a| a == "--cuda-smoke-test") {
+        let runtime_root = APP_ROOT.join("runtime");
+        let _ = crate::runtime_install::register_cudnn_dll_path(&runtime_root);
+        #[cfg(target_os = "windows")]
+        crate::windows::register_cuda_toolkit_dll_path();
+        let ok = koharu_ml::run_cuda_conv_probe();
+        std::process::exit(if ok { 0 } else { 1 });
+    }
+
     let Cli {
         download,
         cpu,
@@ -1058,6 +1120,25 @@ pub async fn run() -> Result<()> {
                                 ),
                             }
                         }
+                    }
+
+                    // Probe whether CUDA actually works in a throwaway child
+                    // process (run_cuda_smoke_subprocess) BEFORE build_resources
+                    // commits to a device. Loading a broken/mismatched cuDNN can
+                    // hang inside the Windows loader lock; doing it in a child we
+                    // can kill keeps the main app's loader lock clean. Only
+                    // meaningful with an NVIDIA GPU and when CPU isn't forced.
+                    if !cpu && crate::runtime_install::has_nvidia_gpu() {
+                        let gpu_ok = run_cuda_smoke_subprocess();
+                        koharu_ml::set_cuda_probe_ok(gpu_ok);
+                        tracing::info!(
+                            "CUDA probe: {}",
+                            if gpu_ok {
+                                "usable (GPU)"
+                            } else {
+                                "unusable — using CPU"
+                            }
+                        );
                     }
 
                     // Per issue #40: the global panic hook (installed in
