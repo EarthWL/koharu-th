@@ -620,15 +620,26 @@ async fn build_resources(cpu_cli: bool, file: Option<PathBuf>) -> Result<AppReso
 
     let is_cpu = selection == "CPU";
 
-    // Try the requested selection first.
+    // Try the requested selection first — but CAP it with a timeout. A hung
+    // CUDA/cuDNN op (loading dylibs, copying model weights to VRAM, a broken
+    // toolkit) can freeze GPU init in a sync FFI the smoke test doesn't
+    // cover, which would leave the splash on "Initializing…" forever. If the
+    // GPU path doesn't finish in time, fall back to CPU so the app ALWAYS
+    // opens.
     if !is_cpu {
-        match build_resources_inner(false, file.clone()).await {
-            Ok(res) => return Ok(res),
-            Err(err) => {
+        let gpu_init = build_resources_inner(false, file.clone());
+        match tokio::time::timeout(std::time::Duration::from_secs(45), gpu_init).await {
+            Ok(Ok(res)) => return Ok(res),
+            Ok(Err(err)) => {
                 tracing::warn!(
                     "Requested accelerator selection {selection} failed to initialize: {err:#}. Falling back to CPU mode for this session."
                 );
-                // Temporarily force CPU in the static state too for downstream lazy loads
+                koharu_ml::set_custom_device_selection(Some("CPU".to_string()));
+            }
+            Err(_) => {
+                tracing::warn!(
+                    "GPU initialization for {selection} timed out (>45s — likely a hung CUDA/cuDNN op). Falling back to CPU mode for this session."
+                );
                 koharu_ml::set_custom_device_selection(Some("CPU".to_string()));
             }
         }
@@ -637,6 +648,7 @@ async fn build_resources(cpu_cli: bool, file: Option<PathBuf>) -> Result<AppReso
 }
 
 async fn build_resources_inner(cpu: bool, file: Option<PathBuf>) -> Result<AppResources> {
+    tracing::info!("build_resources_inner: start (cpu={cpu}); probing CUDA…");
     if !cpu && cuda_is_available() {
         ensure_dylibs(LIB_ROOT.to_path_buf())
             .await
@@ -660,11 +672,13 @@ async fn build_resources_inner(cpu: bool, file: Option<PathBuf>) -> Result<AppRe
         );
     }
 
+    tracing::info!("build_resources_inner: loading ML models (cpu={cpu})…");
     let ml = Arc::new(
         koharu_ml::facade::Model::new(cpu)
             .await
             .context("Failed to initialize ML model")?,
     );
+    tracing::info!("build_resources_inner: ML models loaded (cpu={cpu})");
     let ml_for_warmup = ml.clone();
     tokio::spawn(async move {
         if let Err(err) = ml_for_warmup.warmup().await {
