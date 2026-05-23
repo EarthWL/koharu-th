@@ -259,7 +259,9 @@ fn cuda_smoke_test_passes() -> bool {
             // conv2d exercises the cuDNN path; to_vec4 forces the lazy GPU op
             // to actually execute + synchronise so errors surface here.
             let out = input.conv2d(&kernel, 0, 1, 1, 1).ok()?;
-            out.to_vec4::<f32>().ok()?;
+            // flatten + to_vec1 forces the lazy GPU op to execute + copy back
+            // to host, so a cuBLAS/cuDNN failure surfaces here (not later).
+            out.flatten_all().ok()?.to_vec1::<f32>().ok()?;
             Some(())
         }))
         .ok()
