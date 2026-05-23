@@ -159,78 +159,14 @@ pub fn cuda_is_available() -> bool {
         return false;
     }
 
-    // Defensively check if cublas can be dynamically loaded as well.
-    // If nvcuda is present (GPU driver installed) but cublas is missing
-    // (CUDA Toolkit not installed), candle/cudarc will panic at runtime
-    // during device creation instead of returning an error.
-    let cublas_libs = if cfg!(target_os = "windows") {
-        vec![
-            "cublas.dll",
-            "cublas64.dll",
-            "cublas64_13.dll", // CUDA 13.x (Blackwell-era toolkits)
-            "cublas64_12.dll",
-            "cublas64_11.dll",
-            "cublas64_10.dll",
-            "cublas64_9.dll",
-        ]
-    } else {
-        vec![
-            "libcublas.so",
-            "libcublas.so.13",
-            "libcublas.so.12",
-            "libcublas.so.11",
-            "libcublas.so.10",
-        ]
-    };
-
-    let cublas_ok = unsafe {
-        cublas_libs
-            .iter()
-            .any(|&lib_name| libloading::Library::new(lib_name).is_ok())
-    };
-
-    if !cublas_ok {
-        return false;
-    }
-
-    // candle's CUDA convolution path goes through cuDNN even when the
-    // `cudnn` cargo feature is off — cudarc 0.19+ statically links the
-    // cudnn module whenever the cuda backend is built. So if cuDNN
-    // isn't installed the first conv2d call panics with
-    //   `unwrap()` on Err(CudnnError(CUDNN_STATUS_INTERNAL_ERROR))
-    // at cudarc-0.19.7/src/cudnn/safe/core.rs:43.
-    // Detect the entry-point DLL up front and refuse CUDA when it's
-    // missing — the caller falls back to CPU gracefully instead of
-    // crashing later.
-    let cudnn_libs = if cfg!(target_os = "windows") {
-        vec![
-            "cudnn64_9.dll",
-            "cudnn64_8.dll",
-            "cudnn_graph64_9.dll", // cuDNN 9 split: graph component is required
-        ]
-    } else {
-        vec!["libcudnn.so", "libcudnn.so.9", "libcudnn.so.8"]
-    };
-    let cudnn_ok = unsafe {
-        cudnn_libs
-            .iter()
-            .any(|&lib_name| libloading::Library::new(lib_name).is_ok())
-    };
-    if !cudnn_ok {
-        tracing::warn!(
-            "CUDA + cuBLAS detected but cuDNN is missing — falling back to CPU. \
-             Install cuDNN 9.x from https://developer.nvidia.com/cudnn-downloads to enable GPU acceleration."
-        );
-        return false;
-    }
-
-    // DLLs load — but loadable != usable. Verify CUDA + cuBLAS + cuDNN
-    // actually EXECUTE before committing to the GPU. cudarc 0.19 `unwrap()`s
-    // internally and panics on a broken/mismatched toolkit (e.g.
-    // CUDNN_STATUS_INTERNAL_ERROR from a cuDNN/CUDA version mismatch), which
-    // callers cannot catch. The cached smoke test runs a real conv2d under a
-    // silenced `catch_unwind` so any such failure degrades to CPU instead of
-    // crashing the whole app.
+    // Do NOT probe cuBLAS/cuDNN with a bare `libloading::Library::new` here:
+    // loading the cuDNN DLL can itself HANG on some toolkits (observed: cuDNN
+    // 9.18 `_cuda13`), and a bare probe has no timeout — which froze the
+    // splash on "Initializing…". Instead the smoke test below does the real
+    // check: a `Device::new_cuda` + `conv2d` on a dedicated thread with an 8s
+    // timeout + silenced panic hook. That loads cuBLAS + cuDNN AND verifies
+    // they actually EXECUTE, so a missing, broken, mismatched, OR hanging
+    // toolkit all degrade to CPU without freezing startup or crashing.
     if !cuda_smoke_test_passes() {
         return false;
     }
