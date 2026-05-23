@@ -241,38 +241,62 @@ pub fn cuda_is_available() -> bool {
 static CUDA_SMOKE_OK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
 /// Run a one-shot GPU smoke test: a tiny `conv2d` (the op routed through
-/// cuBLAS + cuDNN). cudarc panics internally on a broken toolkit, so we run
-/// it under `catch_unwind` with the global fatal-crash panic hook silenced
-/// for the probe's duration — a failure is expected on some machines and is
-/// handled by falling back to CPU, so it must not pop the crash dialog or
-/// `exit(1)`. Cached: at most one real run per process.
+/// cuBLAS + cuDNN). A broken/mismatched toolkit can either PANIC inside
+/// cudarc OR HANG the first GPU op (e.g. cuDNN 9.8 against CUDA 13.2), and
+/// `catch_unwind` cannot rescue a hang. So we run the probe on a dedicated
+/// named thread (the app panic hook suppresses fatal handling for it, its own
+/// `catch_unwind` keeps a panic local) and bound the wait with a timeout —
+/// any panic, error, or hang falls back to CPU. Cached: one real run.
 fn cuda_smoke_test_passes() -> bool {
     *CUDA_SMOKE_OK.get_or_init(|| {
-        let prev_hook = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {}));
-        let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let dev = candle_core::Device::new_cuda(0).ok()?;
-            let input =
-                candle_core::Tensor::zeros((1usize, 1, 8, 8), candle_core::DType::F32, &dev).ok()?;
-            let kernel =
-                candle_core::Tensor::zeros((1usize, 1, 3, 3), candle_core::DType::F32, &dev).ok()?;
-            // conv2d exercises the cuDNN path; to_vec4 forces the lazy GPU op
-            // to actually execute + synchronise so errors surface here.
-            let out = input.conv2d(&kernel, 0, 1, 1, 1).ok()?;
-            // flatten + to_vec1 forces the lazy GPU op to execute + copy back
-            // to host, so a cuBLAS/cuDNN failure surfaces here (not later).
-            out.flatten_all().ok()?.to_vec1::<f32>().ok()?;
-            Some(())
-        }))
-        .ok()
-        .flatten()
-        .is_some();
-        std::panic::set_hook(prev_hook);
-        if !ok {
-            tracing::warn!(
-                "CUDA smoke test failed (cuBLAS/cuDNN runtime error) — falling back to CPU."
-            );
+        let (tx, rx) = std::sync::mpsc::channel();
+        let spawned = std::thread::Builder::new()
+            .name("koharu-cuda-smoke".to_string())
+            .spawn(move || {
+                let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let dev = candle_core::Device::new_cuda(0).ok()?;
+                    let input = candle_core::Tensor::zeros(
+                        (1usize, 1, 8, 8),
+                        candle_core::DType::F32,
+                        &dev,
+                    )
+                    .ok()?;
+                    let kernel = candle_core::Tensor::zeros(
+                        (1usize, 1, 3, 3),
+                        candle_core::DType::F32,
+                        &dev,
+                    )
+                    .ok()?;
+                    // conv2d exercises the cuDNN path; flatten_all + to_vec1
+                    // forces the lazy GPU op to execute + copy to host so a
+                    // cuBLAS/cuDNN failure surfaces here.
+                    let out = input.conv2d(&kernel, 0, 1, 1, 1).ok()?;
+                    out.flatten_all().ok()?.to_vec1::<f32>().ok()?;
+                    Some(())
+                }))
+                .ok()
+                .flatten()
+                .is_some();
+                let _ = tx.send(ok);
+            });
+
+        if spawned.is_err() {
+            tracing::warn!("Could not spawn CUDA smoke-test thread — using CPU.");
+            return false;
         }
-        ok
+
+        match rx.recv_timeout(std::time::Duration::from_secs(8)) {
+            Ok(true) => true,
+            Ok(false) => {
+                tracing::warn!("CUDA smoke test failed (cuBLAS/cuDNN runtime error) — using CPU.");
+                false
+            }
+            Err(_) => {
+                tracing::warn!(
+                    "CUDA smoke test timed out (hung/incompatible cuDNN/CUDA) — using CPU."
+                );
+                false
+            }
+        }
     })
 }

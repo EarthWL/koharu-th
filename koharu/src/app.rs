@@ -398,6 +398,14 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
 
     // 3. Register custom std::panic::set_hook with backtrace and crash dump to APP_ROOT/crashes/
     std::panic::set_hook(Box::new(move |info| {
+        // The CUDA smoke test (koharu-ml) probes a possibly-incompatible
+        // toolkit on a dedicated "koharu-cuda-smoke" thread and EXPECTS to
+        // panic on a broken cuDNN/cuBLAS; its own catch_unwind keeps the
+        // panic local. Never treat that as a fatal app crash — no dialog,
+        // no exit, just let it unwind so the probe returns "CUDA unusable".
+        if std::thread::current().name() == Some("koharu-cuda-smoke") {
+            return;
+        }
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
         let crash_dir = APP_ROOT.join("crashes");
         let _ = std::fs::create_dir_all(&crash_dir);
