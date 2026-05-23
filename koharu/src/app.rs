@@ -914,19 +914,19 @@ pub async fn run() -> Result<()> {
 
     #[tauri::command]
     fn get_installed_addons() -> Vec<String> {
-        let mut addons = Vec::new();
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(parent) = exe_path.parent() {
-                let possible_addons = ["fr", "de", "es", "pt", "ko"];
-                for addon in possible_addons {
-                    let flag_path = parent.join(format!("addon_{}.flag", addon));
-                    if flag_path.exists() {
-                        addons.push(addon.to_string());
-                    }
-                }
-            }
-        }
-        addons
+        // Every target-language translation pack ships inside the app
+        // (`ui/.../locales/*`) and translation itself runs through the LLM,
+        // which handles any language — so there is nothing to download or
+        // hand-install. Per the "no manual add-ons" standard (AGENTS §1.6),
+        // expose all supported languages unconditionally instead of gating
+        // them behind manually-created `addon_{lang}.flag` files.
+        vec![
+            "fr".to_string(),
+            "de".to_string(),
+            "es".to_string(),
+            "pt".to_string(),
+            "ko".to_string(),
+        ]
     }
 
     let app = tauri::Builder::default()
