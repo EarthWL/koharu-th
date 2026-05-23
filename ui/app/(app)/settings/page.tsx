@@ -300,12 +300,18 @@ export default function SettingsPage() {
         },
       )
     })()
+
+    // These two were previously placed *after* the `return` cleanup
+    // below, which made them unreachable dead code — so "Active ML
+    // Device" stayed stuck on "Loading…" and the saved ML device
+    // selection never populated. They must run in the effect body,
+    // before the cleanup function is returned.
+    void loadDeviceInfo()
+    void loadMlDeviceSelection()
+
     return () => {
       if (unlisten) unlisten()
     }
-
-    void loadDeviceInfo()
-    void loadMlDeviceSelection()
   }, [])
 
   return (
