@@ -625,24 +625,26 @@ pub fn gc_stale_runtimes(runtime_root: &Path) -> Result<u32> {
     Ok(removed)
 }
 
-/// Mark every versioned cuDNN dir that is NOT the active version as stale, so
-/// `gc_stale_runtimes` reclaims it after the grace window. This is what
-/// actually wires up cleanup — without it nothing ever calls `mark_stale`,
-/// so an upgrade or a CUDA-major switch (e.g. `v9.8.0.87` cuda12 ->
-/// `v9.18.0.77` cuda13) leaves the old ~0.7-1 GB dir on disk forever.
+/// Remove every versioned cuDNN dir that is NOT the active version, so a
+/// version transition leaves ZERO old-version files behind (hard product
+/// requirement). Without this, an upgrade or CUDA-major switch (e.g.
+/// `v9.8.0.87` cuda12 -> `v9.18.0.77` cuda13) would leave the old ~0.7-1 GB
+/// dir on disk forever.
 ///
-/// Safe by design: it refuses to mark anything until the ACTIVE version is
-/// actually installed (never strands the last working cuDNN), only marks a
-/// dir once (preserving the original timestamp so the grace clock isn't
-/// reset every launch), and skips the active dir + non-`v` staging dirs.
-pub fn mark_superseded_versions_stale(runtime_root: &Path) -> Result<u32> {
+/// Safe + immediate (no grace window): it deletes only AFTER the active
+/// version is fully installed (atomic-swapped into place), so the last
+/// working cuDNN is never stranded before its replacement exists. Stability
+/// against a bad NEW version is handled by the GPU smoke test (falls back to
+/// CPU) — not by keeping the old dir as a rollback — so cleanup is immediate.
+/// Skips the active dir and `.v*.tmp` staging dirs (those start with `.`).
+pub fn remove_superseded_versions(runtime_root: &Path) -> Result<u32> {
     let cudnn_root = runtime_root.join("cudnn");
     let keep_dir = format!("v{}", cudnn_version());
     if !cudnn_root.join(&keep_dir).exists() {
-        // Active version not installed yet — don't mark the old one stale.
+        // Active version not committed yet — never strand the last cuDNN.
         return Ok(0);
     }
-    let mut marked = 0u32;
+    let mut removed = 0u32;
     for entry in std::fs::read_dir(&cudnn_root)? {
         let entry = entry?;
         if !entry.file_type()?.is_dir() {
@@ -650,16 +652,12 @@ pub fn mark_superseded_versions_stale(runtime_root: &Path) -> Result<u32> {
         }
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        // Only versioned dirs (`v*`); skip the active one and `.v*.tmp`
-        // staging dirs (those start with `.`).
         if !name.starts_with('v') || name == keep_dir {
             continue;
         }
-        let marker = entry.path().join(".stale");
-        if !marker.exists() {
-            std::fs::write(&marker, now_unix().to_string())?;
-            marked += 1;
+        if std::fs::remove_dir_all(entry.path()).is_ok() {
+            removed += 1;
         }
     }
-    Ok(marked)
+    Ok(removed)
 }
