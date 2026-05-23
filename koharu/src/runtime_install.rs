@@ -34,12 +34,59 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// Pinned baseline cuDNN release. Use the `_cuda12-archive` build —
-/// cuDNN's CUDA-12 binaries are ABI-compatible with CUDA-13 toolkits per
-/// NVIDIA's release notes, and the CUDA-12 archives have a longer track
-/// record on the redist server.
-const CUDNN_VERSION: &str = "9.8.0.87";
-const CUDNN_URL: &str = "https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/windows-x86_64/cudnn-windows-x86_64-9.8.0.87_cuda12-archive.zip";
+/// cuDNN must match the installed CUDA Toolkit's MAJOR version. A CUDA-12
+/// cuDNN build does NOT actually work against a CUDA-13 runtime — it hangs
+/// or returns `CUDNN_STATUS_INTERNAL_ERROR` on the first conv (verified on
+/// CUDA 13.2 + cuDNN 9.8 `_cuda12`), despite older release-note claims of
+/// ABI compatibility. So we pin one baseline per CUDA major and select by
+/// the detected toolkit version. CUDA-13 support starts at cuDNN 9.12.
+struct CudnnPin {
+    version: &'static str,
+    cuda_tag: &'static str,
+}
+
+/// Detect the installed CUDA Toolkit major version from `CUDA_PATH`
+/// (e.g. `...\CUDA\v13.2` -> 13). Defaults to 12 when it can't be parsed.
+fn cuda_major() -> u32 {
+    if let Ok(path) = std::env::var("CUDA_PATH") {
+        if let Some(name) = Path::new(&path).file_name() {
+            let name = name.to_string_lossy();
+            let digits = name.trim_start_matches('v');
+            if let Some(major) = digits.split('.').next().and_then(|s| s.parse::<u32>().ok()) {
+                return major;
+            }
+        }
+    }
+    12
+}
+
+fn cudnn_pin() -> CudnnPin {
+    if cuda_major() >= 13 {
+        // First cuDNN with a CUDA-13 build; loads via cudarc 0.19's dynamic
+        // `cudnn64_9` / `cudnn_graph64_9` lookup just like the 9.8 baseline.
+        CudnnPin {
+            version: "9.18.0.77",
+            cuda_tag: "cuda13",
+        }
+    } else {
+        CudnnPin {
+            version: "9.8.0.87",
+            cuda_tag: "cuda12",
+        }
+    }
+}
+
+fn cudnn_version() -> &'static str {
+    cudnn_pin().version
+}
+
+fn cudnn_url() -> String {
+    let p = cudnn_pin();
+    format!(
+        "https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/windows-x86_64/cudnn-windows-x86_64-{}_{}-archive.zip",
+        p.version, p.cuda_tag
+    )
+}
 
 /// Status reported back to the UI during install.
 #[derive(Debug, Clone, Serialize)]
@@ -69,7 +116,7 @@ pub enum CudnnStatus {
 fn cudnn_install_dir(runtime_root: &Path) -> PathBuf {
     runtime_root
         .join("cudnn")
-        .join(format!("v{}", CUDNN_VERSION))
+        .join(format!("v{}", cudnn_version()))
         .join("bin")
 }
 
@@ -108,12 +155,12 @@ pub fn has_nvidia_gpu() -> bool {
 pub fn cudnn_status(runtime_root: &Path) -> CudnnStatus {
     if is_cudnn_installed(runtime_root) {
         CudnnStatus::Installed {
-            version: CUDNN_VERSION.into(),
+            version: cudnn_version().into(),
             path: cudnn_install_dir(runtime_root).display().to_string(),
         }
     } else {
         CudnnStatus::Missing {
-            version: CUDNN_VERSION.into(),
+            version: cudnn_version().into(),
         }
     }
 }
@@ -138,7 +185,7 @@ pub async fn install_cudnn(
         return Ok(final_dir);
     }
 
-    let staging_root = runtime_root.join("cudnn").join(format!(".v{}.tmp", CUDNN_VERSION));
+    let staging_root = runtime_root.join("cudnn").join(format!(".v{}.tmp", cudnn_version()));
     let _ = std::fs::remove_dir_all(&staging_root);
     std::fs::create_dir_all(&staging_root).context("create cudnn staging dir")?;
 
@@ -148,7 +195,7 @@ pub async fn install_cudnn(
         .timeout(std::time::Duration::from_secs(60 * 30))
         .build()?;
     let mut resp = client
-        .get(CUDNN_URL)
+        .get(cudnn_url())
         .send()
         .await
         .context("GET cudnn redist")?;
@@ -162,7 +209,7 @@ pub async fn install_cudnn(
         file.write_all(&chunk).await?;
         downloaded += chunk.len() as u64;
         progress(CudnnStatus::Downloading {
-            version: CUDNN_VERSION.into(),
+            version: cudnn_version().into(),
             bytes_done: downloaded,
             bytes_total: total,
         });
@@ -175,7 +222,7 @@ pub async fn install_cudnn(
     //    skipping them halves the on-disk footprint (~350 MB instead of
     //    ~700 MB).
     progress(CudnnStatus::Extracting {
-        version: CUDNN_VERSION.into(),
+        version: cudnn_version().into(),
     });
     let staging_bin = staging_root.join("bin");
     std::fs::create_dir_all(&staging_bin)?;
@@ -221,7 +268,7 @@ pub async fn install_cudnn(
     let _ = std::fs::remove_dir_all(&staging_root);
 
     progress(CudnnStatus::Ready {
-        version: CUDNN_VERSION.into(),
+        version: cudnn_version().into(),
         path: final_dir.display().to_string(),
     });
     Ok(final_dir)
@@ -272,7 +319,7 @@ pub fn register_cudnn_dll_path(runtime_root: &Path) -> Result<()> {
     tracing::info!(
         "Registered cuDNN DLL path: {} (version {})",
         dir.display(),
-        CUDNN_VERSION
+        cudnn_version()
     );
     Ok(())
 }
