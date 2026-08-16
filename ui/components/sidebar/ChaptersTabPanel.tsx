@@ -34,6 +34,7 @@ import { useProjectStore } from '@/lib/stores/projectStore'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { ExtractEntitiesModal } from '@/components/project/ExtractEntitiesModal'
 import { useEnqueueChapter, useQueueList } from '@/lib/query/queue'
+import { toast } from 'sonner'
 
 const STATUS_OPTIONS: { value: ChapterStatus; label: string }[] = [
   { value: 'pending', label: 'Pending' },
@@ -60,10 +61,7 @@ export function ChaptersTabPanel() {
   })
   const refresh = () => void chapters.refetch()
   const nextNumber =
-    (chapters.data ?? []).reduce(
-      (m, c) => Math.max(m, c.chapterNumber),
-      0,
-    ) + 1
+    (chapters.data ?? []).reduce((m, c) => Math.max(m, c.chapterNumber), 0) + 1
   /** Set when user clicks the ✨ wand button on a chapter row — opens
    *  the extract modal with the chapter already loaded into the editor. */
   const [extractOpen, setExtractOpen] = useState(false)
@@ -81,10 +79,7 @@ export function ChaptersTabPanel() {
         </span>
       </div>
       <div className='border-border border-b p-2'>
-        <NewChapterForm
-          defaultNumber={nextNumber}
-          onCreated={refresh}
-        />
+        <NewChapterForm defaultNumber={nextNumber} onCreated={refresh} />
       </div>
       <ScrollArea className='min-h-0 min-w-0 flex-1'>
         <div className='space-y-1 p-2'>
@@ -149,7 +144,7 @@ function NewChapterForm({
       setChapterNumber(String(num + 1))
       onCreated()
     } catch (err: any) {
-      alert(err?.message ?? String(err))
+      toast.error(err?.message ?? String(err))
     } finally {
       setBusy(false)
     }
@@ -243,7 +238,7 @@ function ChapterRow({
       setSidebarTab('pages')
       onRequestExtract()
     } catch (err: any) {
-      alert(err?.message ?? String(err))
+      toast.error(err?.message ?? String(err))
     } finally {
       setOpeningForExtract(false)
     }
@@ -259,7 +254,7 @@ function ChapterRow({
       setSidebarTab('pages')
       router.push('/')
     } catch (err: any) {
-      alert(err?.message ?? String(err))
+      toast.error(err?.message ?? String(err))
     } finally {
       setOpening(false)
     }
@@ -274,14 +269,14 @@ function ChapterRow({
         onChanged()
         window.setTimeout(() => setJustAdded(null), 2500)
       } else if (r.skipped > 0) {
-        alert(`Skipped ${r.skipped} files (unsupported / copy failed)`)
+        toast.error(`Skipped ${r.skipped} files (unsupported / copy failed)`)
       }
       // If both `added` and `skipped` are zero, the user cancelled the
       // file picker. Stay silent — no false-positive alert needed.
       // (Previous: silent no-op even on skipped > 0; now skipped surfaces
       // a message and cancel still stays quiet.)
     } catch (err: any) {
-      alert(err?.message ?? String(err))
+      toast.error(err?.message ?? String(err))
     } finally {
       setAddingPages(false)
     }
@@ -303,14 +298,14 @@ function ChapterRow({
     try {
       const r = await api.chapterExportCbz(chapter.id)
       if (r.path) {
-        alert(
+        toast.error(
           `Exported ${r.pageCount} page(s) (${
             r.usedRender ? 'rendered' : 'raw source'
           }) → ${r.path}`,
         )
       }
     } catch (err: any) {
-      alert(err?.message ?? String(err))
+      toast.error(err?.message ?? String(err))
     } finally {
       setExportingCbz(false)
     }
@@ -331,13 +326,13 @@ function ChapterRow({
     try {
       const r = await api.chapterClearPages(chapter.id)
       if (r.failed > 0) {
-        alert(
+        toast.error(
           `ลบสำเร็จ ${r.removed} ไฟล์ แต่มี ${r.failed} ไฟล์ลบไม่ได้ (อาจถูก lock โดย OS preview / โปรแกรมอื่น). ดู log ฝั่ง Rust สำหรับรายละเอียด.`,
         )
       }
       onChanged()
     } catch (err: any) {
-      alert(err?.message ?? String(err))
+      toast.error(err?.message ?? String(err))
     } finally {
       setClearingPages(false)
     }
@@ -362,7 +357,7 @@ function ChapterRow({
         'border-border bg-card hover:bg-accent/40 group rounded-md border p-2 transition ' +
         (isActive ? 'ring-primary/40 ring-1 ' : '') +
         (justAdded !== null
-          ? 'ring-2 ring-emerald-500/60 bg-emerald-500/5'
+          ? 'bg-emerald-500/5 ring-2 ring-emerald-500/60'
           : '')
       }
     >
@@ -467,9 +462,7 @@ function ChapterRow({
           variant='outline'
           size='sm'
           className='h-6 px-1.5 text-[10px]'
-          disabled={
-            enqueue.isPending || chapter.pageCount === 0 || isQueued
-          }
+          disabled={enqueue.isPending || chapter.pageCount === 0 || isQueued}
           onClick={() => enqueue.mutate(chapter.id)}
           title={
             chapter.pageCount === 0

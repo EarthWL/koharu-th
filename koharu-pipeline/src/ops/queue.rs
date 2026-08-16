@@ -24,8 +24,8 @@ use koharu_api::events::{PipelineProgress, PipelineStatus};
 use koharu_project::queue::{self, QueueEntry};
 use tokio::sync::broadcast;
 
-use crate::pipeline;
 use crate::AppResources;
+use crate::pipeline;
 
 /// Per-worker handle stored on `AppResources`. Allows callers to
 /// observe whether a worker is running and to cancel the currently
@@ -163,7 +163,10 @@ async fn worker_loop(
             *guard = None;
             return Ok(());
         }
-        let entry = entry.unwrap();
+        // Proven Some by the is_none() block above (which returns/continues),
+        // but use let-else instead of expect: a None here just re-polls
+        // rather than panicking the queue worker.
+        let Some(entry) = entry else { continue };
 
         // Reset per-entry signal + advertise current entry to observers.
         cancel_current.store(false, Ordering::Relaxed);
@@ -205,7 +208,10 @@ async fn process_entry(
     })
     .await??;
     if !claimed {
-        tracing::info!(entry = id, "queue: entry was cancelled before worker claimed it");
+        tracing::info!(
+            entry = id,
+            "queue: entry was cancelled before worker claimed it"
+        );
         return Ok(());
     }
 
@@ -245,36 +251,7 @@ async fn process_entry(
     // first Running tick.
     let mut rx = pipeline::subscribe();
 
-    super::process(
-        state.clone(),
-        ProcessRequest {
-            index: None,
-            language: None,
-            llm_model_id: None,
-            shader_effect: None,
-            shader_stroke: None,
-            font_family: None,
-            // Queue worker uses backend default OCR engine — when we
-            // grow per-project engine preferences, read from the
-            // project DB here instead.
-            ocr_engine: None,
-            // Cloud Vision OCR is frontend-orchestrated, so the queue
-            // worker never sets skip_ocr / skip_detect — local OCR
-            // always runs in batch. See roadmap_next_features Tier B
-            // #3 for the backend-port plan that would change this.
-            skip_ocr: None,
-            skip_detect: None,
-            // Queue uses default detector — if user wants AnimeText
-            // YOLO in batch, read it from project prefs here.
-            detector_engine: None,
-            anime_yolo_variant: None,
-            anime_yolo_confidence: None,
-            // Queue uses the default "do everything" pipeline; no
-            // user-driven re-translate flow here, so always inpaint.
-            skip_inpaint: None,
-        },
-    )
-    .await?;
+    super::process(state.clone(), ProcessRequest::default()).await?;
 
     // Drain pipeline events for THIS run until it reports terminal status.
     loop {
@@ -416,10 +393,7 @@ pub async fn queue_enqueue(
     Ok(entry_to_dto(entry))
 }
 
-pub async fn queue_cancel(
-    state: AppResources,
-    payload: QueueIdPayload,
-) -> anyhow::Result<()> {
+pub async fn queue_cancel(state: AppResources, payload: QueueIdPayload) -> anyhow::Result<()> {
     let project = require_project_for_queue(&state).await?;
     let id = payload.id;
     {
@@ -439,9 +413,7 @@ pub async fn queue_cancel(
     Ok(())
 }
 
-pub async fn queue_clear_finished(
-    state: AppResources,
-) -> anyhow::Result<QueueClearResult> {
+pub async fn queue_clear_finished(state: AppResources) -> anyhow::Result<QueueClearResult> {
     let project = require_project_for_queue(&state).await?;
     let removed = tokio::task::spawn_blocking(move || -> anyhow::Result<usize> {
         let conn = project.pool().get()?;

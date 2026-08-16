@@ -39,17 +39,40 @@ define_models! {
     Yolov5 => ("mayocream/comic-text-detector", "yolo-v5.safetensors"),
     Unet => ("mayocream/comic-text-detector", "unet.safetensors"),
     DbNet => ("mayocream/comic-text-detector", "dbnet.safetensors"),
+    OnnxModel => ("mayocream/comic-text-detector-onnx", "model.onnx"),
+}
+
+pub enum DetectorBackend {
+    Candle {
+        yolo: yolo_v5::YoloV5,
+        unet: unet::UNet,
+        dbnet: dbnet::DbNet,
+        device: Device,
+    },
+    #[cfg(feature = "dml")]
+    Onnx {
+        session: ort::Session,
+    },
 }
 
 pub struct ComicTextDetector {
-    yolo: yolo_v5::YoloV5,
-    unet: unet::UNet,
-    dbnet: dbnet::DbNet,
-    device: Device,
+    backend: DetectorBackend,
 }
 
 impl ComicTextDetector {
     pub async fn load(use_cpu: bool) -> anyhow::Result<Self> {
+        #[cfg(feature = "dml")]
+        {
+            if !use_cpu && crate::dml_is_available() {
+                match Self::load_onnx().await {
+                    Ok(detector) => return Ok(detector),
+                    Err(err) => {
+                        tracing::warn!("Failed to load ONNX ComicTextDetector under DirectML: {err}. Falling back to native Candle CPU/GPU...");
+                    }
+                }
+            }
+        }
+
         let device = device(use_cpu)?;
         let yolo = loading::load_mmaped_safetensors(Manifest::Yolov5.get(), &device, |vb| {
             yolo_v5::YoloV5::load(vb, 2, 3)
@@ -63,10 +86,23 @@ impl ComicTextDetector {
                 .await?;
 
         Ok(Self {
-            yolo,
-            unet,
-            dbnet,
-            device,
+            backend: DetectorBackend::Candle {
+                yolo,
+                unet,
+                dbnet,
+                device,
+            }
+        })
+    }
+
+    #[cfg(feature = "dml")]
+    async fn load_onnx() -> anyhow::Result<Self> {
+        let weights_path = loading::resolve_manifest_path(Manifest::OnnxModel.get()).await?;
+        let session = ort::Session::builder()?
+            .with_execution_providers([ort::DirectMLExecutionProvider::default().build()])?
+            .commit_from_file(weights_path)?;
+        Ok(Self {
+            backend: DetectorBackend::Onnx { session }
         })
     }
 
@@ -79,7 +115,7 @@ impl ComicTextDetector {
             maps
         } else {
             let original_dimensions = image.dimensions();
-            let (image_tensor, resized_dimensions) = preprocess(image, &self.device, detect_size)?;
+            let (image_tensor, resized_dimensions) = preprocess(image, self.device(), detect_size)?;
             let (mask, shrink_threshold) = self.forward(&image_tensor)?;
             postprocess_maps(
                 &mask,
@@ -94,25 +130,69 @@ impl ComicTextDetector {
 
     #[instrument(level = "debug", skip_all)]
     fn forward(&self, image: &Tensor) -> anyhow::Result<(Tensor, Tensor)> {
-        let (_, features) = self.yolo.forward(image)?;
-        let (mask, features) = self.unet.forward(
-            &features[0],
-            &features[1],
-            &features[2],
-            &features[3],
-            &features[4],
-        )?;
-        let shrink_thresh = self
-            .dbnet
-            .forward(&features[0], &features[1], &features[2])?;
+        match &self.backend {
+            DetectorBackend::Candle { yolo, unet, dbnet, .. } => {
+                let (_, features) = yolo.forward(image)?;
+                let (mask, features) = unet.forward(
+                    &features[0],
+                    &features[1],
+                    &features[2],
+                    &features[3],
+                    &features[4],
+                )?;
+                let shrink_thresh = dbnet.forward(&features[0], &features[1], &features[2])?;
+                Ok((mask, shrink_thresh))
+            }
+            #[cfg(feature = "dml")]
+            DetectorBackend::Onnx { session } => {
+                let shape = image.shape().dims();
+                let flat_vec = image.flatten_all()?.to_vec1::<f32>()?;
+                let input_array = ndarray::Array4::from_shape_vec(
+                    (shape[0], shape[1], shape[2], shape[3]),
+                    flat_vec,
+                )?;
+                
+                let outputs = session.run(ort::inputs![input_array]?)?;
+                let mask_tensor_view = outputs[0].try_extract_tensor::<f32>()?;
+                let dbnet_tensor_view = outputs[1].try_extract_tensor::<f32>()?;
+                
+                let mask_shape = mask_tensor_view.shape();
+                let mask_vec = mask_tensor_view.to_slice().ok_or_else(|| anyhow::anyhow!("failed to slice mask"))?.to_vec();
+                let dbnet_shape = dbnet_tensor_view.shape();
+                let dbnet_vec = dbnet_tensor_view.to_slice().ok_or_else(|| anyhow::anyhow!("failed to slice dbnet"))?.to_vec();
+                
+                let mask_tensor = Tensor::from_vec(
+                    mask_vec,
+                    (mask_shape[0], mask_shape[1], mask_shape[2], mask_shape[3]),
+                    &Device::Cpu,
+                )?;
+                let dbnet_tensor = Tensor::from_vec(
+                    dbnet_vec,
+                    (dbnet_shape[0], dbnet_shape[1], dbnet_shape[2], dbnet_shape[3]),
+                    &Device::Cpu,
+                )?;
+                
+                Ok((mask_tensor, dbnet_tensor))
+            }
+        }
+    }
 
-        Ok((mask, shrink_thresh))
+    fn device(&self) -> &Device {
+        match &self.backend {
+            DetectorBackend::Candle { device, .. } => device,
+            #[cfg(feature = "dml")]
+            DetectorBackend::Onnx { .. } => &Device::Cpu,
+        }
     }
 
     fn detect_size(&self) -> u32 {
-        match self.device {
-            Device::Cpu => CPU_DETECT_SIZE,
-            _ => GPU_DETECT_SIZE,
+        match &self.backend {
+            DetectorBackend::Candle { device, .. } => match device {
+                Device::Cpu => CPU_DETECT_SIZE,
+                _ => GPU_DETECT_SIZE,
+            },
+            #[cfg(feature = "dml")]
+            DetectorBackend::Onnx { .. } => GPU_DETECT_SIZE,
         }
     }
 
@@ -193,7 +273,7 @@ impl ComicTextDetector {
             let batch_end = (batch_start + max_batch_size).min(composites.len());
             let mut tensors = Vec::with_capacity(batch_end - batch_start);
             for composite in &composites[batch_start..batch_end] {
-                tensors.push(preprocess_rgb_image(composite, &self.device, detect_size)?);
+                tensors.push(preprocess_rgb_image(composite, self.device(), detect_size)?);
             }
             let refs: Vec<&Tensor> = tensors.iter().collect();
             let batch = Tensor::cat(&refs, 0)?;

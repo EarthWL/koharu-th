@@ -12,17 +12,18 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   # Turing/Ampere/Ada/Blackwell — covers RTX 20xx through 50xx.
-  CUDA_COMPUTE_CAP: "75;86;89;120"
+  CUDA_COMPUTE_CAP: "80"
 
 jobs:
   release:
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - platform: 'macos-latest' # for Arm based macs (M1 and above).
-            args: '--target aarch64-apple-darwin'
-          - platform: 'ubuntu-latest'
-            args: ''
+          # - platform: 'macos-latest' # for Arm based macs (M1 and above).
+          #   args: '--target aarch64-apple-darwin'
+          # - platform: 'ubuntu-latest'
+          #   args: ''
           - platform: 'windows-latest'
             args: ''
 
@@ -42,7 +43,7 @@ jobs:
         uses: Jimver/cuda-toolkit@master
         if: matrix.platform != 'macos-latest'
         with:
-          cuda: '13.1.0'
+          cuda: '12.8.0'
 
       - name: Install MSVC Build Tools
         uses: ilammy/msvc-dev-cmd@v1

@@ -4,6 +4,7 @@ import { MenuBar } from '@/components/MenuBar'
 import { WelcomeGate } from '@/components/Welcome'
 import { CommandPalette } from '@/components/CommandPalette'
 import { QueueWidget } from '@/components/QueueWidget'
+import { AutoBackupManager } from '@/components/settings/AutoBackupManager'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -13,6 +14,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <WelcomeGate />
       <CommandPalette />
       <QueueWidget />
+      <AutoBackupManager />
     </div>
   )
 }

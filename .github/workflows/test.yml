@@ -2,33 +2,25 @@ name: Test
 
 on:
   push:
-    branches: ['main']
+    branches: ['main', 'feat/ux-improvements']
   pull_request:
 
 env:
   CARGO_TERM_COLOR: always
+  CUDA_COMPUTE_CAP: "80"
 
 jobs:
   test:
     name: Integration tests
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
-      # refer: https://v2.tauri.app/start/prerequisites/#linux
-      - run: |
-          sudo apt update
-          sudo apt install libwebkit2gtk-4.1-dev \
-            build-essential \
-            curl \
-            wget \
-            file \
-            libxdo-dev \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            fonts-noto-cjk
       - uses: actions/checkout@v6
       - uses: Swatinem/rust-cache@v2
         with:
           cache-targets: false
+      - uses: Jimver/cuda-toolkit@master
+        with:
+          cuda: '12.8.0'
+      - uses: ilammy/msvc-dev-cmd@v1
       - run: cargo test --no-run
       - run: cargo test --workspace --tests

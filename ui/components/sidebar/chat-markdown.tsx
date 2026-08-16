@@ -16,14 +16,14 @@ import remarkGfm from 'remark-gfm'
  */
 export function ChatMarkdown({ children }: { children: string }) {
   return (
-    <div className='chat-md select-text text-xs leading-relaxed break-words'>
+    <div className='chat-md text-xs leading-relaxed break-words select-text'>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
           // Wrap tables in a scroll container so a wide markdown table
           // doesn't push the whole chat panel wider than the sidebar.
           table: ({ node, ...props }) => (
-            <div className='my-1.5 -mx-0.5 overflow-x-auto'>
+            <div className='-mx-0.5 my-1.5 overflow-x-auto'>
               <table
                 {...props}
                 className='border-border w-full border-collapse border text-[11px]'

@@ -50,8 +50,7 @@ export function QueueWidget() {
     for (const c of chapters.data ?? []) {
       map.set(c.id, c.title ?? `#${c.chapterNumber}`)
     }
-    return (id: number) =>
-      map.get(id) ?? t('queue.chapterFallback', { id })
+    return (id: number) => map.get(id) ?? t('queue.chapterFallback', { id })
   }, [chapters.data, t])
 
   const entries = queue.data ?? []
@@ -60,7 +59,10 @@ export function QueueWidget() {
   const running = entries.find((e) => e.status === 'running')
   const pendingCount = entries.filter((e) => e.status === 'pending').length
   const finishedCount = entries.filter(
-    (e) => e.status === 'completed' || e.status === 'failed' || e.status === 'cancelled',
+    (e) =>
+      e.status === 'completed' ||
+      e.status === 'failed' ||
+      e.status === 'cancelled',
   ).length
 
   const headerLine = running
@@ -240,7 +242,10 @@ function Row({
 function Progress({ entry: e, t }: { entry: QueueEntryDto; t: TFunction }) {
   const pct =
     e.totalPages > 0
-      ? Math.max(0, Math.min(100, Math.round((e.donePages / e.totalPages) * 100)))
+      ? Math.max(
+          0,
+          Math.min(100, Math.round((e.donePages / e.totalPages) * 100)),
+        )
       : undefined
   return (
     <div className='mt-1.5 flex items-center gap-2'>

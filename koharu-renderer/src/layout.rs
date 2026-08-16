@@ -79,6 +79,8 @@ pub struct TextLayout<'a> {
     letter_spacing_px: f32,
     /// Lower bound for the auto-fit binary search.
     min_font_size: u32,
+    /// Scale glyphs horizontally.
+    horizontal_scale: f32,
 }
 
 impl<'a> TextLayout<'a> {
@@ -94,6 +96,7 @@ impl<'a> TextLayout<'a> {
             line_height_factor: 1.0,
             letter_spacing_px: 0.0,
             min_font_size: 6,
+            horizontal_scale: 1.0,
         }
     }
 
@@ -150,6 +153,14 @@ impl<'a> TextLayout<'a> {
     /// Thai where anything below ~12px loses readability.
     pub fn with_min_font_size(mut self, px: u32) -> Self {
         self.min_font_size = px.max(1);
+        self
+    }
+
+    /// Set horizontal scale of the text.
+    pub fn with_horizontal_scale(mut self, scale: f32) -> Self {
+        if scale.is_finite() && scale > 0.0 {
+            self.horizontal_scale = scale;
+        }
         self
     }
 
@@ -266,6 +277,8 @@ impl<'a> TextLayout<'a> {
             }
             let advance = if self.writing_mode.is_vertical() {
                 shaped.y_advance
+            } else if self.horizontal_scale != 1.0 {
+                shaped.x_advance * self.horizontal_scale
             } else {
                 shaped.x_advance
             };
@@ -298,6 +311,10 @@ impl<'a> TextLayout<'a> {
             let mut spacing_added = 0.0_f32;
             for mut glyph in shaped.glyphs {
                 glyph.cluster += start as u32;
+                if !self.writing_mode.is_vertical() && self.horizontal_scale != 1.0 {
+                    glyph.x_advance *= self.horizontal_scale;
+                    glyph.x_offset *= self.horizontal_scale;
+                }
                 if extra != 0.0 && last_cluster.map(|c| c != glyph.cluster).unwrap_or(true) {
                     if let Some(prev) = current.glyphs.last_mut() {
                         if self.writing_mode.is_vertical() {

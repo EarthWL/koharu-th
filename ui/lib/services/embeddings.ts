@@ -29,8 +29,7 @@ export function activeEmbeddingsConfig(): EmbeddingsConfig | null {
   const p = usePreferencesStore.getState()
   if (p.cloudProvider === 'none') return null
   // Anthropic has no embeddings API — surface that to the caller.
-  const provider =
-    p.cloudProvider === 'anthropic' ? 'openai' : p.cloudProvider
+  const provider = p.cloudProvider === 'anthropic' ? 'openai' : p.cloudProvider
   return {
     provider,
     apiKey: p.cloudApiKey,

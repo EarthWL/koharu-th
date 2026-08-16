@@ -89,14 +89,8 @@ async function cropBubble(
   const padY = block.height * CROP_MARGIN
   const sx = Math.max(0, Math.floor(block.x - padX))
   const sy = Math.max(0, Math.floor(block.y - padY))
-  const sw = Math.min(
-    bitmap.width - sx,
-    Math.ceil(block.width + padX * 2),
-  )
-  const sh = Math.min(
-    bitmap.height - sy,
-    Math.ceil(block.height + padY * 2),
-  )
+  const sw = Math.min(bitmap.width - sx, Math.ceil(block.width + padX * 2))
+  const sh = Math.min(bitmap.height - sy, Math.ceil(block.height + padY * 2))
   // Defensive: if the bbox is degenerate (zero/negative), produce a
   // 1×1 transparent stub so the request still has the right count.
   // The caller surfaces "" for that index via parseBlocks.
@@ -133,7 +127,9 @@ async function cropBubble(
     outBlob = await new Promise<Blob>((resolve, reject) => {
       ;(canvas as HTMLCanvasElement).toBlob(
         (b) =>
-          b ? resolve(b) : reject(new Error('cropBubble: toBlob returned null')),
+          b
+            ? resolve(b)
+            : reject(new Error('cropBubble: toBlob returned null')),
         'image/jpeg',
         CROP_JPEG_QUALITY,
       )
@@ -294,10 +290,7 @@ type VisionResult = { text: string; usage: TokenUsage | null }
  *  the legacy profile hits openrouter.ai (with its proper API key
  *  shape) instead of api.openai.com (which would 401). */
 function effectiveProvider(profile: ProviderProfileDto): string {
-  if (
-    profile.provider === 'openai' &&
-    profile.modelName.includes('/')
-  ) {
+  if (profile.provider === 'openai' && profile.modelName.includes('/')) {
     return 'openrouter'
   }
   return profile.provider

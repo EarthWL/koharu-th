@@ -31,10 +31,10 @@ pub struct VisionEncoderDecoder {
     encoder: VisionEncoder,
     decoder: BertForCausalLM,
     device: Device,
-    max_length: usize,
-    decoder_start_token_id: u32,
-    eos_token_id: u32,
-    pad_token_id: u32,
+    pub max_length: usize,
+    pub decoder_start_token_id: u32,
+    pub eos_token_id: u32,
+    pub pad_token_id: u32,
 }
 
 impl VisionEncoderDecoder {

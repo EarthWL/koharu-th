@@ -23,6 +23,7 @@ import { api, type ChatAttachment } from '@/lib/api'
 import { useProjectStore } from '@/lib/stores/projectStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
 import type { TokenUsage } from './cloudLlm'
+import { classifyRateLimit } from './modelFilters'
 
 /** Provider-call result: the assistant message plus whatever token
  *  counts the provider returned (null if it didn't). */
@@ -64,6 +65,12 @@ export type ToolCall = {
   name: string
   /** JSON-stringified arguments. */
   arguments: string
+  /** Gemini-only: opaque base64 signature attached to the model's
+   *  function-call part. Must be echoed back verbatim on the next
+   *  request, otherwise Gemini 2.5+ returns 400 "Function call is
+   *  missing a thought_signature in functionCall parts."
+   *  See https://ai.google.dev/gemini-api/docs/thought-signatures */
+  thoughtSignature?: string
 }
 
 export type ChatMessage = {
@@ -99,6 +106,10 @@ export type ChatProviderConfig = {
   model: string
   /** Abort the in-flight request when the user clicks Stop. */
   signal?: AbortSignal
+  /** Optional temperature configuration (0.0 to 2.0) */
+  temperature?: number
+  /** Optional max tokens configuration (256 to 4096) */
+  maxTokens?: number
 }
 
 /**
@@ -346,6 +357,8 @@ async function callOpenAiCompat(
     // so we can log it to llm_call_log. OpenAI + OpenRouter both
     // honour this flag.
     stream_options: { include_usage: true },
+    ...(cfg.temperature !== undefined ? { temperature: cfg.temperature } : {}),
+    ...(cfg.maxTokens !== undefined ? { max_tokens: cfg.maxTokens } : {}),
   }
 
   const res = await fetch(url, {
@@ -505,10 +518,11 @@ async function callAnthropic(
 
   const body: any = {
     model: cfg.model,
-    max_tokens: 4096,
+    max_tokens: cfg.maxTokens ?? 4096,
     messages: toAnthropicMessages(messages),
     tools: toAnthropicTools(tools),
     stream: true,
+    ...(cfg.temperature !== undefined ? { temperature: cfg.temperature } : {}),
   }
   if (system) body.system = system
 
@@ -537,7 +551,10 @@ async function callAnthropic(
   // Usage: message_start carries input_tokens; message_delta carries
   // the final output_tokens.
   let text = ''
-  const blocks: Record<number, { type: string; id?: string; name?: string; partial: string }> = {}
+  const blocks: Record<
+    number,
+    { type: string; id?: string; name?: string; partial: string }
+  > = {}
   let promptTokens: number | null = null
   let completionTokens: number | null = null
 
@@ -626,9 +643,26 @@ async function callAnthropic(
 
 function toGeminiContents(msgs: ChatMessage[]) {
   const out: any[] = []
+  // Build a set of toolCall ids that the upstream actually invoked
+  // (i.e. appear in an assistant.toolCalls). Tool messages whose
+  // toolCallId isn't in this set are orphans — usually from a prior
+  // mid-session crash that lost the assistant turn — and Gemini will
+  // reject them with `function response turn comes before a function
+  // call turn`. We drop them defensively.
+  const knownCallIds = new Set<string>()
+  for (const m of msgs) {
+    if (m.role === 'assistant' && m.toolCalls?.length) {
+      for (const c of m.toolCalls) knownCallIds.add(c.id)
+    }
+  }
   for (let i = 0; i < msgs.length; i++) {
     const m = msgs[i]
     if (m.role === 'system') continue
+    if (m.role === 'tool' && (!m.toolCallId || !knownCallIds.has(m.toolCallId))) {
+      // Orphan tool result — skip so Gemini doesn't see a
+      // functionResponse without a preceding functionCall.
+      continue
+    }
     if (m.role === 'tool') {
       // Gemini's `functionResponse.name` must match the FUNCTION NAME
       // of the originating `functionCall`, not the OpenAI-style tool
@@ -661,8 +695,15 @@ function toGeminiContents(msgs: ChatMessage[]) {
         ],
       })
     } else if (m.role === 'assistant' && m.toolCalls?.length) {
+      // Gemini is finicky about mixing text + functionCall in the same
+      // model turn — it treats the functionCall as appearing AFTER the
+      // text part rather than as the leading action, which violates the
+      // "function call turn must come immediately after user /
+      // functionResponse" rule. Split: emit text as its own model turn
+      // (later collapsed into the previous user turn by the merge step
+      // — except merge keeps role contracts intact, so just don't emit
+      // text here at all when there's a functionCall to issue).
       const parts: any[] = []
-      if (m.content) parts.push({ text: m.content })
       for (const c of m.toolCalls) {
         let parsed: any = {}
         try {
@@ -670,7 +711,13 @@ function toGeminiContents(msgs: ChatMessage[]) {
         } catch {
           parsed = {}
         }
-        parts.push({ functionCall: { name: c.name, args: parsed } })
+        // Echo back `thoughtSignature` if the model issued one.
+        // Required by Gemini 2.5+; missing it yields HTTP 400.
+        const part: any = { functionCall: { name: c.name, args: parsed } }
+        if (c.thoughtSignature) {
+          part.thoughtSignature = c.thoughtSignature
+        }
+        parts.push(part)
       }
       out.push({ role: 'model', parts })
     } else if (m.role === 'user' && m.attachments?.length) {
@@ -691,13 +738,37 @@ function toGeminiContents(msgs: ChatMessage[]) {
       })
     }
   }
-  return out
+  // Gemini rejects requests where two consecutive turns have the same
+  // `role` (e.g. model→model, user→user). This can happen when the
+  // upstream chat layer emits a plain-text assistant turn immediately
+  // followed by a tool-calling assistant turn — both map to `model`
+  // here — and surfaces as HTTP 400 INVALID_ARGUMENT:
+  //   "Please ensure that function call turn comes immediately after
+  //    a user turn or after a function response turn."
+  // Merge same-role neighbours by concatenating their `parts` so the
+  // alternation contract holds.
+  return mergeConsecutiveSameRole(out)
+}
+
+function mergeConsecutiveSameRole(
+  turns: Array<{ role: string; parts: any[] }>,
+): Array<{ role: string; parts: any[] }> {
+  const merged: Array<{ role: string; parts: any[] }> = []
+  for (const turn of turns) {
+    const last = merged[merged.length - 1]
+    if (last && last.role === turn.role) {
+      last.parts.push(...turn.parts)
+    } else {
+      merged.push({ role: turn.role, parts: [...turn.parts] })
+    }
+  }
+  return merged
 }
 
 function stripAdditionalProperties(schema: any): any {
   if (typeof schema !== 'object' || schema === null) return schema
   if (Array.isArray(schema)) return schema.map(stripAdditionalProperties)
-  
+
   const out: any = {}
   for (const [k, v] of Object.entries(schema)) {
     if (k === 'additionalProperties') continue
@@ -733,6 +804,18 @@ async function callGemini(
   const body: any = {
     contents: toGeminiContents(messages),
     tools: toGeminiTools(tools),
+    ...(cfg.temperature !== undefined || cfg.maxTokens !== undefined
+      ? {
+          generationConfig: {
+            ...(cfg.temperature !== undefined
+              ? { temperature: cfg.temperature }
+              : {}),
+            ...(cfg.maxTokens !== undefined
+              ? { maxOutputTokens: cfg.maxTokens }
+              : {}),
+          },
+        }
+      : {}),
   }
   if (system) body.systemInstruction = { parts: [{ text: system }] }
 
@@ -745,6 +828,23 @@ async function callGemini(
   })
   if (!res.ok || !res.body) {
     const errBody = res.body ? await res.text().catch(() => '') : ''
+    if (res.status === 429) {
+      const cls = classifyRateLimit({
+        body: errBody,
+        retryAfterHeader: res.headers.get('retry-after'),
+      })
+      if (cls.kind === 'no_quota') {
+        throw new Error(
+          `[NO_QUOTA:gemini] โมเดลนี้ไม่รองรับบน tier ของ API key (โควต้า 0) — เปลี่ยนโมเดลอื่น หรืออัปเกรด API tier`,
+        )
+      }
+      throw new Error(
+        `[RATE_LIMIT:gemini${cls.retrySec ? `:${cls.retrySec}` : ''}] ` +
+          (cls.retrySec
+            ? `โควต้า Gemini หมดชั่วคราว — รอ ~${cls.retrySec} วินาที แล้วลองอีกครั้ง`
+            : `โควต้า Gemini หมดชั่วคราว — รอสักครู่แล้วลองอีกครั้ง`),
+      )
+    }
     throw new Error(
       `Gemini chat failed (${res.status}): ${errBody.slice(0, 400)}`,
     )
@@ -776,10 +876,20 @@ async function callGemini(
         text += p.text
         onEvent({ kind: 'text-delta', delta: p.text })
       } else if (p.functionCall) {
+        // Preserve thoughtSignature (Gemini 2.5+ requirement).
+        // The SDK uses camelCase `thoughtSignature` in JSON; some
+        // intermediaries may surface the snake_case form, so accept both.
+        const sig: string | undefined =
+          typeof p.thoughtSignature === 'string'
+            ? p.thoughtSignature
+            : typeof p.thought_signature === 'string'
+              ? p.thought_signature
+              : undefined
         toolCalls.push({
           id: `gemini-${Math.random().toString(36).slice(2, 10)}`,
           name: p.functionCall.name,
           arguments: JSON.stringify(p.functionCall.args ?? {}),
+          ...(sig ? { thoughtSignature: sig } : {}),
         })
       }
     }

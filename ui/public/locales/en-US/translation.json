@@ -51,7 +51,9 @@
       "ja-JP": "日本語",
       "ru-RU": "Русский",
       "es-ES": "Español",
-      "th-TH": "ไทย"
+      "th-TH": "ไทย",
+      "fr-FR": "Français",
+      "pt-PT": "Português"
     }
   },
   "operations": {
@@ -188,7 +190,11 @@
     "fitTight": "tight",
     "fitToBubble": "Fit to bubble",
     "fitToBubbleTooltip": "Auto-expand this block to fit the surrounding speech bubble (uses flood-fill of white pixels on the original image)",
-    "generateAria": "Translate this block"
+    "generateAria": "Translate this block",
+    "readingOrder": "Reading Order",
+    "readingOrderRtl": "RTL (Manga)",
+    "readingOrderLtr": "LTR (Comic)",
+    "readingOrderCustom": "Custom"
   },
   "workspace": {
     "importPrompt": "Import a page to begin editing.",
@@ -360,15 +366,29 @@
     "aboutAuthor": "Author",
     "aboutRepository": "Repository",
     "device": "Device",
-    "deviceDescription": "Hardware acceleration information.",
-    "deviceMl": "ML Compute",
+    "deviceDescription": "Hardware acceleration details and device selection.",
+    "deviceMl": "Active ML Device",
+    "mlComputeMode": "ML Compute Mode",
+    "mlComputeModeDesc": "Select accelerator device or force CPU",
+    "relaunchWarning": "Changes will take effect after relaunching the application.",
+    "relaunchBtn": "Relaunch Now",
+    "updaterTitle": "Auto-Updater Preferences",
+    "updaterDescription": "Choose how Koharu handles software updates.",
+    "updaterMode": "Update checking mode",
+    "updateModeAuto": "Auto-Update",
+    "updateModeNotify": "Notify Only",
+    "updateModeManual": "Manual Only",
+    "updaterAutoHint": "Auto-Update: Koharu will check for updates on startup, download and install them silently in the background, and then prompt you to relaunch to finish.",
+    "updaterNotifyHint": "Notify Only: Koharu will check for updates on startup. If an update is available, you will receive a prompt to download and install it immediately.",
+    "updaterManualHint": "Manual: Koharu will not check for updates automatically. You must manually check from the Help menu or About page.",
     "engines": "Engines",
     "enginesDescription": "Pick which ML model handles each pipeline stage. Most stages only have one option today — more will land in future releases.",
     "engineDetector": "Detector",
     "engineDetectorEngine": "Engine",
     "engineDetectorVariant": "Variant",
     "engineDetectorConfidence": "Confidence",
-    "engineDetectorAnimeYoloHint": "Anime Text YOLO (mayocream/anime-text-yolo, YOLO12) is tuned for anime/manga text and catches SFX, stylised titles, and out-of-bubble text the default detector misses. Bubble mask still comes from the default detector (YOLO has no bubble branch). Switching variant reloads the model on next Process — pick N for speed, X for max recall. Raise Confidence (~0.35–0.45) to cut over-detection on noisy pages; lower it to rescue faint SFX.",
+    "engineDetectorAnimeYoloHint": "Anime Text YOLO (mayocream/anime-text-yolo, YOLO12) is tuned for anime/manga text and catches SFX, stylised titles, and out-of-bubble text the default detector misses. Bubble mask still comes from the default detector. Switching variant reloads the model on next Process — pick N for speed, X for max recall. Raise Confidence (~0.35–0.45) to cut over-detection on noisy pages; lower it to rescue faint SFX.",
+    "engineDetectorAutoHint": "Auto Mode runs the default detector and dynamically cascades to Anime Text YOLO for action pages, dense text, or out-of-bubble SFX. Overlapping bboxes are resolved automatically. Variant \"Auto\" scales dynamically based on resolution and CUDA GPU capacity.",
     "engineOcr": "OCR",
     "engineOcrEngine": "Engine",
     "engineOcrCloudProfile": "Vision profile",
@@ -385,5 +405,12 @@
     "reset": "Reset",
     "confidenceMoreDetections": "More (noisy)",
     "confidenceFewerDetections": "Fewer (strict)"
+  },
+  "bubbleFit": {
+    "overflowLocked": "Translation overflows speech bubble (~{{fill}}% capacity) at locked font size {{fontSize}}px — text will not fit; please reduce font size, shorten translation, or expand the bubble",
+    "tightLocked": "Translation is quite tight (~{{fill}}% capacity) at locked font size {{fontSize}}px",
+    "overflowAutoTooSmall": "Translation is too long for Auto-fit (font would shrink to ~{{fontSize}}px which is too small to read comfortably) — please shorten translation or expand the bubble",
+    "overflowAutoLarge": "Translation is very long (~{{fill}}% of normal size) — Auto-fit system will scale down text significantly to fit",
+    "tightAutoRatio": "Translation is somewhat tight compared to source ({{ratio}}x) — Auto-fit system may scale down text slightly"
   }
 }

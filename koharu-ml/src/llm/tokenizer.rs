@@ -270,12 +270,18 @@ impl TokenizerFromGguf for Tokenizer {
             if let Some(tp) = template_pp {
                 steps.push(tp);
             }
+            // No `.unwrap()`: `into_iter().next()` consumes the single
+            // step for the len==1 case; the else arm wraps all steps in
+            // a sequence. Both arms are mutually exclusive moves of
+            // `steps`, so ownership is fine.
             let pp = if steps.len() == 1 {
-                steps.pop().unwrap()
+                steps.into_iter().next()
             } else {
-                ProcessorSequence::new(steps).into()
+                Some(ProcessorSequence::new(steps).into())
             };
-            tokenizer.with_post_processor(Some(pp));
+            if let Some(pp) = pp {
+                tokenizer.with_post_processor(Some(pp));
+            }
         }
 
         // Mark special tokens so decode(skip_special_tokens = true) behaves as expected

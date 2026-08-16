@@ -16,11 +16,16 @@ use crate::progress::progress_bar;
 static CACHE_DIR: OnceCell<PathBuf> = OnceCell::new();
 
 static HF_API: Lazy<Api> = Lazy::new(|| {
+    // Startup-fatal by design: if the HF client can't be built (cache
+    // dir not writable, TLS backend missing) the app cannot download
+    // any model and is unusable. The global panic hook in
+    // koharu/src/app.rs catches this and shows a crash dialog with the
+    // cause — that's the surface path, not a silent swallow.
     ApiBuilder::new()
         .with_cache_dir(get_cache_dir().to_path_buf())
         .high()
         .build()
-        .expect("build HF API client")
+        .expect("Failed to build Hugging Face API client — model cache dir may be unwritable")
 });
 static HF_CACHE: Lazy<Cache> = Lazy::new(|| Cache::new(get_cache_dir().to_path_buf()));
 
@@ -30,11 +35,8 @@ fn get_cache_dir() -> &'static PathBuf {
         // that resolve `CACHE_DIR` on first access. The production
         // invariant is `koharu::app::initialize` calls
         // `set_cache_dir(MODEL_ROOT)` BEFORE any code path can
-        // touch them. If that ordering is ever violated (a future
-        // refactor accidentally accesses HF_API in a static
-        // initializer, an unrelated startup hook, etc.), the
-        // fallback path below silently fires and downloads land
-        // in the WRONG directory — divergent from production.
+        // touch them. If that ordering is ever violated, the
+        // fallback fires and downloads land in the WRONG directory.
         //
         // Surface the case so it's loud + observable. Tests +
         // headless tools that intentionally rely on the fallback
@@ -43,20 +45,80 @@ fn get_cache_dir() -> &'static PathBuf {
         tracing::warn!(
             "hf_hub::CACHE_DIR fallback fired — set_cache_dir was \
              never called. If this is a production binary, the HF \
-             cache will land in dirs::cache_dir()/Koharu/hf rather \
+             cache will land in dirs::data_local_dir()/KoharuTH/hf rather \
              than the MODEL_ROOT path (issue #41)."
         );
-        dirs::cache_dir()
+        // Uses `data_local_dir` + `KoharuTH` to match the production
+        // `MODEL_ROOT` path exactly, so that if this fallback fires
+        // first (race with `set_cache_dir`), `set_cache_dir` can
+        // detect the collision as a same-path duplicate and succeed
+        // rather than crashing with "already set" (issue #41, #44).
+        let path = dirs::data_local_dir()
             .unwrap_or_default()
-            .join("Koharu")
-            .join("hf")
+            .join("KoharuTH")
+            .join("hf");
+
+        #[cfg(target_os = "windows")]
+        {
+            if path.as_os_str().is_empty() {
+                path
+            } else {
+                let abs_path = std::path::absolute(&path).unwrap_or(path);
+                let path_str = abs_path.to_string_lossy();
+                if !path_str.starts_with(r"\\?\") {
+                    PathBuf::from(format!(r"\\?\{}", path_str.replace('/', r"\")))
+                } else {
+                    abs_path
+                }
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            path
+        }
     })
 }
 
 pub fn set_cache_dir(path: PathBuf) -> anyhow::Result<()> {
-    CACHE_DIR
-        .set(path)
-        .map_err(|_| anyhow::anyhow!("cache dir has already been set"))
+    #[cfg(target_os = "windows")]
+    let path = {
+        if path.as_os_str().is_empty() {
+            path
+        } else {
+            let abs_path = std::path::absolute(&path).unwrap_or(path);
+            let path_str = abs_path.to_string_lossy();
+            if !path_str.starts_with(r"\\?\") {
+                PathBuf::from(format!(r"\\?\{}", path_str.replace('/', r"\")))
+            } else {
+                abs_path
+            }
+        }
+    };
+
+    use anyhow::Context;
+    std::fs::create_dir_all(&path)
+        .with_context(|| format!("failed to create cache directory: {}", path.display()))?;
+
+    // Tolerate duplicate calls with the same path — can happen if the
+    // HF_API / HF_CACHE lazy statics fire their fallback initializer
+    // before `initialize()` reaches `set_cache_dir` (issue #41).
+    if let Err(_rejected) = CACHE_DIR.set(path.clone()) {
+        // set() only errors when the cell is already initialized, so
+        // get() is guaranteed Some here. Fall back to &path (which makes
+        // the equality check below true → idempotent no-op) instead of
+        // unwrapping, to keep the no-panic invariant.
+        let existing = CACHE_DIR.get().unwrap_or(&path);
+        if existing == &path {
+            tracing::debug!("set_cache_dir: already set to same path; ignoring duplicate call");
+            return Ok(());
+        }
+        anyhow::bail!(
+            "cache dir already set to '{}'; cannot change to '{}'",
+            existing.display(),
+            path.display()
+        );
+    }
+    Ok(())
 }
 
 pub fn api() -> &'static Api {

@@ -7,19 +7,20 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  CUDA_COMPUTE_CAP: "75;86;89;120"
+  CUDA_COMPUTE_CAP: "80"
 
 jobs:
   crates-io:
     name: crates.io
     runs-on: windows-latest
+    if: github.repository == 'EarthWL/koharu-th'
     steps:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2
       - uses: Swatinem/rust-cache@v2
       - uses: Jimver/cuda-toolkit@master
         with:
-          cuda: '13.1.0'
+          cuda: '12.8.0'
       - uses: ilammy/msvc-dev-cmd@v1
       - run: bun install
       - working-directory: ./ui

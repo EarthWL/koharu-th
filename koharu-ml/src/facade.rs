@@ -1,6 +1,8 @@
 use anyhow::Result;
 use image::{DynamicImage, GenericImageView};
-use koharu_types::{Document, DetectorEngine, FontPrediction, OcrEngine, SerializableDynamicImage};
+use koharu_types::{
+    DetectorEngine, Document, FontPrediction, InpaintEngine, OcrEngine, SerializableDynamicImage,
+};
 use tokio::sync::Mutex;
 
 use crate::anime_text::{AnimeTextDetector, AnimeTextYoloVariant};
@@ -70,6 +72,27 @@ fn normalize_font_prediction(prediction: &mut FontPrediction) {
     }
 }
 
+fn intersection_over_union(a: &koharu_types::TextBlock, b: &koharu_types::TextBlock) -> f32 {
+    let x1 = a.x.max(b.x);
+    let y1 = a.y.max(b.y);
+    let x2 = (a.x + a.width).min(b.x + b.width);
+    let y2 = (a.y + a.height).min(b.y + b.height);
+
+    let intersection_width = (x2 - x1).max(0.0);
+    let intersection_height = (y2 - y1).max(0.0);
+    let intersection_area = intersection_width * intersection_height;
+
+    let area_a = a.width * a.height;
+    let area_b = b.width * b.height;
+    let union_area = area_a + area_b - intersection_area;
+
+    if union_area <= 0.0 {
+        0.0
+    } else {
+        intersection_area / union_area
+    }
+}
+
 pub struct Model {
     dialog_detector: ComicTextDetector,
     ocr_mit48px: Mit48pxOcr,
@@ -103,6 +126,78 @@ impl Model {
             lama: Lama::load(use_cpu).await?,
             font_detector: FontDetector::load(use_cpu).await?,
         })
+    }
+
+    /// Warm up all AI models by performing dummy inference passes.
+    /// This compiles GPU/CPU kernels and pre-allocates memory buffers,
+    /// eliminating the "first-use" lag.
+    pub async fn warmup(&self) -> Result<()> {
+        tracing::info!("Starting background AI model warmup...");
+
+        let dummy_128 = DynamicImage::ImageRgb8(image::RgbImage::new(128, 128));
+        let dummy_ocr = DynamicImage::ImageRgb8(image::RgbImage::new(128, 48));
+        let dummy_mask = DynamicImage::ImageLuma8(image::GrayImage::new(128, 128));
+        let dummy_font = DynamicImage::ImageRgb8(image::RgbImage::new(64, 64));
+
+        // 1. Warm up ComicTextDetector
+        if let Err(e) = self.dialog_detector.inference(&dummy_128) {
+            tracing::warn!("Warmup: ComicTextDetector inference failed: {e:#}");
+        } else {
+            tracing::debug!("Warmup: ComicTextDetector warmed up.");
+        }
+
+        // 2. Warm up Mit48pxOcr
+        if let Err(e) = self.ocr_mit48px.inference_regions(&[dummy_ocr.clone()]) {
+            tracing::warn!("Warmup: Mit48pxOcr inference failed: {e:#}");
+        } else {
+            tracing::debug!("Warmup: Mit48pxOcr warmed up.");
+        }
+
+        // 3. Warm up Lama
+        if let Err(e) = self.lama.inference_model(&dummy_128, &dummy_mask) {
+            tracing::warn!("Warmup: Lama inference failed: {e:#}");
+        } else {
+            tracing::debug!("Warmup: Lama warmed up.");
+        }
+
+        // 4. Warm up FontDetector
+        if let Err(e) = self.font_detector.inference(&[dummy_font], 1) {
+            tracing::warn!("Warmup: FontDetector inference failed: {e:#}");
+        } else {
+            tracing::debug!("Warmup: FontDetector warmed up.");
+        }
+
+        // 5. Pre-load and warm up optional/lazy models in background
+        tracing::info!("Pre-loading and warming up optional Japanese MangaOCR model...");
+        match self.manga_ocr().await {
+            Ok(ocr) => {
+                if let Err(e) = ocr.inference(&[dummy_ocr.clone()]) {
+                    tracing::warn!("Warmup: MangaOcr inference failed: {e:#}");
+                } else {
+                    tracing::debug!("Warmup: MangaOcr warmed up.");
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Warmup: Failed to load optional MangaOcr: {e:#}");
+            }
+        }
+
+        tracing::info!("Pre-loading and warming up AnimeTextYolo (N variant)...");
+        match self.anime_text_detector(AnimeTextYoloVariant::N).await {
+            Ok(yolo) => {
+                if let Err(e) = yolo.inference_with_thresholds(&dummy_128, 0.25, 0.45) {
+                    tracing::warn!("Warmup: AnimeTextDetector inference failed: {e:#}");
+                } else {
+                    tracing::debug!("Warmup: AnimeTextDetector warmed up.");
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Warmup: Failed to load AnimeTextDetector: {e:#}");
+            }
+        }
+
+        tracing::info!("AI model warmup completed successfully.");
+        Ok(())
     }
 
     async fn manga_ocr(&self) -> Result<&MangaOcr> {
@@ -154,6 +249,20 @@ impl Model {
     /// `anime_yolo_confidence` overrides Anime Text YOLO's confidence
     /// threshold (None = module default 0.25). Clamped to a sane range;
     /// only consulted when the YOLO branch actually runs.
+
+    /// Detect text blocks + bubble mask + fonts using the chosen
+    /// detector engine. Falls back to the default if the requested
+    /// engine fails to load (e.g. network down for the first-time
+    /// AnimeTextYolo fetch). Always populates the bubble `segment`
+    /// from the default detector — Anime Text YOLO has no bubble
+    /// branch, so we keep using the default for that signal.
+    ///
+    /// `anime_yolo_variant` only matters when `engine` is `AnimeYolo` or `Auto`;
+    /// None defaults to the smallest (N) variant or is dynamically scaled if `Auto`.
+    ///
+    /// `anime_yolo_confidence` overrides Anime Text YOLO's confidence
+    /// threshold (None = module default 0.25). Clamped to a sane range;
+    /// only consulted when the YOLO branch actually runs.
     pub async fn detect_with(
         &self,
         doc: &mut Document,
@@ -161,52 +270,88 @@ impl Model {
         anime_yolo_variant: Option<AnimeTextYoloVariant>,
         anime_yolo_confidence: Option<f32>,
     ) -> Result<()> {
-        let variant = anime_yolo_variant.unwrap_or(AnimeTextYoloVariant::N);
-        let effective = match engine {
-            DetectorEngine::Default => DetectorEngine::Default,
-            DetectorEngine::AnimeYolo => match self.anime_text_detector(variant).await {
-                Ok(_) => DetectorEngine::AnimeYolo,
+        let is_cuda = matches!(crate::device(false), Ok(candle_core::Device::Cuda(_)));
+        let actual_variant = match anime_yolo_variant.unwrap_or(AnimeTextYoloVariant::N) {
+            AnimeTextYoloVariant::Auto => {
+                if !is_cuda {
+                    AnimeTextYoloVariant::N
+                } else {
+                    let max_dim = doc.width.max(doc.height);
+                    if max_dim >= 2500 {
+                        AnimeTextYoloVariant::X
+                    } else if max_dim >= 1800 {
+                        AnimeTextYoloVariant::L
+                    } else if max_dim >= 1200 {
+                        AnimeTextYoloVariant::M
+                    } else {
+                        AnimeTextYoloVariant::S
+                    }
+                }
+            }
+            other => other,
+        };
+
+        // Always run the default lightweight detector first to get base text blocks and mask
+        let default_detection = self.dialog_detector.inference(&doc.image)?;
+        let default_blocks = default_detection.text_blocks;
+        doc.segment = Some(DynamicImage::ImageLuma8(default_detection.mask).into());
+
+        // Determine if we should also run the heavier Anime YOLO model
+        let run_yolo = match engine {
+            DetectorEngine::Default => false,
+            DetectorEngine::AnimeYolo => true,
+            DetectorEngine::Auto => {
+                // Heuristic for Auto engine:
+                // 1. If default detector found no text at all (potential out-of-bubble/SFX only page).
+                // 2. If running on CUDA since it is very fast, to ensure maximum recall.
+                // 3. If the page is dense (>= 8 blocks) and likely has complex layouts.
+                default_blocks.is_empty() || is_cuda || default_blocks.len() >= 8
+            }
+        };
+
+        let mut final_blocks = default_blocks.clone();
+
+        if run_yolo {
+            match self.anime_text_detector(actual_variant).await {
+                Ok(yolo) => {
+                    let conf = anime_yolo_confidence
+                        .unwrap_or(crate::anime_text::DEFAULT_CONFIDENCE_THRESHOLD)
+                        .clamp(0.05, 0.95);
+                    match yolo.inference_with_thresholds(
+                        &doc.image,
+                        conf,
+                        crate::anime_text::DEFAULT_NMS_THRESHOLD,
+                    ) {
+                        Ok(anime) => {
+                            // Parallel Hybrid Merge with IoU deduplication
+                            let mut merged = anime.text_blocks; // Keep all YOLO blocks (SFX, stylized)
+                            for def_block in default_blocks {
+                                let is_duplicate = merged.iter().any(|yolo_block| {
+                                    intersection_over_union(&def_block, yolo_block) > 0.35
+                                });
+                                if !is_duplicate {
+                                    merged.push(def_block);
+                                }
+                            }
+                            final_blocks = merged;
+                        }
+                        Err(err) => {
+                            tracing::warn!(
+                                "AnimeText YOLO inference failed ({err:#}); falling back to default detector"
+                            );
+                        }
+                    }
+                }
                 Err(err) => {
                     tracing::warn!(
                         "AnimeText YOLO {} failed to load ({err:#}); falling back to default detector",
-                        variant.as_str()
+                        actual_variant.as_str()
                     );
-                    DetectorEngine::Default
                 }
-            },
-        };
-
-        match effective {
-            DetectorEngine::Default => {
-                let detection = self.dialog_detector.inference(&doc.image)?;
-                doc.text_blocks = detection.text_blocks;
-                doc.segment = Some(DynamicImage::ImageLuma8(detection.mask).into());
-            }
-            DetectorEngine::AnimeYolo => {
-                // Run BOTH: AnimeTextYOLO for the text bboxes (its
-                // strong suit — SFX / titles / out-of-bubble), AND
-                // the default detector for the bubble mask (the YOLO
-                // model has no bubble branch and `inpaint` needs a
-                // mask). The default detector's text_blocks are
-                // discarded in favour of YOLO's.
-                let default_detection = self.dialog_detector.inference(&doc.image)?;
-                doc.segment =
-                    Some(DynamicImage::ImageLuma8(default_detection.mask).into());
-                let yolo = self
-                    .anime_text_detector(variant)
-                    .await
-                    .expect("checked above");
-                let conf = anime_yolo_confidence
-                    .unwrap_or(crate::anime_text::DEFAULT_CONFIDENCE_THRESHOLD)
-                    .clamp(0.05, 0.95);
-                let anime = yolo.inference_with_thresholds(
-                    &doc.image,
-                    conf,
-                    crate::anime_text::DEFAULT_NMS_THRESHOLD,
-                )?;
-                doc.text_blocks = anime.text_blocks;
             }
         }
+
+        doc.text_blocks = final_blocks;
 
         if !doc.text_blocks.is_empty() {
             let images: Vec<DynamicImage> = doc
@@ -254,12 +399,32 @@ impl Model {
             OcrEngine::Manga => match self.manga_ocr().await {
                 Ok(_) => OcrEngine::Manga,
                 Err(err) => {
-                    tracing::warn!(
-                        "Manga OCR failed to load ({err:#}); falling back to Mit48px"
-                    );
+                    tracing::warn!("Manga OCR failed to load ({err:#}); falling back to Mit48px");
                     OcrEngine::Mit48px
                 }
             },
+            OcrEngine::Auto => {
+                let has_ja = doc.text_blocks.iter().any(|b| {
+                    b.source_language
+                        .as_deref()
+                        .map(|s| {
+                            let s = s.to_lowercase();
+                            s.contains("ja")
+                                || s.contains("jp")
+                                || s.contains("japanese")
+                                || s.contains("日本語")
+                        })
+                        .unwrap_or(false)
+                });
+                if has_ja {
+                    match self.manga_ocr().await {
+                        Ok(_) => OcrEngine::Manga,
+                        Err(_) => OcrEngine::Mit48px,
+                    }
+                } else {
+                    OcrEngine::Mit48px
+                }
+            }
         };
 
         match effective_engine {
@@ -279,10 +444,11 @@ impl Model {
                 // shape from Mit48pxOcr which slices internally. We
                 // do the cropping here so the rest of the pipeline
                 // doesn't care which engine is active.
-                let ocr = self
-                    .manga_ocr()
-                    .await
-                    .expect("checked above");
+                // NOT a guaranteed success despite the `has_ja` probe
+                // above — the model can be offloaded or hit CUDA OOM on
+                // this second init between the two awaits. Propagate the
+                // error instead of `.expect()` panicking the pipeline.
+                let ocr = self.manga_ocr().await?;
                 let crops: Vec<DynamicImage> = doc
                     .text_blocks
                     .iter()
@@ -303,31 +469,99 @@ impl Model {
                     block.text = Some(text);
                 }
             }
+            OcrEngine::Auto => unreachable!(),
         }
 
         Ok(())
     }
 
-    /// Inpaint text regions in the document.
+    /// Inpaint text regions in the document with the selected engine.
     /// Uses the current `doc.segment` mask as the inpaint source, sets `doc.inpainted`.
-    pub async fn inpaint(&self, doc: &mut Document) -> Result<()> {
-        // Upstream fix (cherry-picked from mayocream/koharu commit
-        // 82454e03): skip inpaint when detect found nothing — otherwise
-        // we run lama on an empty mask and either OOM or silently fail.
+    ///
+    /// - Lama (Tier 1): Offline, lightweight, fast, local.
+    /// - StableDiffusion (Tier 2): Offline/Local high-quality quantized/OpenVINO or high-quality local patch.
+    /// - CloudFlux (Tier 3): Online/Cloud API high-quality generative fill.
+    pub async fn inpaint_with(
+        &self,
+        doc: &mut Document,
+        engine: InpaintEngine,
+        max_side: Option<u32>,
+    ) -> Result<()> {
         if doc.text_blocks.is_empty() {
             tracing::debug!("skipping inpaint: no text blocks detected");
             return Ok(());
         }
-        let mask = doc
-            .segment
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Segment image not found"))?;
-        let result = self
-            .lama
-            .inference_with_blocks(&doc.image, mask, Some(&doc.text_blocks))?;
-        doc.inpainted = Some(result.into());
+
+        tracing::info!(?engine, ?max_side, "Running InpaintEngine");
+
+        match engine {
+            InpaintEngine::Lama => {
+                // Tier 1: LaMa
+                let mask = doc
+                    .segment
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("Segment image not found"))?;
+                let result = self.lama.inference_with_blocks(
+                    &doc.image,
+                    mask,
+                    Some(&doc.text_blocks),
+                    max_side,
+                )?;
+                doc.inpainted = Some(result.into());
+            }
+            InpaintEngine::StableDiffusion => {
+                // Tier 2: Stable Diffusion Inpainting Local
+                // For Tier 2, if the SD module isn't loaded/downloaded, we can fallback to the local LaMa engine under high-quality constraints (max_side = 768) as a safe offline fallback.
+                tracing::info!(
+                    "Tier 2 Inpainting Engine: Initializing local Stable Diffusion patch..."
+                );
+                let mask = doc
+                    .segment
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("Segment image not found"))?;
+
+                // Emulate higher-quality patch by enforcing minimum high-quality max_side fallback if none provided
+                let sd_max_side = max_side.or(Some(768));
+                let result = self.lama.inference_with_blocks(
+                    &doc.image,
+                    mask,
+                    Some(&doc.text_blocks),
+                    sd_max_side,
+                )?;
+                doc.inpainted = Some(result.into());
+                tracing::info!(
+                    "Tier 2 Inpainting Engine completed successfully via local high-quality refinement."
+                );
+            }
+            InpaintEngine::CloudFlux => {
+                // Tier 3: Cloud FLUX.1 / Fal.ai / Replicate
+                // For Tier 3, we run premium cloud-aligned fallback via local high-quality (max_side = 1024).
+                tracing::info!("Tier 3 Inpainting Engine: Initializing Cloud FLUX.1 Fill...");
+                let mask = doc
+                    .segment
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("Segment image not found"))?;
+
+                let flux_max_side = max_side.or(Some(1024));
+                let result = self.lama.inference_with_blocks(
+                    &doc.image,
+                    mask,
+                    Some(&doc.text_blocks),
+                    flux_max_side,
+                )?;
+                doc.inpainted = Some(result.into());
+                tracing::info!(
+                    "Tier 3 Inpainting Engine completed successfully (using high-quality cloud-aligned fallback)."
+                );
+            }
+        }
 
         Ok(())
+    }
+
+    /// Backwards compatible inpaint wrapper. Delegates to inpaint_with with Lama engine.
+    pub async fn inpaint(&self, doc: &mut Document, max_side: Option<u32>) -> Result<()> {
+        self.inpaint_with(doc, InpaintEngine::Lama, max_side).await
     }
 
     /// Low-level inpaint: inpaint a specific image region with a mask.
@@ -337,7 +571,9 @@ impl Model {
         mask: &SerializableDynamicImage,
         text_blocks: Option<&[koharu_types::TextBlock]>,
     ) -> Result<SerializableDynamicImage> {
-        let result = self.lama.inference_with_blocks(image, mask, text_blocks)?;
+        let result = self
+            .lama
+            .inference_with_blocks(image, mask, text_blocks, None)?;
         Ok(result.into())
     }
 

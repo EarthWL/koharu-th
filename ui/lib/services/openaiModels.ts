@@ -8,6 +8,8 @@
  * response doesn't categorise them.
  */
 
+import { isMangaRelevantModel } from './modelFilters'
+
 export type OpenAiModel = {
   id: string
   ownedBy?: string
@@ -64,30 +66,15 @@ export async function fetchOpenAiModels(
 }
 
 /**
- * Heuristic filter to drop models the chat translator can't use
- * (embeddings, audio, image, moderation, fine-tuning artefacts).
- * Conservative: when in doubt we keep the model — search will let the
- * user find it anyway.
+ * Heuristic filter to drop models the chat translator can't use.
+ * Delegates to the shared `isMangaRelevantModel` so OpenAI, OpenRouter,
+ * Anthropic and Local stay consistent. OpenAI image/audio/video models
+ * live behind separate endpoints, so `allowImage` stays false here —
+ * picking dall-e as a chat profile would just fail at call time.
  */
 export function isLikelyChatModel(id: string): boolean {
-  const lower = id.toLowerCase()
-  if (
-    lower.includes('embedding') ||
-    lower.includes('whisper') ||
-    lower.includes('tts') ||
-    lower.includes('audio') ||
-    lower.includes('dall-e') ||
-    lower.includes('image') ||
-    lower.includes('moderation') ||
-    lower.includes('davinci') ||
-    lower.includes('babbage') ||
-    lower.includes('curie') ||
-    lower.includes('ada') ||
-    lower.includes('text-similarity') ||
-    lower.startsWith('ft:') ||
-    lower.includes('realtime')
-  ) {
-    return false
-  }
-  return true
+  return isMangaRelevantModel(id, {
+    allowImage: false,
+    dropLegacyCompletions: true,
+  })
 }

@@ -119,12 +119,15 @@ impl Hypothesis {
         self.avg_logprob().exp()
     }
 
-    fn last_token(&self) -> u32 {
-        *self.token_ids.last().expect("hypothesis has bos token")
+    fn last_token(&self) -> Result<u32> {
+        self.token_ids
+            .last()
+            .copied()
+            .ok_or_else(|| anyhow::anyhow!("beam hypothesis has no tokens (missing BOS)"))
     }
 
-    fn seq_end(&self, eos_token_id: u32) -> bool {
-        self.last_token() == eos_token_id
+    fn seq_end(&self, eos_token_id: u32) -> Result<bool> {
+        Ok(self.last_token()? == eos_token_id)
     }
 
     fn extend(&self, token_id: u32, logprob: f32) -> Self {
@@ -138,10 +141,10 @@ impl Hypothesis {
         }
     }
 
-    fn output(&self) -> &Tensor {
+    fn output(&self) -> Result<&Tensor> {
         self.cached_activations
             .last()
-            .expect("decoder output cache exists")
+            .ok_or_else(|| anyhow::anyhow!("decoder output cache is empty"))
     }
 
     fn score_cmp(a: &Self, b: &Self) -> std::cmp::Ordering {
@@ -235,7 +238,7 @@ impl Mit48pxModel {
             best_fallback[sample_index] = candidates.first().cloned();
             let mut kept_active = 0usize;
             for candidate in candidates {
-                if candidate.seq_end(eos) {
+                if candidate.seq_end(eos)? {
                     finished[sample_index].push(candidate);
                     if finished[sample_index].len() >= MAX_FINISHED_HYPOS {
                         break;
@@ -279,7 +282,7 @@ impl Mit48pxModel {
 
                 let mut kept_active = 0usize;
                 for candidate in per_sample[sample_index].drain(..) {
-                    if candidate.seq_end(eos) {
+                    if candidate.seq_end(eos)? {
                         finished[sample_index].push(candidate);
                         if finished[sample_index].len() >= MAX_FINISHED_HYPOS {
                             break;
@@ -312,7 +315,9 @@ impl Mit48pxModel {
                     .iter()
                     .cloned()
                     .max_by(Hypothesis::score_cmp)
-                    .expect("non-empty finished")
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("finished beam set empty for sample {sample_index}")
+                    })?
             };
             outputs.push(self.build_raw_prediction(&best)?);
         }
@@ -356,7 +361,10 @@ impl Mit48pxModel {
         let selected_memory = memory.index_select(&sample_indices, 0)?;
         let selected_mask = memory_mask.index_select(&sample_indices, 0)?;
 
-        let last_tokens = hyps.iter().map(Hypothesis::last_token).collect::<Vec<_>>();
+        let last_tokens = hyps
+            .iter()
+            .map(Hypothesis::last_token)
+            .collect::<Result<Vec<_>>>()?;
         let last_tokens = Tensor::from_vec(last_tokens, (batch,), &self.device)?;
         let mut tgt =
             self.embedding
@@ -405,7 +413,7 @@ impl Mit48pxModel {
     }
 
     fn build_raw_prediction(&self, hypothesis: &Hypothesis) -> Result<RawPrediction> {
-        let decoded = hypothesis.output();
+        let decoded = hypothesis.output()?;
         let color_feats = self.color_pred1.forward(decoded)?.relu()?;
         let fg_colors = self
             .color_pred_fg

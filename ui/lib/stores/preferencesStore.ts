@@ -3,7 +3,12 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type CloudProvider = 'none' | 'openai' | 'openrouter' | 'gemini' | 'anthropic'
+export type CloudProvider =
+  | 'none'
+  | 'openai'
+  | 'openrouter'
+  | 'gemini'
+  | 'anthropic'
 
 /**
  * OCR engine choice.
@@ -18,7 +23,11 @@ export type CloudProvider = 'none' | 'openai' | 'openrouter' | 'gemini' | 'anthr
  * logged to `llm_call_log` with `use_case='ocr'` just like translation
  * + chat calls — the cost dashboard sees them.
  */
-export type OcrEngine = 'mit48px' | 'manga' | 'cloud'
+export type OcrEngine = 'mit48px' | 'manga' | 'cloud' | 'auto'
+export type InpaintEngine = 'lama' | 'stable_diffusion' | 'cloud_flux'
+export type AutoUpdateMode = 'auto' | 'notify' | 'manual'
+/** ความละเอียดสูงสุด (px) ของ crop ที่ส่ง LaMa — fast=256 / balanced=512 / quality=768 */
+export type InpaintQuality = 256 | 512 | 768
 
 /**
  * Detector engine — mirrors `koharu_types::DetectorEngine`.
@@ -33,11 +42,11 @@ export type OcrEngine = 'mit48px' | 'manga' | 'cloud'
  * detector in parallel just to get its bubble mask (YOLO12 has no
  * bubble branch and the inpaint step needs the mask).
  */
-export type DetectorEngine = 'default' | 'anime_yolo'
+export type DetectorEngine = 'default' | 'anime_yolo' | 'auto'
 
 /** Size variant for the Anime Text YOLO detector (~10MB to ~250MB).
  *  Bigger = better recall, slower, larger first-use download. */
-export type AnimeYoloVariant = 'n' | 's' | 'm' | 'l' | 'x'
+export type AnimeYoloVariant = 'n' | 's' | 'm' | 'l' | 'x' | 'auto'
 
 /** Per-provider wire config. Each provider keeps its own slot so the
  *  user can switch providers without re-pasting keys. */
@@ -49,10 +58,7 @@ export type ProviderConfig = {
   apiUrl: string
 }
 
-type ProviderConfigs = Record<
-  Exclude<CloudProvider, 'none'>,
-  ProviderConfig
->
+type ProviderConfigs = Record<Exclude<CloudProvider, 'none'>, ProviderConfig>
 
 const DEFAULT_CONFIGS: ProviderConfigs = {
   openai: {
@@ -102,6 +108,10 @@ type PreferencesState = {
   ocrEngine: OcrEngine
   setOcrEngine: (engine: OcrEngine) => void
 
+  /** Allow smart cloud fallback for difficult text blocks in auto mode. */
+  ocrSmartCloudFallback: boolean
+  setOcrSmartCloudFallback: (enabled: boolean) => void
+
   /** When `ocrEngine === 'cloud'`, ID of the provider profile to use
    *  for OCR calls. `null` means "fall back to the active translation
    *  profile" — useful if the user has only one cloud profile. */
@@ -133,14 +143,50 @@ type PreferencesState = {
   animeYoloConfidence: number
   setAnimeYoloConfidence: (confidence: number) => void
 
-  /** Apply a Thai-aware post-process pass to every LLM translation
-   *  result before saving. Collapses inter-Thai whitespace (e.g.
+  /** Apply a smart post-process pass to every LLM translation
+   *  result before saving. Collapses inter-language whitespace (e.g.
    *  "กิน ข้าว" → "กินข้าว") and converts ASCII quotes to typographic
    *  curly quotes. Mixed-script content like character names is
-   *  preserved. Default true since this fork's primary output is Thai;
-   *  toggle off to keep raw LLM output verbatim. Issue #21. */
-  thaiPostProcessEnabled: boolean
-  setThaiPostProcessEnabled: (enabled: boolean) => void
+   *  preserved. Toggle off to keep raw LLM output verbatim. Issue #21. */
+  smartPostProcessEnabled: boolean
+  setSmartPostProcessEnabled: (enabled: boolean) => void
+
+  autoUpdateMode: AutoUpdateMode
+  setAutoUpdateMode: (mode: AutoUpdateMode) => void
+
+  /** ขนาด crop สูงสุดที่ส่ง LaMa neural network (px).
+   *  256 = เร็ว, 512 = สมดุล (default), 768 = คุณภาพสูง */
+  inpaintMaxSide: InpaintQuality
+  setInpaintMaxSide: (side: InpaintQuality) => void
+
+  /** Inpainting engine variant. */
+  inpaintEngine: InpaintEngine
+  setInpaintEngine: (engine: InpaintEngine) => void
+
+  /** เปิด Smart post-processing หลัง LLM แปล:
+   *  - แปลง straight quotes " " → curly \u201c \u201d
+   *  - ลบ space เกินระหว่างตัวอักษรไทย */
+  smartPostProcess: boolean
+  setSmartPostProcess: (enabled: boolean) => void
+
+  llmFailoverEnabled: boolean
+  setLlmFailoverEnabled: (enabled: boolean) => void
+
+  llmFailoverPriority: number[]
+  setLlmFailoverPriority: (priority: number[]) => void
+
+  installedAddons: string[]
+  setInstalledAddons: (addons: string[]) => void
+
+  favoriteFonts: string[]
+  toggleFavoriteFont: (font: string) => void
+
+  /** Developer mode — default off. When on, the error system surfaces
+   *  full debug diagnostics (raw error, RPC method, telemetry, stack)
+   *  for EVERY error via the ErrorDialog, instead of auto-dismissing
+   *  simple toasts. Toggled from the About page. */
+  developerMode: boolean
+  setDeveloperMode: (enabled: boolean) => void
 
   resetPreferences: () => void
 }
@@ -154,13 +200,23 @@ const initialPreferences = {
   cloudApiUrl: DEFAULT_CONFIGS.openai.apiUrl,
   cloudModelName: '',
   cloudTargetLanguage: 'Thai',
-  ocrEngine: 'mit48px' as OcrEngine,
+  ocrEngine: 'auto' as OcrEngine,
+  ocrSmartCloudFallback: false,
   ocrCloudProfileId: null as number | null,
   activeProfileId: null as number | null,
   detectorEngine: 'default' as DetectorEngine,
-  animeYoloVariant: 'n' as AnimeYoloVariant,
+  animeYoloVariant: 'auto' as AnimeYoloVariant,
   animeYoloConfidence: 0.25,
-  thaiPostProcessEnabled: true,
+  smartPostProcessEnabled: true,
+  autoUpdateMode: 'notify' as AutoUpdateMode,
+  inpaintMaxSide: 512 as InpaintQuality,
+  inpaintEngine: 'lama' as InpaintEngine,
+  smartPostProcess: true,
+  llmFailoverEnabled: false,
+  llmFailoverPriority: [] as number[],
+  installedAddons: [] as string[],
+  favoriteFonts: [] as string[],
+  developerMode: false,
 }
 
 /**
@@ -242,20 +298,41 @@ export const usePreferencesStore = create<PreferencesState>()(
       setCloudTargetLanguage: (language) =>
         set({ cloudTargetLanguage: language }),
       setOcrEngine: (engine) => set({ ocrEngine: engine }),
+      setOcrSmartCloudFallback: (enabled) =>
+        set({ ocrSmartCloudFallback: enabled }),
       setOcrCloudProfileId: (id) => set({ ocrCloudProfileId: id }),
       setActiveProfileId: (id) => set({ activeProfileId: id }),
       setDetectorEngine: (engine) => set({ detectorEngine: engine }),
       setAnimeYoloVariant: (variant) => set({ animeYoloVariant: variant }),
       setAnimeYoloConfidence: (confidence) =>
         // Mirror backend clamp so the persisted value stays in range.
-        set({ animeYoloConfidence: Math.min(0.95, Math.max(0.05, confidence)) }),
-      setThaiPostProcessEnabled: (enabled) =>
-        set({ thaiPostProcessEnabled: enabled }),
+        set({
+          animeYoloConfidence: Math.min(0.95, Math.max(0.05, confidence)),
+        }),
+      setSmartPostProcessEnabled: (enabled) =>
+        set({ smartPostProcessEnabled: enabled }),
+      setAutoUpdateMode: (mode) => set({ autoUpdateMode: mode }),
+      setInpaintMaxSide: (side) => set({ inpaintMaxSide: side }),
+      setInpaintEngine: (engine) => set({ inpaintEngine: engine }),
+      setSmartPostProcess: (enabled) => set({ smartPostProcess: enabled }),
+      setLlmFailoverEnabled: (enabled) => set({ llmFailoverEnabled: enabled }),
+      setLlmFailoverPriority: (priority) =>
+        set({ llmFailoverPriority: priority }),
+      setInstalledAddons: (addons) => set({ installedAddons: addons }),
+      toggleFavoriteFont: (font) =>
+        set((state) => {
+          const exists = (state.favoriteFonts || []).includes(font)
+          const favoriteFonts = exists
+            ? (state.favoriteFonts || []).filter((f) => f !== font)
+            : [...(state.favoriteFonts || []), font]
+          return { favoriteFonts }
+        }),
+      setDeveloperMode: (enabled) => set({ developerMode: enabled }),
       resetPreferences: () => set({ ...initialPreferences }),
     }),
     {
       name: 'koharu-config',
-      version: 2,
+      version: 3,
       migrate: (persisted: any, fromVersion) => {
         // V1 stored a single (cloudApiKey, cloudApiUrl, cloudModelName)
         // shared across providers. Push that record into the slot for
@@ -264,13 +341,16 @@ export const usePreferencesStore = create<PreferencesState>()(
         const next = { ...persisted }
         if (fromVersion < 2) {
           const configs: ProviderConfigs = { ...DEFAULT_CONFIGS }
-          const activeProvider = (persisted.cloudProvider ?? 'none') as CloudProvider
+          const activeProvider = (persisted.cloudProvider ??
+            'none') as CloudProvider
           if (activeProvider !== 'none') {
             configs[activeProvider] = {
               apiKey: persisted.cloudApiKey ?? '',
               modelName:
-                persisted.cloudModelName ?? DEFAULT_CONFIGS[activeProvider].modelName,
-              apiUrl: persisted.cloudApiUrl ?? DEFAULT_CONFIGS[activeProvider].apiUrl,
+                persisted.cloudModelName ??
+                DEFAULT_CONFIGS[activeProvider].modelName,
+              apiUrl:
+                persisted.cloudApiUrl ?? DEFAULT_CONFIGS[activeProvider].apiUrl,
             }
           }
           next.providerConfigs = configs

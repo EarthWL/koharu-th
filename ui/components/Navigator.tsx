@@ -1,14 +1,14 @@
 'use client'
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useTranslation } from 'react-i18next'
-import { useDocumentsCountQuery, useThumbnailQuery } from '@/lib/query/hooks'
+import { useDocumentsCountQuery } from '@/lib/query/hooks'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { flushAllSyncQueues } from '@/lib/services/syncQueues'
-import { cancelObjectUrlRevoke, revokeObjectUrlLater } from '@/lib/util'
+import { getHttpUrl } from '@/lib/backend'
 
 export function Navigator() {
   const { data: totalPagesData = 0 } = useDocumentsCountQuery()
@@ -127,25 +127,7 @@ function PagePreview({
   selected,
   onSelect,
 }: PagePreviewProps) {
-  const [preview, setPreview] = useState<string>()
-  const {
-    data: thumbnailBlob,
-    isPending: loading,
-    isError: error,
-  } = useThumbnailQuery(index, documentsVersion)
-
-  useLayoutEffect(() => {
-    if (!thumbnailBlob) {
-      setPreview(undefined)
-      return
-    }
-    const url = URL.createObjectURL(thumbnailBlob)
-    cancelObjectUrlRevoke(url)
-    setPreview(url)
-    return () => {
-      revokeObjectUrlLater(url)
-    }
-  }, [thumbnailBlob])
+  const previewUrl = getHttpUrl(`/api/thumbnail/${index}?v=${documentsVersion}`)
 
   return (
     <Button
@@ -156,22 +138,13 @@ function PagePreview({
       data-selected={selected}
       className='bg-card data-[selected=true]:border-primary flex h-auto w-[200px] flex-col gap-0.5 rounded border border-transparent p-1.5 text-left shadow-sm'
     >
-      {loading ? (
-        <div className='bg-muted aspect-3/4 w-full animate-pulse rounded' />
-      ) : error ? (
-        <div className='bg-muted flex aspect-3/4 w-full items-center justify-center rounded'>
-          <span className='text-muted-foreground text-[10px]'>?</span>
-        </div>
-      ) : preview ? (
-        <img
-          src={preview}
-          alt={`Page ${index + 1}`}
-          style={{ objectFit: 'contain' }}
-          className='aspect-3/4 w-full rounded object-cover'
-        />
-      ) : (
-        <div className='bg-muted aspect-3/4 w-full rounded' />
-      )}
+      <img
+        src={previewUrl}
+        alt={`Page ${index + 1}`}
+        style={{ objectFit: 'contain' }}
+        className='aspect-3/4 w-full rounded object-cover'
+        loading='lazy'
+      />
       <div className='text-muted-foreground flex flex-1 items-center text-xs'>
         <div className='text-foreground mx-auto flex text-center font-semibold'>
           {index + 1}

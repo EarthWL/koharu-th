@@ -230,9 +230,7 @@ function Stat({
     <div>
       <div className='text-foreground text-sm font-bold'>{value}</div>
       <div className='text-muted-foreground text-[10px]'>{label}</div>
-      {sub && (
-        <div className='text-muted-foreground/70 text-[9px]'>{sub}</div>
-      )}
+      {sub && <div className='text-muted-foreground/70 text-[9px]'>{sub}</div>}
     </div>
   )
 }

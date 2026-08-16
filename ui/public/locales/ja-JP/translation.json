@@ -384,5 +384,12 @@
     "reset": "リセット",
     "confidenceMoreDetections": "多い（ノイジー）",
     "confidenceFewerDetections": "少ない（厳格）"
+  },
+  "bubbleFit": {
+    "overflowLocked": "翻訳が吹き出しからあふれています（容量の ~{{fill}}%）フォントサイズ {{fontSize}}px — テキストが収まりません。フォントサイズを下げるか、翻訳を短くするか、吹き出しを広げてください",
+    "tightLocked": "翻訳がかなり詰まっています（容量の ~{{fill}}%）フォントサイズ {{fontSize}}px",
+    "overflowAutoTooSmall": "翻訳が長すぎて自動調整できません（フォントが ~{{fontSize}}px まで縮小され、快適に読めなくなります） — 翻訳を短くするか、吹き出しを広げてください",
+    "overflowAutoLarge": "翻訳が非常に長いです（通常サイズの ~{{fill}}%） — 自動調整システムはテキストを大幅に縮小して収めます",
+    "tightAutoRatio": "翻訳が原文に比べてやや詰まっています（{{ratio}}倍） — 自動調整システムはテキストをわずかに縮小する可能性があります"
   }
 }

@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Koharu",
-  "identifier": "Koharu",
+  "productName": "Koharu TH",
+  "identifier": "com.earthwl.koharu-th",
   "build": {
     "beforeDevCommand": "bun --cwd ui dev",
     "beforeBuildCommand": "bun --cwd ui build",
@@ -21,7 +21,7 @@
         "minWidth": 900,
         "minHeight": 600,
         "center": true,
-        "title": "Koharu",
+        "title": "Koharu TH",
         "decorations": false
       },
       {

@@ -22,6 +22,7 @@ import { useProjectMutations } from '@/lib/query/projectMutations'
 import { useProjectStore } from '@/lib/stores/projectStore'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { detectSourceLanguageFromBlocks } from '@/lib/util/detectSourceLanguage'
+import { toast } from 'sonner'
 
 export function ProjectTabPanel() {
   const info = useProjectStore((s) => s.info)
@@ -74,7 +75,9 @@ export function ProjectTabPanel() {
     setSaveOk(false)
     try {
       await api.seriesMetaUpdate(draft)
-      await queryClient.invalidateQueries({ queryKey: ['project', 'series-meta'] })
+      await queryClient.invalidateQueries({
+        queryKey: ['project', 'series-meta'],
+      })
       setDirty(false)
       setSaveOk(true)
       window.setTimeout(() => setSaveOk(false), 2500)
@@ -139,11 +142,11 @@ export function ProjectTabPanel() {
 
   const backup = async () => {
     const r = await api.projectBackupPicker().catch((e) => {
-      alert(e?.message ?? String(e))
+      toast.error(e?.message ?? String(e))
       return null
     })
     if (r?.path) {
-      alert(`✓ ${r.fileCount} files → ${r.path.split(/[\\/]/).pop()}`)
+      toast.success(` ${r.fileCount} files → ${r.path.split(/[\\/]/).pop()}`)
     }
   }
 
@@ -227,7 +230,7 @@ export function ProjectTabPanel() {
                     </Button>
                   </div>
                   {detectError && (
-                    <p className='text-amber-600 dark:text-amber-400 mt-1 text-[10px] leading-relaxed'>
+                    <p className='mt-1 text-[10px] leading-relaxed text-amber-600 dark:text-amber-400'>
                       {detectError}
                     </p>
                   )}
@@ -275,9 +278,7 @@ export function ProjectTabPanel() {
                 className='h-7 w-full text-xs'
               >
                 {saving && <Loader2Icon className='size-3 animate-spin' />}
-                {saveOk && !saving && !dirty
-                  ? '✓ Saved'
-                  : 'Save changes'}
+                {saveOk && !saving && !dirty ? '✓ Saved' : 'Save changes'}
               </Button>
               {saveError && (
                 <p className='text-destructive mt-1 text-[10px] leading-relaxed'>
@@ -326,11 +327,11 @@ export function ProjectTabPanel() {
                 setEmbedding({ done: 0, total: 0, label: 'starting…' })
                 try {
                   const r = await runTmEmbeddingBackfill((p) => setEmbedding(p))
-                  alert(
+                  toast.error(
                     `Embedded ${r.embedded} TM entries with ${r.model}. Semantic lookup is now available.`,
                   )
                 } catch (e: any) {
-                  alert(e?.message ?? String(e))
+                  toast.error(e?.message ?? String(e))
                 } finally {
                   setEmbedding(null)
                 }
@@ -355,13 +356,13 @@ export function ProjectTabPanel() {
                   try {
                     const r = await api.tmExportTmx()
                     if (r.path) {
-                      alert(`Exported ${r.entries} TM entries → ${r.path}`)
+                      toast.error(`Exported ${r.entries} TM entries → ${r.path}`)
                     }
                   } catch (e: any) {
-                    alert(e?.message ?? String(e))
+                    toast.error(e?.message ?? String(e))
                   }
                 }}
-                title='Export translation memory as TMX (Trados / OmegaT / MemoQ)'
+                title={`Export translation memory for ${draft.targetLanguage || 'Target Language'} as TMX (Trados / OmegaT / MemoQ)`}
               >
                 <DownloadIcon className='size-3' />
                 TM → TMX
@@ -374,12 +375,12 @@ export function ProjectTabPanel() {
                   try {
                     const r = await api.tmImportTmx()
                     if (r.inserted || r.skipped) {
-                      alert(
+                      toast.error(
                         `Inserted ${r.inserted}, skipped ${r.skipped} duplicate(s).`,
                       )
                     }
                   } catch (e: any) {
-                    alert(e?.message ?? String(e))
+                    toast.error(e?.message ?? String(e))
                   }
                 }}
                 title='Import TMX file into translation memory'
@@ -430,7 +431,7 @@ function Field({
 }) {
   return (
     <div className='flex flex-col gap-1'>
-      <label className='text-muted-foreground text-[10px] font-semibold uppercase tracking-wide'>
+      <label className='text-muted-foreground text-[10px] font-semibold tracking-wide uppercase'>
         {label}
       </label>
       {children}

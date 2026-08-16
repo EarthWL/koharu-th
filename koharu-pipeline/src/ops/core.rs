@@ -140,14 +140,34 @@ pub async fn open_documents(
     state: AppResources,
     payload: OpenDocumentsPayload,
 ) -> anyhow::Result<usize> {
-    let inputs: Vec<(PathBuf, Vec<u8>)> = payload
+    let mut inputs: Vec<(PathBuf, Vec<u8>)> = payload
         .files
         .into_iter()
         .map(|f| (PathBuf::from(f.name), f.data))
         .collect();
 
     if inputs.is_empty() {
-        anyhow::bail!("No files uploaded");
+        let chosen = tokio::task::spawn_blocking(|| {
+            FileDialog::new()
+                .add_filter("Koharu / Images", &["khr", "png", "jpg", "jpeg", "webp"])
+                .pick_files()
+        })
+        .await?;
+        if let Some(files) = chosen {
+            for path in files {
+                let data = std::fs::read(&path)?;
+                let name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                inputs.push((PathBuf::from(name), data));
+            }
+        }
+    }
+
+    if inputs.is_empty() {
+        anyhow::bail!("No files selected");
     }
 
     let docs = load_documents(inputs)?;
@@ -161,14 +181,34 @@ pub async fn add_documents(
     state: AppResources,
     payload: OpenDocumentsPayload,
 ) -> anyhow::Result<usize> {
-    let inputs: Vec<(PathBuf, Vec<u8>)> = payload
+    let mut inputs: Vec<(PathBuf, Vec<u8>)> = payload
         .files
         .into_iter()
         .map(|f| (PathBuf::from(f.name), f.data))
         .collect();
 
     if inputs.is_empty() {
-        anyhow::bail!("No files uploaded");
+        let chosen = tokio::task::spawn_blocking(|| {
+            FileDialog::new()
+                .add_filter("Koharu / Images", &["khr", "png", "jpg", "jpeg", "webp"])
+                .pick_files()
+        })
+        .await?;
+        if let Some(files) = chosen {
+            for path in files {
+                let data = std::fs::read(&path)?;
+                let name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                inputs.push((PathBuf::from(name), data));
+            }
+        }
+    }
+
+    if inputs.is_empty() {
+        anyhow::bail!("No files selected");
     }
 
     let docs = load_documents(inputs)?;
@@ -187,16 +227,19 @@ pub async fn export_document(
         .path
         .extension()
         .and_then(|e| e.to_str())
-        .unwrap_or("jpg")
+        .unwrap_or("png")
         .to_string();
 
-    let rendered = document
-        .rendered
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("No rendered image found"))?;
+    let (rendered, suffix) = if let Some(r) = document.rendered.as_ref() {
+        (r, "rendered")
+    } else if let Some(i) = document.inpainted.as_ref() {
+        (i, "inpainted")
+    } else {
+        (&document.image, "original")
+    };
 
     let bytes = encode_image(rendered, &ext)?;
-    let filename = format!("{}_koharu.{}", document.name, ext);
+    let filename = format!("{}_{}.{}", document.name, suffix, ext);
     let content_type = mime_from_ext(&ext).to_string();
 
     Ok(FileResult {

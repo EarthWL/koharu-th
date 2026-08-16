@@ -1,78 +1,72 @@
-# Features
+# 🚀 Koharu-TH: Next-Gen Translation Studio Features
 
-What koharu-th can do today, grouped by capability. For chronological
-release history see [CHANGELOG.md](CHANGELOG.md).
+
+
+อัปเดตครั้งนี้เป็นการพลิกโฉมสถาปัตยกรรมและฟีเจอร์ของโปรแกรมขนานใหญ่ ทั้งในแง่ของความเสถียร (Performance), ประสบการณ์ผู้ใช้ (UI/UX), การใช้งาน AI (AI Chat & Inference) รวมไปถึงการรองรับระบบพหุภาษา (Multilingual Ecosystem) อย่างเต็มรูปแบบ! 
+
+ทุกฟีเจอร์ด้านล่างนี้ **ได้รับการพัฒนาและผสานเข้ากับระบบเสร็จสมบูรณ์ 100%** แล้วครับ
 
 ---
 
-## Translation pipeline
+### ⚡ Core & Performance (เสถียรภาพและประสิทธิภาพ)
+- ✅ **Background AI model warmup**: โหลดโมเดล AI พื้นหลัง (VRAM pre-allocate) ระหว่าง Splash Screen ทำให้ตอนเข้าแอปพร้อมใช้งานทันทีโดยไม่หน้าจอค้าง - Closes #19
+- ✅ **Zero-copy file dialog**: ระบบโหลดไฟล์และรูปภาพขนาดใหญ่ผ่าน Native Dialog ของ Windows โดยไม่ก๊อปปี้ Buffer ให้เปลืองแรม
+- ✅ **LaMa Inpaint resolution**: เพิ่ม Slider ควบคุมความละเอียดของการลบตัวอักษรภาพ (LaMa) พร้อม Parallel Processing - Closes #18
+- ✅ **Candle ML Inference update**: อัปเดตเอนจิน `candle`, `float8`, `ug` เป็นสาขา `cuda-dynamic-loading` ช่วยเร่งความเร็ว CUDA และแก้ปัญหาไดรเวอร์ชนกัน
+- ✅ **Backend Panic Removal**: อุดรอยรั่ว `.unwrap()` ในระบบ Rust Queue ป้องกันแอปดับกะทันหัน
+- ✅ **Virtualization**: อัปเกรด List Render ในแถบเครื่องมือด้านข้างทั้งหมดด้วย `@tanstack/react-virtual` ลดภาระ DOM เรนเดอร์ลื่นไหลไม่กระตุกแม้มี Text Block นับพัน
 
-- **5 LLM providers** — OpenAI, OpenRouter, Google Gemini, Anthropic Claude, and local (Ollama). Switch per use-case via Profiles.
-- **Provider profiles** — saved configs with provider, model, base URL, API key (stored in OS keyring), cost rates. Set defaults per use-case; Save also applies.
-- **Handlebars prompt templates** — built-in `manga-standard`, `sfx-only`, `fast-draft`, plus a custom editor with live preview and test-on-block.
-- **3-layer context injection** — always-on main-character + tone hints, smart-filtered glossary (only entries that appear in the current page), and rolling summaries of the last N chapters.
-- **Translation memory (TM)** — exact-match short-circuit before send, fuzzy lookup via SQLite FTS5, optional vector embeddings for semantic matches. Per-block hit indicator.
-- **SSE streaming + retry** — token-by-token rendering for cloud calls, exponential backoff on transient errors.
-- **Auto-render after translate** — both single-block and batch paths re-render the page so you see the new text without a manual click.
+---
 
-## Series Project (per-series DB)
+### 🎨 UI / UX (ประสบการณ์ผู้ใช้ระดับพรีเมียม)
+- ✅ **Photoshop-style layer controls**: จัดการ Text Block เหมือนเล่นโปรแกรมแต่งภาพ! มีระบบเปิด-ปิดตา (Visibility), แถบความจาง (Opacity Slider), และระบบลากสลับตำแหน่งเลเยอร์ (Drag & Drop) - Closes #57
+- ✅ **Move Up/Down Buttons**: ปุ่มเลื่อนตำแหน่ง Z-Index ของข้อความขึ้น-ลงทีละสเตป
+- ✅ **Format Painter (คัดลอก/วาง สไตล์)**: ดูดสไตล์อักษรจากกล่องนึงไปแปะอีกกล่องได้อย่างรวดเร็ว
+- ✅ **Bold/Italic Native**: ระบบหนา/เอียง แบบ Native พร้อม Faux-Bold / Faux-Italic เสมือนจริง - Closes #27
+- ✅ **Reading Order Dropdown**: เมนูตั้งค่าทิศทางการอ่านอัจฉริยะ (LTR / RTL / Custom)
+- ✅ **Font Bookmarking (Favorites)**: หน้าต่างปักหมุดฟอนต์โปรด (ดาวสีเหลือง) ดันฟอนต์ประจำขึ้นด้านบนสุดให้เรียกใช้ง่ายๆ
+- ✅ **Zoom system**: อัปเกรดระบบซูมพร้อมคีย์ลัด แพนหน้ากระดาษเทียบเท่า Photoshop พร้อมปุ่ม `Fit Page`, `Fit Width`, `Fit Height`
+- ✅ **Smart Bubble fit**: ระบบคำนวณและปรับขนาดฟอนต์ให้พอดีกรอบคำพูดอัตโนมัติ ไม่ล้นขอบ 
+- ✅ **Zero-Render Canvas**: ระบบแคช Object URL รูปภาพ แพนกล้องหรือซูมแค่ไหนก็ไม่มีการ Re-render เฟรมเรต 60FPS นิ่งๆ
 
-- **Folder-based project** — anchored by a `.koharuproj` manifest; SQLite (`series.db`) holds all metadata.
-- **Series metadata** — title, original title, synopsis, genre, audience, source/target language, tone, formality, style notes, cover image.
-- **Chapters** — folder-per-chapter (`source/`, `khr/`, `render/`), drag-reorderable, per-chapter status (pending → in_progress → translated → reviewed → done), LLM-generated summaries you can edit.
-- **Characters** — original ↔ translated name, aliases, role, speech style, relationships, main/supporting split, auto-extracted from chapter text.
-- **Glossary** — source ↔ target, category (term/place/skill/honorific/item/org/sfx), context notes, usage count, manual/extracted confidence. CSV/JSON bulk import.
-- **Cost log** — every LLM call recorded with tokens, duration, profile, chapter. Dashboard with totals + per-chapter breakdown.
-- **Project backup** — one-click zip of the whole folder.
+---
 
-## AI Chat (agentic)
+### 💬 AI Chat (แชทบอตช่วยแปลสุดล้ำ)
+- ✅ **Context-Aware Selected Block Panel**: แถบแก้วใส (Glassmorphism) บนช่องแชทที่ดึงบล็อกข้อความที่เลือกอยู่บนภาพมาให้ทันที กด Paste Source หรือ Paste Translation ลงแชทได้ในคลิกเดียว หรือกด Ask AI เพื่อให้วิเคราะห์บริบทให้เลย!
+- ✅ **Quick Prompt Templates**: เมนูลัดรวมคำสั่ง (Prompts) แปลงโทนเสียง (ทั่วไป, โชเน็น, สุภาพ), ตรวจสอบบริบทวัฒนธรรม และเกลาภาษาไทยแบบเรียลไทม์
+- ✅ **Manga SFX Dictionary Helper**: คลังคำศัพท์และเสียงเอฟเฟกต์ (SFX) ญี่ปุ่นแบ่งตามหมวดหมู่ (Action, Emotion, Nature) กดเพื่อสอบถาม AI ถึงคำพ้องและบริบทการใช้งานได้ทันที
+- ✅ **Multi-Model Arena Compare**: โหมดประชันคำตอบ! สั่งรัน AI หลายโปรไฟล์พร้อมกันแบบขนานเทียบจอซ้ายขวา และเลือกคำตอบที่ดีที่สุดกดเซฟลงฐานข้อมูลได้เลย
+- ✅ **Undo (Revoke)**: ปุ่มย้อนกลับข้อความแชท (ดึงข้อความคืน) แบตช์ลดจำนวน Round-trip
+- ✅ **Error Handling & Manual Switch-Retry**: หากเกิด Error ขึ้น (API พัง/โค้ต้าหมด) จะมีปุ่มโผล่มาให้คลิกสลับโปรไฟล์ AI และ Retry คำสั่งเดิมได้ทันทีโดยไม่ต้องพิมพ์ใหม่
+- ✅ **Regenerate & Copy**: ปุ่มคัดลอกข้อความด่วนแบบมี Micro-animation และปุ่มกดสร้างคำตอบใหม่ (Regenerate)
 
-- **Sidebar panel** with streaming responses, attachment support (vision-capable models only — auto-detected), stop button.
-- **~60 MCP-style tools** — read/modify series metadata, characters, glossary, chapters, prompt templates; fetch web pages (wikis); view the current canvas page.
-- **Slash commands** — `/draft-synopsis`, `/draft-style-notes`, `/suggest-character`, `/extract-glossary`, `/qc-consistency`, etc.
-- **Replies in the app's UI language** — system prompt is set from `i18n.language` (Thai / English / Japanese / Chinese / Russian / Spanish).
-- **Tool-progress narration** — every tool dispatch shows `🔧 calling <name>… ✓` inline so the agentic loop isn't a silent gap.
-- **Clear history** per project.
+---
 
-## Rendering
+### 🌐 Multilingual Ecosystem (ระบบเสริมพหุภาษา)
+- ✅ **Addon Architecture**: โครงสร้างแบบ Addon ตรวจจับ `addon_{lang}.flag` เพื่อปลดล็อกฟีเจอร์พหุภาษา
+- ✅ **Auto OCR Optimization**: สลับไปใช้ Cloud Vision OCR ทันที หากตรวจพบว่าแปลภาษาที่ไม่ใช่ภาษาญี่ปุ่น (เช่น ฝรั่งเศส เกาหลี เยอรมัน)
+- ✅ **Dynamic Post-Processor (`smartPostProcess`)**: วิเคราะห์ภาษาปลายทางอัตโนมัติเพื่อจัดช่องว่างและสัญลักษณ์ให้ถูกหลักไวยากรณ์ (เช่น French Guillemets)
+- ✅ **Prompt Templates Synchronization**: ระบบซิงค์ Language Dropdown หน้า UI เข้ากับฐานข้อมูล Project Meta ส่งผลให้ AI สร้าง Prompt ยึดตามภาษา Addon ปัจจุบันเสมอ
+- ✅ **Translation Memory Integrity**: ระบบเชื่อมโยงฐานข้อมูล TM ค้นหา/บันทึก/ส่งออก (Export TMX) กรองตาม Target Language ที่เลือกใช้งานอย่างแม่นยำ
 
-- **Bundled font directory** with searchable picker.
-- **Thai script support** — Leelawadee UI / Tahoma / Noto Sans Thai branch in the font-fallback chain.
-- **Per-block text styling** — size, line-height, letter/word spacing, vertical alignment, rotation (degrees), font family.
-- **Fit to bubble** — flood-fill the white bubble interior from the block's bbox and snap the block to the actual bubble outline. Fixes Thai overflow.
-- **Render effects** — shader-based stroke + shadow, opt-in per render call.
+---
 
-## Workflow & UX
+### 🛠️ อื่นๆ (โครงสร้างพื้นฐาน)
+- ✅ **Global Scratchpad DB**: ฐานข้อมูลสำรองแบบ thread-safe ป้องกันหน้า UI ค้างเมื่อรันแบบ Standalone - Closes #28
+- ✅ **Auto-updater**: ระบบอัปเดตแอปอัตโนมัติเบื้องหลัง
+- ✅ **Non-blocking Toasts**: เปลี่ยนระบบแจ้งเตือนแบบ `alert()` ทั้งแอปให้เป็น Toast Animation (Sonner) ที่สวยงามและไม่ขัดจังหวะการทำงาน
+- ✅ **Code Cleanup**: ลบ Dead code, `console.log`, และเคลียร์ Local ที่ไม่ได้ใช้ออกทั้งหมด
 
-- **Welcome gate** — pick recent project, open another, create new, or "standalone files" escape hatch.
-- **Tabbed sidebar** — Pages, Chapters, Project, Characters, Glossary, Prompts, Profiles, AI Chat. Active tab persists.
-- **Open chapter → auto-switch to Pages** so you see the thumbnails of what you opened.
-- **Resizable 3-pane layout** with persisted sizes.
-- **Cmd+K / Ctrl+K command palette** (cmdk) — jump to chapter, switch profile, run slash commands, open settings. Works on Thai / non-Latin keyboard layouts.
-- **Recent projects** tracked in app data.
-- **i18n** — UI in Thai, English, Japanese, Simplified + Traditional Chinese, Russian, Spanish.
+---
 
-## QA & review
+**สรุป**: ฟังก์ชันทั้งหมดใน Project Scope นี้ได้รับการเขียนโค้ด เติมเต็ม และทดสอบจนสมบูรณ์แล้ว ถือเป็นการยกระดับโปรแกรมให้ก้าวสู่งานระดับพรีเมียมอย่างแท้จริงครับ!
 
-- **Side-by-side QA review page** — source vs translation per block, per-chapter.
-- **Translation provenance badges** — which profile + model produced each block.
-- **Per-block model override** — re-run a single block through a different profile without leaving the QA view.
-- **QC consistency checker** — AI Chat slash command that scans a chapter against the glossary and flags drift.
-- **Thai spell / grammar check** — pluggable check pass.
 
-## Import / export
+## ⚡ Original Features
 
-- **Chapter import** — pick folder, files copied into `source/` of the active chapter.
-- **CBZ export** — per chapter; uses rendered output if available, falls back to source.
-- **TMX import / export** — interop with CAT tools.
-- **Glossary CSV / JSON paste** — bulk add.
-- **Backup zip** — entire project folder.
-
-## Infrastructure
-
-- **Tauri 2.x desktop app** — Windows today; macOS + Linux builds planned.
-- **MCP server** — `koharu-rpc` exposes the agentic tools over Streamable HTTP for external agents.
-- **WebSocket msgpack RPC** between UI and Rust backend.
-- **SQLite migrations** managed in `koharu-project` — 5 migrations to date.
-- **OS keyring** for API key storage (not raw in DB).
-- **GPL-3.0** app + **Apache-2.0** sub-crates (preserved from upstream).
+* Series Project Workspace (per-folder SQLite)
+* Translation Memory (Exact, Jaccard, Semantic Embeddings, TMX)
+* Cost Tracking Dashboard
+* AI Prompt Templates Engine
+* CBZ Multi-chapter Export
+* MCP Server for external agents

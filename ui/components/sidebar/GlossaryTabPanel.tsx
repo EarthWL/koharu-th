@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { useQuery } from '@tanstack/react-query'
 import {
   Loader2Icon,
@@ -8,6 +9,7 @@ import {
   SparklesIcon,
   Trash2Icon,
   UploadIcon,
+  DownloadIcon,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
@@ -44,6 +46,39 @@ export function GlossaryTabPanel() {
   const [importOpen, setImportOpen] = useState(false)
   const refresh = () => void glossary.refetch()
 
+  const viewportRef = useRef<HTMLDivElement>(null)
+
+  const exportCsv = () => {
+    const data = glossary.data ?? []
+    if (data.length === 0) return
+    const header = ['source', 'target', 'category', 'aliases', 'notes']
+    const escapeCsv = (str: string) => {
+      const clean = str.replace(/"/g, '""')
+      return `"${clean}"`
+    }
+    const rows = data.map((item) => {
+      const aliasesStr = Array.isArray(item.aliases)
+        ? item.aliases.join('|')
+        : ''
+      return [
+        escapeCsv(item.sourceText),
+        escapeCsv(item.targetText),
+        escapeCsv(item.category),
+        escapeCsv(aliasesStr),
+        escapeCsv(item.contextNote ?? ''),
+      ].join(',')
+    })
+    const csvContent = '\uFEFF' + [header.join(','), ...rows].join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `glossary_${Date.now()}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
   const filtered = useMemo(() => {
     const all = glossary.data ?? []
     if (!query.trim()) return all
@@ -54,6 +89,13 @@ export function GlossaryTabPanel() {
         .includes(q),
     )
   }, [glossary.data, query])
+
+  const rowVirtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => viewportRef.current,
+    estimateSize: () => 44,
+    overscan: 10,
+  })
 
   return (
     <div className='flex h-full min-h-0 flex-col'>
@@ -74,6 +116,16 @@ export function GlossaryTabPanel() {
               onClick={() => setImportOpen(true)}
             >
               <UploadIcon className='size-3' />
+            </Button>
+            <Button
+              variant='ghost'
+              size='icon-xs'
+              className='size-6'
+              title='Export CSV'
+              onClick={exportCsv}
+              disabled={!glossary.data || glossary.data.length === 0}
+            >
+              <DownloadIcon className='size-3' />
             </Button>
             <Button
               variant='ghost'
@@ -103,23 +155,45 @@ export function GlossaryTabPanel() {
         />
       </div>
 
-      <ScrollArea className='min-h-0 min-w-0 flex-1'>
-        <div className='space-y-1 p-2'>
+      <ScrollArea className='min-h-0 min-w-0 flex-1' viewportRef={viewportRef}>
+        <div className='p-2'>
           {glossary.isLoading ? (
             <p className='text-muted-foreground p-2 text-center text-xs'>
               Loading…
             </p>
-          ) : !glossary.data?.length ? (
+          ) : !filtered.length ? (
             <div className='border-border rounded-md border border-dashed p-3 text-center text-xs'>
               <p className='text-muted-foreground'>
-                Locks specific terms to consistent translations across the
-                series.
+                {query.trim()
+                  ? 'No matching terms found.'
+                  : 'Locks specific terms to consistent translations across the series.'}
               </p>
             </div>
           ) : (
-            filtered.map((e) => (
-              <GlossaryRow key={e.id} entry={e} onChanged={refresh} />
-            ))
+            <div
+              className='relative w-full'
+              style={{
+                height: `${rowVirtualizer.getTotalSize()}px`,
+              }}
+            >
+              {rowVirtualizer.getVirtualItems().map((virtualItem) => {
+                const e = filtered[virtualItem.index]
+                if (!e) return null
+                return (
+                  <div
+                    key={virtualItem.key}
+                    data-index={virtualItem.index}
+                    ref={rowVirtualizer.measureElement}
+                    className='absolute top-0 left-0 w-full pb-1'
+                    style={{
+                      transform: `translateY(${virtualItem.start}px)`,
+                    }}
+                  >
+                    <GlossaryRow entry={e} onChanged={refresh} />
+                  </div>
+                )
+              })}
+            </div>
           )}
         </div>
       </ScrollArea>

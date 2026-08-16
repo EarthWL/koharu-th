@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-05-22T00:00:00Z",
+  "cudnn": {
+    "windows-x86_64": [
+      {
+        "version": "9.8.0.87",
+        "released_at": "2025-03-12T00:00:00Z",
+        "cuda_compat": ["12", "13"],
+        "url": "https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/windows-x86_64/cudnn-windows-x86_64-9.8.0.87_cuda12-archive.zip",
+        "size_bytes": 706241604,
+        "baseline": true,
+        "sha256": null,
+        "notes": "Tested baseline. ABI-compat with CUDA 12.x and 13.x toolkits."
+      },
+      {
+        "version": "9.10.0.50",
+        "released_at": "2025-05-01T00:00:00Z",
+        "cuda_compat": ["12", "13"],
+        "url": "https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/windows-x86_64/cudnn-windows-x86_64-9.10.0.50_cuda12-archive.zip",
+        "size_bytes": 716800000,
+        "baseline": false,
+        "sha256": null,
+        "notes": "Eligible after 30-day soak. Performance improvements for Ada/Blackwell."
+      },
+      {
+        "version": "9.22.0.52",
+        "released_at": "2026-04-15T00:00:00Z",
+        "cuda_compat": ["13"],
+        "url": "https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/windows-x86_64/cudnn-windows-x86_64-9.22.0.52_cuda12-archive.zip",
+        "size_bytes": 720000000,
+        "baseline": false,
+        "sha256": null,
+        "notes": "Recent — within 30-day window, not yet eligible for auto-suggest."
+      }
+    ]
+  }
+}

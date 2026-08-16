@@ -4,10 +4,7 @@ use anyhow::Result;
 use image::{DynamicImage, GrayImage};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
-use koharu_types::{
-    Document, SerializableDynamicImage, TextAlign, TextBlock, TextShaderEffect, TextStrokeStyle,
-    TextStyle,
-};
+use koharu_types::{Document, TextAlign, TextBlock, TextShaderEffect, TextStrokeStyle, TextStyle};
 
 use crate::{
     font::{FamilyName, Font, FontBook, Properties},
@@ -118,16 +115,29 @@ impl Renderer {
             let mut surface = tiny_skia::Pixmap::new(width, height)
                 .ok_or_else(|| anyhow::anyhow!("Failed to create composition surface"))?;
 
-            // Draw base image (inpainted or original)
+            // Draw base image (inpainted or original). All three
+            // tiny-skia constructors below return Option and used to
+            // `.unwrap()` — a zero-dimension or stride-mismatched image
+            // (corrupt/partial user upload) would panic the whole render
+            // path. Propagate as errors instead.
             let mut base_rgba = inpainted.to_rgba8().into_raw();
             premultiply_rgba(&mut base_rgba);
+            let base_rect = tiny_skia::Rect::from_xywh(0.0, 0.0, width as f32, height as f32)
+                .ok_or_else(|| {
+                    anyhow::anyhow!("invalid composition rect: {width}x{height}")
+                })?;
+            let base_pixmap = tiny_skia::PixmapRef::from_bytes(&base_rgba, width, height)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "base image byte length mismatch for {width}x{height} (got {} bytes)",
+                        base_rgba.len()
+                    )
+                })?;
             surface.fill_path(
-                &tiny_skia::PathBuilder::from_rect(
-                    tiny_skia::Rect::from_xywh(0.0, 0.0, width as f32, height as f32).unwrap(),
-                ),
+                &tiny_skia::PathBuilder::from_rect(base_rect),
                 &tiny_skia::Paint {
                     shader: tiny_skia::Pattern::new(
-                        tiny_skia::PixmapRef::from_bytes(&base_rgba, width, height).unwrap(),
+                        base_pixmap,
                         tiny_skia::SpreadMode::Pad,
                         tiny_skia::FilterQuality::Bilinear,
                         1.0,
@@ -143,14 +153,26 @@ impl Renderer {
 
             if let Some(brush_layer) = &document.brush_layer {
                 let brush = brush_layer.to_rgba8();
-                surface.draw_pixmap(
-                    0,
-                    0,
-                    tiny_skia::PixmapRef::from_bytes(&brush, width, height).unwrap(),
-                    &tiny_skia::PixmapPaint::default(),
-                    tiny_skia::Transform::identity(),
-                    None,
-                );
+                // Brush layer may differ in size from the base image if
+                // a stale/mismatched layer is loaded — skip it rather
+                // than panic when the byte length doesn't match.
+                match tiny_skia::PixmapRef::from_bytes(&brush, width, height) {
+                    Some(brush_pixmap) => {
+                        surface.draw_pixmap(
+                            0,
+                            0,
+                            brush_pixmap,
+                            &tiny_skia::PixmapPaint::default(),
+                            tiny_skia::Transform::identity(),
+                            None,
+                        );
+                    }
+                    None => {
+                        tracing::warn!(
+                            "brush layer byte length mismatch for {width}x{height} — skipping brush"
+                        );
+                    }
+                }
             }
 
             for text_block in text_blocks {
@@ -161,10 +183,12 @@ impl Renderer {
                 let block_height = block.height();
                 let mut sprite_data = block.0.to_rgba8().into_raw();
                 premultiply_rgba(&mut sprite_data);
-                let sprite = tiny_skia::PixmapRef::from_bytes(&sprite_data, block_width, block_height)
-                    .ok_or_else(|| anyhow::anyhow!("Failed to create sprite pixmap ref"))?;
+                let sprite =
+                    tiny_skia::PixmapRef::from_bytes(&sprite_data, block_width, block_height)
+                        .ok_or_else(|| anyhow::anyhow!("Failed to create sprite pixmap ref"))?;
 
-                let mut transform = tiny_skia::Transform::from_translate(text_block.x, text_block.y);
+                let mut transform =
+                    tiny_skia::Transform::from_translate(text_block.x, text_block.y);
 
                 if let Some(rotation) = text_block.rotation_deg
                     && rotation != 0.0
@@ -212,7 +236,7 @@ impl Renderer {
                 px[2] = ((px[2] as u32 * 255 + alpha / 2) / alpha).min(255) as u8;
             }
 
-            document.rendered = Some(SerializableDynamicImage(DynamicImage::ImageRgba8(img)));
+            document.rendered = Some(DynamicImage::ImageRgba8(img).into());
         }
         Ok(())
     }
@@ -241,7 +265,6 @@ impl Renderer {
             translation: Some(translation.clone()),
             ..Default::default()
         };
-
         let mut style = text_block.style.clone().unwrap_or_else(|| TextStyle {
             font_families: font_families_for_text(&normalized_translation),
             font_size: None,
@@ -253,12 +276,23 @@ impl Renderer {
             letter_spacing_px: None,
             min_font_size: None,
             vertical_align: None,
+            baseline_shift_px: None,
+            horizontal_scale: None,
         });
 
         apply_global_font_family(&mut style.font_families, font_family);
         apply_default_font_families(&mut style.font_families, &normalized_translation);
         let font = self.select_font(&style)?;
-        let block_effect = style.effect.unwrap_or(effect);
+        let mut block_effect = style.effect.unwrap_or(effect);
+
+        // If the user requested bold/italic, check if the matched font is actually bold/italic.
+        // If not (fell back to Regular), automatically enable synthetic faux bold/italic as a fallback!
+        if block_effect.bold && font.attributes.weight < fontique::FontWeight::BOLD {
+            block_effect.faux_bold = true;
+        }
+        if block_effect.italic && font.attributes.style == fontique::FontStyle::Normal {
+            block_effect.faux_italic = true;
+        }
         let color = text_block
             .style
             .as_ref()
@@ -328,6 +362,7 @@ impl Renderer {
                 .with_writing_mode(writing_mode)
                 .with_line_height(line_height)
                 .with_letter_spacing(letter_spacing)
+                .with_horizontal_scale(style.horizontal_scale.unwrap_or(1.0))
                 .with_min_font_size(min_size);
             if let Some(size) = manual_size {
                 tl = tl.with_font_size(size);
@@ -369,7 +404,33 @@ impl Renderer {
         if let Some(va) = style.vertical_align {
             apply_vertical_align(&mut layout, layout_box.height, va);
         }
+        if let Some(shift) = style.baseline_shift_px {
+            for line in &mut layout.lines {
+                if writing_mode.is_vertical() {
+                    line.baseline.0 += shift;
+                } else {
+                    line.baseline.1 -= shift;
+                }
+            }
+        }
         align_layout_horizontally(&mut layout, writing_mode, layout_box.width, text_align);
+
+        // Expand the layout surface to match layout_box dimensions before rendering.
+        //
+        // `align_layout_horizontally` shifts glyph baseline positions for center/right
+        // alignment relative to `layout_box.width`, but `renderer.render()` creates a
+        // Pixmap of `layout.width × layout.height` (the tight ink-bounds size).  When
+        // center/right offsets push glyphs beyond `layout.width`, they are drawn outside
+        // the Pixmap and silently clipped — the translation visually "overflows" the
+        // text block on canvas.
+        //
+        // By setting layout.width/height to layout_box dimensions here, the renderer
+        // allocates a surface that is exactly the block size.  Glyphs at their final
+        // (alignment-adjusted) positions are always within bounds.  For overflow text
+        // (auto-fit fell back to min_font_size), tiny_skia clips at the surface edge —
+        // truncation is visible but does not exceed the block boundary.
+        layout.width = layout_box.width;
+        layout.height = layout_box.height;
 
         let resolved_stroke = resolve_stroke_style(
             text_block,
@@ -385,6 +446,7 @@ impl Renderer {
                 color,
                 effect: block_effect,
                 stroke: resolved_stroke,
+                horizontal_scale: style.horizontal_scale.unwrap_or(1.0),
                 ..Default::default()
             },
         )?;
@@ -393,7 +455,7 @@ impl Renderer {
         text_block.y = layout_box.y;
         text_block.width = layout_box.width;
         text_block.height = layout_box.height;
-        text_block.rendered = Some(SerializableDynamicImage(DynamicImage::ImageRgba8(rendered)));
+        text_block.rendered = Some(DynamicImage::ImageRgba8(rendered).into());
         Ok(())
     }
 
@@ -402,6 +464,17 @@ impl Renderer {
             .fontbook
             .lock()
             .map_err(|_| anyhow::anyhow!("Failed to lock fontbook"))?;
+
+        let mut props = Properties::default();
+        if let Some(effect) = style.effect {
+            if effect.bold {
+                props.weight = fontique::FontWeight::BOLD;
+            }
+            if effect.italic {
+                props.style = fontique::FontStyle::Italic;
+            }
+        }
+
         let font = fontbook.query(
             style
                 .font_families
@@ -409,7 +482,7 @@ impl Renderer {
                 .map(|family| FamilyName::Title(family.to_string()))
                 .collect::<Vec<_>>()
                 .as_slice(),
-            &Properties::default(),
+            &props,
         )?;
         Ok(font)
     }

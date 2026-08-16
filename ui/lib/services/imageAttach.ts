@@ -73,7 +73,9 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 /** Parse the JSON string stored in `chat_messages.attachments`. */
-export function parseAttachments(raw: string | null | undefined): ChatAttachment[] {
+export function parseAttachments(
+  raw: string | null | undefined,
+): ChatAttachment[] {
   if (!raw) return []
   try {
     const parsed = JSON.parse(raw)

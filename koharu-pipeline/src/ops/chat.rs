@@ -3,14 +3,12 @@
 //! the in-app AI Chat can pull wiki / blog pages into context without
 //! hitting browser CORS.
 
-use std::time::Duration;
-
-use anyhow::Context;
 use koharu_api::commands::{
     ChatClearResult, ChatListPayload, ChatMessageAddPayload, ChatMessageDeleteFromPayload,
     ChatMessageDeletePayload, ChatMessageDto, WebFetchPayload, WebFetchResult,
 };
 use koharu_project::chat::{self as chat_ops, ChatMessage, ChatMessageInsert};
+use std::time::Duration;
 
 use crate::AppResources;
 
@@ -114,15 +112,30 @@ fn to_dto(m: ChatMessage) -> ChatMessageDto {
     }
 }
 
-async fn require_project(
-    state: &AppResources,
-) -> anyhow::Result<koharu_project::Project> {
-    state
-        .project
-        .read()
-        .await
-        .clone()
-        .context("No project is currently open")
+async fn require_project(state: &AppResources) -> anyhow::Result<koharu_project::Project> {
+    let guard = state.project.read().await;
+    if let Some(p) = guard.as_ref() {
+        return Ok(p.clone());
+    }
+    drop(guard);
+
+    let mut write_guard = state.project.write().await;
+    if let Some(p) = write_guard.as_ref() {
+        return Ok(p.clone());
+    }
+
+    let app_root = state.lib_root.parent().unwrap_or(&state.lib_root);
+    let global_project_path = app_root.join("global_project");
+    std::fs::create_dir_all(&global_project_path).ok();
+
+    let project = if global_project_path.join("series.koharuproj").exists() {
+        koharu_project::Project::open(&global_project_path)?
+    } else {
+        koharu_project::Project::create(&global_project_path, "Global Scratchpad", state.version)?
+    };
+
+    *write_guard = Some(project.clone());
+    Ok(project)
 }
 
 // ---------------------------------------------------------------
@@ -132,7 +145,7 @@ async fn require_project(
 // ---------------------------------------------------------------
 
 const MAX_BYTES: usize = 1_500_000; // ~1.5 MB cap
-const TIMEOUT_SECS: u64 = 12;
+const TIMEOUT_SECS: u64 = 10; // Engineering Standard 1.8: network floor < 10s
 
 pub async fn web_fetch_url(
     _state: AppResources,
@@ -143,7 +156,7 @@ pub async fn web_fetch_url(
         anyhow::bail!("URL must start with http:// or https://");
     }
 
-    let client = reqwest::Client::builder()
+    let client = koharu_http::create_client_builder()
         .timeout(Duration::from_secs(TIMEOUT_SECS))
         .redirect(reqwest::redirect::Policy::limited(5))
         .user_agent("koharu-ai-chat/0.1 (manga translation assistant)")
@@ -161,7 +174,11 @@ pub async fn web_fetch_url(
 
     let bytes = res.bytes().await?;
     let truncated = bytes.len() > MAX_BYTES;
-    let slice = if truncated { &bytes[..MAX_BYTES] } else { &bytes[..] };
+    let slice = if truncated {
+        &bytes[..MAX_BYTES]
+    } else {
+        &bytes[..]
+    };
     let raw = String::from_utf8_lossy(slice).to_string();
 
     let (title, text) = if content_type.contains("html") || looks_like_html(&raw) {
@@ -183,7 +200,14 @@ pub async fn web_fetch_url(
 }
 
 fn looks_like_html(s: &str) -> bool {
-    let head = &s[..s.len().min(2048)].to_ascii_lowercase();
+    // Cap the scan to ~2 KB, backing off to a UTF-8 char boundary so a
+    // multi-byte sequence (common on non-ASCII pages) is never split — a
+    // raw `&s[..2048]` slice panics when 2048 lands mid-character.
+    let mut end = s.len().min(2048);
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    let head = s[..end].to_ascii_lowercase();
     head.contains("<html") || head.contains("<!doctype html")
 }
 

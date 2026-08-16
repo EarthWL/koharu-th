@@ -1,10 +1,11 @@
 use std::ops::Deref;
+use std::sync::Arc;
 
 use ::image::{ColorType, DynamicImage, codecs::webp::WebPEncoder};
 use serde::{Deserialize, Serialize, Serializer};
 
 #[derive(Debug, Default, Clone)]
-pub struct SerializableDynamicImage(pub DynamicImage);
+pub struct SerializableDynamicImage(pub Arc<DynamicImage>);
 
 impl Serialize for SerializableDynamicImage {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -31,7 +32,7 @@ impl<'de> Deserialize<'de> for SerializableDynamicImage {
     {
         let bytes: Vec<u8> = serde_bytes::deserialize(deserializer)?;
         let img = ::image::load_from_memory(&bytes).map_err(serde::de::Error::custom)?;
-        Ok(SerializableDynamicImage(img))
+        Ok(SerializableDynamicImage(Arc::new(img)))
     }
 }
 
@@ -45,12 +46,18 @@ impl Deref for SerializableDynamicImage {
 
 impl From<DynamicImage> for SerializableDynamicImage {
     fn from(image: DynamicImage) -> Self {
-        SerializableDynamicImage(image)
+        SerializableDynamicImage(Arc::new(image))
     }
 }
 
 impl From<SerializableDynamicImage> for DynamicImage {
     fn from(wrapper: SerializableDynamicImage) -> Self {
-        wrapper.0
+        Arc::try_unwrap(wrapper.0).unwrap_or_else(|arc| (*arc).clone())
+    }
+}
+
+impl From<Arc<DynamicImage>> for SerializableDynamicImage {
+    fn from(arc: Arc<DynamicImage>) -> Self {
+        SerializableDynamicImage(arc)
     }
 }

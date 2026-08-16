@@ -62,7 +62,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
       prompt: [
         `Help me set up the character "${arg || '(unspecified)'}".`,
         'Call characters_list to check if they already exist.',
-        'If not, propose: translatedName (Thai), aliases, role, speechStyle. Confirm with me, then call character_add (isMain=true if they\'re a main cast member).',
+        "If not, propose: translatedName (Thai), aliases, role, speechStyle. Confirm with me, then call character_add (isMain=true if they're a main cast member).",
       ].join('\n'),
     }),
   },
@@ -87,14 +87,15 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   {
     name: 'summarize-chapter',
     argsHint: '[chapter_id]',
-    description: 'Summarise a chapter and offer to write it into chapters.summary.',
+    description:
+      'Summarise a chapter and offer to write it into chapters.summary.',
     build: (arg) => ({
       display: `/summarize-chapter ${arg}`,
       prompt: [
         arg
           ? `Summarise chapter id ${arg}.`
           : 'Summarise the currently-active chapter.',
-        'Call chapters_list to find it, then read any text blocks I\'ve translated.',
+        "Call chapters_list to find it, then read any text blocks I've translated.",
         'Produce a 2-4 sentence summary in Thai (this feeds the rolling-context for future translations).',
         'On my approval, call chapter_update with `summary` set.',
       ].join('\n'),
@@ -171,6 +172,43 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     }),
   },
   {
+    name: 'translate-page',
+    description:
+      'Translate every detected text block on the current page and apply the result via update_text_block per block (no markdown table).',
+    build: (extra) => ({
+      display: `/translate-page ${extra}`.trim(),
+      prompt: [
+        'Translate every detected text_block on the currently-open page',
+        'and APPLY each translation via the `update_text_block` tool — one',
+        'call per block. Do NOT reply with a markdown table; the goal is',
+        'to mutate the document so the canvas renders the translated text.',
+        '',
+        'Steps:',
+        '1. Call `get_text_blocks` to read the open page and get the full',
+        '   block list (index + bbox + sourceText + existing translation).',
+        '2. Use the page image already attached to this message PLUS each',
+        '   block\'s OCR `text` (if populated) to translate into the target',
+        '   language. Respect project context: call `series_meta_get` once',
+        '   for tone/style, `characters_list` for canonical Thai names,',
+        '   `glossary_list` for term mappings. Read these before translating.',
+        '3. For each text_block (by its 0-based array index), call',
+        '   `update_text_block` with `textBlockIndex` set to that index and',
+        '   `translation` set to the Thai text. Make the calls sequentially',
+        '   so each lands in order; do not batch into one giant payload.',
+        '4. After all blocks are updated, reply with a SHORT summary',
+        '   (e.g. "Translated N blocks; applied 1-N via update_text_block").',
+        '   Skip the markdown table — the user will see the translations on',
+        '   the canvas after the next render.',
+        '',
+        'If a block already has a non-empty `translation`, treat it as the',
+        'translator\'s prior choice and keep it unless the user explicitly',
+        'asked to overwrite — surface those as "kept as-is (N blocks)" in',
+        'the final summary.',
+        extra ? `\nExtra context from user: ${extra}` : '',
+      ].join('\n'),
+    }),
+  },
+  {
     name: 'fetch-wiki',
     argsHint: '<url>',
     description:
@@ -198,7 +236,9 @@ export function expandSlash(input: string): {
   const trimmed = input.trim()
   if (!trimmed.startsWith('/')) return null
   const space = trimmed.indexOf(' ')
-  const name = (space === -1 ? trimmed.slice(1) : trimmed.slice(1, space)).toLowerCase()
+  const name = (
+    space === -1 ? trimmed.slice(1) : trimmed.slice(1, space)
+  ).toLowerCase()
   const args = space === -1 ? '' : trimmed.slice(space + 1).trim()
   const cmd = SLASH_COMMANDS.find((c) => c.name === name)
   if (!cmd) return null

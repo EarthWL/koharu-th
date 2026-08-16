@@ -10,14 +10,13 @@ pub use image::SerializableDynamicImage;
 /// app has shipped with since fork; `Manga` is a Japanese-tuned
 /// encoder-decoder (mayocream/manga-ocr) — often better at handwritten
 /// or stylised Japanese, sometimes worse at SFX / latin.
-#[derive(
-    Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash,
-)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum OcrEngine {
-    #[default]
     Mit48px,
     Manga,
+    #[default]
+    Auto,
 }
 
 /// Selectable text-region detector. `Default` keeps the current
@@ -27,14 +26,13 @@ pub enum OcrEngine {
 /// designed to catch SFX / stylised titles / out-of-bubble text
 /// that the default misses. Lazy-loaded ~10MB on first use of the
 /// N (nano) variant.
-#[derive(
-    Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash,
-)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum DetectorEngine {
     #[default]
     Default,
     AnimeYolo,
+    Auto,
 }
 
 impl OcrEngine {
@@ -42,6 +40,7 @@ impl OcrEngine {
         match self {
             OcrEngine::Mit48px => "mit48px",
             OcrEngine::Manga => "manga",
+            OcrEngine::Auto => "auto",
         }
     }
 
@@ -49,6 +48,7 @@ impl OcrEngine {
         match s.to_ascii_lowercase().as_str() {
             "mit48px" | "mit48" | "mit" => Some(OcrEngine::Mit48px),
             "manga" | "manga_ocr" | "mangaocr" => Some(OcrEngine::Manga),
+            "auto" => Some(OcrEngine::Auto),
             _ => None,
         }
     }
@@ -59,6 +59,39 @@ impl DetectorEngine {
         match self {
             DetectorEngine::Default => "default",
             DetectorEngine::AnimeYolo => "anime_yolo",
+            DetectorEngine::Auto => "auto",
+        }
+    }
+}
+
+/// Selectable Inpainting Engine.
+/// `Lama` (Tier 1: Offline, lightweight, fast, default)
+/// `StableDiffusion` (Tier 2: Offline/Local high-quality quantized/OpenVINO or local high-quality path)
+/// `CloudFlux` (Tier 3: Online high-quality via API or premium fallbacks)
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum InpaintEngine {
+    #[default]
+    Lama,
+    StableDiffusion,
+    CloudFlux,
+}
+
+impl InpaintEngine {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            InpaintEngine::Lama => "lama",
+            InpaintEngine::StableDiffusion => "stable_diffusion",
+            InpaintEngine::CloudFlux => "cloud_flux",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "lama" => Some(InpaintEngine::Lama),
+            "stable_diffusion" | "stable-diffusion" | "sd" => Some(InpaintEngine::StableDiffusion),
+            "cloud_flux" | "cloud-flux" | "flux" => Some(InpaintEngine::CloudFlux),
+            _ => None,
         }
     }
 }
@@ -74,9 +107,7 @@ impl DetectorEngine {
 ///   M (medium)      ~80MB
 ///   L (large)       ~150MB
 ///   X (extra large) ~250MB
-#[derive(
-    Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash,
-)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum AnimeYoloVariant {
     #[default]
@@ -85,6 +116,7 @@ pub enum AnimeYoloVariant {
     M,
     L,
     X,
+    Auto,
 }
 
 impl AnimeYoloVariant {
@@ -95,8 +127,19 @@ impl AnimeYoloVariant {
             AnimeYoloVariant::M => "m",
             AnimeYoloVariant::L => "l",
             AnimeYoloVariant::X => "x",
+            AnimeYoloVariant::Auto => "auto",
         }
     }
+}
+
+/// Bounding box layout reading order preference.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadingOrder {
+    #[default]
+    Rtl,
+    Ltr,
+    Custom,
 }
 
 use std::{path::PathBuf, sync::Arc};
@@ -239,6 +282,12 @@ pub struct TextStyle {
     /// behaviour (None) is Top to keep current visual output unchanged.
     #[serde(default)]
     pub vertical_align: Option<VerticalAlign>,
+    /// Shift baseline vertically (positive values shift text up for horizontal writing mode).
+    #[serde(default)]
+    pub baseline_shift_px: Option<f32>,
+    /// Scale glyphs horizontally (e.g. 1.0 is default, 0.9 compresses, 1.1 expands).
+    #[serde(default)]
+    pub horizontal_scale: Option<f32>,
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
@@ -286,7 +335,7 @@ impl Document {
             id,
             path,
             name,
-            image: SerializableDynamicImage(img),
+            image: img.into(),
             width,
             height,
             ..Default::default()
@@ -300,6 +349,160 @@ pub struct State {
 }
 
 pub type AppState = Arc<RwLock<State>>;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiagnosticError {
+    pub code: String,
+    pub msg_th: String,
+    pub details: String,
+}
+
+impl std::fmt::Display for DiagnosticError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}] {}", self.code, self.msg_th)
+    }
+}
+
+impl std::error::Error for DiagnosticError {}
+
+impl DiagnosticError {
+    pub fn new(code: &str, msg_th: &str, details: &str) -> Self {
+        Self {
+            code: code.to_string(),
+            msg_th: msg_th.to_string(),
+            details: details.to_string(),
+        }
+    }
+}
+
+pub fn classify_error(err: &anyhow::Error) -> DiagnosticError {
+    if let Some(diag) = err.downcast_ref::<DiagnosticError>() {
+        return diag.clone();
+    }
+
+    let err_str = format!("{err:#}");
+
+    // 1. LLM / API errors
+    if err_str.contains("API key") || err_str.contains("api_key") || err_str.contains("ApiKey") {
+        return DiagnosticError::new(
+            "ERR_LLM_INVALID_KEY",
+            "ไม่พบ API Key หรือ API Key ไม่ถูกต้อง กรุณาตรวจสอบการตั้งค่าคีย์ในเมนูโปรไฟล์",
+            &err_str,
+        );
+    }
+    if err_str.contains("rate limit") || err_str.contains("RateLimit") || err_str.contains("429") {
+        return DiagnosticError::new(
+            "ERR_LLM_RATE_LIMIT",
+            "เกินขีดจำกัดความเร็วคำขอ (Rate Limit) ของผู้ให้บริการระบบแปล กรุณารอสักครู่แล้วลองใหม่อีกครั้ง",
+            &err_str,
+        );
+    }
+    if err_str.contains("blocked") || err_str.contains("safety") || err_str.contains("harmful") {
+        return DiagnosticError::new(
+            "ERR_LLM_BLOCKED",
+            "คำขอถูกบล็อกจากนโยบายความปลอดภัยของผู้ให้บริการ LLM หรือเนื้อหาถูกปฏิเสธ",
+            &err_str,
+        );
+    }
+
+    // 2. Network errors
+    if err_str.contains("timeout") || err_str.contains("timed out") {
+        return DiagnosticError::new(
+            "ERR_NET_TIMEOUT",
+            "การเชื่อมต่อเครือข่ายหมดเวลา กรุณาตรวจสอบอินเทอร์เน็ตหรือตั้งค่า Proxy",
+            &err_str,
+        );
+    }
+    if err_str.contains("dns")
+        || err_str.contains("resolve host")
+        || err_str.contains("Could not resolve")
+    {
+        return DiagnosticError::new(
+            "ERR_NET_DNS_FAILED",
+            "ไม่สามารถค้นหาโฮสต์ปลายทางได้ (DNS Error) กรุณาตรวจสอบความถูกต้องของ URL หรือเครือข่าย",
+            &err_str,
+        );
+    }
+    if err_str.contains("proxy") || err_str.contains("Socks5") || err_str.contains("HttpProxy") {
+        return DiagnosticError::new(
+            "ERR_NET_PROXY_FAILED",
+            "การเชื่อมต่อผ่าน Proxy ล้มเหลว กรุณาตรวจสอบตัวแปรสภาพแวดล้อมหรือการเชื่อมต่อ VPN/Proxy ของคุณ",
+            &err_str,
+        );
+    }
+
+    // 3. Database errors
+    if err_str.contains("database is locked") || err_str.contains("busy") {
+        return DiagnosticError::new(
+            "ERR_DB_LOCKED",
+            "ฐานข้อมูล SQLite ถูกล็อกเนื่องจากการเขียนซ้อนทับ กรุณารอสักครู่ให้งานก่อนหน้าทำงานเสร็จ",
+            &err_str,
+        );
+    }
+    if err_str.contains("constraint failed") || err_str.contains("UNIQUE constraint") {
+        return DiagnosticError::new(
+            "ERR_DB_CONSTRAINT",
+            "เกิดข้อผิดพลาดของเงื่อนไขฐานข้อมูล (Unique/Constraint) ข้อมูลนี้อาจจะมีอยู่แล้วในระบบ",
+            &err_str,
+        );
+    }
+    if err_str.contains("corrupt") {
+        return DiagnosticError::new(
+            "ERR_DB_CORRUPTED",
+            "ไฟล์ฐานข้อมูลโครงการเสียหาย กรุณาใช้ระบบกู้คืนไฟล์สำรองข้อมูล (Backup Restore)",
+            &err_str,
+        );
+    }
+
+    // 4. ML / Inference errors
+    if err_str.contains("OOM")
+        || err_str.contains("out of memory")
+        || err_str.contains("CUDA error")
+    {
+        return DiagnosticError::new(
+            "ERR_ML_GPU_OOM",
+            "หน่วยความจำการ์ดจอ (VRAM) หรือ RAM ไม่เพียงพอสำหรับประมวลผลโมเดล AI กรุณาลองปรับลดขนาดรูปภาพลง",
+            &err_str,
+        );
+    }
+    if err_str.contains("model not found") || err_str.contains("weights missing") {
+        return DiagnosticError::new(
+            "ERR_ML_MODEL_NOT_FOUND",
+            "ไม่พบไฟล์โมเดล AI หรือการดาวน์โหลดโมเดลไม่สำเร็จ กรุณาตรวจสอบพื้นที่ว่างดิสก์และความเร็วอินเทอร์เน็ต",
+            &err_str,
+        );
+    }
+
+    // 5. File System errors
+    if err_str.contains("disk full") || err_str.contains("No space left on device") {
+        return DiagnosticError::new(
+            "ERR_FS_DISK_FULL",
+            "พื้นที่จัดเก็บข้อมูลบนฮาร์ดดิสก์ของคุณเต็มแล้ว กรุณาเคลียร์พื้นที่เพื่อให้แอปทำงานต่อได้",
+            &err_str,
+        );
+    }
+    if err_str.contains("permission denied") || err_str.contains("Access is denied") {
+        return DiagnosticError::new(
+            "ERR_FS_PERMISSION",
+            "ไม่มีสิทธิ์เข้าถึงหรือแก้ไขไฟล์ระบบ กรุณาเปิดแอปในฐานะผู้ดูแลระบบ (Administrator) หรือตรวจสอบสิทธิ์ของโฟลเดอร์",
+            &err_str,
+        );
+    }
+    if err_str.contains("not found") || err_str.contains("No such file") {
+        return DiagnosticError::new(
+            "ERR_FS_NOT_FOUND",
+            "ไม่พบไฟล์หรือโฟลเดอร์ที่ระบุในเครื่องของคุณ กรุณาตรวจสอบตำแหน่งไฟล์ใหม่อีกครั้ง",
+            &err_str,
+        );
+    }
+
+    // Default error
+    DiagnosticError::new(
+        "ERR_SYSTEM_UNKNOWN",
+        "เกิดข้อผิดพลาดที่ไม่คาดคิดในการประมวลผลข้อมูลภายในระบบ",
+        &err_str,
+    )
+}
 
 #[cfg(test)]
 mod tests {

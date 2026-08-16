@@ -141,11 +141,40 @@ export const windowControls = {
 
 // --- Typed RPC invoke ---
 
+// These commands are registered with `tauri::generate_handler!` in
+// koharu/src/app.rs and are NOT exposed by the WebSocket RPC layer.
+// They have to be invoked through Tauri's native IPC (window.__TAURI_INTERNALS__)
+// or they come back with a generic `ERR_SYSTEM_UNKNOWN` from the WS dispatcher
+// because the method name simply doesn't exist there.
+const TAURI_ONLY_METHODS: ReadonlySet<keyof RpcMethodMap> = new Set([
+  'get_ml_device_config',
+  'set_ml_device_config',
+  'enumerate_cuda_devices',
+  'runtime_cudnn_status',
+  'runtime_install_cudnn',
+  'runtime_check_cudnn_upgrade',
+  'runtime_health',
+  'runtime_gc_stale',
+  'relaunch_app',
+] as const)
+
 export async function invoke<M extends keyof RpcMethodMap>(
   method: M,
   ...args: RpcMethodMap[M][0] extends void ? [] : [RpcMethodMap[M][0]]
 ): Promise<RpcMethodMap[M][1]> {
   const params = args[0]
+
+  // Route Tauri-native commands through the native IPC, not WS RPC.
+  if (TAURI_ONLY_METHODS.has(method)) {
+    if (!isTauriEnv()) {
+      throw new Error(`${method} is only available in the Tauri runtime`)
+    }
+    const { invoke: tauriInvoke } = await import('@tauri-apps/api/core')
+    return (await tauriInvoke(
+      method as string,
+      (params ?? {}) as Record<string, unknown>,
+    )) as RpcMethodMap[M][1]
+  }
 
   // Browser-only: open_external in a new tab
   if (!isTauriEnv() && method === 'open_external') {
@@ -200,27 +229,14 @@ export async function invoke<M extends keyof RpcMethodMap>(
 async function openDocumentsRpc(
   method: 'open_documents' | 'add_documents',
 ): Promise<number> {
-  let files: File[]
+  // Use zero-copy native file dialog on the Rust backend side.
+  // This bypasses browser-fs-access and transferring large binary buffers over WebSocket.
   try {
-    files = await fileOpen({
-      description: 'Documents',
-      mimeTypes: ['image/*'],
-      extensions: ['.png', '.jpg', '.jpeg', '.webp'],
-      multiple: true,
-    })
-  } catch {
+    return await getClient().invoke<number>(method, { files: [] })
+  } catch (error) {
+    reportRpcError(method, error)
     return 0
   }
-  if (!files.length) return 0
-
-  const entries = await Promise.all(
-    files.map(async (file: File) => ({
-      name: file.name,
-      data: new Uint8Array(await file.arrayBuffer()),
-    })),
-  )
-
-  return getClient().invoke<number>(method, { files: entries })
 }
 
 // --- Thumbnail fetch ---
@@ -255,4 +271,39 @@ export function subscribeProcessProgress(
     'process_progress',
     cb,
   )
+}
+
+export function subscribeCollabSync(
+  cb: (p: RpcNotificationMap['collab_sync']) => void,
+): () => void {
+  return getClient().onNotification<RpcNotificationMap['collab_sync']>(
+    'collab_sync',
+    cb,
+  )
+}
+
+export async function publishCollab(
+  event: RpcNotificationMap['collab_sync'],
+): Promise<boolean> {
+  return getClient().invoke<boolean>('collab_publish', event)
+}
+
+export function getHttpUrl(path: string): string {
+  const isDev = process.env.NODE_ENV === 'development'
+  if (isDev) {
+    return `http://127.0.0.1:9999${path}`
+  } else if (
+    typeof window !== 'undefined' &&
+    (window as any).__KOHARU_WS_PORT__
+  ) {
+    const port = (window as any).__KOHARU_WS_PORT__ as number
+    return `http://127.0.0.1:${port}${path}`
+  } else {
+    const proto =
+      typeof location !== 'undefined' && location.protocol === 'https:'
+        ? 'https:'
+        : 'http:'
+    const host = typeof location !== 'undefined' ? location.host : '127.0.0.1'
+    return `${proto}//${host}${path}`
+  }
 }

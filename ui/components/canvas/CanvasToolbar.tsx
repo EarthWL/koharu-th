@@ -30,9 +30,10 @@ import { useLlmModelsQuery, useLlmReadyQuery } from '@/lib/query/hooks'
 import { useDocumentMutations, useLlmMutations } from '@/lib/query/mutations'
 import { useOperationStore } from '@/lib/stores/operationStore'
 import { usePreferencesStore } from '@/lib/stores/preferencesStore'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type ProviderProfileDto } from '@/lib/api'
 import { effectiveDbProvider } from '@/lib/services/profileHelpers'
+import { toast } from 'sonner'
 
 const PROVIDER_LABEL: Record<string, string> = {
   openai: 'OpenAI',
@@ -76,6 +77,9 @@ function WorkflowButtons() {
     operation?.type === 'process-current' && operation?.step === 'inpaint'
   const isRendering =
     operation?.type === 'process-current' && operation?.step === 'render'
+  // Disable all pipeline buttons while a document is still loading so the
+  // user cannot trigger detect/ocr/etc before the document is ready.
+  const isLoading = operation?.type === 'load-khr'
 
   const handleTranslate = async () => {
     setGenerating(true)
@@ -95,7 +99,7 @@ function WorkflowButtons() {
         size='xs'
         onClick={detect}
         data-testid='toolbar-detect'
-        disabled={isDetecting}
+        disabled={isDetecting || isLoading}
       >
         {isDetecting ? (
           <LoaderCircleIcon className='size-4 animate-spin' />
@@ -112,7 +116,7 @@ function WorkflowButtons() {
         size='xs'
         onClick={ocr}
         data-testid='toolbar-ocr'
-        disabled={isOcr}
+        disabled={isOcr || isLoading}
       >
         {isOcr ? (
           <LoaderCircleIcon className='size-4 animate-spin' />
@@ -128,7 +132,7 @@ function WorkflowButtons() {
         variant='ghost'
         size='xs'
         onClick={handleTranslate}
-        disabled={!isLlmAvailable || generating}
+        disabled={!isLlmAvailable || generating || isLoading}
         data-testid='toolbar-translate'
       >
         {generating ? (
@@ -146,7 +150,7 @@ function WorkflowButtons() {
         size='xs'
         onClick={inpaint}
         data-testid='toolbar-inpaint'
-        disabled={isInpainting}
+        disabled={isInpainting || isLoading}
       >
         {isInpainting ? (
           <LoaderCircleIcon className='size-4 animate-spin' />
@@ -163,7 +167,7 @@ function WorkflowButtons() {
         size='xs'
         onClick={render}
         data-testid='toolbar-render'
-        disabled={isRendering}
+        disabled={isRendering || isLoading}
       >
         {isRendering ? (
           <LoaderCircleIcon className='size-4 animate-spin' />
@@ -177,6 +181,7 @@ function WorkflowButtons() {
 }
 
 function LlmStatusPopover() {
+  const queryClient = useQueryClient()
   const { data: llmModels = [] } = useLlmModelsQuery()
   const llmSelectedModel = useLlmUiStore((state) => state.selectedModel)
   const llmSelectedLanguage = useLlmUiStore((state) => state.selectedLanguage)
@@ -184,6 +189,7 @@ function LlmStatusPopover() {
   const { data: llmReady = false } = useLlmReadyQuery()
   const { llmSetSelectedModel, llmSetSelectedLanguage, llmToggleLoadUnload } =
     useLlmMutations()
+  const { autoDetectSourceLanguage } = useDocumentMutations()
   const {
     cloudProvider,
     setCloudProvider,
@@ -196,6 +202,12 @@ function LlmStatusPopover() {
   } = usePreferencesStore()
   const { t } = useTranslation()
   const isCloudActive = cloudProvider !== 'none'
+
+  const { data: backendAddons = [] } = useQuery({
+    queryKey: ['app', 'addons'],
+    queryFn: () => api.getInstalledAddons(),
+    enabled: !!(window as any).__TAURI__,
+  })
 
   // Profiles drive the engine picker — local engine is always available;
   // each saved profile becomes one option.
@@ -311,7 +323,11 @@ function LlmStatusPopover() {
             className={`size-1.5 rounded-full ${
               llmReady || isCloudActive ? 'bg-white' : 'bg-muted-foreground/40'
             }`}
-            animate={llmReady || isCloudActive ? { opacity: [1, 0.5, 1] } : { opacity: 1 }}
+            animate={
+              llmReady || isCloudActive
+                ? { opacity: [1, 0.5, 1] }
+                : { opacity: 1 }
+            }
             transition={
               llmReady || isCloudActive
                 ? { duration: 2, repeat: Infinity, ease: 'easeInOut' }
@@ -371,8 +387,14 @@ function LlmStatusPopover() {
 
           {!isCloudActive ? (
             <>
-              <Select value={llmSelectedModel} onValueChange={llmSetSelectedModel}>
-                <SelectTrigger data-testid='llm-model-select' className='w-full'>
+              <Select
+                value={llmSelectedModel}
+                onValueChange={llmSetSelectedModel}
+              >
+                <SelectTrigger
+                  data-testid='llm-model-select'
+                  className='w-full'
+                >
                   <SelectValue placeholder={t('llm.selectPlaceholder')} />
                 </SelectTrigger>
                 <SelectContent position='popper'>
@@ -413,6 +435,29 @@ function LlmStatusPopover() {
                 </Select>
               )}
 
+              {activeLanguages.length > 0 && (
+                <Button
+                  type='button'
+                  variant='secondary'
+                  size='sm'
+                  onClick={async () => {
+                    const detected = await autoDetectSourceLanguage()
+                    if (detected && activeLanguages.includes(detected)) {
+                      llmSetSelectedLanguage(detected)
+                    } else if (detected) {
+                      toast.error(
+                        `Detected: ${detected}, but model doesn't support it.`,
+                      )
+                    } else {
+                      toast.error('Could not detect language.')
+                    }
+                  }}
+                  className='h-6 w-full text-[10px]'
+                >
+                  Auto-detect Source
+                </Button>
+              )}
+
               <Button
                 data-testid='llm-load-toggle'
                 data-llm-ready={llmReady ? 'true' : 'false'}
@@ -430,19 +475,49 @@ function LlmStatusPopover() {
               </Button>
             </>
           ) : (
-            <div className="flex flex-col gap-3">
-              <div className="space-y-1">
-                <label className="text-muted-foreground text-[10px] font-semibold uppercase">Target Language</label>
-                <Select value={cloudTargetLanguage} onValueChange={setCloudTargetLanguage}>
+            <div className='flex flex-col gap-3'>
+              <div className='space-y-1'>
+                <label className='text-muted-foreground text-[10px] font-semibold uppercase'>
+                  Target Language
+                </label>
+                <Select
+                  value={cloudTargetLanguage}
+                  onValueChange={async (lng) => {
+                    setCloudTargetLanguage(lng)
+                    try {
+                      const currentMeta = queryClient.getQueryData<any>(['project', 'series-meta']) || {}
+                      await api.seriesMetaUpdate({ ...currentMeta, targetLanguage: lng })
+                      await queryClient.invalidateQueries({ queryKey: ['project', 'series-meta'] })
+                    } catch (err) {
+                      console.error('Failed to sync target language to project:', err)
+                    }
+                  }}
+                >
                   <SelectTrigger className='w-full'>
-                    <SelectValue placeholder="Language" />
+                    <SelectValue placeholder='Language' />
                   </SelectTrigger>
                   <SelectContent position='popper'>
-                    <SelectItem value="Thai">Thai</SelectItem>
-                    <SelectItem value="English">English</SelectItem>
-                    <SelectItem value="Japanese">Japanese</SelectItem>
-                    <SelectItem value="Chinese">Chinese</SelectItem>
-                    <SelectItem value="Korean">Korean</SelectItem>
+                    <SelectItem value='Thai'>Thai</SelectItem>
+                    <SelectItem value='English'>English</SelectItem>
+                    <SelectItem value='Japanese'>Japanese</SelectItem>
+                    <SelectItem value='Chinese'>Chinese</SelectItem>
+                    
+                    {/* Filter addon languages based on flag files or in-app store */}
+                    {(backendAddons.includes('ko') || usePreferencesStore.getState().installedAddons.includes('addon-ko')) && (
+                      <SelectItem value='Korean'>Korean</SelectItem>
+                    )}
+                    {(backendAddons.includes('fr') || usePreferencesStore.getState().installedAddons.includes('addon-fr')) && (
+                      <SelectItem value='French'>French</SelectItem>
+                    )}
+                    {(backendAddons.includes('de') || usePreferencesStore.getState().installedAddons.includes('addon-de')) && (
+                      <SelectItem value='German'>German</SelectItem>
+                    )}
+                    {(backendAddons.includes('es') || usePreferencesStore.getState().installedAddons.includes('addon-es')) && (
+                      <SelectItem value='Spanish'>Spanish</SelectItem>
+                    )}
+                    {(backendAddons.includes('pt') || usePreferencesStore.getState().installedAddons.includes('addon-pt')) && (
+                      <SelectItem value='Portuguese'>Portuguese</SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -463,7 +538,10 @@ function LlmStatusPopover() {
                   )}
                 </p>
                 <p className='text-muted-foreground/70 mt-1 text-[10px]'>
-                  {t('llm.editProfilesHint', 'Edit profiles in the Profiles sidebar tab.')}
+                  {t(
+                    'llm.editProfilesHint',
+                    'Edit profiles in the Profiles sidebar tab.',
+                  )}
                 </p>
               </div>
             </div>

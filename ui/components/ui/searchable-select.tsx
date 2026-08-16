@@ -1,10 +1,20 @@
 'use client'
 
 import * as React from 'react'
-import { CheckIcon, ChevronDownIcon, SearchIcon, XIcon, Loader2Icon } from 'lucide-react'
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  SearchIcon,
+  XIcon,
+  Loader2Icon,
+} from 'lucide-react'
 
 import { cn } from '@/lib/utils'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import { Input } from '@/components/ui/input'
 
 export type SearchableSelectOption = {
@@ -81,7 +91,7 @@ export function SearchableSelect({
           disabled={disabled}
           data-placeholder={selected ? undefined : ''}
           className={cn(
-            "border-input bg-transparent data-[placeholder]:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 dark:bg-input/30 dark:hover:bg-input/50 flex h-7 w-full items-center justify-between gap-1.5 rounded-md border px-2 py-1 text-left text-xs shadow-xs transition outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+            'border-input data-[placeholder]:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 dark:bg-input/30 dark:hover:bg-input/50 flex h-7 w-full items-center justify-between gap-1.5 rounded-md border bg-transparent px-2 py-1 text-left text-xs shadow-xs transition outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0',
             className,
           )}
         >
@@ -108,7 +118,10 @@ export function SearchableSelect({
       </PopoverTrigger>
       <PopoverContent
         align='start'
-        className={cn('w-[var(--radix-popover-trigger-width)] p-0', contentClassName)}
+        className={cn(
+          'w-[var(--radix-popover-trigger-width)] p-0',
+          contentClassName,
+        )}
       >
         <div className='border-border border-b p-2'>
           <div className='relative'>
@@ -157,7 +170,9 @@ export function SearchableSelect({
                     )}
                   />
                   <span className='min-w-0 flex-1'>
-                    <span className='block truncate font-medium'>{opt.label}</span>
+                    <span className='block truncate font-medium'>
+                      {opt.label}
+                    </span>
                     {opt.description && (
                       <span className='text-muted-foreground block truncate text-[10px]'>
                         {opt.description}

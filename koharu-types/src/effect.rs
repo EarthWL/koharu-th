@@ -9,11 +9,17 @@ pub struct TextShaderEffect {
     pub italic: bool,
     #[serde(default)]
     pub bold: bool,
+    #[serde(default)]
+    pub faux_italic: bool,
+    #[serde(default)]
+    pub faux_bold: bool,
 }
 
 impl TextShaderEffect {
     pub const ITALIC_FLAG: u32 = 1 << 0;
     pub const BOLD_FLAG: u32 = 1 << 1;
+    pub const FAUX_ITALIC_FLAG: u32 = 1 << 2;
+    pub const FAUX_BOLD_FLAG: u32 = 1 << 3;
 
     pub fn flags(self) -> u32 {
         let mut flags = 0u32;
@@ -22,6 +28,12 @@ impl TextShaderEffect {
         }
         if self.bold {
             flags |= Self::BOLD_FLAG;
+        }
+        if self.faux_italic {
+            flags |= Self::FAUX_ITALIC_FLAG;
+        }
+        if self.faux_bold {
+            flags |= Self::FAUX_BOLD_FLAG;
         }
         flags
     }
@@ -34,6 +46,8 @@ impl TextShaderEffect {
         Self {
             italic: false,
             bold: false,
+            faux_italic: false,
+            faux_bold: false,
         }
     }
 }
@@ -46,6 +60,12 @@ impl fmt::Display for TextShaderEffect {
         }
         if self.bold {
             parts.push("bold");
+        }
+        if self.faux_italic {
+            parts.push("fauxItalic");
+        }
+        if self.faux_bold {
+            parts.push("fauxBold");
         }
 
         if parts.is_empty() {
@@ -73,8 +93,12 @@ impl FromStr for TextShaderEffect {
             match token {
                 "italic" => effect.italic = true,
                 "bold" => effect.bold = true,
+                "fauxitalic" | "faux_italic" => effect.faux_italic = true,
+                "fauxbold" | "faux_bold" => effect.faux_bold = true,
                 "normal" | "none" => {}
-                _ => anyhow::bail!("Unknown shader effect: {token}. Valid: italic, bold"),
+                _ => anyhow::bail!(
+                    "Unknown shader effect: {token}. Valid: italic, bold, fauxItalic, fauxBold"
+                ),
             }
         }
 
@@ -88,10 +112,11 @@ impl<'de> Deserialize<'de> for TextShaderEffect {
         D: Deserializer<'de>,
     {
         #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
         struct FlagsRepr {
             italic: Option<bool>,
             bold: Option<bool>,
+            faux_italic: Option<bool>,
+            faux_bold: Option<bool>,
         }
 
         #[derive(Deserialize)]
@@ -102,9 +127,16 @@ impl<'de> Deserialize<'de> for TextShaderEffect {
         }
 
         match Repr::deserialize(deserializer)? {
-            Repr::Flags(FlagsRepr { italic, bold }) => Ok(Self {
+            Repr::Flags(FlagsRepr {
+                italic,
+                bold,
+                faux_italic,
+                faux_bold,
+            }) => Ok(Self {
                 italic: italic.unwrap_or(false),
                 bold: bold.unwrap_or(false),
+                faux_italic: faux_italic.unwrap_or(false),
+                faux_bold: faux_bold.unwrap_or(false),
             }),
             Repr::Legacy(value) => value.parse().map_err(serde::de::Error::custom),
         }
@@ -133,6 +165,8 @@ mod tests {
         let effect = TextShaderEffect::default();
         assert!(!effect.italic);
         assert!(!effect.bold);
+        assert!(!effect.faux_italic);
+        assert!(!effect.faux_bold);
     }
 
     #[test]

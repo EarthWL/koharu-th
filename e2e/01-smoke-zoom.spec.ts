@@ -20,8 +20,10 @@ test('ctrl+wheel zoom is monotonic and slider stays clamped', async ({ page }) =
   await importAndOpenPage(page, PIPELINE_SINGLE)
   const viewport = await getWorkspaceViewport(page)
 
-  const zoomOutDelta = 20
-  const zoomInDelta = -20
+  // Use deltaY = 10 so that step = max(1, 10 * ZOOM_SENSITIVITY(0.1)) = 1%
+  // per wheel event — matches the loop's expected ±1 per tick.
+  const zoomOutDelta = 10
+  const zoomInDelta = -10
 
   let currentZoom = await readZoomPercent(page)
   for (let i = 0; i < 4; i += 1) {

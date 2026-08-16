@@ -30,6 +30,7 @@ pub enum Method {
     InpaintPartial,
     Render,
     UpdateTextBlocks,
+    ReorderTextBlocks,
     UpdateTextBlock,
     TextBlockFitToBubble,
     LlmLoad,
@@ -43,6 +44,10 @@ pub enum Method {
     ProjectClose,
     ProjectCurrent,
     ProjectBackupPicker,
+    ProjectBackupSilent,
+    ProjectBackupList,
+    ProjectBackupRestore,
+    ProjectCheckDiskSpace,
     RecentProjectsList,
     RecentProjectsRemove,
     // Storage management (Settings → Storage panel + NSIS uninstall hook)
@@ -104,11 +109,13 @@ pub enum Method {
     ChatMessagesDeleteFrom,
     ChatMessagesClear,
     WebFetchUrl,
+    CloudLlmCall,
     // Translation queue
     QueueList,
     QueueEnqueue,
     QueueCancel,
     QueueClearFinished,
+    CollabPublish,
 }
 
 impl Method {
@@ -137,6 +144,7 @@ impl Method {
         Method::InpaintPartial,
         Method::Render,
         Method::UpdateTextBlocks,
+        Method::ReorderTextBlocks,
         Method::UpdateTextBlock,
         Method::TextBlockFitToBubble,
         Method::LlmLoad,
@@ -149,6 +157,10 @@ impl Method {
         Method::ProjectClose,
         Method::ProjectCurrent,
         Method::ProjectBackupPicker,
+        Method::ProjectBackupSilent,
+        Method::ProjectBackupList,
+        Method::ProjectBackupRestore,
+        Method::ProjectCheckDiskSpace,
         Method::RecentProjectsList,
         Method::RecentProjectsRemove,
         Method::AppStorageStats,
@@ -202,10 +214,12 @@ impl Method {
         Method::ChatMessagesDeleteFrom,
         Method::ChatMessagesClear,
         Method::WebFetchUrl,
+        Method::CloudLlmCall,
         Method::QueueList,
         Method::QueueEnqueue,
         Method::QueueCancel,
         Method::QueueClearFinished,
+        Method::CollabPublish,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -234,6 +248,7 @@ impl Method {
             Method::InpaintPartial => "inpaint_partial",
             Method::Render => "render",
             Method::UpdateTextBlocks => "update_text_blocks",
+            Method::ReorderTextBlocks => "reorder_text_blocks",
             Method::UpdateTextBlock => "update_text_block",
             Method::TextBlockFitToBubble => "text_block_fit_to_bubble",
             Method::LlmLoad => "llm_load",
@@ -246,6 +261,10 @@ impl Method {
             Method::ProjectClose => "project_close",
             Method::ProjectCurrent => "project_current",
             Method::ProjectBackupPicker => "project_backup_picker",
+            Method::ProjectBackupSilent => "project_backup_silent",
+            Method::ProjectBackupList => "project_backup_list",
+            Method::ProjectBackupRestore => "project_backup_restore",
+            Method::ProjectCheckDiskSpace => "project_check_disk_space",
             Method::RecentProjectsList => "recent_projects_list",
             Method::RecentProjectsRemove => "recent_projects_remove",
             Method::AppStorageStats => "app_storage_stats",
@@ -299,10 +318,12 @@ impl Method {
             Method::ChatMessagesDeleteFrom => "chat_messages_delete_from",
             Method::ChatMessagesClear => "chat_messages_clear",
             Method::WebFetchUrl => "web_fetch_url",
+            Method::CloudLlmCall => "cloud_llm_call",
             Method::QueueList => "queue_list",
             Method::QueueEnqueue => "queue_enqueue",
             Method::QueueCancel => "queue_cancel",
             Method::QueueClearFinished => "queue_clear_finished",
+            Method::CollabPublish => "collab_publish",
         }
     }
 }
@@ -342,6 +363,7 @@ impl FromStr for Method {
             "inpaint_partial" => Method::InpaintPartial,
             "render" => Method::Render,
             "update_text_blocks" => Method::UpdateTextBlocks,
+            "reorder_text_blocks" => Method::ReorderTextBlocks,
             "update_text_block" => Method::UpdateTextBlock,
             "text_block_fit_to_bubble" => Method::TextBlockFitToBubble,
             "llm_load" => Method::LlmLoad,
@@ -354,6 +376,10 @@ impl FromStr for Method {
             "project_close" => Method::ProjectClose,
             "project_current" => Method::ProjectCurrent,
             "project_backup_picker" => Method::ProjectBackupPicker,
+            "project_backup_silent" => Method::ProjectBackupSilent,
+            "project_backup_list" => Method::ProjectBackupList,
+            "project_backup_restore" => Method::ProjectBackupRestore,
+            "project_check_disk_space" => Method::ProjectCheckDiskSpace,
             "recent_projects_list" => Method::RecentProjectsList,
             "recent_projects_remove" => Method::RecentProjectsRemove,
             "app_storage_stats" => Method::AppStorageStats,
@@ -407,10 +433,12 @@ impl FromStr for Method {
             "chat_messages_delete_from" => Method::ChatMessagesDeleteFrom,
             "chat_messages_clear" => Method::ChatMessagesClear,
             "web_fetch_url" => Method::WebFetchUrl,
+            "cloud_llm_call" => Method::CloudLlmCall,
             "queue_list" => Method::QueueList,
             "queue_enqueue" => Method::QueueEnqueue,
             "queue_cancel" => Method::QueueCancel,
             "queue_clear_finished" => Method::QueueClearFinished,
+            "collab_publish" => Method::CollabPublish,
             _ => anyhow::bail!("Unknown method: {s}"),
         };
         Ok(method)

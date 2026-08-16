@@ -22,7 +22,9 @@ export async function summarizeChapter(
   const { cloudProvider, cloudApiKey, cloudApiUrl, cloudModelName } =
     usePreferencesStore.getState()
   if (cloudProvider === 'none') {
-    throw new Error('Pick a Cloud AI provider — summarisation uses the cloud LLM.')
+    throw new Error(
+      'Pick a Cloud AI provider — summarisation uses the cloud LLM.',
+    )
   }
   if (!cloudApiKey) throw new Error('Cloud API Key is missing.')
 

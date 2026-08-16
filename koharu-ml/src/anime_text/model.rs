@@ -341,7 +341,10 @@ impl Module for C3k2 {
     fn forward(&self, xs: &Tensor) -> Result<Tensor> {
         let mut ys = self.cv1.forward(xs)?.chunk(2, 1)?;
         for block in &self.blocks {
-            ys.push(block.forward(ys.last().expect("c3k2 chunk"))?);
+            let last = ys
+                .last()
+                .ok_or_else(|| candle_core::Error::Msg("c3k2 chunk produced no tensors".into()))?;
+            ys.push(block.forward(last)?);
         }
         let refs = ys.iter().collect::<Vec<_>>();
         self.cv2.forward(&Tensor::cat(&refs, 1)?)
@@ -559,7 +562,10 @@ impl Module for A2C2f {
     fn forward(&self, xs: &Tensor) -> Result<Tensor> {
         let mut ys = vec![self.cv1.forward(xs)?];
         for block in &self.blocks {
-            ys.push(block.forward(ys.last().expect("a2c2f output"))?);
+            let last = ys
+                .last()
+                .ok_or_else(|| candle_core::Error::Msg("a2c2f produced no tensors".into()))?;
+            ys.push(block.forward(last)?);
         }
         let refs = ys.iter().collect::<Vec<_>>();
         let ys = self.cv2.forward(&Tensor::cat(&refs, 1)?)?;

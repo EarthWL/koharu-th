@@ -16,6 +16,7 @@ koharu-http = { workspace = true }
 koharu-types = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
+blake3 = { workspace = true }
 image = { workspace = true }
 imageproc = { workspace = true }
 candle-core = { workspace = true }
@@ -39,6 +40,8 @@ objc2-metal = { workspace = true, optional = true }
 objc2-metal-performance-shaders = { workspace = true, optional = true }
 objc2-metal-performance-shaders-graph = { workspace = true, optional = true }
 objc2-foundation = { workspace = true, optional = true }
+ort = { workspace = true, optional = true }
+ndarray = { version = "0.15", optional = true }
 
 [features]
 cuda = [
@@ -57,6 +60,12 @@ metal = [
     "objc2-foundation",
     "objc2-metal-performance-shaders",
     "objc2-metal-performance-shaders-graph",
+]
+dml = [
+    "ort",
+    "ort/directml",
+    "ort/copy-dylibs",
+    "ndarray",
 ]
 
 [dev-dependencies]

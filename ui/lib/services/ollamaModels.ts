@@ -12,6 +12,8 @@
  * (Ollama-native).
  */
 
+import { isMangaRelevantModel } from './modelFilters'
+
 export type OllamaModel = {
   id: string
   name: string
@@ -64,7 +66,9 @@ export async function fetchLocalModels(
   const data = (await res.json()) as OllamaTagsResponse & OpenAiModelsResponse
 
   if (isOpenAiCompat) {
-    return (data.data ?? []).map((m) => ({ id: m.id, name: m.id }))
+    return (data.data ?? [])
+      .filter((m) => isMangaRelevantModel(m.id, { allowImage: false }))
+      .map((m) => ({ id: m.id, name: m.id }))
   }
   return (data.models ?? [])
     .map((m): OllamaModel | null => {
@@ -73,4 +77,8 @@ export async function fetchLocalModels(
       return { id, name: id, size: m.size }
     })
     .filter((m): m is OllamaModel => m !== null)
+    // Local servers often have embedding models installed alongside
+    // chat models (e.g. nomic-embed-text for RAG). Drop them from the
+    // chat picker — same manga-relevance filter as cloud providers.
+    .filter((m) => isMangaRelevantModel(m.id, { allowImage: false }))
 }

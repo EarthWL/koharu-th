@@ -70,8 +70,8 @@ fn write_cbz(
 ) -> Result<()> {
     let f = File::create(out_cbz).map_err(|e| Error::io(out_cbz, e))?;
     let mut zip = zip::ZipWriter::new(f);
-    let opts = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Stored); // images already compressed
+    let opts =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored); // images already compressed
 
     let mut buf = Vec::with_capacity(512 * 1024);
     for (i, page) in pages.iter().enumerate() {

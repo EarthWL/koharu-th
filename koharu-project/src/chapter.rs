@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, TimeZone, Utc};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 
 use crate::db::Conn;
 use crate::error::{Error, Result};
@@ -91,7 +91,8 @@ pub fn insert(conn: &Conn, item: ChapterInsert) -> Result<Chapter> {
         ],
     )?;
     let id = conn.last_insert_rowid();
-    Ok(get(conn, id)?.expect("just inserted row"))
+    get(conn, id)?
+        .ok_or_else(|| crate::error::Error::NotFound(format!("chapter id={id} after insert")))
 }
 
 /// Snap an arbitrary chapter title into a filesystem-safe folder name.
@@ -120,7 +121,7 @@ pub fn folder_name_for(chapter_number: f64, title: Option<&str>) -> String {
 /// `chapters_dir`. Appends "-2", "-3", ... if needed.
 pub fn dedupe_folder_name(chapters_dir: &Path, base: &str) -> String {
     if !chapters_dir.join(base).exists() {
-        return base.to_string()
+        return base.to_string();
     }
     for n in 2..=9999 {
         let cand = format!("{base}-{n}");
@@ -170,16 +171,11 @@ pub fn list_source_pages(project_root: &Path, chapter: &Chapter) -> Result<Vec<P
 }
 
 /// Refresh `page_count` for the given chapter based on what's on disk.
-pub fn refresh_page_count(
-    conn: &Conn,
-    project_root: &Path,
-    chapter_id: i64,
-) -> Result<i64> {
-    let chapter = get(conn, chapter_id)?
-        .ok_or_else(|| Error::InvalidManifest {
-            path: Default::default(),
-            reason: format!("chapter {chapter_id} not found"),
-        })?;
+pub fn refresh_page_count(conn: &Conn, project_root: &Path, chapter_id: i64) -> Result<i64> {
+    let chapter = get(conn, chapter_id)?.ok_or_else(|| Error::InvalidManifest {
+        path: Default::default(),
+        reason: format!("chapter {chapter_id} not found"),
+    })?;
     let pages = list_source_pages(project_root, &chapter)?;
     let count = pages.len() as i64;
     conn.execute(
@@ -204,7 +200,12 @@ pub fn ensure_folder_layout(conn: &mut Conn, project_root: &Path) -> Result<usiz
              WHERE folder_path IS NULL AND file_path IS NOT NULL",
         )?;
         stmt.query_map([], |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, f64>(2)?, r.get(3)?))
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, f64>(2)?,
+                r.get(3)?,
+            ))
         })?
         .collect::<rusqlite::Result<_>>()?
     };
@@ -248,7 +249,10 @@ pub fn ensure_folder_layout(conn: &mut Conn, project_root: &Path) -> Result<usiz
         )?;
         migrated += 1;
     }
-    tracing::info!(count = migrated, "auto-wrapped legacy chapters into folders");
+    tracing::info!(
+        count = migrated,
+        "auto-wrapped legacy chapters into folders"
+    );
     Ok(migrated)
 }
 
@@ -294,10 +298,7 @@ pub fn update(conn: &Conn, id: i64, patch: ChapterPatch) -> Result<Option<Chapte
     values.push(now.into());
     values.push(id.into());
 
-    let sql = format!(
-        "UPDATE chapters SET {} WHERE id = ?",
-        sets.join(", ")
-    );
+    let sql = format!("UPDATE chapters SET {} WHERE id = ?", sets.join(", "));
     let changed = conn.execute(&sql, rusqlite::params_from_iter(values.iter()))?;
     if changed == 0 {
         return Ok(None);
