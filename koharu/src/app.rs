@@ -406,7 +406,20 @@ pub async fn run() -> Result<()> {
             .await?;
         tokio::signal::ctrl_c().await?;
     } else {
-        app.run(|_, _| {});
+        app.run(|_app_handle, event| {
+            // Force-terminate the process on exit instead of letting the
+            // async runtime drop normally. Heavy GPU/CUDA inference runs on
+            // blocking tasks that tokio CANNOT abort at runtime shutdown; if
+            // one is in-flight (or wedged) when the last window closes, the
+            // runtime drop blocks forever — leaving a ~200%-CPU zombie that
+            // keeps the GPU busy and trips the Windows display watchdog
+            // (TDR / LiveKernelEvent 0x1b8 / 0x1a8), flickering the screen.
+            // Project saves are atomic, so a hard exit here is safe and
+            // guarantees a clean, prompt shutdown.
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                std::process::exit(0);
+            }
+        });
     }
 
     Ok(())
