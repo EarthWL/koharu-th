@@ -1,11 +1,11 @@
 # v2 architecture refactor — design doc
 
-**Status**: design locked, implementation pending
+**Status**: design locked; Phases 1–6.5 implemented on the branch, Phase 6.6 (RC prep) pending
 **Branch**: `arch/v2-foundation` (worktree at `../koharu-th-v2/`)
 **Base tag**: `arch/v2-base` (anchored at the commit this doc lands on)
 **Target release**: `v2.0.0`
 **Estimated effort**: ~4-5 months
-**Last updated**: 2026-05-19
+**Last updated**: 2026-09-05
 
 This document is the **single source of truth** for the v2 rebuild.
 Decisions captured here are locked unless the doc is amended via PR.
@@ -97,12 +97,19 @@ koharu-ml/              (unchanged) — model weights, loading, candle bindings
 koharu-rpc/             (unchanged) — RPC layer (~60 tools)
 koharu-api/             (unchanged) — API contracts / DTOs
 koharu-http/            (unchanged) — HTTP server (UI-facing)
-koharu-types/           (likely deprecated) — types move into koharu-core; this
-                            crate may be deleted after migration
+koharu-types/           (still live) — legacy `Document` / `TextBlock` DTOs. Still
+                            consumed by ~34 files after Phase 4 (the engine
+                            bridge mirrors Scene ↔ Document); deletion deferred
+                            to 2.1 — see §9 Q2
 koharu/                 (binary)  — thin entry point
-tests/integration/  ⭐ NEW — end-to-end pipeline regression tests against golden
-                            pages
 ```
+
+> **Integration tests** — the design originally called for a separate
+> `tests/integration` crate. In practice they landed next to the code
+> they exercise: `koharu-project/tests/v1_to_v2_migration.rs`
+> (migration end-to-end) and the golden/dual-apply suite inside
+> `koharu-pipeline/src/engine_bridge.rs`. No separate crate exists
+> and none is planned.
 
 **Notes on the split**:
 - `koharu-engines/` is the fork's name for what upstream calls
@@ -151,6 +158,9 @@ pub enum Op {
 
     // ── Text block lifecycle ─────────────────────────────────
     AddTextBlock { page: PageId, id: NodeId, region: Region, source_lang: Option<String> },
+    /// Inverse of RemoveTextBlock — restores the block at its ORIGINAL
+    /// index instead of appending (added in undo 3a, 2026-05-20).
+    InsertTextBlock { page: PageId, index: usize, block: TextBlock },
     UpdateTextBlock { page: PageId, id: NodeId, patch: TextBlockPatch },
     RemoveTextBlock { page: PageId, id: NodeId },
 
@@ -975,7 +985,7 @@ Decisions deferred until a phase forces them.
 | # | Question | Forced by | Default if unforced |
 |---|---|---|---|
 | 1 | Op log persistence — should we eventually persist op log to SQLite to enable cross-session undo? | User feedback in 2.x.x cycle | In-memory only stays |
-| 2 | `koharu-types` crate — keep as thin re-export shim or delete entirely after migration? | End of Phase 4 cleanup | Delete |
+| 2 | `koharu-types` crate — keep as thin re-export shim or delete entirely after migration? | ~~End of Phase 4 cleanup~~ Phase 4 ended with it still imported by ~34 files (the Scene↔Document bridge depends on it). Deferred to 2.1. | Keep through 2.0; delete in 2.1 once the frontend DTO moves to Scene |
 | 3 | Engine plugin system — should external crates be able to register engines via `inventory::submit!`? | 3rd-party engine request | Yes, but document the API contract clearly first |
 | 4 | Event bus implementation — `tokio::sync::broadcast`, `crossbeam-channel`, or a custom subscriber registry? | Phase 5 | `tokio::sync::broadcast` (matches Tauri ecosystem) |
 | 5 | Vulkan / ZLUDA / PTX-JIT — adopt as part of v2 or defer to 2.1? | Phase 4 testing on AMD/Intel hardware | Defer to 2.1 (out of v2 scope) |
@@ -1016,6 +1026,38 @@ Decisions deferred until a phase forces them.
 Tracks amendments to the locked spec after the doc first landed.
 Each entry: date, trigger (issue / re-review), summary of what
 changed, link to the affected section(s).
+
+### 2026-09-05 — Doc/code reconciliation after the 2026-05-20/21 undo + Engines-tab work
+
+**Trigger**: scrutinize pass over the three docs against branch tip
+`b2ce2e78`. The doc had not been touched since 2026-05-19 while ~40
+commits landed on top (undo 3a–3c, KI-1/KI-3, Engines-tab
+consolidation, Cloud engines). No design decision changed; this entry
+records what the code already does so the doc stops disagreeing with it.
+
+**Changed**:
+- **§4.1** — added `Op::InsertTextBlock { page, index, block }`. It is
+  the inverse of `RemoveTextBlock`; without it an undo of a delete
+  would append the block and reorder the page. Landed in `bcb5e6f3`.
+- **§3** — `koharu-types` is NOT deprecated after Phase 4. The engine
+  bridge keeps a `Document` mirror alongside the `Scene`, so the crate
+  stays until the frontend DTO moves to Scene (2.1). `tests/integration`
+  crate never materialised; integration tests live in
+  `koharu-project/tests/` and `koharu-pipeline/src/engine_bridge.rs`.
+- **§9 Q2** — re-forced to Phase 6.6 with default "keep through 2.0".
+- **Header** — status / last-updated brought current.
+
+**Not changed (verified still true)**: all §2 locked decisions;
+`OpInverse` + `Op::NoteTmHit` gone; `/blob/{hex}` route; broadcast
+event bus (Q4 default); history cap 100; V007 + `peek_migration` +
+`rfd::MessageDialog` confirm flow.
+
+**Known design debt not yet scheduled** (tracked in `v2-progress.md`):
+two engine-selection paths — standalone Detect/OCR read the machine-wide
+`engine_profile`, while full Process / batch still go through the legacy
+`ProcessRequest.{detector_engine, ocr_engine, …}` fields via a frontend
+bridge (`readPipelineEngines()`). Unifying them means porting
+`run_pipeline_inner` onto the DAG resolver — 2.1 candidate.
 
 ### 2026-05-19 — External audit #2 follow-through (5 findings)
 

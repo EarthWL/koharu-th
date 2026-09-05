@@ -398,18 +398,28 @@ ComfyUI ไม่ใช่แค่ UI
 
 # Suggested Architecture Stack
 
-| Layer | Recommended |
-|---|---|
-| OCR | MangaOCR + Florence-2 |
-| Translation | Gemini 3.5 Flash / Claude |
-| Local LLM | Qwen 3 |
-| Retrieval | BGE-M3 |
-| Cleanup | Lama Cleaner |
-| Redraw | FLUX Kontext |
-| Advanced Img2Img | SDXL + ControlNet |
-| Workflow Engine | ComfyUI |
-| Character Consistency | IP-Adapter |
-| Agent Runtime | MCP-style tools |
+> **หมายเหตุ (2026-09-05)**: เพิ่มคอลัมน์ "มีแล้วใน koharu-th" และ
+> "ArtifactKind" เพื่อให้แยกออกว่าอะไรคือของที่มีอยู่ อะไรคืออัปเกรด
+> และอะไรคือของใหม่ทั้งชุด v2 สร้าง `Engine` registry + `ArtifactKind`
+> DAG มาเพื่อรองรับการเสียบโมเดลใหม่แบบนี้โดยเฉพาะ — ข้อเสนอโมเดลใหม่
+> ควรระบุว่า consume/produce artifact ไหน จึงจะเข้า pipeline ได้โดยไม่
+> แตะ core. รายการที่ติด "v3" คือ scope ใหญ่กว่า roadmap 2.x (ต้องมี
+> runtime ภายนอก เช่น ComfyUI หรือ diffusion model) และควรแยกเป็น
+> เอกสาร vision ต่างหาก
+
+| Layer | Recommended | มีแล้วใน koharu-th (v2 branch) | ArtifactKind | สถานะ |
+|---|---|---|---|---|
+| OCR | MangaOCR + Florence-2 | manga-ocr, MIT-48px, Anime Text YOLO, Cloud Vision OCR (profile-driven) | `DetectionBoxes` → `OcrText` | manga-ocr มีแล้ว; Florence-2 = engine ใหม่ (detector+OCR ในตัวเดียว) |
+| Translation | Gemini 3.5 Flash / Claude | 5 provider ผ่าน LLM Profile (OpenAI / Claude / Gemini / OpenRouter / Local) + `cloud_llm_translate` engine | `OcrText` → `Translation` | มีแล้ว; เหลือแค่ปรับ model id ใน profile |
+| Local LLM | Qwen 3 | `local_llm_translate` (candle) | `OcrText` → `Translation` | มีแล้ว; Qwen 3 = เปลี่ยน weights ไม่ใช่ engine ใหม่ |
+| Retrieval | BGE-M3 | TM exact + FTS5 fuzzy + vector embeddings (V005) + TMX 1.4 | ไม่ใช่ pipeline stage (อ่านผ่าน `ProjectView`) | มีแล้ว; BGE-M3 = เปลี่ยน embedding model |
+| Cleanup | Lama Cleaner | `lama_inpaint` (LaMa, KI-3 gate) | `SegmentationMask` → `InpaintedImage` | มีแล้ว; AOT / Flux.2 Klein เป็น optional backport ตาม §5 Phase 4 |
+| Redraw | FLUX Kontext | — | `InpaintedImage` → `InpaintedImage` (img2img) | ใหม่ · v3 |
+| Advanced Img2Img | SDXL + ControlNet | — | เหมือน Redraw | ใหม่ · v3 |
+| Workflow Engine | ComfyUI | — (DAG resolver ใน `koharu-engines` เป็น in-process เท่านั้น) | remote engine ที่ produce artifact ผ่าน HTTP | ใหม่ · v3 |
+| Character Consistency | IP-Adapter | character roster + speech style ใน DB (ข้อความ) | — | ฝั่ง text มีแล้ว; ฝั่งภาพ = v3 |
+| Agent Runtime | MCP-style tools | MCP server ~60 tools + AI Chat agentic + slash commands | — | มีแล้ว |
+| AI Typesetting (§7) | — | overflow/tight warning, min-font-size, per-block rotation, Thai post-process | `Translation` → `RenderedImage` | มีบางส่วน; "semantic line splitting" = งานใหม่ใน `text_renderer` |
 
 ---
 

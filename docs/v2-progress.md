@@ -13,14 +13,19 @@ diverge, update `v2-arch.md` first (design is locked there, not here).
 
 ## Current phase: Phase 6 — Migration script + integration tests
 
-**Status**: 🔄 IN PROGRESS — 6.1 / 6.2 / 6.3 / 6.4 ✅ complete; 6.5 / 6.6 remaining
+**Status**: 🔄 IN PROGRESS — 6.1 – 6.5 ✅ complete; **6.6 (RC prep) is the only
+phase left**, and it is gated on hardware/dogfood work, not code.
 
-> **Branch tip `c367a744` (2026-05-21, pushed) — 103 commits ahead of main.**
-> Beyond the Phase-6 work below, large self-test-driven blocks have landed on
-> top: KI-1 (vendored cudarc) + KI-3 fixes; the **Engines-tab consolidation +
-> Cloud OCR/translate** feature; and chat fixes. See the dedicated sections
-> near the end of this file ("Engines-tab consolidation", "Cloud engines",
-> "Recurring serde gotcha") for the durable detail.
+> **Reconciled 2026-09-05** against branch tip `9969d39b` (106 commits ahead
+> of `main`, which is 4 ahead of us at `f5b1889d` / v1.2.2). This file had
+> not been updated since 2026-05-21 while the undo 1–3 series, KI-1/KI-3,
+> the Engines-tab consolidation and Cloud engines landed — several items
+> below that were listed as "planned" had already shipped. Every status
+> here was re-verified against the code, not carried forward.
+>
+> Durable detail for the post-Phase-6 blocks lives in the dedicated
+> sections near the end ("Engines-tab consolidation", "Cloud engines",
+> "Recurring serde gotcha").
 
 ### Phase 6.1 — V007 migration SQL + host backup/manifest bump ✅
 
@@ -86,33 +91,70 @@ compiled).
 
 koharu-pipeline lib: **50 → 66 tests**, all green.
 
-### Phase 6.5 — CI re-enable ⏳ next
+### Phase 6.5 — CI re-enable ✅ (clippy side) / ⏳ (repo-settings side)
 
-GitHub Actions disabled at the repo level (billing concern — macOS
-minutes are 10× per [[feedback-github-actions]]). Options:
+**Done** (`9969d39b`, 2026-09-05): workspace is clean under
+`cargo clippy --workspace --all-targets -- -D warnings` on Rust 1.94 —
+25 warnings across koharu-core / -project / -renderer / -ml / -engines /
+-pipeline cleared (let-chain `collapsible_if`, doc-list indentation,
+`matches!`, struct-init, a test-only helper gated `#[cfg(test)]`).
+`cargo test --workspace` green. This is a strict superset of what
+`lint.yml` runs (`cargo clippy -- -D warnings` on the default member).
 
-- Re-enable Linux + CPU only on `arch/v2-foundation` push triggers
-  (cheap, catches clippy + compile + unit-test regressions)
-- Defer until RC merge, rely on the per-GPU local build flow
-  (`scripts/build-all-gpus.sh`) plus manual test runs
+**Already true since 2026-05-19** (`109af480`): `.github/workflows/test.yml`
+and `lint.yml` trigger on `push` to `arch/v2-foundation`. Both are
+ubuntu-only, so the macOS 10× billing concern
+([[feedback-github-actions]]) does not apply to them.
 
-Before re-enabling either way: fix the Rust 1.94 clippy warnings in
-koharu-project / koharu-renderer / koharu-core/hardware.rs
-(collapsible_if patterns predating Phase 3) and the unused-import
-warning in koharu-pipeline introduced/fixed mid-audit-#7.
+**Still owed — cannot be verified from a checkout**:
+- Confirm GitHub Actions is enabled at the repo level (Settings →
+  Actions). If it is off, none of the above runs regardless of triggers.
+- Watch the first push after enabling: `test.yml` runs
+  `cargo test --workspace --tests`, which has never executed on CI for
+  this branch. Expect a Linux-only toolchain surprise or two (fonts,
+  webkit deps are already in the apt step).
 
 ### Phase 6.6 — RC merge prep + `v2.0.0-rc1` tag ⏳
 
-- Squash-merge vs preserve-history decision based on diff size at
-  merge time
-- Per-GPU bundle build (Turing / Ampere / Ada / Blackwell) via
-  `scripts/build-all-gpus.sh`
-- GitHub release with prebuilt installers
-- Update CHANGELOG + release notes; freeze the doc on main
+Checklist, in order. Items marked **(hardware)** need the RTX 50xx
+Blackwell box; items marked **(dogfood)** need a real user project.
+These were previously buried under "Blockers / open questions" at the
+bottom of this file — they are the actual RC gate, so they live here now.
+
+1. [ ] **Rebase onto `main`** — main is 4 commits ahead
+       (`d00fba66` v1.2.2, `efc6cc40` fix #40/#41 startup-failure
+       surfacing, `f5b1889d` ui version sync). Locked policy is weekly
+       rebase; none has happened since 2026-05-19. #40/#41 touch startup,
+       which is the same path as the v2 hardware probe — resolve
+       conflicts there carefully. Also brings README/Cargo/ui versions to
+       1.2.2. Record in the Sync log below.
+2. [ ] **(dogfood) Real v1 → v2 migration.** Only synthesised fixtures
+       have gone through `pre_open_v1_to_v2` / V007 / manifest bump. Open
+       a personal `.koharuproj` from a 1.2.x install, confirm the
+       `series.db.bak.v1` appears, `blobs/` is created, re-render is
+       byte-identical to the v1 render.
+3. [ ] **(hardware) End-to-end smoke** — detect → OCR → inpaint →
+       translate → render on a real chapter through the Engine path.
+       Nothing has exercised the user-facing flow since Phase 5.3's
+       dual-apply landed; unit tests cover the Op contract only.
+4. [ ] **(hardware) KI-1 decision** — build with `cuda,cudnn`, confirm
+       shutdown after inpaint no longer aborts with
+       `STATUS_STACK_BUFFER_OVERRUN`; benchmark detect+inpaint with
+       `cudnn` on vs off. If the delta is immaterial, **revert the
+       236k-line cudarc vendor** (`git revert e83bd91a`, drop the
+       `[patch.crates-io]`) and disable the feature instead. Every
+       shipped build carries this patch until decided.
+5. [ ] Squash-merge vs preserve-history decision (diff is ~106 commits;
+       lean preserve — the audit trail in commit bodies is the design
+       record).
+6. [ ] Per-GPU bundle build (Turing / Ampere / Ada / Blackwell) via
+       `scripts/build-all-gpus.sh`.
+7. [ ] GitHub release with prebuilt installers; CHANGELOG + release
+       notes; freeze `v2-arch.md` on main; tag `v2.0.0-rc1`.
 
 ---
 
-## Phase status (branch tip `6b8fbce8`)
+## Phase status (branch tip `9969d39b`, 2026-09-05)
 
 | Phase | Status | Tip commit | Highlights |
 |---|---|---|---|
@@ -144,20 +186,32 @@ warning in koharu-pipeline introduced/fixed mid-audit-#7.
 | 6.3 — Migration integration tests | ✅ | `1eba2f42` | Synthesised v1 fixture; 8 unit tests pass |
 | Audit #7 — 4 findings on Phase 5/6 | ✅ | `4c97c5bc` | SessionSlot wrapper + re-detect reset + persist lock + blobs/ on create |
 | 6.4 — Engine-pipeline golden tests | ✅ | `6b8fbce8` | 15 stage-golden + dual-apply + audit-#7 regression tests |
-| 6.5 — CI re-enable | ⏳ next | — | clippy cleanup + Actions decision |
-| 6.6 — RC merge + per-GPU build + tag `v2.0.0-rc1` | ⏳ | — | Squash policy + release artefacts |
+| Audit #8 + #9 (self-test) | ✅ | `f79e649f` / `eefa3a85` | Session reset on clear-before-build; cuDNN panic guard; surface-drift toast |
+| Undo 1 — render is a derived view | ✅ | `d2a4748f` | `SetRenderedImage` no longer enters history; one Ctrl+Z reverts the whole edit |
+| Undo 2 — same-length manual edits recorded | ✅ | `df1f2ec9` / `45b1b41c` | Bulk `update_text_blocks` diffs prev↔new into `Batch<UpdateTextBlock>`; single edit + fit-to-bubble routed too |
+| Undo 3a/3b/3c — add/remove undoable (closes KI-2) | ✅ | `bcb5e6f3` / `28ac8310` / `aa5c0a00` / `10d7e613` | `Op::InsertTextBlock`; id-keyed Document mirror (`node_id`); heuristic matcher + drift guard |
+| KI-3 — LaMa min-crop gate | ✅ | `c20f58bd` | `check_min_inpaint_dims` + downscale clamp |
+| KI-1 — cuDNN Drop abort (root fix, runtime test owed) | ✅ code / ⏳ verify | `e83bd91a` / `c20f58bd` | Vendored cudarc 0.19.3 with softened Drop; see 6.6 item 4 |
+| Engines-tab consolidation | ✅ | `366fb840` … `ac038277` | Single source of truth for engine selection; legacy-pref migration; i18n help |
+| Cloud engines in the tab | ✅ | `28c14a77` / `f57056ae` / `c367a744` | `SettingDescriptor::ProfileSelect`; frontend pseudo-engines; `skip_translate` in Process |
+| 6.5 — CI re-enable (clippy) | ✅ | `9969d39b` | Workspace clean under `--all-targets -D warnings`; workflows already target the branch |
+| 6.6 — RC merge + per-GPU build + tag `v2.0.0-rc1` | ⏳ | — | See checklist above — gated on rebase + hardware + dogfood |
 
 ## Test posture
 
-- **koharu-core**: 43 unit + 2 proptest
-- **koharu-engines**: 5 unit
-- **koharu-pipeline**: 66 unit (incl. 25 engine_bridge, 5 session_slot, 8 DAG integration, 9 engine adapters)
-- **koharu-app**: 23 unit (session + history + event bus)
-- **koharu-project**: 51 unit (incl. 8 migration tests + 6 backup/recent/series)
-- **koharu-api**: 5 unit (incl. ProcessRequest round-trip — un-rotted in 6.4)
+Counted at `9969d39b` (2026-09-05) from `cargo test --workspace`; all
+green. Numbers drift with every commit — treat as a floor, re-run rather
+than trust.
 
-Workspace `cargo build --workspace --lib` and `cargo test --workspace
---lib` clean as of tip.
+- **koharu-core**: 44 unit + 2 proptest
+- **koharu-engines**: 5 unit
+- **koharu-pipeline**: 79 unit (engine_bridge golden/dual-apply, session_slot, DAG, engine adapters, engine_profile)
+- **koharu-app**: 25 unit (session + history + event bus)
+- **koharu-project**: 54 unit + 4 integration (`tests/v1_to_v2_migration.rs`)
+- **koharu-api**: 5 unit
+- **koharu-renderer**: 38 unit
+
+`cargo clippy --workspace --all-targets -- -D warnings` clean as of tip.
 
 ## External audits survived
 
@@ -245,70 +299,60 @@ regions) or by enlarging the mask before inpaint_partial.
 
 </details>
 
-### KI-2: Manual UI edits clear undo history (planned fix)
+### ~~KI-2: Manual UI edits clear undo history~~ — RESOLVED 2026-05-20
+
+**Fix** (undo 1 → 3c, commits `d2a4748f` `df1f2ec9` `45b1b41c` `bcb5e6f3`
+`28ac8310` `aa5c0a00` `10d7e613`). **Note: shipped the opposite of the plan
+recorded below.** The plan was dedicated single-op RPCs + a frontend switch
+away from bulk replace, with bulk diffing dismissed as "too complex". What
+landed keeps the frontend on bulk `updateTextBlocks` and makes the backend
+diff it:
+
+- `koharu_types::TextBlock` gained a runtime-only `#[serde(skip)] node_id`;
+  the Document mirror in `engine_bridge` is id-keyed, not positional, so
+  the mapping survives add/remove (3b).
+- `ops::edit::update_text_blocks` (`koharu-pipeline/src/ops/edit.rs`)
+  matches each new block to a previous one via `find_matching_previous`,
+  preserves its `node_id`, and records `UpdateTextBlock` for changed
+  survivors, `InsertTextBlock { index }` for an add, `RemoveTextBlock`
+  for a delete — one structural change = one undo step. More than one
+  add+remove at once (re-detect) still invalidates history (3c).
+- `Op::InsertTextBlock` was added to koharu-core so undo of a delete
+  restores at the original index instead of appending (3a).
+- Because the matcher is a heuristic, `verify_session_or_invalidate`
+  fingerprints session scene vs Document after every structural edit and
+  drops history on any mismatch — fail-safe, never a wrong undo.
+- Single `update_text_block` (AI chat), `text_block_fit_to_bubble`, and the
+  standalone `add_text_block` / `remove_text_block` RPCs go through the
+  same recorder.
+- `SetRenderedImage` no longer enters history (render is a projection of
+  blocks + inpaint), so one Ctrl+Z reverts geometry + text + composite
+  together (undo 1).
+
+**Residual**: undo is only recorded when a session is in-sync for the
+document (i.e. after at least one engine run or session open). Edits
+before that apply but are not undoable — by design, not a bug.
+
+<details><summary>original plan (superseded)</summary>
 
 **Symptom**: Engine actions (detect / OCR / translate / render) ARE
 undoable via Cmd+Z. Manual UI actions are NOT — pressing Del to
 delete a block, right-click → Delete, dragging a block to resize,
 or editing translation text via TextBlocksPanel all clear the
-undo stack. After such an edit the Undo button disables itself
-(post-audit #9 follow-up `2adbf85b`); pre-fix it would error on
-click.
+undo stack.
 
-**Root cause**: 3 of the 4 Document-mutating RPCs in
-`ops::edit` route directly to `state_tx::mutate_doc` instead of
-through `session.apply`:
+**Root cause**: 3 of the 4 Document-mutating RPCs in `ops::edit`
+routed directly to `state_tx::mutate_doc` instead of through
+`session.apply`.
 
-| RPC | Routes through session? | Undoable? |
-|---|---|---|
-| Engine bridge (detect / OCR / etc.) | yes (`session.apply` + dual mirror) | ✅ |
-| `update_text_blocks` (bulk replace, used by Del + drag-resize) | no — invalidates session (#9/B1) | ❌ |
-| `update_text_block` (single field change — translation, font) | no — direct mutation, no invalidate | ❌ |
-| `add_text_block` (Add block button) | no — invalidates session | ❌ |
-| `remove_text_block` (currently unused; UI goes through bulk replace) | no — invalidates session | ❌ |
+**Planned scope**: refactor `ops::edit::{remove_text_block,
+add_text_block, update_text_block}` to route through `session.apply`;
+frontend `useTextBlocks.removeBlock` → `api.removeTextBlock`,
+`appendBlock` → `api.addTextBlock`; keep bulk `update_text_blocks` on
+the invalidate path because "bulk diffing into Ops is complex and not
+worth it".
 
-The `Op::AddTextBlock` / `Op::UpdateTextBlock` / `Op::RemoveTextBlock`
-variants ARE defined in koharu-core. `ProjectSession::apply`
-handles them. `engine_bridge::apply_op` mirrors them to Document.
-What's missing is the wiring at the RPC boundary — each `ops::edit`
-RPC should:
-
-1. Build the corresponding `Op`
-2. Call `session.apply(op)` (mutates session.scene + pushes to history)
-3. Mirror to Document via `engine_bridge::apply_op` (dual-apply pattern)
-4. Write Document back via `state_tx::update_doc`
-
-Plus the frontend needs to switch from bulk-replace (Del →
-`updateTextBlocks(filtered)`) to a dedicated single-op API call
-(Del → `api.removeTextBlock(index)`) so the backend sees one
-structural change instead of a whole-array replacement that's
-hard to diff into Ops.
-
-**Planned scope** (3-4 hours):
-
-- Refactor `ops::edit::{remove_text_block, add_text_block,
-  update_text_block}` to route through `session.apply` first
-- Frontend: `useTextBlocks.removeBlock` → `api.removeTextBlock`
-  instead of `updateTextBlocks(filtered)`
-- `useTextBlocks.appendBlock` → `api.addTextBlock`
-- `useTextBlocks` edits (translation, font, region) → `api.updateTextBlock`
-- Keep `update_text_blocks` (bulk replace) on the invalidate
-  path — bulk diffing into Ops is complex and not worth it for
-  the call-sites that use it (Thai post-process, batch translate
-  flush) which run AFTER engine ops anyway
-- Unit tests mirroring the audit #5 / #7 / #8 session_slot tests
-- Self-test: confirm Del → Cmd+Z restores the block
-
-**Risk**: NodeId↔array_index mapping must match the bridge's
-`+1` shift (`index_to_node_id`). Off-by-one would route ops to
-the wrong block and trip the audit #6/P1 duplicate guard or the
-audit #5/F1 out-of-range warn.
-
-**Not in-flight yet** — recorded here so the next session can
-pick it up cleanly. Reason for the current invalidate-only fix:
-audit #9 had cuDNN crash (KI-1) and bridge dual-apply correctness
-as P0; making manual edits undoable is high-value polish but
-scope-isolated.
+</details>
 
 ### KI-1: cuDNN TLS panic on Drop — root cause fixed (vendored cudarc), runtime test owed
 
@@ -481,9 +525,10 @@ attr first.
 | 2026-05-19 | `fe484b7a` | `64974db6` | — | Rebased to pull v1.2.1 release + design doc amendments (HTTP blob from #33, Op+Engine re-review). Conflict-free. |
 
 No rebases performed during Phase 4 / 5 / 6 work — branch has stayed
-on its own track. Next rebase will happen as part of Phase 6.6 RC
-merge prep, picking up v1.2.2 + main's bug fixes from `efc6cc40`
-(`fix(#40 #41)` startup failure surfacing).
+on its own track, in breach of the weekly-rebase policy in
+`v2-arch.md` §2. As of 2026-09-05 `main` is 4 commits ahead
+(`d00fba66` v1.2.2 → `efc6cc40` fix #40/#41 → `f5b1889d` ui version
+sync). Rebase is item 1 of the Phase 6.6 checklist.
 
 ---
 
@@ -497,27 +542,36 @@ merge prep, picking up v1.2.2 + main's bug fixes from `efc6cc40`
 
 ## Blockers / open questions
 
-**Not yet surfaced**:
+The three pre-RC blockers formerly listed here (real-project migration
+dogfood, end-to-end smoke, clippy cleanup) moved into the **Phase 6.6
+checklist** above — clippy is done, the other two are items 2 and 3.
 
-1. v1→v2 migration has only been tested against synthesised fixtures.
-   First real-world `.koharuproj` migration won't happen until
-   v2.0.0-rc1 is in user hands. Pre-RC owed: dogfood a personal
-   project through the migration path.
-2. End-to-end engine pipeline (detect → OCR → inpaint → translate →
-   render) hasn't been smoke-tested against a real chapter since
-   Phase 5.3's dual-apply landed. Unit tests cover the contract;
-   nothing covers the user-facing flow.
-3. Clippy is dirty across the workspace (Rust 1.94 collapsible_if
-   patterns + one unused-import). Phase 6.5 must clean these before
-   CI re-enable to avoid a wave of red on first run.
+**Open design debt (not blocking RC, candidate for 2.1)**:
+
+1. **Two engine-selection paths.** Standalone Detect/OCR honour the
+   machine-wide `engine_profile`; full Process / batch go through the
+   legacy `ProcessRequest.{detector_engine, ocr_engine, anime_yolo_*}`
+   fields, bridged from the profile by `readPipelineEngines()` in
+   `ui/lib/query/mutations.ts`. The legacy pipeline cannot carry
+   nms/containment settings, so full Process silently applies a subset
+   of the anime_yolo settings. Fix = port `run_pipeline_inner` onto
+   `koharu_engines::resolve_plan`. Recorded in `v2-arch.md` §12.
+2. **`koharu-types` still live** (~34 importing files). The Scene ↔
+   Document mirror depends on it. Deletion deferred to 2.1 — see
+   `v2-arch.md` §9 Q2.
+3. **Repo not `cargo fmt`-clean.** Edition-2024 rustfmt reformats ~35
+   untouched files. A dedicated `chore(fmt)` commit is cheap but should
+   land right after the rebase (item 1 of 6.6) to avoid conflict noise.
+   `lint.yml` does not run `fmt --check`, so this is hygiene, not a gate.
 
 ---
 
 ## CI status
 
-- [ ] GitHub Actions re-enabled on `arch/v2-foundation`
-- [ ] clippy clean across workspace
-- [ ] Matrix: Linux + CPU (cheap) on push; per-GPU Windows builds
-      reserved for tags
-- [ ] Merge-back gate: workspace lib tests + clippy required before
+- [x] `test.yml` + `lint.yml` trigger on `arch/v2-foundation` (`109af480`)
+- [ ] GitHub Actions confirmed enabled at repo level; first run green
+- [x] clippy clean across workspace, all targets, `-D warnings` (`9969d39b`)
+- [x] Matrix: Linux + CPU (cheap) on push; per-GPU Windows builds
+      reserved for tags (`release.yaml` / `publish.yml`)
+- [ ] Merge-back gate: workspace tests + clippy required before
       `v2.0.0-rc1` tag
