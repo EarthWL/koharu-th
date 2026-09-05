@@ -454,6 +454,31 @@ Potential สูงมากในวงการ scanlation
 
 ---
 
+# ลำดับความสำคัญ 2.1 (lock แล้ว — ดู `v2-arch.md` §13)
+
+เอกสารนี้เป็นรายการโมเดลที่น่าสนใจ **ไม่ใช่ลำดับงาน** ลำดับงานหลัง
+v2.0.0 ถูก lock ไว้ที่ `v2-arch.md` §13 และเรียงตามหลักเดียว: ปิดช่องว่าง
+ระหว่าง "สิ่งที่ทำให้ fork นี้ต่างจาก upstream" กับ "ชั้นสถาปัตยกรรมที่ v2
+สร้างมารองรับ" ก่อน แล้วค่อยเสียบโมเดลใหม่
+
+1. **Translation engine ลง Rust** ให้ทุก provider อ่าน glossary /
+   characters / TM ผ่าน `ctx.project` — ปลดล็อก batch ทั้งตอนด้วย Cloud,
+   MCP สั่งแปลแบบรู้ context, streaming และ Rust test ของ logic หลัก
+   (วันนี้ทั้งหมดอยู่ใน `ui/lib/services/cloudLlm.ts`)
+2. **รวม engine-selection ให้เหลือ path เดียว** (full Process ขึ้น DAG
+   resolver)
+3. **MCP tools ผ่าน session** ให้ undo ได้และไม่ทำ scene drift
+4. **AI Typesetting ภาษาไทย** (§7 ของเอกสารนี้) — semantic line splitting
+   + dynamic fit ใน `text_renderer` ข้อเดียวในเอกสารนี้ที่ตรงเป้า
+   "ผลลัพธ์ภาษาไทย" โดยตรงและไม่ต้องใช้โมเดลใหม่
+5. แยก engines ออกจาก `koharu-pipeline` และลบ `koharu-types`
+6. โมเดลใหม่ในเอกสารนี้ (Florence-2, BGE-M3, Qwen 3, AOT / Flux.2 Klein)
+   — แต่ละตัวคือ engine เสียบเพิ่มหนึ่งไฟล์เมื่อข้อ 1–2 เสร็จ
+7. **v3** — FLUX Kontext, SDXL + ControlNet, IP-Adapter, ComfyUI
+   แยกเป็นเอกสาร vision ต่างหาก ไม่อยู่ใน roadmap 2.x
+
+---
+
 # Long-Term Direction
 
 Koharu-th มี potential ไปสู่:

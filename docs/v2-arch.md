@@ -89,6 +89,11 @@ koharu-engines/     ⭐ NEW — Engine trait + DAG resolver + inventory registry
                             + concrete engines (detector, ocr, inpaint, ...)
 koharu-app/         ⭐ NEW — ProjectSession (Op apply), event bus, undo history,
                             autosave coordinator
+koharu-pipeline/        (reality, not in the original sketch) — RPC op handlers,
+                            engine_bridge (Scene ↔ Document mirror), session_slot,
+                            engine_profile store, AND the 9 concrete engines
+                            (engines/*.rs). ~11k LOC, depends on every other
+                            internal crate. See §13 item 2 for the split plan.
 koharu-project/         (unchanged) — SQLite persistence, glossary, characters,
                             TM, prompts, cost log
 koharu-runtime/         (unchanged) — CUDA/Metal abstraction
@@ -1059,6 +1064,23 @@ two engine-selection paths — standalone Detect/OCR read the machine-wide
 bridge (`readPipelineEngines()`). Unifying them means porting
 `run_pipeline_inner` onto the DAG resolver — 2.1 candidate.
 
+### 2026-09-05 — Post-RC roadmap locked as §13
+
+**Trigger**: goal-fit review of the crate structure against the README
+promise ("series-localization studio with project memory, Thai output").
+Found that the differentiating feature — project-aware translation —
+lives in the frontend (`ui/lib/services/cloudLlm.ts`), not in the Engine
+layer v2 built for it; `local_llm_translate` explicitly ignores
+`ctx.project` (audit #5/F3 note still in the file header). This blocks
+batch-with-cloud, MCP-driven translate, and streaming, and leaves the
+core business logic without Rust tests.
+
+**Changed**: new **§13** fixes the 2.1 priority order (translation engine
+in Rust first; new models and image-side work after). §3 gains a
+`koharu-pipeline` line describing the crate as it actually exists.
+`for_review.md` gained a matching priority section so its model
+shopping-list is read in that order.
+
 ### 2026-05-19 — External audit #2 follow-through (5 findings)
 
 **Trigger**: external audit flagged 5 issues against the Phase 1.1
@@ -1197,3 +1219,39 @@ will need a small follow-up commit to:
 
 Estimated effort: half a day. Land as Phase 1.1 on the branch
 before Phase 2 work begins.
+
+---
+
+## 13. Post-RC roadmap — 2.1 priority order (locked 2026-09-05)
+
+The 2.0 foundation is fit for purpose. What is **not** yet on that
+foundation is the feature that justifies the fork. This section fixes the
+order of work after `v2.0.0` so that 2.1 closes that gap before any new
+model or image-side work starts. Reordering requires a §12 entry.
+
+**Goal restated** (README): a series-localization studio that remembers
+glossary / characters / TM across chapters, for Thai output — where real
+users lean on Cloud LLMs because local models translate Thai poorly.
+
+**Gap**: today the project-aware translation brain (glossary + character
++ rolling-summary injection, TM exact/fuzzy short-circuit, provider
+dispatch, retry) is TypeScript in `ui/lib/services/cloudLlm.ts`. The
+Rust side has the template renderer (`koharu-project/src/prompt.rs`), a
+populated `ProjectView` in `EngineCtx`, and a `local_llm_translate` engine
+that ignores it. `cloud_llm_translate` / `cloud_vision_ocr` are
+frontend-orchestrated pseudo-engines whose Rust `run()` bails.
+
+| # | Item | Why this order | Scope |
+|---|---|---|---|
+| **1** | **Translation engines in Rust, consuming `ctx.project`** — `local_llm_translate` + one real engine per cloud provider (OpenAI / Claude / Gemini / OpenRouter) that build the prompt via `koharu-project::prompt`, do TM lookup through `ProjectView`, stream tokens via `ops_tx`, and emit `SessionEvent::TmHit` + cost-log rows. Frontend keeps profile selection only; `cloudLlm.ts` shrinks to a thin caller and is eventually deleted. | Unblocks in one move: **batch (whole-chapter) with cloud translate** (today local-only, `mutations.ts` `processAllImages`), **MCP-driven project-aware translate** for external agents, **stream translation** (#19), and Rust golden tests for the business logic that defines the product. Nothing else in 2.1 has this leverage. | `koharu-pipeline/src/engines/*_translate.rs`, `koharu-project/src/prompt.rs` (already there), `koharu-rpc` cost-log hook, `ui/lib/services/cloudLlm.ts` (delete), `ProfileSelect` stays. API keys stay in the OS keyring via `koharu-project::profile`. |
+| **2** | **Single engine-selection path** — port `run_pipeline_inner` (`koharu-pipeline/src/pipeline.rs`) onto `koharu_engines::resolve_plan` so full Process / batch read the machine-wide `engine_profile` like standalone Detect/OCR do. Remove `ProcessRequest.{detector_engine, ocr_engine, anime_yolo_*, skip_ocr, skip_translate}` and `readPipelineEngines()`. | Same files as item 1; the legacy pipeline is the only reason cloud engines had to be frontend pseudo-engines. Finishing 1 without 2 leaves two code paths to keep in sync (the ⚠️ in `v2-progress.md`). | `pipeline.rs`, `koharu-api/src/commands.rs`, `ui/lib/query/mutations.ts`. |
+| **3** | **MCP tools go through the session** — route the block-mutating MCP tools (`koharu-rpc/src/mcp/mod.rs`, 67 tools, zero session references today) through the same `record_session_change` / drift-guard path as the RPC handlers. | External-agent edits are currently not undoable and can desync scene ↔ Document until history is silently dropped. Cheap once item 1 makes the engine path the only path. | `koharu-rpc/src/mcp/mod.rs`, `koharu-pipeline/src/ops/edit.rs`. |
+| **4** | **Thai typesetting in `text_renderer`** — semantic line splitting (break at Thai word/phrase boundaries, not glyph count), dynamic fit that shrinks font *and* adjusts line-height before flagging overflow, per-block rotation already exists. | The only item in `for_review.md` that serves the "Thai output" half of the goal directly, and it lives in an existing crate (`koharu-renderer`) with no new model. Thai runs ~30–40 % longer than JP; bubble fit is the visible quality ceiling today. | `koharu-renderer/src/layout.rs`, `text/script.rs`; ICU segmentation already a dependency. |
+| **5** | **Engine crate split** — move `koharu-pipeline/src/engines/*` into `koharu-engines` (or a new `koharu-engines-builtin`) so `koharu-engines` is trait + registry only and a third-party engine crate does not inherit `koharu-ml` + `koharu-renderer`. Delete `koharu-types` once the frontend DTO is Scene-based (§9 Q2). | Makes the §3 diagram true and the "plugin engine" story honest. Pure refactor; do it after 1–3 so it moves settled code. | Cargo layout only. |
+| **6** | New drop-in engines from `for_review.md` — Florence-2 (detector+OCR), paddleocr-vl, BGE-M3 embeddings, Qwen 3 weights, AOT / Flux.2 Klein inpaint. | Each is one `inventory::submit!` once 1–2 are done. None changes the product's shape; they change quality knobs. | `koharu-ml` model loaders + one engine file each. |
+| **v3** | Image-side generation: FLUX Kontext redraw, SDXL + ControlNet, IP-Adapter, ComfyUI as a remote engine host. | Needs an external runtime and a diffusion model on the user's GPU; different product surface (redraw studio). Keep in a separate vision doc, not the 2.x roadmap. | Out of scope for this doc. |
+
+**Acceptance for 2.1** (items 1–3): a whole chapter can be translated in
+one batch with a Cloud profile; an MCP client can call a project-aware
+translate tool; Ctrl+Z reverts an MCP edit; `cloudLlm.ts` is gone;
+`cargo test` has golden tests for prompt assembly + TM short-circuit.

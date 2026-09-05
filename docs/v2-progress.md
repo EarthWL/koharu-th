@@ -546,7 +546,13 @@ The three pre-RC blockers formerly listed here (real-project migration
 dogfood, end-to-end smoke, clippy cleanup) moved into the **Phase 6.6
 checklist** above — clippy is done, the other two are items 2 and 3.
 
-**Open design debt (not blocking RC, candidate for 2.1)**:
+**Post-RC order is locked in `v2-arch.md` §13** (2026-09-05): translation
+engines in Rust consuming `ctx.project` → single engine-selection path →
+MCP through session → Thai typesetting → engine crate split → new models
+→ (v3) image generation. The items below are the debt that §13 items 2
+and 5 close.
+
+**Open design debt (not blocking RC, closed by 2.1)**:
 
 1. **Two engine-selection paths.** Standalone Detect/OCR honour the
    machine-wide `engine_profile`; full Process / batch go through the
