@@ -174,16 +174,16 @@ impl DetectedHardware {
             return CompatibilityCheck::NoBackend;
         }
 
-        if let (Some(need), Some(have)) = (req.min_vram_mb, self.vram_mb) {
-            if need > have {
-                return CompatibilityCheck::OverVram { need, have };
-            }
+        if let (Some(need), Some(have)) = (req.min_vram_mb, self.vram_mb)
+            && need > have
+        {
+            return CompatibilityCheck::OverVram { need, have };
         }
 
-        if let (Some(prefers), Some(have)) = (req.prefers_compute_cap, self.compute_cap) {
-            if prefers > have {
-                return CompatibilityCheck::BelowComputeCap { prefers, have };
-            }
+        if let (Some(prefers), Some(have)) = (req.prefers_compute_cap, self.compute_cap)
+            && prefers > have
+        {
+            return CompatibilityCheck::BelowComputeCap { prefers, have };
         }
 
         CompatibilityCheck::Fits
@@ -341,10 +341,7 @@ mod tests {
             backends: BackendSupport::cuda_only(),
             weights_size_mb: 80,
         };
-        assert_eq!(
-            hw.check_compatibility(&req),
-            CompatibilityCheck::NoBackend
-        );
+        assert_eq!(hw.check_compatibility(&req), CompatibilityCheck::NoBackend);
     }
 
     #[test]

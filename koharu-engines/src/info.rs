@@ -98,7 +98,8 @@ pub struct EngineInfo {
 /// `Result<Box<dyn Engine>>` because model loading can fail
 /// (network errors during weight download, GPU init failures, etc.).
 /// The driver propagates the error to the activity bubble.
-pub type LoadFn = fn() -> futures::future::BoxFuture<'static, anyhow::Result<Box<dyn crate::Engine>>>;
+pub type LoadFn =
+    fn() -> futures::future::BoxFuture<'static, anyhow::Result<Box<dyn crate::Engine>>>;
 
 /// Serializable projection of [`EngineInfo`] for the Engine Profile
 /// UI. Stripped of the `load` function (can't serialize a fn ptr) +
@@ -144,7 +145,7 @@ inventory::collect!(EngineInfo);
 /// around `inventory::iter::<EngineInfo>` — keeps callers from
 /// importing the `inventory` crate just for the iterator type.
 pub fn all_engines() -> impl Iterator<Item = &'static EngineInfo> {
-    inventory::iter::<EngineInfo>().into_iter()
+    inventory::iter::<EngineInfo>()
 }
 
 /// Look up an engine by id. Returns `None` if no engine with that id
@@ -195,9 +196,18 @@ mod tests {
         // per-struct, not recursive. These snake_case leaks made the
         // frontend read `backends.cpuFallback` / `weightsSizeMb` /
         // `perCallUsd` as undefined → every engine showed "No backend".
-        assert!(json.contains("\"cpuFallback\""), "BackendSupport leaked snake_case: {json}");
-        assert!(json.contains("\"weightsSizeMb\""), "HardwareReq leaked snake_case: {json}");
-        assert!(json.contains("\"perCallUsd\""), "EngineCost leaked snake_case: {json}");
+        assert!(
+            json.contains("\"cpuFallback\""),
+            "BackendSupport leaked snake_case: {json}"
+        );
+        assert!(
+            json.contains("\"weightsSizeMb\""),
+            "HardwareReq leaked snake_case: {json}"
+        );
+        assert!(
+            json.contains("\"perCallUsd\""),
+            "EngineCost leaked snake_case: {json}"
+        );
         assert!(!json.contains("cpu_fallback"));
         assert!(!json.contains("weights_size_mb"));
         assert!(!json.contains("per_call_usd"));

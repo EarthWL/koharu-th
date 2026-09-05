@@ -20,7 +20,9 @@
 use std::fs;
 use std::path::Path;
 
-use koharu_project::{Manifest, ManifestPaths, Project, MANIFEST_FILENAME, SUPPORTED_SCHEMA_VERSION};
+use koharu_project::{
+    MANIFEST_FILENAME, Manifest, ManifestPaths, Project, SUPPORTED_SCHEMA_VERSION,
+};
 use tempfile::TempDir;
 
 /// Write a v1 manifest + empty db file into `root`. Mirrors what
@@ -79,7 +81,7 @@ fn opening_v1_project_runs_full_migration() {
     seed_v1_project(root, "Test Migration Project");
 
     // Sanity: pre-conditions match a v1 state.
-    let manifest_before = Manifest::read(&root.join(MANIFEST_FILENAME)).unwrap();
+    let manifest_before = Manifest::read(root.join(MANIFEST_FILENAME)).unwrap();
     assert_eq!(manifest_before.schema_version, 1);
     assert!(!root.join("series.db.bak.v1").exists());
     assert!(!root.join("blobs").is_dir());
@@ -95,7 +97,7 @@ fn opening_v1_project_runs_full_migration() {
     );
 
     // 2. Manifest schema_version bumped + persisted.
-    let manifest_after = Manifest::read(&root.join(MANIFEST_FILENAME)).unwrap();
+    let manifest_after = Manifest::read(root.join(MANIFEST_FILENAME)).unwrap();
     assert_eq!(manifest_after.schema_version, SUPPORTED_SCHEMA_VERSION);
     assert_eq!(manifest_after.schema_version, 2);
     // The bump preserves identity — same project name, same id.
@@ -233,6 +235,6 @@ fn fresh_v2_project_creation_does_not_trigger_migration_artifacts() {
         root.join("blobs").is_dir(),
         "Project::create must seed blobs/ for v2 contract parity with migrated projects",
     );
-    let manifest = Manifest::read(&root.join(MANIFEST_FILENAME)).unwrap();
+    let manifest = Manifest::read(root.join(MANIFEST_FILENAME)).unwrap();
     assert_eq!(manifest.schema_version, 2);
 }

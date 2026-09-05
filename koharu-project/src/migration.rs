@@ -152,8 +152,8 @@ fn write_manifest_atomic(manifest: &Manifest, path: &Path) -> Result<()> {
     crate::fs_atomic::atomic_write(path, &bytes).map_err(|e| crate::error::Error::io(path, e))
 }
 
-/// Compute the backup path for a given db file. Internal helper
-/// + exported so the future "Restore v1 backup" UI button can
+/// Compute the backup path for a given db file. Internal helper,
+/// also exported so the future "Restore v1 backup" UI button can
 /// locate the file without re-implementing the suffix logic.
 pub fn backup_path_for(db_path: &Path) -> std::path::PathBuf {
     // Append the suffix to the FULL path (including extension)
@@ -247,10 +247,7 @@ mod tests {
         let preview = peek_migration(dir.path()).unwrap().unwrap();
         assert_eq!(preview.project_name, "My V1 Project");
         assert_eq!(preview.db_path, dir.path().join("series.db"));
-        assert_eq!(
-            preview.backup_path,
-            dir.path().join("series.db.bak.v1"),
-        );
+        assert_eq!(preview.backup_path, dir.path().join("series.db.bak.v1"),);
     }
 
     #[test]

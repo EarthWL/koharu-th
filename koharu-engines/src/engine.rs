@@ -41,11 +41,7 @@ use koharu_core::{
 /// activity bubble.
 #[async_trait]
 pub trait Engine: Send + Sync + 'static {
-    async fn run(
-        &self,
-        ctx: EngineCtx<'_>,
-        ops_tx: mpsc::Sender<EngineResult>,
-    ) -> Result<()>;
+    async fn run(&self, ctx: EngineCtx<'_>, ops_tx: mpsc::Sender<EngineResult>) -> Result<()>;
 }
 
 /// Per-run handle threaded into [`Engine::run`].
@@ -67,7 +63,7 @@ pub struct EngineCtx<'a> {
 
     /// Read-only project handle (characters / glossary /
     /// series_meta / future TM lookup). Engine reads to build prompts
-    /// + match terminology; project mutations go through
+    /// and match terminology; project mutations go through
     /// [`EngineResult::project_ops`].
     pub project: &'a ProjectView,
 

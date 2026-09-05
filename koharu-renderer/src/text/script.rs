@@ -45,7 +45,9 @@ pub fn font_families_for_text(text: &str) -> Vec<String> {
     let has_arabic = text
         .chars()
         .any(|c| matches!(script_map.get(c), Script::Arabic | Script::Hebrew));
-    let has_thai = text.chars().any(|c| matches!(script_map.get(c), Script::Thai));
+    let has_thai = text
+        .chars()
+        .any(|c| matches!(script_map.get(c), Script::Thai));
 
     let names: &[&str] = if has_cjk {
         #[cfg(target_os = "windows")]
@@ -190,7 +192,7 @@ mod tests {
     #[test]
     fn cjk_goes_vertical_only_when_tall() {
         let tall = block("こんにちは", 40.0, 200.0);
-        assert_eq!(tall.height > tall.width, true);
+        assert!(tall.height > tall.width);
         assert_eq!(writing_mode_for_block(&tall), WritingMode::VerticalRl);
         // Same text in a wide bubble stays horizontal.
         let wide = block("こんにちは", 200.0, 40.0);

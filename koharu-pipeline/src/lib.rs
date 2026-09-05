@@ -65,10 +65,9 @@ pub struct AppResources {
     /// it loses user assets.
     pub font_root: std::path::PathBuf,
     /// Machine-wide engine profile (active engine per artifact slot
-    /// + per-engine setting overrides). Persists to
-    /// `<app-data>/Koharu/engine_profile.json`. F4.C ships storage +
-    /// RPC + UI; F4.D wires the bridge to consume it (currently
-    /// engine ids are still hardcoded at call-sites).
+    /// and per-engine setting overrides). Persists to
+    /// `<app-data>/Koharu/engine_profile.json`. F4.C shipped storage,
+    /// RPC and UI; F4.D wired the bridge to consume it.
     pub engine_profile: engine_profile::EngineProfileStore,
     /// Machine-wide LLM provider profiles (API keys / model / cost
     /// config). A standalone SQLite at `<app-data>/Koharu/
@@ -91,8 +90,6 @@ pub struct AppResources {
 /// Open the machine-wide provider-profile DB (a koharu-project SQLite
 /// pool). Re-exported here so the bin can build `AppResources.profiles`
 /// without a direct dependency on koharu-project.
-pub fn open_profiles_db(
-    path: impl AsRef<std::path::Path>,
-) -> anyhow::Result<koharu_project::Pool> {
+pub fn open_profiles_db(path: impl AsRef<std::path::Path>) -> anyhow::Result<koharu_project::Pool> {
     Ok(koharu_project::open_db(path)?)
 }

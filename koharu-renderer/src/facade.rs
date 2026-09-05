@@ -161,10 +161,12 @@ impl Renderer {
                 let block_height = block.height();
                 let mut sprite_data = block.0.to_rgba8().into_raw();
                 premultiply_rgba(&mut sprite_data);
-                let sprite = tiny_skia::PixmapRef::from_bytes(&sprite_data, block_width, block_height)
-                    .ok_or_else(|| anyhow::anyhow!("Failed to create sprite pixmap ref"))?;
+                let sprite =
+                    tiny_skia::PixmapRef::from_bytes(&sprite_data, block_width, block_height)
+                        .ok_or_else(|| anyhow::anyhow!("Failed to create sprite pixmap ref"))?;
 
-                let mut transform = tiny_skia::Transform::from_translate(text_block.x, text_block.y);
+                let mut transform =
+                    tiny_skia::Transform::from_translate(text_block.x, text_block.y);
 
                 if let Some(rotation) = text_block.rotation_deg
                     && rotation != 0.0
@@ -624,6 +626,19 @@ fn load_symbol_fallbacks(fontbook: &mut FontBook) -> Vec<Font> {
     fonts
 }
 
+fn premultiply_rgba(pixels: &mut [u8]) {
+    for px in pixels.chunks_exact_mut(4) {
+        let a = px[3];
+        if a == 0 || a == 255 {
+            continue;
+        }
+        let alpha = a as u32;
+        px[0] = ((px[0] as u32 * alpha + 127) / 255) as u8;
+        px[1] = ((px[1] as u32 * alpha + 127) / 255) as u8;
+        px[2] = ((px[2] as u32 * alpha + 127) / 255) as u8;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -781,18 +796,5 @@ mod tests {
         let block = TextBlock::default();
         let behavior = english_layout_behavior(&block, "こんにちは", WritingMode::Horizontal);
         assert_eq!(behavior, EnglishLayoutBehavior::Disabled);
-    }
-}
-
-fn premultiply_rgba(pixels: &mut [u8]) {
-    for px in pixels.chunks_exact_mut(4) {
-        let a = px[3];
-        if a == 0 || a == 255 {
-            continue;
-        }
-        let alpha = a as u32;
-        px[0] = ((px[0] as u32 * alpha + 127) / 255) as u8;
-        px[1] = ((px[1] as u32 * alpha + 127) / 255) as u8;
-        px[2] = ((px[2] as u32 * alpha + 127) / 255) as u8;
     }
 }

@@ -155,19 +155,47 @@ pub struct CharacterPatch {
     pub is_main: Option<bool>,
 
     // ── Nullable columns (double Option) ─────────────────────
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub aliases: Option<Option<Vec<CharacterAlias>>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub role: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub gender: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub age: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub speech_style: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub personality: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub notes: Option<Option<String>>,
 }
 
@@ -204,9 +232,17 @@ pub struct GlossaryPatch {
     pub approved: Option<bool>,
 
     // ── Nullable columns (double Option) ─────────────────────
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub aliases: Option<Option<Vec<String>>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub context_note: Option<Option<String>>,
 }
 
@@ -229,19 +265,47 @@ pub struct SeriesMetaPatch {
     pub target_language: Option<String>,
 
     // ── Nullable columns (double Option) ─────────────────────
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub title_original: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub synopsis: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub genre: Option<Option<Vec<String>>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub target_audience: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub tone: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub formality_level: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub style_notes: Option<Option<String>>,
 }
 
@@ -323,9 +387,11 @@ mod tests {
         // Option<String>, so you can't construct
         // `CharacterPatch { original_name: Some(None), .. }` — won't
         // typecheck.
-        let mut p = CharacterPatch::default();
-        p.role = Some(None);
-        p.personality = Some(Some("calm".into()));
+        let p = CharacterPatch {
+            role: Some(None),
+            personality: Some(Some("calm".into())),
+            ..Default::default()
+        };
         let s = serde_json::to_string(&p).unwrap();
         assert!(s.contains("\"role\":null"));
         assert!(s.contains("\"personality\":\"calm\""));
@@ -334,7 +400,7 @@ mod tests {
         let p2: CharacterPatch = serde_json::from_str(&s).unwrap();
         assert!(matches!(p2.role, Some(None)));
         assert!(matches!(p2.personality, Some(Some(ref v)) if v == "calm"));
-        assert!(matches!(p2.original_name, None));
+        assert!(p2.original_name.is_none());
     }
 
     #[test]
@@ -344,8 +410,10 @@ mod tests {
         // "clear the required field" unrepresentable so the schema
         // constraint is enforced at the API boundary, not at apply
         // time.
-        let mut p = CharacterPatch::default();
-        p.original_name = Some("新しい名前".into());
+        let p = CharacterPatch {
+            original_name: Some("新しい名前".into()),
+            ..Default::default()
+        };
         let s = serde_json::to_string(&p).unwrap();
         assert!(s.contains("\"original_name\":\"新しい名前\""));
 
@@ -358,9 +426,11 @@ mod tests {
         // Same shape contract on the glossary side. source_text /
         // target_text / category / approved are required → single
         // Option. aliases / context_note are nullable → double Option.
-        let mut p = GlossaryPatch::default();
-        p.source_text = Some("魔法剣".into());
-        p.context_note = Some(None); // explicit clear of nullable field
+        let p = GlossaryPatch {
+            source_text: Some("魔法剣".into()),
+            context_note: Some(None), // explicit clear of nullable field
+            ..Default::default()
+        };
         let s = serde_json::to_string(&p).unwrap();
         assert!(s.contains("\"source_text\":\"魔法剣\""));
         assert!(s.contains("\"context_note\":null"));

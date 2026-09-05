@@ -170,7 +170,11 @@ impl Lama {
                 if count_nonzero(&crop_mask) == 0 {
                     return None; // ไม่มี mask — ข้ามทันที ไม่ต้อง spawn thread
                 }
-                Some(Crop { xyxy_e, image: crop_image, mask: crop_mask })
+                Some(Crop {
+                    xyxy_e,
+                    image: crop_image,
+                    mask: crop_mask,
+                })
             })
             .collect();
 
@@ -231,14 +235,10 @@ impl Lama {
             crops
                 .iter()
                 .map(|crop| {
-                    let out = if let Some(filled) =
-                        try_fill_balloon(&crop.image, &crop.mask)
-                    {
+                    let out = if let Some(filled) = try_fill_balloon(&crop.image, &crop.mask) {
                         Ok(filled)
                     } else {
-                        catch_cudnn_panic(|| {
-                            self.inference_model_rgb(&crop.image, &crop.mask)
-                        })
+                        catch_cudnn_panic(|| self.inference_model_rgb(&crop.image, &crop.mask))
                     };
                     (crop.xyxy_e, out)
                 })
@@ -249,15 +249,14 @@ impl Lama {
                     .iter()
                     .map(|crop| {
                         scope.spawn(|| {
-                            let out = if let Some(filled) =
-                                try_fill_balloon(&crop.image, &crop.mask)
-                            {
-                                Ok(filled)
-                            } else {
-                                catch_cudnn_panic(|| {
-                                    self.inference_model_rgb(&crop.image, &crop.mask)
-                                })
-                            };
+                            let out =
+                                if let Some(filled) = try_fill_balloon(&crop.image, &crop.mask) {
+                                    Ok(filled)
+                                } else {
+                                    catch_cudnn_panic(|| {
+                                        self.inference_model_rgb(&crop.image, &crop.mask)
+                                    })
+                                };
                             (crop.xyxy_e, out)
                         })
                     })
@@ -736,6 +735,7 @@ fn non_zero_bbox(mask: &GrayImage) -> Option<Xyxy> {
     ])
 }
 
+#[cfg(test)]
 fn clear_mask_bbox(mask: &mut GrayImage, bbox: Xyxy) {
     for y in bbox[1]..bbox[3] {
         for x in bbox[0]..bbox[2] {

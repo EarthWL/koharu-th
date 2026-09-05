@@ -65,24 +65,26 @@ fn arb_text_block_patch() -> impl Strategy<Value = TextBlockPatch> {
 fn arb_leaf_op() -> impl Strategy<Value = Op> {
     prop_oneof![
         (arb_page_id(), arb_blob_id(), 100u32..3000, 100u32..3000).prop_map(
-            |(id, image, width, height)| Op::AddPage { id, image, width, height }
+            |(id, image, width, height)| Op::AddPage {
+                id,
+                image,
+                width,
+                height
+            }
         ),
         arb_page_id().prop_map(|id| Op::RemovePage { id }),
         (arb_page_id(), arb_blob_id()).prop_map(|(id, image)| Op::UpdatePageImage { id, image }),
-        (arb_page_id(), arb_text_block()).prop_map(|(page, block)| Op::AddTextBlock { page, block }),
-        (arb_page_id(), arb_node_id(), arb_text_block_patch()).prop_map(
-            |(page, id, patch)| Op::UpdateTextBlock { page, id, patch }
-        ),
+        (arb_page_id(), arb_text_block())
+            .prop_map(|(page, block)| Op::AddTextBlock { page, block }),
+        (arb_page_id(), arb_node_id(), arb_text_block_patch())
+            .prop_map(|(page, id, patch)| Op::UpdateTextBlock { page, id, patch }),
         (arb_page_id(), arb_node_id()).prop_map(|(page, id)| Op::RemoveTextBlock { page, id }),
-        (arb_page_id(), prop::option::of(arb_blob_id())).prop_map(
-            |(page, mask)| Op::SetSegmentationMask { page, mask }
-        ),
-        (arb_page_id(), prop::option::of(arb_blob_id())).prop_map(
-            |(page, image)| Op::SetInpaintedImage { page, image }
-        ),
-        (arb_page_id(), prop::option::of(arb_blob_id())).prop_map(
-            |(page, image)| Op::SetRenderedImage { page, image }
-        ),
+        (arb_page_id(), prop::option::of(arb_blob_id()))
+            .prop_map(|(page, mask)| Op::SetSegmentationMask { page, mask }),
+        (arb_page_id(), prop::option::of(arb_blob_id()))
+            .prop_map(|(page, image)| Op::SetInpaintedImage { page, image }),
+        (arb_page_id(), prop::option::of(arb_blob_id()))
+            .prop_map(|(page, image)| Op::SetRenderedImage { page, image }),
     ]
 }
 
@@ -113,8 +115,10 @@ proptest! {
     fn patch_with_only_translation_serializes_compactly(
         translation in ".*"
     ) {
-        let mut patch = TextBlockPatch::default();
-        patch.translation = Some(Some(translation));
+        let patch = TextBlockPatch {
+            translation: Some(Some(translation)),
+            ..Default::default()
+        };
         let s = serde_json::to_string(&patch).unwrap();
         prop_assert!(!s.contains("\"region\""));
         prop_assert!(!s.contains("\"style\""));

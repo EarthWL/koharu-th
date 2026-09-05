@@ -4,9 +4,9 @@
 //! + chapter metadata so the reader can index correctly.
 //!
 //! Source preference order (per page set):
-//!   1. `<chapter>/render/`  — finished translation, if present
-//!   2. `<chapter>/source/`  — fall back to raws (useful when shipping
-//!                              partial work or untranslated chapters)
+//! 1. `<chapter>/render/`  — finished translation, if present
+//! 2. `<chapter>/source/`  — fall back to raws (useful when shipping
+//!    partial work or untranslated chapters)
 //!
 //! Pages are sorted by filename; reader display order follows.
 
@@ -70,8 +70,8 @@ fn write_cbz(
 ) -> Result<()> {
     let f = File::create(out_cbz).map_err(|e| Error::io(out_cbz, e))?;
     let mut zip = zip::ZipWriter::new(f);
-    let opts = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Stored); // images already compressed
+    let opts =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored); // images already compressed
 
     let mut buf = Vec::with_capacity(512 * 1024);
     for (i, page) in pages.iter().enumerate() {
@@ -213,8 +213,8 @@ mod tests {
         let chapter_dir = dir.path().join("chapters/ch01");
         let src = chapter_dir.join(SOURCE_SUBDIR);
         std::fs::create_dir_all(&src).unwrap();
-        std::fs::write(src.join("001.png"), &[0u8; 16]).unwrap();
-        std::fs::write(src.join("002.png"), &[0u8; 16]).unwrap();
+        std::fs::write(src.join("001.png"), [0u8; 16]).unwrap();
+        std::fs::write(src.join("002.png"), [0u8; 16]).unwrap();
 
         let chapter = Chapter {
             id: 1,
@@ -241,7 +241,7 @@ mod tests {
         // Add a render/ page → next export should prefer render.
         let rdir = chapter_dir.join(RENDER_SUBDIR);
         std::fs::create_dir_all(&rdir).unwrap();
-        std::fs::write(rdir.join("p01.png"), &[1u8; 16]).unwrap();
+        std::fs::write(rdir.join("p01.png"), [1u8; 16]).unwrap();
 
         let res2 = export_chapter(dir.path(), &chapter, &series, &out).unwrap();
         assert!(res2.used_render);

@@ -69,8 +69,8 @@ impl EngineProfileStore {
     pub fn load(path: impl Into<PathBuf>) -> Result<Self> {
         let path = path.into();
         let profile = if path.exists() {
-            let bytes = std::fs::read(&path)
-                .with_context(|| format!("reading {}", path.display()))?;
+            let bytes =
+                std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
             serde_json::from_slice(&bytes)
                 .with_context(|| format!("parsing engine profile at {}", path.display()))?
         } else {
@@ -137,11 +137,7 @@ impl EngineProfileStore {
     /// silently dropping Y. Holding the lock during the temp-
     /// file + rename (~ms) costs a few ms of write contention
     /// in exchange for serialised disk writes.
-    pub fn set_active(
-        &self,
-        artifact: ArtifactKind,
-        engine_id: String,
-    ) -> Result<EngineProfile> {
+    pub fn set_active(&self, artifact: ArtifactKind, engine_id: String) -> Result<EngineProfile> {
         let mut guard = self.inner.write().unwrap();
         guard.active.insert(artifact, engine_id);
         let snapshot = guard.clone();
@@ -175,11 +171,7 @@ impl EngineProfileStore {
     /// call time. No-op when the key isn't present (idempotent).
     /// Drops the per-engine sub-map when it becomes empty so the
     /// on-disk JSON stays tidy.
-    pub fn clear_setting(
-        &self,
-        engine_id: String,
-        setting_id: String,
-    ) -> Result<EngineProfile> {
+    pub fn clear_setting(&self, engine_id: String, setting_id: String) -> Result<EngineProfile> {
         let mut guard = self.inner.write().unwrap();
         if let Some(engine_settings) = guard.settings.get_mut(&engine_id) {
             engine_settings.remove(&setting_id);
@@ -196,15 +188,13 @@ impl EngineProfileStore {
     /// temp-file + rename pattern; doesn't touch the in-memory
     /// state (caller has already updated it under the lock).
     fn persist(&self, profile: &EngineProfile) -> Result<()> {
-        let bytes = serde_json::to_vec_pretty(profile)
-            .context("serializing engine profile")?;
+        let bytes = serde_json::to_vec_pretty(profile).context("serializing engine profile")?;
         let tmp = self.path.with_extension("json.tmp");
         if let Some(parent) = tmp.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("ensuring {}", parent.display()))?;
         }
-        std::fs::write(&tmp, &bytes)
-            .with_context(|| format!("writing {}", tmp.display()))?;
+        std::fs::write(&tmp, &bytes).with_context(|| format!("writing {}", tmp.display()))?;
         std::fs::rename(&tmp, &self.path)
             .with_context(|| format!("renaming {} → {}", tmp.display(), self.path.display()))?;
         Ok(())
@@ -261,10 +251,7 @@ mod tests {
             Some(&"manga_ocr".to_string())
         );
         let yolo = snap.settings.get("anime_yolo_detector").unwrap();
-        assert_eq!(
-            yolo.get("variant"),
-            Some(&StoredValue::String("s".into()))
-        );
+        assert_eq!(yolo.get("variant"), Some(&StoredValue::String("s".into())));
         assert_eq!(
             yolo.get("confidence_threshold"),
             Some(&StoredValue::Number(0.30))
@@ -354,13 +341,13 @@ mod tests {
         let snap = store
             .clear_setting("lama_inpaint".into(), "feather_px".into())
             .unwrap();
-        assert!(snap.settings.get("lama_inpaint").is_none());
+        assert!(!snap.settings.contains_key("lama_inpaint"));
 
         // Idempotent — clearing a non-existent key is a no-op.
         let snap = store
             .clear_setting("lama_inpaint".into(), "feather_px".into())
             .unwrap();
-        assert!(snap.settings.get("lama_inpaint").is_none());
+        assert!(!snap.settings.contains_key("lama_inpaint"));
     }
 
     #[test]

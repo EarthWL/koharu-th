@@ -96,10 +96,7 @@ fn build_router(shared: SharedResources, resolver: SharedAssetResolver) -> Route
 /// Credit: this transport choice was proposed by @HetCreep in
 /// koharu-th#33; see docs/v2-arch.md §2 (Locked Decisions, blob
 /// transport row) + §5 Phase 2 + §12 design changelog on main.
-async fn serve_blob(
-    State(shared): State<SharedResources>,
-    Path(hex): Path<String>,
-) -> Response {
+async fn serve_blob(State(shared): State<SharedResources>, Path(hex): Path<String>) -> Response {
     let Some(id) = parse_blob_hex(&hex) else {
         return no_store_error(StatusCode::BAD_REQUEST, "malformed blob hash");
     };
@@ -177,10 +174,7 @@ fn insert_blob_cors(headers: &mut axum::http::HeaderMap) {
 fn no_store_error(status: StatusCode, body: &'static str) -> Response {
     let mut response = (status, body).into_response();
     let headers = response.headers_mut();
-    headers.insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("no-store"),
-    );
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     insert_blob_cors(headers);
     response
 }
@@ -210,6 +204,39 @@ fn decode_hex_nibble(b: u8) -> Option<u8> {
         b'a'..=b'f' => Some(b - b'a' + 10),
         _ => None,
     }
+}
+
+fn serve_asset(resolver: &SharedAssetResolver, uri: Uri) -> Response {
+    let path = uri.path();
+    let target = if path == "/" {
+        "index.html"
+    } else {
+        path.trim_start_matches('/')
+    };
+
+    resolve_asset(resolver, target)
+        .or_else(|| resolve_asset(resolver, "index.html"))
+        .unwrap_or_else(|| (StatusCode::NOT_FOUND, "Not Found").into_response())
+}
+
+fn resolve_asset(resolver: &SharedAssetResolver, path: &str) -> Option<Response> {
+    let asset = resolver(path)?;
+    let mut response = Response::new(Body::from(asset.bytes));
+    if let Ok(ct) = HeaderValue::from_str(&asset.mime_type) {
+        response.headers_mut().insert(header::CONTENT_TYPE, ct);
+    }
+    Some(response)
+}
+
+pub async fn serve_with_listener(
+    listener: TcpListener,
+    shared: SharedResources,
+    resolver: SharedAssetResolver,
+) -> Result<()> {
+    let router = build_router(shared, resolver);
+    tracing::info!("HTTP server listening on http://{}", listener.local_addr()?);
+    axum::serve(listener, router.into_make_service()).await?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -248,37 +275,4 @@ mod tests {
         let upper: String = "A".repeat(64);
         assert!(parse_blob_hex(&upper).is_none());
     }
-}
-
-fn serve_asset(resolver: &SharedAssetResolver, uri: Uri) -> Response {
-    let path = uri.path();
-    let target = if path == "/" {
-        "index.html"
-    } else {
-        path.trim_start_matches('/')
-    };
-
-    resolve_asset(resolver, target)
-        .or_else(|| resolve_asset(resolver, "index.html"))
-        .unwrap_or_else(|| (StatusCode::NOT_FOUND, "Not Found").into_response())
-}
-
-fn resolve_asset(resolver: &SharedAssetResolver, path: &str) -> Option<Response> {
-    let asset = resolver(path)?;
-    let mut response = Response::new(Body::from(asset.bytes));
-    if let Ok(ct) = HeaderValue::from_str(&asset.mime_type) {
-        response.headers_mut().insert(header::CONTENT_TYPE, ct);
-    }
-    Some(response)
-}
-
-pub async fn serve_with_listener(
-    listener: TcpListener,
-    shared: SharedResources,
-    resolver: SharedAssetResolver,
-) -> Result<()> {
-    let router = build_router(shared, resolver);
-    tracing::info!("HTTP server listening on http://{}", listener.local_addr()?);
-    axum::serve(listener, router.into_make_service()).await?;
-    Ok(())
 }

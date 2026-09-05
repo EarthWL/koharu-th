@@ -168,18 +168,38 @@ pub enum Op {
 pub struct TextBlockPatch {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub region: Option<Region>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub source_text: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub translation: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub style: Option<Option<TextStyle>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub source_lang: Option<Option<String>>,
     /// Clockwise text rotation in degrees. Double-option: outer `None`
     /// = field untouched, `Some(None)` = reset to upright, `Some(Some)`
     /// = set. Lets a manual rotate be an undoable UpdateTextBlock.
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub rotation_deg: Option<Option<f32>>,
 }
 
@@ -235,8 +255,10 @@ mod tests {
     #[test]
     fn text_block_patch_is_empty() {
         assert!(TextBlockPatch::default().is_empty());
-        let mut p = TextBlockPatch::default();
-        p.translation = Some(Some("ทดสอบ".into()));
+        let p = TextBlockPatch {
+            translation: Some(Some("ทดสอบ".into())),
+            ..Default::default()
+        };
         assert!(!p.is_empty());
     }
 
@@ -264,8 +286,10 @@ mod tests {
     fn text_block_patch_serde_skips_none_fields() {
         // `serde(skip_serializing_if)` keeps the wire small for the
         // common "user changed one field" patch.
-        let mut p = TextBlockPatch::default();
-        p.translation = Some(Some("test".into()));
+        let p = TextBlockPatch {
+            translation: Some(Some("test".into())),
+            ..Default::default()
+        };
         let s = serde_json::to_string(&p).unwrap();
         assert!(!s.contains("region"));
         assert!(!s.contains("style"));

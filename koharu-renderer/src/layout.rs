@@ -298,15 +298,16 @@ impl<'a> TextLayout<'a> {
             let mut spacing_added = 0.0_f32;
             for mut glyph in shaped.glyphs {
                 glyph.cluster += start as u32;
-                if extra != 0.0 && last_cluster.map(|c| c != glyph.cluster).unwrap_or(true) {
-                    if let Some(prev) = current.glyphs.last_mut() {
-                        if self.writing_mode.is_vertical() {
-                            prev.y_advance += extra;
-                        } else {
-                            prev.x_advance += extra;
-                        }
-                        spacing_added += extra;
+                if extra != 0.0
+                    && last_cluster.map(|c| c != glyph.cluster).unwrap_or(true)
+                    && let Some(prev) = current.glyphs.last_mut()
+                {
+                    if self.writing_mode.is_vertical() {
+                        prev.y_advance += extra;
+                    } else {
+                        prev.x_advance += extra;
                     }
+                    spacing_added += extra;
                 }
                 last_cluster = Some(glyph.cluster);
                 current.glyphs.push(glyph);

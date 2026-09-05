@@ -8,22 +8,22 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use koharu_api::commands::{
     ChapterAddPagesPayload, ChapterCreatePayload, ChapterDto, ChapterIdPayload,
-    ChapterImportResult, ChapterUpdatePayload,
-    CharacterAddPayload,
-    CharacterDto, CharacterIdPayload, CharacterUpdatePayload, GlossaryAddPayload,
-    GlossaryBumpUsagePayload, GlossaryDto, GlossaryIdPayload, GlossaryUpdatePayload,
-    GlossaryBulkAddPayload, GlossaryBulkAddResult, LlmCallLogPayload, LlmCostStats,
-    NameAliasDto, ProjectBackupResult, ProjectCreatePayload, RecentProjectDto,
-    RecentProjectRemovePayload,
-    ProjectCreatePickerPayload, ProjectInfo, ProjectOpenPayload, PromptRenderPayload,
-    PromptRenderResult, PromptTemplateAddPayload, PromptTemplateDto, PromptTemplateIdPayload,
-    PromptTemplateUpdatePayload, ProviderProfileAddPayload, ProviderProfileDto,
-    ProviderProfileIdPayload, ProviderProfileSecret, ProviderProfileUpdatePayload,
-    SeriesMetaDto, SeriesMetaUpdatePayload, TmEntryDto, TmFuzzyHit, TmInsertPayload,
-    TmLookupFuzzyPayload, TmLookupPayload,
+    ChapterImportResult, ChapterUpdatePayload, CharacterAddPayload, CharacterDto,
+    CharacterIdPayload, CharacterUpdatePayload, GlossaryAddPayload, GlossaryBulkAddPayload,
+    GlossaryBulkAddResult, GlossaryBumpUsagePayload, GlossaryDto, GlossaryIdPayload,
+    GlossaryUpdatePayload, LlmCallLogPayload, LlmCostStats, NameAliasDto, ProjectBackupResult,
+    ProjectCreatePayload, ProjectCreatePickerPayload, ProjectInfo, ProjectOpenPayload,
+    PromptRenderPayload, PromptRenderResult, PromptTemplateAddPayload, PromptTemplateDto,
+    PromptTemplateIdPayload, PromptTemplateUpdatePayload, ProviderProfileAddPayload,
+    ProviderProfileDto, ProviderProfileIdPayload, ProviderProfileSecret,
+    ProviderProfileUpdatePayload, RecentProjectDto, RecentProjectRemovePayload, SeriesMetaDto,
+    SeriesMetaUpdatePayload, TmEntryDto, TmFuzzyHit, TmInsertPayload, TmLookupFuzzyPayload,
+    TmLookupPayload,
 };
 use koharu_project::{
-    backup as backup_ops,
+    Chapter, ChapterStatus, Character, Confidence, GlossaryCategory, GlossaryEntry,
+    MANIFEST_FILENAME, NameAlias, Project, PromptTemplate, PromptUseCase, Provider,
+    ProviderProfile, SeriesMeta, backup as backup_ops,
     chapter::{self as chapter_ops, ChapterInsert, ChapterPatch},
     character::{self as character_ops, CharacterInsert, CharacterPatch},
     glossary::{self as glossary_ops, GlossaryInsert, GlossaryPatch},
@@ -33,9 +33,6 @@ use koharu_project::{
     secret as secret_ops,
     series::{self as series_ops, SeriesMetaPatch},
     tm::{self as tm_ops, TmEntry, TmInsert as TmInsertItem},
-    Chapter, ChapterStatus, Character, Confidence, GlossaryCategory, GlossaryEntry, NameAlias,
-    Project, PromptTemplate, PromptUseCase, Provider, ProviderProfile, SeriesMeta,
-    MANIFEST_FILENAME,
 };
 use rfd::FileDialog;
 
@@ -151,16 +148,15 @@ async fn ask_confirm_migration(preview: &koharu_project::migration::MigrationPre
             name = preview.project_name,
             backup = preview.backup_path.display(),
         );
-        match rfd::MessageDialog::new()
-            .set_level(rfd::MessageLevel::Info)
-            .set_title("Koharu — Project format upgrade")
-            .set_description(&message)
-            .set_buttons(rfd::MessageButtons::YesNo)
-            .show()
-        {
-            rfd::MessageDialogResult::Yes => true,
-            _ => false,
-        }
+        matches!(
+            rfd::MessageDialog::new()
+                .set_level(rfd::MessageLevel::Info)
+                .set_title("Koharu — Project format upgrade")
+                .set_description(&message)
+                .set_buttons(rfd::MessageButtons::YesNo)
+                .show(),
+            rfd::MessageDialogResult::Yes
+        )
     })
     .await
     .unwrap_or(false)
@@ -236,9 +232,7 @@ fn push_recent_safe(state: &AppResources, project: &Project) {
     }
 }
 
-pub async fn recent_projects_list(
-    state: AppResources,
-) -> anyhow::Result<Vec<RecentProjectDto>> {
+pub async fn recent_projects_list(state: AppResources) -> anyhow::Result<Vec<RecentProjectDto>> {
     let path = state.recent_projects_path.clone();
     let list = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<RecentProjectDto>> {
         Ok(recent_ops::list(&path)?
@@ -260,15 +254,16 @@ pub async fn recent_projects_remove(
 ) -> anyhow::Result<bool> {
     let store = state.recent_projects_path.clone();
     let removed = tokio::task::spawn_blocking(move || -> anyhow::Result<bool> {
-        Ok(recent_ops::remove(&store, std::path::Path::new(&payload.path))?)
+        Ok(recent_ops::remove(
+            &store,
+            std::path::Path::new(&payload.path),
+        )?)
     })
     .await??;
     Ok(removed)
 }
 
-pub async fn project_backup_picker(
-    state: AppResources,
-) -> anyhow::Result<ProjectBackupResult> {
+pub async fn project_backup_picker(state: AppResources) -> anyhow::Result<ProjectBackupResult> {
     let project = require_project(&state).await?;
     let manifest_name = project.manifest().name.clone();
 
@@ -281,7 +276,7 @@ pub async fn project_backup_picker(
     let chosen = tokio::task::spawn_blocking(move || {
         FileDialog::new()
             .add_filter("Zip archive", &["zip"])
-            .set_file_name(&format!("{suggested}.zip"))
+            .set_file_name(format!("{suggested}.zip"))
             .save_file()
     })
     .await?;
@@ -449,7 +444,7 @@ pub async fn chapters_list(state: AppResources) -> anyhow::Result<Vec<ChapterDto
 }
 
 /// Create a chapter: mint a folder name, make `<chapters>/<name>/source`
-/// + `.../render` subfolders, and insert a DB row pointing at the
+/// and `.../render` subfolders, and insert a DB row pointing at the
 /// folder. No page files are copied here — `chapter_add_pages` does that.
 pub async fn chapter_create(
     state: AppResources,
@@ -620,9 +615,8 @@ pub async fn chapter_get_page_bytes(
     let result = tokio::task::spawn_blocking(
         move || -> anyhow::Result<koharu_api::commands::ChapterPageBytes> {
             let conn = project.pool().get()?;
-            let chapter = chapter_ops::get(&conn, payload.chapter_id)?.ok_or_else(|| {
-                anyhow::anyhow!("chapter {} not found", payload.chapter_id)
-            })?;
+            let chapter = chapter_ops::get(&conn, payload.chapter_id)?
+                .ok_or_else(|| anyhow::anyhow!("chapter {} not found", payload.chapter_id))?;
             let pages = chapter_ops::list_source_pages(project.root(), &chapter)?;
             let total = pages.len();
             if payload.page_index >= total {
@@ -655,10 +649,7 @@ pub async fn chapter_get_page_bytes(
 
 /// Open all pages from a chapter's `source/` subfolder into the editor.
 /// Replaces the currently-loaded documents.
-pub async fn chapter_open(
-    state: AppResources,
-    payload: ChapterIdPayload,
-) -> anyhow::Result<usize> {
+pub async fn chapter_open(state: AppResources, payload: ChapterIdPayload) -> anyhow::Result<usize> {
     let project = require_project(&state).await?;
 
     let loaded = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<(PathBuf, Vec<u8>)>> {
@@ -706,10 +697,7 @@ pub async fn chapter_update(
             chapter_number: payload.chapter_number,
             title: payload.title.map(Some),
             volume: payload.volume.map(Some),
-            status: payload
-                .status
-                .as_deref()
-                .and_then(ChapterStatus::parse),
+            status: payload.status.as_deref().and_then(ChapterStatus::parse),
             summary: payload.summary.map(Some),
             notes: payload.notes.map(Some),
             page_count: payload.page_count,
@@ -764,7 +752,12 @@ pub async fn chapter_export_cbz(
 
     let project_root = project.root().to_path_buf();
     let result = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-        Ok(cbz::export_chapter(&project_root, &chapter, &series, &out_path)?)
+        Ok(cbz::export_chapter(
+            &project_root,
+            &chapter,
+            &series,
+            &out_path,
+        )?)
     })
     .await??;
 
@@ -809,9 +802,8 @@ pub async fn chapter_clear_pages(
     let result = tokio::task::spawn_blocking(
         move || -> anyhow::Result<koharu_api::commands::ChapterClearPagesResult> {
             let conn = project.pool().get()?;
-            let chapter = chapter_ops::get(&conn, payload.id)?.ok_or_else(|| {
-                anyhow::anyhow!("chapter {} not found", payload.id)
-            })?;
+            let chapter = chapter_ops::get(&conn, payload.id)?
+                .ok_or_else(|| anyhow::anyhow!("chapter {} not found", payload.id))?;
             let pages = chapter_ops::list_source_pages(project.root(), &chapter)?;
             let mut removed = 0usize;
             let mut failures: Vec<String> = Vec::new();
@@ -870,7 +862,10 @@ pub async fn character_add(
                 aliases: payload
                     .aliases
                     .into_iter()
-                    .map(|a| NameAlias { src: a.src, tgt: a.tgt })
+                    .map(|a| NameAlias {
+                        src: a.src,
+                        tgt: a.tgt,
+                    })
                     .collect(),
                 role: payload.role,
                 gender: payload.gender,
@@ -901,7 +896,10 @@ pub async fn character_update(
             translated_name: payload.translated_name,
             aliases: payload.aliases.map(|v| {
                 v.into_iter()
-                    .map(|a| NameAlias { src: a.src, tgt: a.tgt })
+                    .map(|a| NameAlias {
+                        src: a.src,
+                        tgt: a.tgt,
+                    })
                     .collect()
             }),
             role: payload.role.map(Some),
@@ -1028,7 +1026,10 @@ pub async fn glossary_update(
         let patch = GlossaryPatch {
             source_text: payload.source_text,
             target_text: payload.target_text,
-            category: payload.category.as_deref().and_then(GlossaryCategory::parse),
+            category: payload
+                .category
+                .as_deref()
+                .and_then(GlossaryCategory::parse),
             aliases: payload.aliases,
             context_note: payload.context_note.map(Some),
             first_appearance_chapter_id: payload.first_appearance_chapter_id.map(Some),
@@ -1213,8 +1214,7 @@ pub async fn tm_lookup(
     let project = require_project(&state).await?;
     let dto = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<TmEntryDto>> {
         let conn = project.pool().get()?;
-        Ok(tm_ops::lookup_exact(&conn, &payload.source_text, &payload.target_lang)?
-            .map(tm_to_dto))
+        Ok(tm_ops::lookup_exact(&conn, &payload.source_text, &payload.target_lang)?.map(tm_to_dto))
     })
     .await??;
     Ok(dto)
@@ -1280,8 +1280,8 @@ pub async fn tm_pending_embeddings(
 ) -> anyhow::Result<Vec<koharu_api::commands::TmPendingEmbeddingItem>> {
     use koharu_api::commands::TmPendingEmbeddingItem;
     let project = require_project(&state).await?;
-    let list = tokio::task::spawn_blocking(
-        move || -> anyhow::Result<Vec<TmPendingEmbeddingItem>> {
+    let list =
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<TmPendingEmbeddingItem>> {
             let conn = project.pool().get()?;
             let rows = koharu_project::tm_vector::list_pending_embeddings(
                 &conn,
@@ -1290,14 +1290,10 @@ pub async fn tm_pending_embeddings(
             )?;
             Ok(rows
                 .into_iter()
-                .map(|(id, source_text)| TmPendingEmbeddingItem {
-                    id,
-                    source_text,
-                })
+                .map(|(id, source_text)| TmPendingEmbeddingItem { id, source_text })
                 .collect())
-        },
-    )
-    .await??;
+        })
+        .await??;
     Ok(list)
 }
 
@@ -1455,12 +1451,8 @@ pub async fn tm_import_tmx(
     let in_path2 = in_path.clone();
     let result = tokio::task::spawn_blocking(move || -> anyhow::Result<(usize, usize)> {
         let mut conn = project2.pool().get()?;
-        let r = koharu_project::tm_tmx::import_from_tmx(
-            &mut conn,
-            &in_path2,
-            &src_lang,
-            &tgt_lang,
-        )?;
+        let r =
+            koharu_project::tm_tmx::import_from_tmx(&mut conn, &in_path2, &src_lang, &tgt_lang)?;
         Ok((r.inserted, r.skipped))
     })
     .await??;
@@ -1537,7 +1529,10 @@ pub async fn provider_profiles_list(
     let pool = state.profiles.clone();
     let list = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<ProviderProfileDto>> {
         let conn = pool.get()?;
-        Ok(profile_ops::list(&conn)?.into_iter().map(profile_to_dto).collect())
+        Ok(profile_ops::list(&conn)?
+            .into_iter()
+            .map(profile_to_dto)
+            .collect())
     })
     .await??;
     Ok(list)
@@ -1604,10 +1599,10 @@ pub async fn provider_profile_update(
             Some(ref s) if s.is_empty() => {
                 // Clear: delete existing keyring entry (if any) and null the ref.
                 let existing = profile_ops::get(&conn, payload.id)?;
-                if let Some(p) = existing {
-                    if let Some(r) = p.api_key_ref.as_deref() {
-                        let _ = secret_ops::delete(r);
-                    }
+                if let Some(p) = existing
+                    && let Some(r) = p.api_key_ref.as_deref()
+                {
+                    let _ = secret_ops::delete(r);
                 }
                 Some(None)
             }
@@ -1674,10 +1669,10 @@ pub async fn provider_profile_remove(
     let removed = tokio::task::spawn_blocking(move || -> anyhow::Result<bool> {
         let conn = pool.get()?;
         // Clean up the keyring entry too so we don't leak secrets after delete.
-        if let Some(p) = profile_ops::get(&conn, payload.id)? {
-            if let Some(r) = p.api_key_ref.as_deref() {
-                let _ = secret_ops::delete(r);
-            }
+        if let Some(p) = profile_ops::get(&conn, payload.id)?
+            && let Some(r) = p.api_key_ref.as_deref()
+        {
+            let _ = secret_ops::delete(r);
         }
         Ok(profile_ops::remove(&conn, payload.id)?)
     })
@@ -1685,10 +1680,7 @@ pub async fn provider_profile_remove(
     Ok(removed)
 }
 
-pub async fn llm_call_log(
-    state: AppResources,
-    payload: LlmCallLogPayload,
-) -> anyhow::Result<()> {
+pub async fn llm_call_log(state: AppResources, payload: LlmCallLogPayload) -> anyhow::Result<()> {
     let project = require_project(&state).await?;
     tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
         let conn = project.pool().get()?;
@@ -1725,8 +1717,7 @@ pub async fn llm_cost_breakdown(
     state: AppResources,
 ) -> anyhow::Result<koharu_api::commands::LlmCostBreakdown> {
     use koharu_api::commands::{
-        LlmCostBreakdown, LlmCostByChapter, LlmCostByDay, LlmCostByProfile,
-        LlmCostByUseCase,
+        LlmCostBreakdown, LlmCostByChapter, LlmCostByDay, LlmCostByProfile, LlmCostByUseCase,
     };
     let project = require_project(&state).await?;
     let profiles_pool = state.profiles.clone();
@@ -1991,7 +1982,10 @@ fn character_to_dto(c: Character) -> CharacterDto {
         aliases: c
             .aliases
             .into_iter()
-            .map(|a| NameAliasDto { src: a.src, tgt: a.tgt })
+            .map(|a| NameAliasDto {
+                src: a.src,
+                tgt: a.tgt,
+            })
             .collect(),
         role: c.role,
         gender: c.gender,
@@ -2077,7 +2071,9 @@ fn build_info(project: &Project) -> anyhow::Result<ProjectInfo> {
         .query_row("SELECT COUNT(*) FROM chapters", [], |r| r.get::<_, i64>(0))
         .unwrap_or(0) as u32;
     let character_count: u32 = conn
-        .query_row("SELECT COUNT(*) FROM characters", [], |r| r.get::<_, i64>(0))
+        .query_row("SELECT COUNT(*) FROM characters", [], |r| {
+            r.get::<_, i64>(0)
+        })
         .unwrap_or(0) as u32;
     let glossary_count: u32 = conn
         .query_row("SELECT COUNT(*) FROM glossary", [], |r| r.get::<_, i64>(0))

@@ -215,8 +215,8 @@ pub async fn run_engine_on_document(
     // collide.
     {
         let mut session_guard = state.session.write().await;
-        let needs_reset = policy.clear_text_blocks_first
-            || session_guard.active_doc_index() != Some(doc_index);
+        let needs_reset =
+            policy.clear_text_blocks_first || session_guard.active_doc_index() != Some(doc_index);
         if needs_reset {
             session_guard.reset_with(scene.clone(), doc_index);
         }
@@ -308,13 +308,7 @@ fn build_scene_from_document(doc: &mut Document, blobs: &BlobStore) -> Result<(S
     // — identical to the previous positional `NodeId(idx + 1)`, so the
     // change is behaviour-preserving until add/remove start reordering.
     // `NodeId::NONE = 0` stays reserved (max+1 is always ≥ 1).
-    let mut next_id = doc
-        .text_blocks
-        .iter()
-        .map(|b| b.node_id)
-        .max()
-        .unwrap_or(0)
-        + 1;
+    let mut next_id = doc.text_blocks.iter().map(|b| b.node_id).max().unwrap_or(0) + 1;
     let mut text_blocks: IndexMap<NodeId, SceneTextBlock> = IndexMap::new();
     for v1 in doc.text_blocks.iter_mut() {
         if v1.node_id == 0 {
@@ -339,7 +333,10 @@ fn build_scene_from_document(doc: &mut Document, blobs: &BlobStore) -> Result<(S
                 // user set in the Render panel. (Phase 4.1 stubbed this
                 // `None`, which silently disabled every Render control
                 // through the v2 engine path.)
-                style: v1.style.as_ref().map(crate::style_convert::scene_style_from_v1),
+                style: v1
+                    .style
+                    .as_ref()
+                    .map(crate::style_convert::scene_style_from_v1),
                 source_lang: v1.source_language.clone(),
                 font_prediction: None, // converted on demand by translate/render engines
                 rotation_deg: v1.rotation_deg,
@@ -593,7 +590,10 @@ pub fn apply_op(doc: &mut Document, op: Op, blobs: &BlobStore) -> Result<ApplyOu
 /// Apply a v2 `TextBlockPatch` to a v1 `TextBlock`. Mirrors the
 /// double-option semantics: `None` = leave alone, `Some(None)` =
 /// explicitly clear, `Some(Some(v))` = set.
-fn apply_text_block_patch(target: &mut koharu_types::TextBlock, patch: koharu_core::TextBlockPatch) {
+fn apply_text_block_patch(
+    target: &mut koharu_types::TextBlock,
+    patch: koharu_core::TextBlockPatch,
+) {
     if let Some(region) = patch.region {
         target.x = region.x as f32;
         target.y = region.y as f32;
@@ -840,11 +840,13 @@ async fn build_project_view(state: &AppResources) -> Result<ProjectView> {
         // missing series meta as "no view-level info" rather than
         // hard-failing the engine run. Project schema seeds the row
         // on create so this should never fire in practice.
-        let series_meta = koharu_project::series::get(&conn).ok().map(|s| SeriesMetaRow {
-            title: s.title,
-            source_language: s.source_language,
-            target_language: s.target_language,
-        });
+        let series_meta = koharu_project::series::get(&conn)
+            .ok()
+            .map(|s| SeriesMetaRow {
+                title: s.title,
+                source_language: s.source_language,
+                target_language: s.target_language,
+            });
 
         Ok(ProjectView {
             characters,
@@ -860,9 +862,7 @@ async fn build_project_view(state: &AppResources) -> Result<ProjectView> {
 /// koharu-core one. Variants are 1:1 — adding a category requires
 /// updating both crates (see the docstring on
 /// `koharu_core::GlossaryCategory`).
-fn project_glossary_category_to_core(
-    c: koharu_project::GlossaryCategory,
-) -> GlossaryCategory {
+fn project_glossary_category_to_core(c: koharu_project::GlossaryCategory) -> GlossaryCategory {
     use koharu_project::GlossaryCategory as ProjC;
     match c {
         ProjC::Term => GlossaryCategory::Term,
@@ -883,7 +883,8 @@ mod tests {
     use std::io::Cursor;
 
     fn one_pixel_doc() -> Document {
-        let img = DynamicImage::ImageRgba8(ImageBuffer::from_pixel(1, 1, image::Rgba([0, 0, 0, 255])));
+        let img =
+            DynamicImage::ImageRgba8(ImageBuffer::from_pixel(1, 1, image::Rgba([0, 0, 0, 255])));
         Document {
             id: String::new(),
             path: Default::default(),
@@ -927,7 +928,7 @@ mod tests {
     // stored page by re-encoding (build_scene returns the scene but
     // not the PageId-to-blob mapping in a convenient shape).
     fn scene_image_id(blobs: &BlobStore, _page: PageId) -> BlobId {
-        let mut doc = one_pixel_doc();
+        let doc = one_pixel_doc();
         register_image(blobs, &doc.image).unwrap()
     }
 
@@ -937,7 +938,12 @@ mod tests {
         let mut doc = one_pixel_doc();
         let block = SceneTextBlock {
             id: NodeId(0),
-            region: Region { x: 10, y: 20, width: 30, height: 40 },
+            region: Region {
+                x: 10,
+                y: 20,
+                width: 30,
+                height: 40,
+            },
             source_text: Some("テスト".into()),
             translation: Some("ทดสอบ".into()),
             style: None,
@@ -947,7 +953,10 @@ mod tests {
         };
         apply_op(
             &mut doc,
-            Op::AddTextBlock { page: PageId(0), block },
+            Op::AddTextBlock {
+                page: PageId(0),
+                block,
+            },
             &blobs,
         )
         .unwrap();
@@ -963,7 +972,12 @@ mod tests {
         let mut doc = one_pixel_doc();
         let block = |i: u32| SceneTextBlock {
             id: NodeId(i as u64),
-            region: Region { x: i, y: i, width: 1, height: 1 },
+            region: Region {
+                x: i,
+                y: i,
+                width: 1,
+                height: 1,
+            },
             source_text: None,
             translation: None,
             style: None,
@@ -972,8 +986,14 @@ mod tests {
             rotation_deg: None,
         };
         let ops = Op::Batch(vec![
-            Op::AddTextBlock { page: PageId(0), block: block(1) },
-            Op::AddTextBlock { page: PageId(0), block: block(2) },
+            Op::AddTextBlock {
+                page: PageId(0),
+                block: block(1),
+            },
+            Op::AddTextBlock {
+                page: PageId(0),
+                block: block(2),
+            },
         ]);
         apply_op(&mut doc, ops, &blobs).unwrap();
         assert_eq!(doc.text_blocks.len(), 2);
@@ -1020,23 +1040,51 @@ mod tests {
         // something to assign ids to.
         doc.text_blocks.push(koharu_types::TextBlock {
             node_id: 0,
-            x: 0.0, y: 0.0, width: 1.0, height: 1.0, confidence: 1.0,
-            line_polygons: None, source_direction: None, source_language: None,
-            rotation_deg: None, detected_font_size_px: None, detector: None,
-            text: Some("first".into()), translation: None, style: None,
-            font_prediction: None, rendered: None, lock_layout_box: false,
-            layout_seed_x: None, layout_seed_y: None,
-            layout_seed_width: None, layout_seed_height: None,
+            x: 0.0,
+            y: 0.0,
+            width: 1.0,
+            height: 1.0,
+            confidence: 1.0,
+            line_polygons: None,
+            source_direction: None,
+            source_language: None,
+            rotation_deg: None,
+            detected_font_size_px: None,
+            detector: None,
+            text: Some("first".into()),
+            translation: None,
+            style: None,
+            font_prediction: None,
+            rendered: None,
+            lock_layout_box: false,
+            layout_seed_x: None,
+            layout_seed_y: None,
+            layout_seed_width: None,
+            layout_seed_height: None,
         });
         doc.text_blocks.push(koharu_types::TextBlock {
             node_id: 0,
-            x: 0.0, y: 0.0, width: 1.0, height: 1.0, confidence: 1.0,
-            line_polygons: None, source_direction: None, source_language: None,
-            rotation_deg: None, detected_font_size_px: None, detector: None,
-            text: Some("second".into()), translation: None, style: None,
-            font_prediction: None, rendered: None, lock_layout_box: false,
-            layout_seed_x: None, layout_seed_y: None,
-            layout_seed_width: None, layout_seed_height: None,
+            x: 0.0,
+            y: 0.0,
+            width: 1.0,
+            height: 1.0,
+            confidence: 1.0,
+            line_polygons: None,
+            source_direction: None,
+            source_language: None,
+            rotation_deg: None,
+            detected_font_size_px: None,
+            detector: None,
+            text: Some("second".into()),
+            translation: None,
+            style: None,
+            font_prediction: None,
+            rendered: None,
+            lock_layout_box: false,
+            layout_seed_x: None,
+            layout_seed_y: None,
+            layout_seed_width: None,
+            layout_seed_height: None,
         });
 
         let (scene, page_id) = build_scene_from_document(&mut doc, &blobs).unwrap();
@@ -1071,10 +1119,7 @@ mod tests {
         saved_profile
             .settings
             .insert("anime_yolo_detector".to_string(), saved_settings);
-        let store = crate::engine_profile::EngineProfileStore::with_initial(
-            saved_profile,
-            path,
-        );
+        let store = crate::engine_profile::EngineProfileStore::with_initial(saved_profile, path);
 
         // Caller passes variant=x → wins. confidence not passed →
         // saved 0.30 flows through. New key from caller (foo=42) →
@@ -1112,8 +1157,7 @@ mod tests {
             path,
         );
 
-        let caller = PipelineRunOptions::new()
-            .with("variant", StoredValue::String("n".into()));
+        let caller = PipelineRunOptions::new().with("variant", StoredValue::String("n".into()));
         let merged = merge_profile_settings(&store, "anime_yolo_detector", caller);
         assert_eq!(merged.settings.len(), 1);
         assert_eq!(
@@ -1132,23 +1176,51 @@ mod tests {
         let mut doc = one_pixel_doc();
         doc.text_blocks.push(koharu_types::TextBlock {
             node_id: 1,
-            x: 0.0, y: 0.0, width: 1.0, height: 1.0, confidence: 1.0,
-            line_polygons: None, source_direction: None, source_language: None,
-            rotation_deg: None, detected_font_size_px: None, detector: None,
-            text: Some("a-before".into()), translation: None, style: None,
-            font_prediction: None, rendered: None, lock_layout_box: false,
-            layout_seed_x: None, layout_seed_y: None,
-            layout_seed_width: None, layout_seed_height: None,
+            x: 0.0,
+            y: 0.0,
+            width: 1.0,
+            height: 1.0,
+            confidence: 1.0,
+            line_polygons: None,
+            source_direction: None,
+            source_language: None,
+            rotation_deg: None,
+            detected_font_size_px: None,
+            detector: None,
+            text: Some("a-before".into()),
+            translation: None,
+            style: None,
+            font_prediction: None,
+            rendered: None,
+            lock_layout_box: false,
+            layout_seed_x: None,
+            layout_seed_y: None,
+            layout_seed_width: None,
+            layout_seed_height: None,
         });
         doc.text_blocks.push(koharu_types::TextBlock {
             node_id: 2,
-            x: 0.0, y: 0.0, width: 1.0, height: 1.0, confidence: 1.0,
-            line_polygons: None, source_direction: None, source_language: None,
-            rotation_deg: None, detected_font_size_px: None, detector: None,
-            text: Some("b-before".into()), translation: None, style: None,
-            font_prediction: None, rendered: None, lock_layout_box: false,
-            layout_seed_x: None, layout_seed_y: None,
-            layout_seed_width: None, layout_seed_height: None,
+            x: 0.0,
+            y: 0.0,
+            width: 1.0,
+            height: 1.0,
+            confidence: 1.0,
+            line_polygons: None,
+            source_direction: None,
+            source_language: None,
+            rotation_deg: None,
+            detected_font_size_px: None,
+            detector: None,
+            text: Some("b-before".into()),
+            translation: None,
+            style: None,
+            font_prediction: None,
+            rendered: None,
+            lock_layout_box: false,
+            layout_seed_x: None,
+            layout_seed_y: None,
+            layout_seed_width: None,
+            layout_seed_height: None,
         });
 
         // Update the block whose stable node_id is 2 (the second). The
@@ -1185,16 +1257,27 @@ mod tests {
         for i in 0..n {
             doc.text_blocks.push(koharu_types::TextBlock {
                 node_id: 0,
-                x: i as f32, y: i as f32, width: 10.0, height: 10.0,
+                x: i as f32,
+                y: i as f32,
+                width: 10.0,
+                height: 10.0,
                 confidence: 1.0,
-                line_polygons: None, source_direction: None,
-                source_language: None, rotation_deg: None,
-                detected_font_size_px: None, detector: None,
-                text: None, translation: None, style: None,
-                font_prediction: None, rendered: None,
+                line_polygons: None,
+                source_direction: None,
+                source_language: None,
+                rotation_deg: None,
+                detected_font_size_px: None,
+                detector: None,
+                text: None,
+                translation: None,
+                style: None,
+                font_prediction: None,
+                rendered: None,
                 lock_layout_box: false,
-                layout_seed_x: None, layout_seed_y: None,
-                layout_seed_width: None, layout_seed_height: None,
+                layout_seed_x: None,
+                layout_seed_y: None,
+                layout_seed_width: None,
+                layout_seed_height: None,
             });
         }
         doc
@@ -1203,7 +1286,12 @@ mod tests {
     fn make_scene_block(id: u64, x: u32) -> SceneTextBlock {
         SceneTextBlock {
             id: NodeId(id),
-            region: Region { x, y: 0, width: 5, height: 5 },
+            region: Region {
+                x,
+                y: 0,
+                width: 5,
+                height: 5,
+            },
             source_text: None,
             translation: None,
             style: None,
@@ -1216,7 +1304,8 @@ mod tests {
     fn png_blob(blobs: &BlobStore, w: u32, h: u32, gray: u8) -> BlobId {
         let img = DynamicImage::ImageLuma8(ImageBuffer::from_pixel(w, h, image::Luma([gray])));
         let mut buf = Vec::new();
-        img.write_to(&mut Cursor::new(&mut buf), ImageFormat::Png).unwrap();
+        img.write_to(&mut Cursor::new(&mut buf), ImageFormat::Png)
+            .unwrap();
         blobs.put(buf)
     }
 
@@ -1228,12 +1317,22 @@ mod tests {
         apply_op(
             &mut doc,
             Op::Batch(vec![
-                Op::AddTextBlock { page: PageId(1), block: make_scene_block(1, 10) },
-                Op::AddTextBlock { page: PageId(1), block: make_scene_block(2, 20) },
-                Op::AddTextBlock { page: PageId(1), block: make_scene_block(3, 30) },
+                Op::AddTextBlock {
+                    page: PageId(1),
+                    block: make_scene_block(1, 10),
+                },
+                Op::AddTextBlock {
+                    page: PageId(1),
+                    block: make_scene_block(2, 20),
+                },
+                Op::AddTextBlock {
+                    page: PageId(1),
+                    block: make_scene_block(3, 30),
+                },
             ]),
             &blobs,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(doc.text_blocks.len(), 3);
         assert_eq!(doc.text_blocks[0].x, 10.0);
         assert_eq!(doc.text_blocks[1].x, 20.0);
@@ -1261,7 +1360,8 @@ mod tests {
                     },
                 },
                 &blobs,
-            ).unwrap();
+            )
+            .unwrap();
         }
         assert_eq!(doc.text_blocks[0].text.as_deref(), Some("ja text 0"));
         assert_eq!(doc.text_blocks[1].text.as_deref(), Some("ja text 1"));
@@ -1289,7 +1389,8 @@ mod tests {
                     },
                 },
                 &blobs,
-            ).unwrap();
+            )
+            .unwrap();
         }
         assert_eq!(doc.text_blocks[0].translation.as_deref(), Some("th A"));
         assert_eq!(doc.text_blocks[1].translation.as_deref(), Some("th B"));
@@ -1303,9 +1404,13 @@ mod tests {
         let blob = png_blob(&blobs, 3, 3, 64);
         apply_op(
             &mut doc,
-            Op::SetInpaintedImage { page: PageId(1), image: Some(blob) },
+            Op::SetInpaintedImage {
+                page: PageId(1),
+                image: Some(blob),
+            },
             &blobs,
-        ).unwrap();
+        )
+        .unwrap();
         let inp: DynamicImage = doc.inpainted.expect("inpainted set").into();
         assert_eq!(inp.dimensions(), (3, 3));
     }
@@ -1317,9 +1422,13 @@ mod tests {
         let blob = png_blob(&blobs, 4, 5, 200);
         apply_op(
             &mut doc,
-            Op::SetRenderedImage { page: PageId(1), image: Some(blob) },
+            Op::SetRenderedImage {
+                page: PageId(1),
+                image: Some(blob),
+            },
             &blobs,
-        ).unwrap();
+        )
+        .unwrap();
         let r: DynamicImage = doc.rendered.expect("rendered set").into();
         assert_eq!(r.dimensions(), (4, 5));
     }
@@ -1331,9 +1440,13 @@ mod tests {
         let blob = png_blob(&blobs, 6, 6, 128);
         apply_op(
             &mut doc,
-            Op::SetBrushLayer { page: PageId(1), brush: Some(blob) },
+            Op::SetBrushLayer {
+                page: PageId(1),
+                brush: Some(blob),
+            },
             &blobs,
-        ).unwrap();
+        )
+        .unwrap();
         assert!(doc.brush_layer.is_some());
     }
 
@@ -1346,15 +1459,23 @@ mod tests {
         let blob = png_blob(&blobs, 2, 2, 200);
         apply_op(
             &mut doc,
-            Op::SetInpaintedImage { page: PageId(1), image: Some(blob) },
+            Op::SetInpaintedImage {
+                page: PageId(1),
+                image: Some(blob),
+            },
             &blobs,
-        ).unwrap();
+        )
+        .unwrap();
         assert!(doc.inpainted.is_some());
         apply_op(
             &mut doc,
-            Op::SetInpaintedImage { page: PageId(1), image: None },
+            Op::SetInpaintedImage {
+                page: PageId(1),
+                image: None,
+            },
             &blobs,
-        ).unwrap();
+        )
+        .unwrap();
         assert!(doc.inpainted.is_none(), "None blob clears the field");
     }
 
@@ -1377,7 +1498,8 @@ mod tests {
                 },
             },
             &blobs,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(doc.text_blocks[0].text.as_deref(), Some("keep"));
         assert_eq!(doc.text_blocks[1].text.as_deref(), Some("keep"));
     }
@@ -1398,7 +1520,8 @@ mod tests {
                 },
             },
             &blobs,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(doc.text_blocks.len(), 2);
         assert_eq!(doc.text_blocks[0].text.as_deref(), Some("keep"));
     }
@@ -1416,9 +1539,13 @@ mod tests {
         doc.text_blocks[2].node_id = 3;
         apply_op(
             &mut doc,
-            Op::RemoveTextBlock { page: PageId(1), id: NodeId(2) },
+            Op::RemoveTextBlock {
+                page: PageId(1),
+                id: NodeId(2),
+            },
             &blobs,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(doc.text_blocks.len(), 2);
         assert_eq!(doc.text_blocks[0].text.as_deref(), Some("first"));
         assert_eq!(doc.text_blocks[1].text.as_deref(), Some("third"));
@@ -1430,9 +1557,13 @@ mod tests {
         let mut doc = doc_with_n_blocks(2);
         apply_op(
             &mut doc,
-            Op::RemoveTextBlock { page: PageId(1), id: NodeId(0) },
+            Op::RemoveTextBlock {
+                page: PageId(1),
+                id: NodeId(0),
+            },
             &blobs,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(doc.text_blocks.len(), 2);
     }
 
@@ -1442,9 +1573,13 @@ mod tests {
         let mut doc = doc_with_n_blocks(2);
         apply_op(
             &mut doc,
-            Op::RemoveTextBlock { page: PageId(1), id: NodeId(99) },
+            Op::RemoveTextBlock {
+                page: PageId(1),
+                id: NodeId(99),
+            },
             &blobs,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(doc.text_blocks.len(), 2);
     }
 
@@ -1458,7 +1593,10 @@ mod tests {
         let phantom = blobs.put(b"x".to_vec());
         let err = apply_op(
             &mut doc,
-            Op::SetSegmentationMask { page: PageId(1), mask: Some(phantom) },
+            Op::SetSegmentationMask {
+                page: PageId(1),
+                mask: Some(phantom),
+            },
             &other,
         );
         assert!(err.is_err(), "missing blob must propagate as Err");
@@ -1475,11 +1613,18 @@ mod tests {
         apply_op(
             &mut doc,
             Op::Batch(vec![
-                Op::AddTextBlock { page: PageId(1), block: make_scene_block(1, 10) },
-                Op::AddTextBlock { page: PageId(1), block: make_scene_block(2, 20) },
+                Op::AddTextBlock {
+                    page: PageId(1),
+                    block: make_scene_block(1, 10),
+                },
+                Op::AddTextBlock {
+                    page: PageId(1),
+                    block: make_scene_block(2, 20),
+                },
             ]),
             &blobs,
-        ).unwrap();
+        )
+        .unwrap();
         for (id, src) in [(1u64, "ja A"), (2, "ja B")] {
             apply_op(
                 &mut doc,
@@ -1492,7 +1637,8 @@ mod tests {
                     },
                 },
                 &blobs,
-            ).unwrap();
+            )
+            .unwrap();
         }
         for (id, tr) in [(1u64, "th A"), (2, "th B")] {
             apply_op(
@@ -1506,7 +1652,8 @@ mod tests {
                     },
                 },
                 &blobs,
-            ).unwrap();
+            )
+            .unwrap();
         }
         assert_eq!(doc.text_blocks.len(), 2);
         assert_eq!(doc.text_blocks[0].text.as_deref(), Some("ja A"));
@@ -1527,13 +1674,31 @@ mod tests {
         let (scene, page_id) = build_scene_from_document(&mut doc, &blobs).unwrap();
         let mut session = ProjectSession::new(scene, SessionConfig::default());
 
-        let op = Op::AddTextBlock { page: page_id, block: make_scene_block(1, 42) };
+        let op = Op::AddTextBlock {
+            page: page_id,
+            block: make_scene_block(1, 42),
+        };
         apply_op(&mut doc, op.clone(), &blobs).unwrap();
         session.apply(op).unwrap();
 
         let (rebuilt, _) = build_scene_from_document(&mut doc, &blobs).unwrap();
-        let r_ids: Vec<_> = rebuilt.pages.get(&page_id).unwrap().text_blocks.keys().copied().collect();
-        let s_ids: Vec<_> = session.scene().pages.get(&page_id).unwrap().text_blocks.keys().copied().collect();
+        let r_ids: Vec<_> = rebuilt
+            .pages
+            .get(&page_id)
+            .unwrap()
+            .text_blocks
+            .keys()
+            .copied()
+            .collect();
+        let s_ids: Vec<_> = session
+            .scene()
+            .pages
+            .get(&page_id)
+            .unwrap()
+            .text_blocks
+            .keys()
+            .copied()
+            .collect();
         assert_eq!(r_ids, s_ids, "dual-apply NodeId set must match");
     }
 
@@ -1548,7 +1713,16 @@ mod tests {
         let mut doc = doc_with_n_blocks(3);
         let (scene_v1, page_id) = build_scene_from_document(&mut doc, &blobs).unwrap();
         let mut session = ProjectSession::new(scene_v1, SessionConfig::default());
-        assert_eq!(session.scene().pages.get(&page_id).unwrap().text_blocks.len(), 3);
+        assert_eq!(
+            session
+                .scene()
+                .pages
+                .get(&page_id)
+                .unwrap()
+                .text_blocks
+                .len(),
+            3
+        );
 
         // clear_text_blocks_first policy: wipe v1 vector + reset
         // session from the post-clear scene.
@@ -1557,11 +1731,22 @@ mod tests {
         session = ProjectSession::new(scene_v2, SessionConfig::default());
 
         // Re-detect emits NodeId(1) — pre-fix this collided.
-        session.apply(Op::AddTextBlock {
-            page: page_id,
-            block: make_scene_block(1, 10),
-        }).expect("re-detect after clear must not collide with old ids");
-        assert_eq!(session.scene().pages.get(&page_id).unwrap().text_blocks.len(), 1);
+        session
+            .apply(Op::AddTextBlock {
+                page: page_id,
+                block: make_scene_block(1, 10),
+            })
+            .expect("re-detect after clear must not collide with old ids");
+        assert_eq!(
+            session
+                .scene()
+                .pages
+                .get(&page_id)
+                .unwrap()
+                .text_blocks
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -1607,13 +1792,23 @@ mod tests {
         // Detector emits its first AddTextBlock. Pre-fix, scene
         // (built before clear) still had NodeId(1) populated and
         // this trip-wired the audit #6/P1 duplicate guard.
-        session.apply(Op::AddTextBlock {
-            page: page_id,
-            block: make_scene_block(1, 50),
-        }).expect("audit #8/P1: re-detect on a populated doc must not \
-                   collide after the clear-then-build-then-reset order");
+        session
+            .apply(Op::AddTextBlock {
+                page: page_id,
+                block: make_scene_block(1, 50),
+            })
+            .expect(
+                "audit #8/P1: re-detect on a populated doc must not \
+                   collide after the clear-then-build-then-reset order",
+            );
         assert_eq!(
-            session.scene().pages.get(&page_id).unwrap().text_blocks.len(),
+            session
+                .scene()
+                .pages
+                .get(&page_id)
+                .unwrap()
+                .text_blocks
+                .len(),
             1
         );
     }

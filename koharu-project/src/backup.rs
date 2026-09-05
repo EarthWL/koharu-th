@@ -26,8 +26,8 @@ pub fn backup_to(root: &Path, out_zip: &Path) -> Result<usize> {
 
     let file = File::create(out_zip).map_err(|e| Error::io(out_zip, e))?;
     let mut zip = zip::ZipWriter::new(file);
-    let options =
-        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
 
     let mut count = 0usize;
     let mut buf = Vec::with_capacity(64 * 1024);
@@ -45,10 +45,11 @@ pub fn backup_to(root: &Path, out_zip: &Path) -> Result<usize> {
         buf.clear();
         f.read_to_end(&mut buf).map_err(|e| Error::io(&entry, e))?;
 
-        zip.start_file(&rel_str, options).map_err(|e| Error::InvalidManifest {
-            path: out_zip.to_path_buf(),
-            reason: format!("zip start_file failed: {e}"),
-        })?;
+        zip.start_file(&rel_str, options)
+            .map_err(|e| Error::InvalidManifest {
+                path: out_zip.to_path_buf(),
+                reason: format!("zip start_file failed: {e}"),
+            })?;
         zip.write_all(&buf).map_err(|e| Error::io(out_zip, e))?;
         count += 1;
     }
@@ -71,12 +72,11 @@ fn walk_files(root: &Path) -> Result<Vec<PathBuf>> {
             let ft = entry.file_type().map_err(|e| Error::io(&p, e))?;
             // Only skip top-level matches; nested folders named "export"
             // (unlikely but possible) are kept.
-            if dir == root {
-                if let Some(name) = entry.file_name().to_str() {
-                    if SKIP_DIRS.iter().any(|s| *s == name) {
-                        continue;
-                    }
-                }
+            if dir == root
+                && let Some(name) = entry.file_name().to_str()
+                && SKIP_DIRS.contains(&name)
+            {
+                continue;
             }
             if ft.is_dir() {
                 stack.push(p);
@@ -94,7 +94,6 @@ fn walk_files(root: &Path) -> Result<Vec<PathBuf>> {
 mod tests {
     use super::*;
     use crate::Project;
-    use std::io::Write as _;
     use tempfile::tempdir;
 
     #[test]

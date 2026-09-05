@@ -153,8 +153,8 @@ fn rehydrate_runtime_text_block_state(current: &mut TextBlock, previous: Option<
     // the sprite re-bake we'd otherwise schedule. `ok()` on either
     // side: if serialization fails (shouldn't, but defensive),
     // treat as changed so we err on the safe side.
-    let style_changed = serde_json::to_string(&current.style).ok()
-        != serde_json::to_string(&prev.style).ok();
+    let style_changed =
+        serde_json::to_string(&current.style).ok() != serde_json::to_string(&prev.style).ok();
     let rotation_changed = current.rotation_deg != prev.rotation_deg;
     let sprite_invalidated =
         size_changed(current, prev) || translation_changed || style_changed || rotation_changed;
@@ -297,51 +297,54 @@ async fn record_session_change(
     }
     let mut guard = state.session.write().await;
     let mut drift = false;
-    if let Some(session) = guard.session_for_mut(index) {
-        if let Some(page) = session.scene().pages.keys().next().copied() {
-            let scene_ok = session
-                .scene()
-                .pages
-                .get(&page)
-                .map(|p| {
-                    updates
+    if let Some(session) = guard.session_for_mut(index)
+        && let Some(page) = session.scene().pages.keys().next().copied()
+    {
+        let scene_ok = session
+            .scene()
+            .pages
+            .get(&page)
+            .map(|p| {
+                updates
+                    .iter()
+                    .all(|(id, _)| *id != 0 && p.text_blocks.contains_key(&NodeId(*id)))
+                    && removes
                         .iter()
-                        .all(|(id, _)| *id != 0 && p.text_blocks.contains_key(&NodeId(*id)))
-                        && removes
-                            .iter()
-                            .all(|id| *id != 0 && p.text_blocks.contains_key(&NodeId(*id)))
-                        && adds.iter().all(|(_, b)| b.node_id != 0)
-                })
-                .unwrap_or(false);
-            if scene_ok {
-                let mut ops: Vec<Op> = Vec::new();
-                // Removes first (keyed by id, order-independent), then
-                // inserts in ascending index, then content updates.
-                for id in &removes {
-                    ops.push(Op::RemoveTextBlock { page, id: NodeId(*id) });
-                }
-                let mut adds_sorted = adds;
-                adds_sorted.sort_by_key(|(i, _)| *i);
-                for (i, b) in &adds_sorted {
-                    ops.push(Op::InsertTextBlock {
-                        page,
-                        index: *i,
-                        block: v1_block_to_scene(b),
-                    });
-                }
-                for (id, b) in &updates {
-                    ops.push(Op::UpdateTextBlock {
-                        page,
-                        id: NodeId(*id),
-                        patch: full_patch_from_block(b),
-                    });
-                }
-                if !ops.is_empty() && session.apply(Op::Batch(ops)).is_err() {
-                    drift = true;
-                }
-            } else {
+                        .all(|id| *id != 0 && p.text_blocks.contains_key(&NodeId(*id)))
+                    && adds.iter().all(|(_, b)| b.node_id != 0)
+            })
+            .unwrap_or(false);
+        if scene_ok {
+            let mut ops: Vec<Op> = Vec::new();
+            // Removes first (keyed by id, order-independent), then
+            // inserts in ascending index, then content updates.
+            for id in &removes {
+                ops.push(Op::RemoveTextBlock {
+                    page,
+                    id: NodeId(*id),
+                });
+            }
+            let mut adds_sorted = adds;
+            adds_sorted.sort_by_key(|(i, _)| *i);
+            for (i, b) in &adds_sorted {
+                ops.push(Op::InsertTextBlock {
+                    page,
+                    index: *i,
+                    block: v1_block_to_scene(b),
+                });
+            }
+            for (id, b) in &updates {
+                ops.push(Op::UpdateTextBlock {
+                    page,
+                    id: NodeId(*id),
+                    patch: full_patch_from_block(b),
+                });
+            }
+            if !ops.is_empty() && session.apply(Op::Batch(ops)).is_err() {
                 drift = true;
             }
+        } else {
+            drift = true;
         }
     }
     // `session` borrow ended (NLL) — safe to invalidate now.
@@ -440,8 +443,7 @@ pub async fn update_text_blocks(
         let mut adds: Vec<(usize, TextBlock)> = Vec::new();
 
         for (block_index, block) in document.text_blocks.iter_mut().enumerate() {
-            let matched_idx =
-                find_matching_previous(block, block_index, &previous, &used_previous);
+            let matched_idx = find_matching_previous(block, block_index, &previous, &used_previous);
             if let Some(idx) = matched_idx {
                 used_previous[idx] = true;
                 rehydrate_runtime_text_block_state(block, Some(&previous[idx]));
@@ -769,7 +771,13 @@ pub async fn add_text_block(
     let (new_index, block) = state_tx::mutate_doc(&state.state, index, |document| {
         // Fresh stable id above the current max so it can't collide
         // with an id already referenced by session history.
-        let next_id = document.text_blocks.iter().map(|b| b.node_id).max().unwrap_or(0) + 1;
+        let next_id = document
+            .text_blocks
+            .iter()
+            .map(|b| b.node_id)
+            .max()
+            .unwrap_or(0)
+            + 1;
         let mut block = TextBlock {
             x: payload.x,
             y: payload.y,
@@ -786,7 +794,14 @@ pub async fn add_text_block(
     .await?;
     // Record as an undoable InsertTextBlock (no-op if no in-sync
     // session); the drift guard drops history if anything desynced.
-    record_session_change(&state, index, Vec::new(), vec![(new_index, block)], Vec::new()).await;
+    record_session_change(
+        &state,
+        index,
+        Vec::new(),
+        vec![(new_index, block)],
+        Vec::new(),
+    )
+    .await;
     verify_session_or_invalidate(&state, index).await;
     Ok(new_index)
 }
