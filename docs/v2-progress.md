@@ -147,9 +147,12 @@ bottom of this file — they are the actual RC gate, so they live here now.
        236k-line cudarc vendor** (`git revert e83bd91a`, drop the
        `[patch.crates-io]`) and disable the feature instead. Every
        shipped build carries this patch until decided.
-5. [ ] Squash-merge vs preserve-history decision (diff is ~106 commits;
+5. [ ] Squash-merge vs preserve-history decision (diff is ~115 commits;
        lean preserve — the audit trail in commit bodies is the design
-       record).
+       record). Since the 2026-09-23 sync the branch contains all of
+       `main`, so "preserve" is a plain fast-forward of `main` to the
+       branch tip — no conflicts — provided nothing new lands on `main`
+       first (if it does, merge it into the branch again, then FF).
 6. [ ] Per-GPU bundle build (Turing / Ampere / Ada / Blackwell) via
        `scripts/build-all-gpus.sh`.
 7. [ ] GitHub release with prebuilt installers; CHANGELOG + release
@@ -157,7 +160,7 @@ bottom of this file — they are the actual RC gate, so they live here now.
 
 ---
 
-## Phase status (branch tip `9969d39b`, 2026-09-05)
+## Phase status (last reconciled 2026-09-23, after main sync `030352f3`)
 
 | Phase | Status | Tip commit | Highlights |
 |---|---|---|---|
@@ -567,19 +570,28 @@ and 5 close.
 2. **`koharu-types` still live** (~34 importing files). The Scene ↔
    Document mirror depends on it. Deletion deferred to 2.1 — see
    `v2-arch.md` §9 Q2.
-3. **Repo not `cargo fmt`-clean.** Edition-2024 rustfmt reformats ~35
-   untouched files. A dedicated `chore(fmt)` commit is cheap but should
-   land now that the main sync (item 1 of 6.6) is done.
-   `lint.yml` does not run `fmt --check`, so this is hygiene, not a gate.
+3. ~~**Repo not `cargo fmt`-clean.**~~ Done 2026-09-23 in `a472d494`
+   (36 files, formatting only). `cargo fmt --all -- --check` is now
+   clean; `lint.yml` still does not run it, so keep it clean by hand.
 
 ---
 
 ## CI status
 
+> **2026-09-23: CI is deferred.** GitHub Actions is **disabled at repo
+> level** by the owner's choice; the `v2-arch.md` §2 "CI on branch" row
+> is not in effect for now. Until it is, the gate is **local**: before
+> any push that touches Rust, run
+> `cargo clippy --workspace --all-targets -- -D warnings` and
+> `cargo test --workspace` (plus `cargo fmt --all -- --check`) and note
+> the result in the commit body. (The repo is public, so standard
+> GitHub-hosted runners would not be billed — revisit when convenient.)
+
 - [x] `test.yml` + `lint.yml` trigger on `arch/v2-foundation` (`109af480`)
-- [ ] GitHub Actions confirmed enabled at repo level; first run green
+- [ ] ~~GitHub Actions confirmed enabled at repo level; first run green~~ — deferred, see note above
 - [x] clippy clean across workspace, all targets, `-D warnings` (`9969d39b`)
 - [x] Matrix: Linux + CPU (cheap) on push; per-GPU Windows builds
       reserved for tags (`release.yaml` / `publish.yml`)
 - [ ] Merge-back gate: workspace tests + clippy required before
-      `v2.0.0-rc1` tag
+      `v2.0.0-rc1` tag — run locally while Actions is off (last green:
+      2026-09-23 at `a472d494`)
