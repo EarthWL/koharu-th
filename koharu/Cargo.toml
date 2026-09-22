@@ -56,5 +56,8 @@ cuda = ["koharu-runtime/cuda", "koharu-ml/cuda", "koharu-pipeline/cuda"]
 cudnn = ["koharu-runtime/cudnn", "koharu-ml/cudnn"]
 metal = ["koharu-ml/metal", "koharu-pipeline/metal"]
 
+[dev-dependencies]
+tempfile = { workspace = true }
+
 [build-dependencies]
 tauri-build = { workspace = true }

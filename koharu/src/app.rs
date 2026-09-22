@@ -189,72 +189,85 @@ async fn prefetch() -> Result<()> {
 /// Failure modes:
 ///
 /// - **Legacy path missing**: fresh install. Silent no-op.
-/// - **Both paths populated**: should be impossible in practice (the
-///   new path was introduced this commit), but defensively we LEAVE
-///   BOTH alone — log a warning so a future investigator can spot
-///   the conflict. hf-hub uses the new path; the legacy folder is
-///   then dead weight cleanable by the user via the Storage panel
-///   (it still sizes the `models/` folder via the legacy ownership
-///   check) or the next uninstall.
+/// - **Both paths populated**: merge. Each top-level entry of the
+///   legacy folder (`models--org--repo`, …) that the new folder lacks is
+///   renamed across; entries present in both stay in legacy and are
+///   logged (hf-hub reads the new copy). The legacy folder is removed
+///   once empty. This used to leave both alone, which stranded the whole
+///   legacy cache — e.g. 16 GB on a dev box where `cargo test` had
+///   already created `hf/` via hf_hub's fallback path — and forced a
+///   full re-download. A rename that failed once (antivirus lock) hit
+///   the same trap on the next launch.
 /// - **Rename fails** (permissions, antivirus lock, etc.): log +
-///   continue. hf-hub will re-download into the new path. Users
-///   notice a one-time multi-GB re-download — annoying but not a
-///   data-loss path. The legacy folder stays behind for them to
-///   clean manually.
+///   continue; the next launch retries the entries still left behind.
 fn migrate_legacy_model_cache() {
-    let legacy = LEGACY_MODEL_ROOT.as_path();
-    let modern = MODEL_ROOT.as_path();
+    migrate_model_cache(LEGACY_MODEL_ROOT.as_path(), MODEL_ROOT.as_path());
+}
 
-    let legacy_has_content = legacy.exists()
-        && std::fs::read_dir(legacy)
-            .ok()
-            .map(|mut it| it.next().is_some())
-            .unwrap_or(false);
-    if !legacy_has_content {
+fn dir_has_entries(path: &std::path::Path) -> bool {
+    std::fs::read_dir(path)
+        .ok()
+        .map(|mut it| it.next().is_some())
+        .unwrap_or(false)
+}
+
+fn migrate_model_cache(legacy: &std::path::Path, modern: &std::path::Path) {
+    if !dir_has_entries(legacy) {
         return;
     }
 
-    let modern_has_content = modern.exists()
-        && std::fs::read_dir(modern)
-            .ok()
-            .map(|mut it| it.next().is_some())
-            .unwrap_or(false);
-    if modern_has_content {
-        tracing::warn!(
-            legacy = %legacy.display(),
-            modern = %modern.display(),
-            "Both legacy and modern HF cache paths have content — leaving \
-             both intact. Clean the legacy folder via Settings → Storage \
-             once you've confirmed the new path works."
-        );
-        return;
-    }
-
-    // Make sure the rename target's parent exists. Both paths share
-    // APP_ROOT but APP_ROOT might not have been created yet on a
-    // first-of-its-kind install (legacy was the only thing here).
-    if let Some(parent) = modern.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-
-    match std::fs::rename(legacy, modern) {
-        Ok(()) => {
-            tracing::info!(
+    if !dir_has_entries(modern) {
+        // Fast path: nothing to merge. An empty `modern` must go first —
+        // std::fs::rename will not replace a directory on Windows.
+        let _ = std::fs::remove_dir(modern);
+        if let Some(parent) = modern.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        match std::fs::rename(legacy, modern) {
+            Ok(()) => tracing::info!(
                 from = %legacy.display(),
                 to = %modern.display(),
                 "Migrated HF model cache to shorter path (issue #34)"
-            );
-        }
-        Err(err) => {
-            tracing::warn!(
+            ),
+            Err(err) => tracing::warn!(
                 legacy = %legacy.display(),
                 modern = %modern.display(),
                 ?err,
-                "Failed to migrate legacy HF cache; hf-hub will re-download \
-                 missing weights on next launch. Legacy folder left intact."
-            );
+                "Failed to migrate legacy HF cache; will retry next launch"
+            ),
+        }
+        return;
+    }
+
+    let Ok(entries) = std::fs::read_dir(legacy) else {
+        return;
+    };
+    let (mut moved, mut duplicate, mut failed) = (0usize, 0usize, 0usize);
+    for entry in entries.flatten() {
+        let target = modern.join(entry.file_name());
+        if target.exists() {
+            duplicate += 1;
+            continue;
+        }
+        match std::fs::rename(entry.path(), &target) {
+            Ok(()) => moved += 1,
+            Err(err) => {
+                failed += 1;
+                tracing::warn!(from = %entry.path().display(), ?err, "HF cache entry not migrated");
+            }
         }
     }
+    if !dir_has_entries(legacy) {
+        let _ = std::fs::remove_dir(legacy);
+    }
+    tracing::info!(
+        legacy = %legacy.display(),
+        modern = %modern.display(),
+        moved,
+        duplicate,
+        failed,
+        "Merged legacy HF model cache into the new path (issue #34);          duplicates stay in the legacy folder, clear it via Settings → Storage"
+    );
 }
 
 async fn build_resources(cpu: bool) -> Result<AppResources> {
@@ -493,4 +506,62 @@ pub async fn run() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::migrate_model_cache;
+    use std::fs;
+
+    fn model(root: &std::path::Path, name: &str) {
+        fs::create_dir_all(root.join(name)).unwrap();
+        fs::write(root.join(name).join("weights.bin"), name).unwrap();
+    }
+
+    #[test]
+    fn moves_whole_cache_when_new_path_is_absent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (legacy, modern) = (tmp.path().join("models"), tmp.path().join("hf"));
+        model(&legacy, "models--a--x");
+        migrate_model_cache(&legacy, &modern);
+        assert!(modern.join("models--a--x/weights.bin").exists());
+        assert!(!legacy.exists());
+    }
+
+    #[test]
+    fn replaces_empty_new_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (legacy, modern) = (tmp.path().join("models"), tmp.path().join("hf"));
+        model(&legacy, "models--a--x");
+        fs::create_dir_all(&modern).unwrap();
+        migrate_model_cache(&legacy, &modern);
+        assert!(modern.join("models--a--x/weights.bin").exists());
+        assert!(!legacy.exists());
+    }
+
+    #[test]
+    fn merges_when_both_populated() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (legacy, modern) = (tmp.path().join("models"), tmp.path().join("hf"));
+        model(&legacy, "models--a--x");
+        model(&legacy, "models--b--y");
+        model(&modern, "models--b--y");
+        migrate_model_cache(&legacy, &modern);
+        // Missing entry moved across, duplicate left behind.
+        assert!(modern.join("models--a--x/weights.bin").exists());
+        assert!(!legacy.join("models--a--x").exists());
+        assert!(legacy.join("models--b--y/weights.bin").exists());
+        assert!(modern.join("models--b--y/weights.bin").exists());
+    }
+
+    #[test]
+    fn removes_legacy_once_fully_merged() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (legacy, modern) = (tmp.path().join("models"), tmp.path().join("hf"));
+        model(&legacy, "models--a--x");
+        model(&modern, "models--c--z");
+        migrate_model_cache(&legacy, &modern);
+        assert!(modern.join("models--a--x").exists());
+        assert!(!legacy.exists());
+    }
 }
