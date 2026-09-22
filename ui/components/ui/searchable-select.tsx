@@ -33,6 +33,10 @@ type Props = {
   contentClassName?: string
   /** When true, allows the user to clear the current selection. */
   clearable?: boolean
+  /** e2e hooks: `data-testid` on the trigger, and on each visible
+   *  option as `${optionTestIdPrefix}-${index}`. */
+  testId?: string
+  optionTestIdPrefix?: string
 }
 
 /**
@@ -54,6 +58,8 @@ export function SearchableSelect({
   className,
   contentClassName,
   clearable = false,
+  testId,
+  optionTestIdPrefix,
 }: Props) {
   const [open, setOpen] = React.useState(false)
   const [query, setQuery] = React.useState('')
@@ -79,6 +85,7 @@ export function SearchableSelect({
         <button
           type='button'
           disabled={disabled}
+          data-testid={testId}
           data-placeholder={selected ? undefined : ''}
           className={cn(
             "border-input bg-transparent data-[placeholder]:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 dark:bg-input/30 dark:hover:bg-input/50 flex h-7 w-full items-center justify-between gap-1.5 rounded-md border px-2 py-1 text-left text-xs shadow-xs transition outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
@@ -133,7 +140,7 @@ export function SearchableSelect({
               {emptyMessage}
             </div>
           ) : (
-            filtered.map((opt) => {
+            filtered.map((opt, index) => {
               const active = opt.value === value
               return (
                 <button
@@ -149,6 +156,11 @@ export function SearchableSelect({
                     'hover:bg-accent data-[active=true]:bg-accent/60 flex w-full items-start gap-2 rounded-sm px-2 py-1.5 text-left text-xs transition disabled:cursor-not-allowed disabled:opacity-50',
                   )}
                   data-active={active}
+                  data-testid={
+                    optionTestIdPrefix
+                      ? `${optionTestIdPrefix}-${index}`
+                      : undefined
+                  }
                 >
                   <CheckIcon
                     className={cn(

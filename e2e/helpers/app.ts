@@ -1,3 +1,4 @@
+import net from 'node:net'
 import path from 'node:path'
 import { expect, type Locator, type Page } from '@playwright/test'
 import { selectors, type LayerId } from './selectors'
@@ -65,7 +66,30 @@ export async function setupDeterministicPage(page: Page) {
   )
 }
 
+const BACKEND_PORT = 9999
+
+/** Resolve once the backend's RPC socket accepts connections. The
+ *  headless app logs to its own console, not the webServer pipe, so
+ *  there is no stdout line to wait on for this. */
+async function waitForBackend(timeout = 120_000) {
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
+    const up = await new Promise<boolean>((resolve) => {
+      const socket = net.connect(BACKEND_PORT, '127.0.0.1')
+      socket.once('connect', () => {
+        socket.destroy()
+        resolve(true)
+      })
+      socket.once('error', () => resolve(false))
+    })
+    if (up) return
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+  throw new Error(`backend did not listen on ${BACKEND_PORT} in ${timeout}ms`)
+}
+
 export async function openApp(page: Page) {
+  await waitForBackend()
   await page.goto('/')
   await expect(page.getByTestId(selectors.menu.fileTrigger)).toBeVisible()
 }

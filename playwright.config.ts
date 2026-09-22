@@ -21,9 +21,10 @@ export default defineConfig({
     reuseExistingServer: true,
     timeout: 90_000,
     wait: {
-      // Match cargo's "Running `…koharu.exe --port=9999 --headless`"
-      // (process start), not Tauri's earlier "Running DevCommand (…)"
-      // line, which prints before the backend has even compiled.
+      // Cargo's "Running `…koharu… --headless`" (process start), not
+      // Tauri's earlier "Running DevCommand (…)", which prints before
+      // the backend compiles. The RPC socket binds a moment later;
+      // openApp waits for it (e2e/helpers/app.ts waitForBackend).
       stdout: /Running `[^`]*koharu[^`]* --headless`/,
     },
   },

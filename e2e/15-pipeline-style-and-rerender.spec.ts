@@ -17,6 +17,16 @@ test('changes style controls and re-renders', async ({ page }) => {
   await importAndOpenPage(page, PIPELINE_SINGLE)
   await prepareDetectAndOcr(page)
 
+  // Give block 0 a translation so the bold toggle below changes pixels.
+  // Rendered images are content-addressed blobs: an untranslated page
+  // renders identically with or without bold, so its src never changes.
+  await page.getByTestId(selectors.panels.textBlockCard(0)).click()
+  const translationField = page.getByTestId(
+    selectors.panels.textBlockTranslation(0),
+  )
+  await expect(translationField).toBeVisible()
+  await translationField.fill('E2E bold check')
+
   await page.getByTestId(selectors.panels.tabLayout).click()
   await expect(page.getByTestId(selectors.panels.layout)).toBeVisible()
 

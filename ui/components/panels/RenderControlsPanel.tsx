@@ -648,6 +648,8 @@ export function RenderControlsPanel() {
               searchPlaceholder={t('render.fontSearchPlaceholder')}
               emptyMessage={t('render.fontEmptyMessage')}
               disabled={fontOptions.length === 0}
+              testId='render-font-select'
+              optionTestIdPrefix='render-font-option'
               className='h-8 w-full min-w-0'
             />
           </div>
