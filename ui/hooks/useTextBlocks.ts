@@ -138,9 +138,8 @@ export function useTextBlocks() {
     // Render manually.
     //
     // Skip the auto re-render until the page has at least one
-    // translation: the renderer rejects an untranslated page, and
-    // `render` errors surface as a dialog (e.g. moving a box right
-    // after OCR). An explicit Render click still reports it.
+    // translation: before that the composite is just the base page, so
+    // a render per click/drag after OCR is wasted work.
     const pageHasTranslation = nextBlocks.some((block) =>
       block.translation?.trim(),
     )

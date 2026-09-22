@@ -102,28 +102,11 @@ impl Engine for TextRendererEngine {
 
         // Audit #9/B2: the bridge contract for engines that declare
         // `produces: [RenderedImage]` is "emit a SetRenderedImage or
-        // return Err — never silent Ok(())". Pre-audit this returned
-        // Ok(()) which the bridge passed through but surfaced as a
-        // confusing toast ("renderer returned without setting
-        // doc.rendered"). Two early-return paths now hard-error
-        // with actionable messages instead.
-        if page.text_blocks.is_empty() {
-            anyhow::bail!(
-                "Nothing to render: page has no text blocks. \
-                 Run detect first."
-            );
-        }
-        let has_any_translation = page.text_blocks.values().any(|b| {
-            b.translation
-                .as_deref()
-                .is_some_and(|t| !t.trim().is_empty())
-        });
-        if !has_any_translation {
-            anyhow::bail!(
-                "Nothing to render: text blocks have no translations yet. \
-                 Run translate first (or fill the translation field manually)."
-            );
-        }
+        // return Err — never silent Ok(())". A page with no blocks or
+        // no translations still gets a composite (the base page with
+        // no text), matching v1: that is what e2e/19 exports, and the
+        // UI auto-renders after edits long before anything is
+        // translated. Erroring here surfaced as a dialog on plain clicks.
 
         let image_bytes = ctx
             .blobs

@@ -61,3 +61,16 @@ fn full_page_without_inpainted_produces_composite() {
         "translate-before-inpaint must still composite"
     );
 }
+
+#[test]
+fn full_page_without_translations_produces_composite() {
+    let mut doc = page(true);
+    for block in &mut doc.text_blocks {
+        block.translation = None;
+    }
+    render(&mut doc, None);
+    assert!(
+        doc.rendered.is_some(),
+        "untranslated page must still composite"
+    );
+}
