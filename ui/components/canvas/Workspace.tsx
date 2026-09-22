@@ -371,8 +371,12 @@ export function Workspace() {
       }
     : { width: 0, height: 0 }
 
+  // `isolate` keeps the canvas layer z-indices (up to 41 for the text
+  // block handles) inside this subtree. Without it they competed with
+  // app-level overlays: the handles drew over the Welcome gate (z-40)
+  // after "Close project", and over the QueueWidget.
   return (
-    <div className='bg-muted flex min-h-0 min-w-0 flex-1'>
+    <div className='bg-muted isolate flex min-h-0 min-w-0 flex-1'>
       <ToolRail />
       <div className='relative flex min-h-0 min-w-0 flex-1 flex-col'>
         <CanvasToolbar />
