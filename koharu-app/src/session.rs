@@ -186,10 +186,7 @@ impl ProjectSession {
     /// state (the legacy Document via engine_bridge in Phase 5.3)
     /// apply it themselves to stay in sync.
     pub fn undo(&mut self) -> Result<Op, SessionError> {
-        let entry = self
-            .history
-            .pop_undo()
-            .ok_or(SessionError::NothingToUndo)?;
+        let entry = self.history.pop_undo().ok_or(SessionError::NothingToUndo)?;
         // Apply the inverse directly (NOT via apply() — that would
         // recurse + double-record). On error, push the entry back
         // so the user can retry, and the history stays consistent.
@@ -207,10 +204,7 @@ impl ProjectSession {
     /// Redo the most recently undone Op. Returns the **forward Op**
     /// that was re-applied to Scene — symmetric with `undo`.
     pub fn redo(&mut self) -> Result<Op, SessionError> {
-        let entry = self
-            .history
-            .pop_redo()
-            .ok_or(SessionError::NothingToRedo)?;
+        let entry = self.history.pop_redo().ok_or(SessionError::NothingToRedo)?;
         if let Err(e) = apply_to_scene(&mut self.scene, &entry.op) {
             // Re-push to redo so the cursor is unchanged on
             // failure — symmetric with `undo`'s error recovery.
@@ -400,10 +394,7 @@ fn apply_to_scene(scene: &mut Scene, op: &Op) -> Result<(), SessionError> {
 /// Apply a `TextBlockPatch` field by field. Mirror of the v2
 /// double-option semantics: outer `None` = leave alone; outer
 /// `Some(None)` = explicitly clear; outer `Some(Some(v))` = set.
-fn apply_text_block_patch(
-    block: &mut koharu_core::scene::TextBlock,
-    patch: &TextBlockPatch,
-) {
+fn apply_text_block_patch(block: &mut koharu_core::scene::TextBlock, patch: &TextBlockPatch) {
     if let Some(region) = patch.region {
         block.region = region;
     }
@@ -470,10 +461,7 @@ fn compute_inverse(scene: &Scene, op: &Op) -> Result<Op, SessionError> {
         }
         Op::AddPage { id, .. } => Ok(Op::RemovePage { id: *id }),
         Op::RemovePage { id } => {
-            let page = scene
-                .pages
-                .get(id)
-                .ok_or(SessionError::PageNotFound(*id))?;
+            let page = scene.pages.get(id).ok_or(SessionError::PageNotFound(*id))?;
             // Restore via Batch: AddPage (image + dims) then every
             // text block + every artifact in the right order.
             let mut restore: Vec<Op> = Vec::new();
@@ -516,10 +504,7 @@ fn compute_inverse(scene: &Scene, op: &Op) -> Result<Op, SessionError> {
             Ok(Op::Batch(restore))
         }
         Op::UpdatePageImage { id, .. } => {
-            let page = scene
-                .pages
-                .get(id)
-                .ok_or(SessionError::PageNotFound(*id))?;
+            let page = scene.pages.get(id).ok_or(SessionError::PageNotFound(*id))?;
             Ok(Op::UpdatePageImage {
                 id: *id,
                 image: page.source_image,
@@ -547,10 +532,19 @@ fn compute_inverse(scene: &Scene, op: &Op) -> Result<Op, SessionError> {
             // unset (outer None) in the inverse.
             let inverse_patch = TextBlockPatch {
                 region: patch.region.map(|_| block.region),
-                source_text: patch.source_text.as_ref().map(|_| block.source_text.clone()),
-                translation: patch.translation.as_ref().map(|_| block.translation.clone()),
+                source_text: patch
+                    .source_text
+                    .as_ref()
+                    .map(|_| block.source_text.clone()),
+                translation: patch
+                    .translation
+                    .as_ref()
+                    .map(|_| block.translation.clone()),
                 style: patch.style.as_ref().map(|_| block.style.clone()),
-                source_lang: patch.source_lang.as_ref().map(|_| block.source_lang.clone()),
+                source_lang: patch
+                    .source_lang
+                    .as_ref()
+                    .map(|_| block.source_lang.clone()),
                 rotation_deg: patch.rotation_deg.map(|_| block.rotation_deg),
             };
             Ok(Op::UpdateTextBlock {
@@ -635,8 +629,10 @@ fn _node_id_used(id: NodeId) -> NodeId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use koharu_core::{BlobId, NodeId, Op, PageId, Region, Scene, scene::Page, scene::TextBlock as SceneTextBlock};
     use indexmap::IndexMap;
+    use koharu_core::{
+        BlobId, NodeId, Op, PageId, Region, Scene, scene::Page, scene::TextBlock as SceneTextBlock,
+    };
 
     #[test]
     fn new_session_starts_with_empty_history() {
@@ -716,16 +712,43 @@ mod tests {
                 block: sample_block(1, "hello"),
             })
             .unwrap();
-        assert_eq!(session.scene().pages.get(&PageId(1)).unwrap().text_blocks.len(), 1);
+        assert_eq!(
+            session
+                .scene()
+                .pages
+                .get(&PageId(1))
+                .unwrap()
+                .text_blocks
+                .len(),
+            1
+        );
         assert_eq!(session.history_state().undo_len, 1);
 
         session.undo().unwrap();
-        assert_eq!(session.scene().pages.get(&PageId(1)).unwrap().text_blocks.len(), 0);
+        assert_eq!(
+            session
+                .scene()
+                .pages
+                .get(&PageId(1))
+                .unwrap()
+                .text_blocks
+                .len(),
+            0
+        );
         assert_eq!(session.history_state().undo_len, 0);
         assert_eq!(session.history_state().redo_len, 1);
 
         session.redo().unwrap();
-        assert_eq!(session.scene().pages.get(&PageId(1)).unwrap().text_blocks.len(), 1);
+        assert_eq!(
+            session
+                .scene()
+                .pages
+                .get(&PageId(1))
+                .unwrap()
+                .text_blocks
+                .len(),
+            1
+        );
         assert_eq!(session.history_state().redo_len, 0);
     }
 
@@ -752,18 +775,32 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            session.scene().pages.get(&PageId(1)).unwrap()
-                .text_blocks.get(&NodeId(1)).unwrap()
-                .source_text.as_deref(),
+            session
+                .scene()
+                .pages
+                .get(&PageId(1))
+                .unwrap()
+                .text_blocks
+                .get(&NodeId(1))
+                .unwrap()
+                .source_text
+                .as_deref(),
             Some("after"),
         );
 
         session.undo().unwrap();
 
         assert_eq!(
-            session.scene().pages.get(&PageId(1)).unwrap()
-                .text_blocks.get(&NodeId(1)).unwrap()
-                .source_text.as_deref(),
+            session
+                .scene()
+                .pages
+                .get(&PageId(1))
+                .unwrap()
+                .text_blocks
+                .get(&NodeId(1))
+                .unwrap()
+                .source_text
+                .as_deref(),
             Some("before"),
             "undo restores the prior source_text",
         );
@@ -782,7 +819,12 @@ mod tests {
             })
             .unwrap();
         assert_eq!(
-            session.scene().pages.get(&PageId(1)).unwrap().segmentation_mask,
+            session
+                .scene()
+                .pages
+                .get(&PageId(1))
+                .unwrap()
+                .segmentation_mask,
             Some(blob_a),
         );
 
@@ -793,20 +835,35 @@ mod tests {
             })
             .unwrap();
         assert_eq!(
-            session.scene().pages.get(&PageId(1)).unwrap().segmentation_mask,
+            session
+                .scene()
+                .pages
+                .get(&PageId(1))
+                .unwrap()
+                .segmentation_mask,
             Some(blob_b),
         );
 
         // Undo b → expect a.
         session.undo().unwrap();
         assert_eq!(
-            session.scene().pages.get(&PageId(1)).unwrap().segmentation_mask,
+            session
+                .scene()
+                .pages
+                .get(&PageId(1))
+                .unwrap()
+                .segmentation_mask,
             Some(blob_a),
         );
         // Undo a → expect None (initial state).
         session.undo().unwrap();
         assert_eq!(
-            session.scene().pages.get(&PageId(1)).unwrap().segmentation_mask,
+            session
+                .scene()
+                .pages
+                .get(&PageId(1))
+                .unwrap()
+                .segmentation_mask,
             None,
         );
     }
@@ -827,12 +884,24 @@ mod tests {
             ]))
             .unwrap();
         assert_eq!(
-            session.scene().pages.get(&PageId(1)).unwrap().text_blocks.len(),
+            session
+                .scene()
+                .pages
+                .get(&PageId(1))
+                .unwrap()
+                .text_blocks
+                .len(),
             2,
         );
         session.undo().unwrap();
         assert_eq!(
-            session.scene().pages.get(&PageId(1)).unwrap().text_blocks.len(),
+            session
+                .scene()
+                .pages
+                .get(&PageId(1))
+                .unwrap()
+                .text_blocks
+                .len(),
             0,
             "batch undo removes both",
         );
@@ -904,12 +973,22 @@ mod tests {
             page: PageId(1),
             block: sample_block(1, "second"),
         });
-        assert!(matches!(result, Err(SessionError::NodeAlreadyExists(NodeId(1), _))));
+        assert!(matches!(
+            result,
+            Err(SessionError::NodeAlreadyExists(NodeId(1), _))
+        ));
         // First block unchanged.
         assert_eq!(
-            session.scene().pages.get(&PageId(1)).unwrap()
-                .text_blocks.get(&NodeId(1)).unwrap()
-                .source_text.as_deref(),
+            session
+                .scene()
+                .pages
+                .get(&PageId(1))
+                .unwrap()
+                .text_blocks
+                .get(&NodeId(1))
+                .unwrap()
+                .source_text
+                .as_deref(),
             Some("first"),
         );
         // History: only the first apply pushed. Failed apply
@@ -928,7 +1007,10 @@ mod tests {
             width: 200,
             height: 200,
         });
-        assert!(matches!(result, Err(SessionError::PageAlreadyExists(PageId(1)))));
+        assert!(matches!(
+            result,
+            Err(SessionError::PageAlreadyExists(PageId(1)))
+        ));
         // Original page unchanged.
         let page = session.scene().pages.get(&PageId(1)).unwrap();
         assert_eq!(page.width, 100);

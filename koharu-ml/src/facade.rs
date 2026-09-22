@@ -1,6 +1,6 @@
 use anyhow::Result;
 use image::{DynamicImage, GenericImageView};
-use koharu_types::{Document, DetectorEngine, FontPrediction, OcrEngine, SerializableDynamicImage};
+use koharu_types::{DetectorEngine, Document, FontPrediction, OcrEngine, SerializableDynamicImage};
 use tokio::sync::Mutex;
 
 use crate::anime_text::{AnimeTextDetector, AnimeTextYoloVariant};
@@ -191,8 +191,7 @@ impl Model {
                 // mask). The default detector's text_blocks are
                 // discarded in favour of YOLO's.
                 let default_detection = self.dialog_detector.inference(&doc.image)?;
-                doc.segment =
-                    Some(DynamicImage::ImageLuma8(default_detection.mask).into());
+                doc.segment = Some(DynamicImage::ImageLuma8(default_detection.mask).into());
                 let yolo = self
                     .anime_text_detector(variant)
                     .await
@@ -260,9 +259,7 @@ impl Model {
             OcrEngine::Manga => match self.manga_ocr().await {
                 Ok(_) => OcrEngine::Manga,
                 Err(err) => {
-                    tracing::warn!(
-                        "Manga OCR failed to load ({err:#}); falling back to Mit48px"
-                    );
+                    tracing::warn!("Manga OCR failed to load ({err:#}); falling back to Mit48px");
                     OcrEngine::Mit48px
                 }
             },
@@ -285,10 +282,7 @@ impl Model {
                 // shape from Mit48pxOcr which slices internally. We
                 // do the cropping here so the rest of the pipeline
                 // doesn't care which engine is active.
-                let ocr = self
-                    .manga_ocr()
-                    .await
-                    .expect("checked above");
+                let ocr = self.manga_ocr().await.expect("checked above");
                 let crops: Vec<DynamicImage> = doc
                     .text_blocks
                     .iter()

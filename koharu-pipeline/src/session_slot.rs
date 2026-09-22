@@ -149,7 +149,10 @@ mod tests {
         slot.reset_with(Scene::default(), 7);
         assert!(slot.is_active());
         assert_eq!(slot.active_doc_index(), Some(7));
-        assert!(slot.session_for(7).is_some(), "matching index returns session");
+        assert!(
+            slot.session_for(7).is_some(),
+            "matching index returns session"
+        );
     }
 
     #[test]

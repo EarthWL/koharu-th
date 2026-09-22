@@ -40,7 +40,7 @@ impl BlobId {
 /// Serde adapter for `[u8; 32]` — serde doesn't derive Serialize for
 /// fixed-size byte arrays natively, so we coerce to/from `Vec<u8>`.
 mod serde_bytes_array {
-    use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
 
     pub fn serialize<S: Serializer>(value: &[u8; 32], s: S) -> Result<S::Ok, S::Error> {
         value.as_slice().serialize(s)

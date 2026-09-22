@@ -114,9 +114,7 @@ fn to_dto(m: ChatMessage) -> ChatMessageDto {
     }
 }
 
-async fn require_project(
-    state: &AppResources,
-) -> anyhow::Result<koharu_project::Project> {
+async fn require_project(state: &AppResources) -> anyhow::Result<koharu_project::Project> {
     state
         .project
         .read()
@@ -161,7 +159,11 @@ pub async fn web_fetch_url(
 
     let bytes = res.bytes().await?;
     let truncated = bytes.len() > MAX_BYTES;
-    let slice = if truncated { &bytes[..MAX_BYTES] } else { &bytes[..] };
+    let slice = if truncated {
+        &bytes[..MAX_BYTES]
+    } else {
+        &bytes[..]
+    };
     let raw = String::from_utf8_lossy(slice).to_string();
 
     let (title, text) = if content_type.contains("html") || looks_like_html(&raw) {

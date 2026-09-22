@@ -38,11 +38,11 @@ use futures::future::BoxFuture;
 use image::ImageFormat;
 use tokio::sync::mpsc;
 
+use koharu_core::scene::TextBlock as SceneTextBlock;
 use koharu_core::{
     ArtifactKind, BackendSupport, EngineCost, EngineResult, HardwareReq, Op, Region,
     SettingDescriptor,
 };
-use koharu_core::scene::TextBlock as SceneTextBlock;
 use koharu_engines::{Engine, EngineCtx, EngineInfo, inventory};
 use koharu_types::{AnimeYoloVariant, DetectorEngine, Document, SerializableDynamicImage};
 
@@ -111,20 +111,13 @@ const SETTINGS: &[SettingDescriptor] = &[
 ];
 
 const CONSUMES: &[ArtifactKind] = &[ArtifactKind::SourceImage];
-const PRODUCES: &[ArtifactKind] = &[
-    ArtifactKind::DetectionBoxes,
-    ArtifactKind::SegmentationMask,
-];
+const PRODUCES: &[ArtifactKind] = &[ArtifactKind::DetectionBoxes, ArtifactKind::SegmentationMask];
 
 pub struct AnimeYoloDetectorEngine;
 
 #[async_trait]
 impl Engine for AnimeYoloDetectorEngine {
-    async fn run(
-        &self,
-        ctx: EngineCtx<'_>,
-        ops_tx: mpsc::Sender<EngineResult>,
-    ) -> Result<()> {
+    async fn run(&self, ctx: EngineCtx<'_>, ops_tx: mpsc::Sender<EngineResult>) -> Result<()> {
         if ctx.cancel.is_cancelled() {
             return Ok(());
         }
@@ -329,11 +322,7 @@ fn intersection_area(a: &koharu_types::TextBlock, b: &koharu_types::TextBlock) -
     }
 }
 
-fn empty_document_with_image(
-    image: image::DynamicImage,
-    width: u32,
-    height: u32,
-) -> Document {
+fn empty_document_with_image(image: image::DynamicImage, width: u32, height: u32) -> Document {
     Document {
         id: String::new(),
         path: PathBuf::new(),
@@ -408,11 +397,17 @@ mod tests {
         // partial detection covering just the first character at
         // (50,50)-(120,150). Partial is 100% inside full → drop.
         let full = koharu_types::TextBlock {
-            x: 50.0, y: 50.0, width: 200.0, height: 100.0,
+            x: 50.0,
+            y: 50.0,
+            width: 200.0,
+            height: 100.0,
             ..Default::default()
         };
         let partial = koharu_types::TextBlock {
-            x: 50.0, y: 50.0, width: 70.0, height: 100.0,
+            x: 50.0,
+            y: 50.0,
+            width: 70.0,
+            height: 100.0,
             ..Default::default()
         };
         let kept = drop_contained_boxes(&[partial, full.clone()], 0.80);
@@ -424,11 +419,17 @@ mod tests {
     fn drop_contained_boxes_keeps_separate_bubbles() {
         // Two non-overlapping bubbles must both survive.
         let a = koharu_types::TextBlock {
-            x: 0.0, y: 0.0, width: 100.0, height: 100.0,
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 100.0,
             ..Default::default()
         };
         let b = koharu_types::TextBlock {
-            x: 200.0, y: 0.0, width: 100.0, height: 100.0,
+            x: 200.0,
+            y: 0.0,
+            width: 100.0,
+            height: 100.0,
             ..Default::default()
         };
         let kept = drop_contained_boxes(&[a, b], 0.80);
@@ -440,11 +441,17 @@ mod tests {
         // Box A is 70% inside box B (30% sticks out). At 0.80
         // threshold A survives; at 0.65 A is dropped.
         let inner = koharu_types::TextBlock {
-            x: 0.0, y: 0.0, width: 100.0, height: 100.0,
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 100.0,
             ..Default::default()
         };
         let outer = koharu_types::TextBlock {
-            x: -30.0, y: 0.0, width: 100.0, height: 100.0,
+            x: -30.0,
+            y: 0.0,
+            width: 100.0,
+            height: 100.0,
             ..Default::default()
         };
         // overlap = 70x100 = 7000; inner area = 100x100 = 10000.
@@ -458,11 +465,17 @@ mod tests {
     #[test]
     fn drop_contained_boxes_drops_degenerate_zero_area() {
         let degen = koharu_types::TextBlock {
-            x: 0.0, y: 0.0, width: 0.0, height: 50.0,
+            x: 0.0,
+            y: 0.0,
+            width: 0.0,
+            height: 50.0,
             ..Default::default()
         };
         let real = koharu_types::TextBlock {
-            x: 0.0, y: 0.0, width: 50.0, height: 50.0,
+            x: 0.0,
+            y: 0.0,
+            width: 50.0,
+            height: 50.0,
             ..Default::default()
         };
         let kept = drop_contained_boxes(&[degen, real], 0.80);

@@ -62,11 +62,7 @@ pub struct LamaInpaintEngine;
 
 #[async_trait]
 impl Engine for LamaInpaintEngine {
-    async fn run(
-        &self,
-        ctx: EngineCtx<'_>,
-        ops_tx: mpsc::Sender<EngineResult>,
-    ) -> Result<()> {
+    async fn run(&self, ctx: EngineCtx<'_>, ops_tx: mpsc::Sender<EngineResult>) -> Result<()> {
         if ctx.cancel.is_cancelled() {
             return Ok(());
         }
@@ -88,15 +84,13 @@ impl Engine for LamaInpaintEngine {
             .blobs
             .get(page.source_image)
             .ok_or_else(|| anyhow!("source image blob {} missing", page.source_image.to_hex()))?;
-        let image = image::load_from_memory(&image_bytes)
-            .context("decoding source image")?;
+        let image = image::load_from_memory(&image_bytes).context("decoding source image")?;
 
         let mask_bytes = ctx
             .blobs
             .get(mask_id)
             .ok_or_else(|| anyhow!("mask blob {} missing", mask_id.to_hex()))?;
-        let mask = image::load_from_memory(&mask_bytes)
-            .context("decoding segmentation mask")?;
+        let mask = image::load_from_memory(&mask_bytes).context("decoding segmentation mask")?;
 
         if ctx.cancel.is_cancelled() {
             return Ok(());

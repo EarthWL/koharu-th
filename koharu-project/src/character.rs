@@ -1,7 +1,7 @@
 //! Character CRUD.
 
 use chrono::{DateTime, TimeZone, Utc};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 
 use crate::db::Conn;
 use crate::error::Result;

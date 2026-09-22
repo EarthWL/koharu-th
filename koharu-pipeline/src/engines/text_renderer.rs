@@ -50,8 +50,7 @@ use koharu_core::{
 };
 use koharu_engines::{Engine, EngineCtx, EngineInfo, inventory};
 use koharu_types::{
-    Document, SerializableDynamicImage, TextBlock as V1TextBlock, TextShaderEffect,
-    TextStrokeStyle,
+    Document, SerializableDynamicImage, TextBlock as V1TextBlock, TextShaderEffect, TextStrokeStyle,
 };
 
 pub const ENGINE_ID: &str = "text_renderer";
@@ -91,11 +90,7 @@ pub struct TextRendererEngine;
 
 #[async_trait]
 impl Engine for TextRendererEngine {
-    async fn run(
-        &self,
-        ctx: EngineCtx<'_>,
-        ops_tx: mpsc::Sender<EngineResult>,
-    ) -> Result<()> {
+    async fn run(&self, ctx: EngineCtx<'_>, ops_tx: mpsc::Sender<EngineResult>) -> Result<()> {
         if ctx.cancel.is_cancelled() {
             return Ok(());
         }
@@ -119,10 +114,11 @@ impl Engine for TextRendererEngine {
                  Run detect first."
             );
         }
-        let has_any_translation = page
-            .text_blocks
-            .values()
-            .any(|b| b.translation.as_deref().is_some_and(|t| !t.trim().is_empty()));
+        let has_any_translation = page.text_blocks.values().any(|b| {
+            b.translation
+                .as_deref()
+                .is_some_and(|t| !t.trim().is_empty())
+        });
         if !has_any_translation {
             anyhow::bail!(
                 "Nothing to render: text blocks have no translations yet. \
@@ -134,8 +130,7 @@ impl Engine for TextRendererEngine {
             .blobs
             .get(page.source_image)
             .ok_or_else(|| anyhow!("source image blob {} missing", page.source_image.to_hex()))?;
-        let image = image::load_from_memory(&image_bytes)
-            .context("decoding source image")?;
+        let image = image::load_from_memory(&image_bytes).context("decoding source image")?;
 
         // Optional inpainted background — when present the renderer
         // composites on top of it; when absent it falls through to
@@ -323,7 +318,9 @@ inventory::submit! {
 }
 
 #[allow(dead_code)]
-fn _silence_arc_warning(arc: Arc<koharu_renderer::facade::Renderer>) -> Arc<koharu_renderer::facade::Renderer> {
+fn _silence_arc_warning(
+    arc: Arc<koharu_renderer::facade::Renderer>,
+) -> Arc<koharu_renderer::facade::Renderer> {
     arc
 }
 

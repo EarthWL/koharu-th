@@ -325,20 +325,19 @@ async fn build_resources_inner(cpu: bool) -> Result<AppResources> {
     // launchable with a default profile + a warning — losing the
     // saved profile is a degraded UX, not a launch-blocker.
     let engine_profile_path = APP_ROOT.join("engine_profile.json");
-    let engine_profile = koharu_pipeline::engine_profile::EngineProfileStore::load(
-        &engine_profile_path,
-    )
-    .unwrap_or_else(|err| {
-        tracing::warn!(
-            ?err,
-            path = %engine_profile_path.display(),
-            "could not load engine profile; starting from defaults"
-        );
-        koharu_pipeline::engine_profile::EngineProfileStore::with_initial(
-            Default::default(),
-            engine_profile_path.clone(),
-        )
-    });
+    let engine_profile =
+        koharu_pipeline::engine_profile::EngineProfileStore::load(&engine_profile_path)
+            .unwrap_or_else(|err| {
+                tracing::warn!(
+                    ?err,
+                    path = %engine_profile_path.display(),
+                    "could not load engine profile; starting from defaults"
+                );
+                koharu_pipeline::engine_profile::EngineProfileStore::with_initial(
+                    Default::default(),
+                    engine_profile_path.clone(),
+                )
+            });
 
     // Machine-wide provider-profile store. Standalone SQLite so LLM
     // provider profiles (keys/model/cost) are shared across every

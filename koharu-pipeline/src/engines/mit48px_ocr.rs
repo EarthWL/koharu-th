@@ -31,7 +31,9 @@ use koharu_core::{
     SettingDescriptor, TextBlockPatch,
 };
 use koharu_engines::{Engine, EngineCtx, EngineInfo, inventory};
-use koharu_types::{Document, OcrEngine as OcrEngineKind, SerializableDynamicImage, TextBlock as V1TextBlock};
+use koharu_types::{
+    Document, OcrEngine as OcrEngineKind, SerializableDynamicImage, TextBlock as V1TextBlock,
+};
 
 /// Stable id used by the engine profile UI + saved profiles.
 pub const ENGINE_ID: &str = "mit48px_ocr";
@@ -45,11 +47,7 @@ pub struct Mit48pxOcrEngine;
 
 #[async_trait]
 impl Engine for Mit48pxOcrEngine {
-    async fn run(
-        &self,
-        ctx: EngineCtx<'_>,
-        ops_tx: mpsc::Sender<EngineResult>,
-    ) -> Result<()> {
+    async fn run(&self, ctx: EngineCtx<'_>, ops_tx: mpsc::Sender<EngineResult>) -> Result<()> {
         if ctx.cancel.is_cancelled() {
             return Ok(());
         }
@@ -134,10 +132,7 @@ impl Engine for Mit48pxOcrEngine {
 /// page image + v1 TextBlocks reconstructed from the Scene. Used
 /// only to drive the legacy `Model::ocr_with` API; non-image and
 /// non-text-block fields stay at empty defaults.
-fn build_tmp_document(
-    image: image::DynamicImage,
-    page: &koharu_core::scene::Page,
-) -> Document {
+fn build_tmp_document(image: image::DynamicImage, page: &koharu_core::scene::Page) -> Document {
     let (width, height) = (page.width, page.height);
     let mut text_blocks: Vec<V1TextBlock> = Vec::with_capacity(page.text_blocks.len());
     for block in page.text_blocks.values() {

@@ -88,9 +88,7 @@ fn run_migrations(conn: &mut Conn) -> Result<()> {
     ))?;
 
     let applied: std::collections::BTreeSet<u32> = conn
-        .prepare(&format!(
-            "SELECT version FROM {APPLIED_MIGRATIONS_TABLE}"
-        ))?
+        .prepare(&format!("SELECT version FROM {APPLIED_MIGRATIONS_TABLE}"))?
         .query_map([], |row| row.get::<_, u32>(0))?
         .collect::<rusqlite::Result<_>>()?;
 
@@ -104,11 +102,12 @@ fn run_migrations(conn: &mut Conn) -> Result<()> {
             "applying migration"
         );
         let tx = conn.transaction()?;
-        tx.execute_batch(migration.sql).map_err(|source| Error::Migration {
-            version: migration.version,
-            name: migration.name.to_string(),
-            source,
-        })?;
+        tx.execute_batch(migration.sql)
+            .map_err(|source| Error::Migration {
+                version: migration.version,
+                name: migration.name.to_string(),
+                source,
+            })?;
         tx.execute(
             &format!(
                 "INSERT INTO {APPLIED_MIGRATIONS_TABLE} (version, name, applied_at)
@@ -169,11 +168,7 @@ mod tests {
         let applied: i64 = pool2
             .get()
             .unwrap()
-            .query_row(
-                "SELECT COUNT(*) FROM _koharu_migrations",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT COUNT(*) FROM _koharu_migrations", [], |r| r.get(0))
             .unwrap();
         assert_eq!(applied, MIGRATIONS.len() as i64);
     }

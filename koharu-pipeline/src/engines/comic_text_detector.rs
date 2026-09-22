@@ -29,11 +29,11 @@ use futures::future::BoxFuture;
 use image::{DynamicImage, ImageFormat};
 use tokio::sync::mpsc;
 
+use koharu_core::scene::TextBlock as SceneTextBlock;
 use koharu_core::{
     ArtifactKind, BackendSupport, EngineCost, EngineResult, HardwareReq, Op, Region,
     SettingDescriptor,
 };
-use koharu_core::scene::TextBlock as SceneTextBlock;
 use koharu_engines::{Engine, EngineCtx, EngineInfo, inventory};
 use koharu_types::{DetectorEngine, Document, SerializableDynamicImage};
 
@@ -51,20 +51,13 @@ pub const ENGINE_ID: &str = "comic_text_detector";
 const SETTINGS: &[SettingDescriptor] = &[];
 
 const CONSUMES: &[ArtifactKind] = &[ArtifactKind::SourceImage];
-const PRODUCES: &[ArtifactKind] = &[
-    ArtifactKind::DetectionBoxes,
-    ArtifactKind::SegmentationMask,
-];
+const PRODUCES: &[ArtifactKind] = &[ArtifactKind::DetectionBoxes, ArtifactKind::SegmentationMask];
 
 pub struct ComicTextDetectorEngine;
 
 #[async_trait]
 impl Engine for ComicTextDetectorEngine {
-    async fn run(
-        &self,
-        ctx: EngineCtx<'_>,
-        ops_tx: mpsc::Sender<EngineResult>,
-    ) -> Result<()> {
+    async fn run(&self, ctx: EngineCtx<'_>, ops_tx: mpsc::Sender<EngineResult>) -> Result<()> {
         // Bail early if the user cancelled before we even started —
         // saves a model load round-trip.
         if ctx.cancel.is_cancelled() {
@@ -179,11 +172,7 @@ impl Engine for ComicTextDetectorEngine {
 /// Used only as a vehicle for the legacy `Model::detect_with` API
 /// which mutates a Document in place; the non-image fields stay at
 /// their empty defaults because the detector path doesn't read them.
-fn empty_document_with_image(
-    image: DynamicImage,
-    width: u32,
-    height: u32,
-) -> Document {
+fn empty_document_with_image(image: DynamicImage, width: u32, height: u32) -> Document {
     Document {
         id: String::new(),
         path: PathBuf::new(),

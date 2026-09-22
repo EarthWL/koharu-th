@@ -103,9 +103,7 @@ pub enum ResolveError {
 }
 
 /// Resolve a [`PlanRequest`] into an ordered list of engines.
-pub fn resolve_plan(
-    request: PlanRequest,
-) -> Result<Vec<&'static EngineInfo>, ResolveError> {
+pub fn resolve_plan(request: PlanRequest) -> Result<Vec<&'static EngineInfo>, ResolveError> {
     let mut state = ResolveState {
         prefer: request.prefer,
         plan: Vec::new(),

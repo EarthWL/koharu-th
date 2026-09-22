@@ -9,7 +9,7 @@ use rusqlite::params;
 
 use crate::db::{self, Pool};
 use crate::error::{Error, Result};
-use crate::manifest::{Manifest, MANIFEST_FILENAME};
+use crate::manifest::{MANIFEST_FILENAME, Manifest};
 
 /// Open project handle. Cheap to clone (the pool is internally Arc-shared).
 #[derive(Clone, Debug)]
@@ -167,7 +167,9 @@ mod tests {
             .pool()
             .get()
             .unwrap()
-            .query_row("SELECT title FROM series_meta WHERE id = 1", [], |r| r.get(0))
+            .query_row("SELECT title FROM series_meta WHERE id = 1", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(title, "Onmyouji Tales");
     }

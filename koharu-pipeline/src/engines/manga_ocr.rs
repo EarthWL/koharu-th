@@ -38,7 +38,9 @@ use koharu_core::{
     SettingDescriptor, TextBlockPatch,
 };
 use koharu_engines::{Engine, EngineCtx, EngineInfo, inventory};
-use koharu_types::{Document, OcrEngine as OcrEngineKind, SerializableDynamicImage, TextBlock as V1TextBlock};
+use koharu_types::{
+    Document, OcrEngine as OcrEngineKind, SerializableDynamicImage, TextBlock as V1TextBlock,
+};
 
 pub const ENGINE_ID: &str = "manga_ocr";
 
@@ -51,11 +53,7 @@ pub struct MangaOcrEngine;
 
 #[async_trait]
 impl Engine for MangaOcrEngine {
-    async fn run(
-        &self,
-        ctx: EngineCtx<'_>,
-        ops_tx: mpsc::Sender<EngineResult>,
-    ) -> Result<()> {
+    async fn run(&self, ctx: EngineCtx<'_>, ops_tx: mpsc::Sender<EngineResult>) -> Result<()> {
         if ctx.cancel.is_cancelled() {
             return Ok(());
         }
@@ -132,10 +130,7 @@ impl Engine for MangaOcrEngine {
     }
 }
 
-fn build_tmp_document(
-    image: image::DynamicImage,
-    page: &koharu_core::scene::Page,
-) -> Document {
+fn build_tmp_document(image: image::DynamicImage, page: &koharu_core::scene::Page) -> Document {
     let (width, height) = (page.width, page.height);
     let mut text_blocks: Vec<V1TextBlock> = Vec::with_capacity(page.text_blocks.len());
     for block in page.text_blocks.values() {

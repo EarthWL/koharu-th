@@ -1483,4 +1483,3 @@ pub struct QueueClearResult {
     /// Number of finished (completed/failed/cancelled) entries removed.
     pub removed: usize,
 }
-

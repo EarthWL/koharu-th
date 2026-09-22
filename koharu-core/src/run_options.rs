@@ -98,7 +98,10 @@ mod tests {
         let opts = PipelineRunOptions::new()
             .with("lama.max_crop_size", StoredValue::Number(768.0))
             .with("translate.streaming", StoredValue::Bool(true))
-            .with("translate.model", StoredValue::String("claude-sonnet-4-6".into()));
+            .with(
+                "translate.model",
+                StoredValue::String("claude-sonnet-4-6".into()),
+            );
 
         assert_eq!(opts.get::<f64>("lama.max_crop_size"), Some(768.0));
         assert_eq!(opts.get::<bool>("translate.streaming"), Some(true));
@@ -110,8 +113,7 @@ mod tests {
 
     #[test]
     fn type_mismatch_yields_none_not_panic() {
-        let opts = PipelineRunOptions::new()
-            .with("lama.max_crop_size", StoredValue::Number(768.0));
+        let opts = PipelineRunOptions::new().with("lama.max_crop_size", StoredValue::Number(768.0));
 
         // Caller asked for bool, stored as number — coerce returns
         // None so the driver can fall back to schema default.

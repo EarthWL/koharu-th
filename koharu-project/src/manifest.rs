@@ -102,10 +102,7 @@ impl Manifest {
         if manifest.format != FORMAT_TAG {
             return Err(Error::InvalidManifest {
                 path: path.into(),
-                reason: format!(
-                    "expected format='{FORMAT_TAG}', got '{}'",
-                    manifest.format
-                ),
+                reason: format!("expected format='{FORMAT_TAG}', got '{}'", manifest.format),
             });
         }
         if manifest.schema_version > SUPPORTED_SCHEMA_VERSION {

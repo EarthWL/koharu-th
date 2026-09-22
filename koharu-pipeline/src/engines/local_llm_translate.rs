@@ -91,11 +91,7 @@ pub struct LocalLlmTranslateEngine;
 
 #[async_trait]
 impl Engine for LocalLlmTranslateEngine {
-    async fn run(
-        &self,
-        ctx: EngineCtx<'_>,
-        ops_tx: mpsc::Sender<EngineResult>,
-    ) -> Result<()> {
+    async fn run(&self, ctx: EngineCtx<'_>, ops_tx: mpsc::Sender<EngineResult>) -> Result<()> {
         if ctx.cancel.is_cancelled() {
             return Ok(());
         }
@@ -285,7 +281,9 @@ inventory::submit! {
 }
 
 #[allow(dead_code)]
-fn _silence_arc_warning(arc: Arc<koharu_ml::llm::facade::Model>) -> Arc<koharu_ml::llm::facade::Model> {
+fn _silence_arc_warning(
+    arc: Arc<koharu_ml::llm::facade::Model>,
+) -> Arc<koharu_ml::llm::facade::Model> {
     arc
 }
 

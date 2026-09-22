@@ -188,16 +188,41 @@ mod tests {
 
     #[test]
     fn region_area() {
-        let r = Region { x: 0, y: 0, width: 100, height: 50 };
+        let r = Region {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 50,
+        };
         assert_eq!(r.area(), 5000);
     }
 
     #[test]
     fn region_contains() {
-        let outer = Region { x: 0, y: 0, width: 100, height: 100 };
-        let inner = Region { x: 10, y: 10, width: 50, height: 50 };
-        let edge = Region { x: 0, y: 0, width: 100, height: 100 };
-        let overhang = Region { x: 60, y: 0, width: 50, height: 50 };
+        let outer = Region {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 100,
+        };
+        let inner = Region {
+            x: 10,
+            y: 10,
+            width: 50,
+            height: 50,
+        };
+        let edge = Region {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 100,
+        };
+        let overhang = Region {
+            x: 60,
+            y: 0,
+            width: 50,
+            height: 50,
+        };
         assert!(outer.contains(&inner));
         assert!(outer.contains(&edge), "edge-aligned box is contained");
         assert!(!outer.contains(&overhang));

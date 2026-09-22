@@ -65,7 +65,11 @@ use serde::{Deserialize, Serialize};
 // `help_i18n_key` go out as `labelI18nKey` / `helpI18nKey` to match the
 // TS SettingDescriptor. Without the latter the frontend read those as
 // undefined → labels fell back to the raw id and help never rendered.
-#[serde(tag = "kind", rename_all = "snake_case", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 pub enum SettingDescriptor {
     /// A continuous numeric value with min/max/step bounds. Renders
     /// as a slider (with the current value displayed next to it).

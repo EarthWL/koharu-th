@@ -21,16 +21,14 @@ pub async fn detect(state: AppResources, payload: DetectPayload) -> anyhow::Resu
     // (e.g. the new Engine Profile UI dispatches a plain detect),
     // we let `run_engine_for_artifact` resolve via the profile.
     let (engine_id_opt, options) = match payload.detector_engine {
-        Some(DetectorEngine::Default) => {
-            (Some(engines::COMIC_TEXT_DETECTOR_ID), PipelineRunOptions::new())
-        }
+        Some(DetectorEngine::Default) => (
+            Some(engines::COMIC_TEXT_DETECTOR_ID),
+            PipelineRunOptions::new(),
+        ),
         Some(DetectorEngine::AnimeYolo) => {
             let mut opts = PipelineRunOptions::new();
             if let Some(variant) = payload.anime_yolo_variant {
-                opts = opts.with(
-                    "variant",
-                    StoredValue::String(variant.as_str().to_string()),
-                );
+                opts = opts.with("variant", StoredValue::String(variant.as_str().to_string()));
             }
             if let Some(confidence) = payload.anime_yolo_confidence {
                 opts = opts.with(

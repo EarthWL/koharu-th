@@ -10,9 +10,7 @@ pub use image::SerializableDynamicImage;
 /// app has shipped with since fork; `Manga` is a Japanese-tuned
 /// encoder-decoder (mayocream/manga-ocr) — often better at handwritten
 /// or stylised Japanese, sometimes worse at SFX / latin.
-#[derive(
-    Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash,
-)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum OcrEngine {
     #[default]
@@ -27,9 +25,7 @@ pub enum OcrEngine {
 /// designed to catch SFX / stylised titles / out-of-bubble text
 /// that the default misses. Lazy-loaded ~10MB on first use of the
 /// N (nano) variant.
-#[derive(
-    Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash,
-)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum DetectorEngine {
     #[default]
@@ -74,9 +70,7 @@ impl DetectorEngine {
 ///   M (medium)      ~80MB
 ///   L (large)       ~150MB
 ///   X (extra large) ~250MB
-#[derive(
-    Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash,
-)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum AnimeYoloVariant {
     #[default]

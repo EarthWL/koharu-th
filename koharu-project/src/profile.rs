@@ -10,7 +10,7 @@
 //! future polish (Phase 9.1).
 
 use chrono::{TimeZone, Utc};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 
 use crate::db::Conn;
 use crate::error::Result;
@@ -195,10 +195,7 @@ pub fn update(conn: &Conn, id: i64, patch: ProfilePatch) -> Result<Option<Provid
 }
 
 pub fn remove(conn: &Conn, id: i64) -> Result<bool> {
-    let changed = conn.execute(
-        "DELETE FROM provider_profiles WHERE id = ?1",
-        params![id],
-    )?;
+    let changed = conn.execute("DELETE FROM provider_profiles WHERE id = ?1", params![id])?;
     Ok(changed > 0)
 }
 
@@ -237,8 +234,14 @@ fn row_to_profile(r: &rusqlite::Row<'_>) -> rusqlite::Result<ProviderProfile> {
         is_default: is_default_int != 0,
         cost_input_per_1m: r.get(9)?,
         cost_output_per_1m: r.get(10)?,
-        created_at: Utc.timestamp_opt(r.get(11)?, 0).single().unwrap_or_else(Utc::now),
-        updated_at: Utc.timestamp_opt(r.get(12)?, 0).single().unwrap_or_else(Utc::now),
+        created_at: Utc
+            .timestamp_opt(r.get(11)?, 0)
+            .single()
+            .unwrap_or_else(Utc::now),
+        updated_at: Utc
+            .timestamp_opt(r.get(12)?, 0)
+            .single()
+            .unwrap_or_else(Utc::now),
     })
 }
 

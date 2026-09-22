@@ -163,16 +163,20 @@ mod tests {
 
     #[test]
     fn dirties_state_only_for_ops_applied() {
-        assert!(SessionEvent::OpsApplied {
-            page: koharu_core::PageId(1),
-            op_count: 1
-        }
-        .dirties_state());
-        assert!(!SessionEvent::OpsUndone {
-            page: koharu_core::PageId(1),
-            op_count: 1
-        }
-        .dirties_state());
+        assert!(
+            SessionEvent::OpsApplied {
+                page: koharu_core::PageId(1),
+                op_count: 1
+            }
+            .dirties_state()
+        );
+        assert!(
+            !SessionEvent::OpsUndone {
+                page: koharu_core::PageId(1),
+                op_count: 1
+            }
+            .dirties_state()
+        );
         assert!(!SessionEvent::DirtyMarked.dirties_state());
         assert!(!SessionEvent::Saved.dirties_state());
         assert!(!SessionEvent::HistoryCleared.dirties_state());
@@ -189,5 +193,4 @@ mod tests {
         drop(_rx1);
         assert_eq!(bus.receiver_count(), 1);
     }
-
 }
