@@ -155,7 +155,10 @@ bottom of this file — they are the actual RC gate, so they live here now.
        first (if it does, merge it into the branch again, then FF).
 6. [ ] Per-GPU bundle build (Turing / Ampere / Ada / Blackwell) via
        `scripts/build-all-gpus.sh`.
-7. [ ] GitHub release with prebuilt installers; CHANGELOG + release
+7. [ ] **Pre-RC code review, rounds 0–3** — diff-driven review of the
+       v2 changes; plan, scope and per-round results in
+       [`review-2026-09.md`](./review-2026-09.md). Rounds 4–6 may follow RC.
+8. [ ] GitHub release with prebuilt installers; CHANGELOG + release
        notes; freeze `v2-arch.md` on main; tag `v2.0.0-rc1`.
 
 ---
