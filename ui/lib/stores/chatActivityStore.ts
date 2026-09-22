@@ -5,10 +5,7 @@ import { create } from 'zustand'
 
 import { api, type ChatAttachment, type ChatMessageDto } from '@/lib/api'
 import { useProjectStore } from '@/lib/stores/projectStore'
-import {
-  runChatTurn,
-  type ChatMessage,
-} from '@/lib/services/chatWithTools'
+import { runChatTurn, type ChatMessage } from '@/lib/services/chatWithTools'
 import { expandSlash } from '@/lib/services/chatSlashCommands'
 import i18n from '@/lib/i18n'
 
@@ -230,7 +227,15 @@ export const useChatActivityStore = create<ChatActivityState>((set, get) => ({
           } else if (e.kind === 'tool-call') {
             if (e.call.name === 'update_text_block') {
               mutatedTextBlocks = true
-              const pageIdx = (e.call.args as any)?.index
+              // ToolCall carries JSON-string `arguments`; there is no
+              // parsed `args` field, so reading it always fell back to
+              // page 0 and re-rendered the wrong page.
+              let pageIdx: unknown
+              try {
+                pageIdx = JSON.parse(e.call.arguments || '{}')?.index
+              } catch {
+                pageIdx = undefined
+              }
               if (typeof pageIdx === 'number') lastMutatedDocIndex = pageIdx
             }
             set((s) => {
