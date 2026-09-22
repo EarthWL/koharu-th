@@ -122,7 +122,7 @@ These were previously buried under "Blockers / open questions" at the
 bottom of this file — they are the actual RC gate, so they live here now.
 
 1. [ ] **Rebase onto `main`** — main is 4 commits ahead
-       (`d00fba66` v1.2.2, `efc6cc40` fix #40/#41 startup-failure
+       (`c4dcba31` fix #34 HF cache path vs MAX_PATH, `d00fba66` v1.2.2, `efc6cc40` fix #40/#41 startup-failure
        surfacing, `f5b1889d` ui version sync). Locked policy is weekly
        rebase; none has happened since 2026-05-19. #40/#41 touch startup,
        which is the same path as the v2 hardware probe — resolve
@@ -527,7 +527,7 @@ attr first.
 No rebases performed during Phase 4 / 5 / 6 work — branch has stayed
 on its own track, in breach of the weekly-rebase policy in
 `v2-arch.md` §2. As of 2026-09-05 `main` is 4 commits ahead
-(`d00fba66` v1.2.2 → `efc6cc40` fix #40/#41 → `f5b1889d` ui version
+(`c4dcba31` fix #34 → `d00fba66` v1.2.2 → `efc6cc40` fix #40/#41 → `f5b1889d` ui version
 sync). Rebase is item 1 of the Phase 6.6 checklist.
 
 ---

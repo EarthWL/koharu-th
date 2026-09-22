@@ -2,7 +2,7 @@
 
 > [!IMPORTANT]
 > **このファイルは fork 元 (mayocream/koharu 0.37.0) の README の
-> 日本語訳です。** Koharu-TH fork (バージョン 1.2.0) 固有の機能 —
+> 日本語訳です。** Koharu-TH fork (バージョン 1.2.2) 固有の機能 —
 > Series Project の per-folder SQLite、5-provider LLM プロファイル、
 > エージェント AI Chat、~60 ツールの MCP server、Thai post-process、
 > CBZ チャプターエクスポートなど — はここには記載されていません。
