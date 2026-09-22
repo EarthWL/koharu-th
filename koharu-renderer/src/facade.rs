@@ -110,16 +110,18 @@ impl Renderer {
             )
         })?;
 
-        if let Some(inpainted) = &document.inpainted
-            && text_block_index.is_none()
-        {
-            let width = inpainted.width();
-            let height = inpainted.height();
+        // Composite over the inpainted page when there is one, else over
+        // the original — translating before inpainting must still show
+        // the text (v1 showed per-block sprites over the original here).
+        if text_block_index.is_none() {
+            let base = document.inpainted.as_ref().unwrap_or(&document.image);
+            let width = base.width();
+            let height = base.height();
             let mut surface = tiny_skia::Pixmap::new(width, height)
                 .ok_or_else(|| anyhow::anyhow!("Failed to create composition surface"))?;
 
             // Draw base image (inpainted or original)
-            let mut base_rgba = inpainted.to_rgba8().into_raw();
+            let mut base_rgba = base.to_rgba8().into_raw();
             premultiply_rgba(&mut base_rgba);
             surface.fill_path(
                 &tiny_skia::PathBuilder::from_rect(

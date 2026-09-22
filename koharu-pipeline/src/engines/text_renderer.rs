@@ -24,9 +24,9 @@
 //!    exposed in `settingsSchema` (they're invoke-time arguments,
 //!    not user preferences). These ride the same options bag for
 //!    plumbing convenience:
-//!    - `target_block_index` (Number, optional) — render only this
-//!      block. Missing = render all. Used by the canvas right-click
-//!      "render this bubble" flow.
+//!    - `target_block_index` (Number, optional) — sent by the canvas
+//!      "render this bubble" flow; accepted but ignored, the engine
+//!      always renders the whole page (see `run`).
 //!    - `stroke_json` (String, optional) — serialized
 //!      `TextStrokeStyle`. Missing = no stroke. Encoded as JSON
 //!      because the type has 4 RGBA bytes + an optional float
@@ -58,7 +58,6 @@ pub const ENGINE_ID: &str = "text_renderer";
 const SETTING_FONT_FAMILY: &str = "font_family";
 const SETTING_EFFECT_BOLD: &str = "effect_bold";
 const SETTING_EFFECT_ITALIC: &str = "effect_italic";
-const SETTING_TARGET_BLOCK_INDEX: &str = "target_block_index";
 const SETTING_STROKE_JSON: &str = "stroke_json";
 
 const SETTINGS: &[SettingDescriptor] = &[
@@ -133,8 +132,8 @@ impl Engine for TextRendererEngine {
         let image = image::load_from_memory(&image_bytes).context("decoding source image")?;
 
         // Optional inpainted background — when present the renderer
-        // composites on top of it; when absent it falls through to
-        // a white-bubble fill (legacy behaviour).
+        // composites on top of it; when absent it composites over the
+        // original page (translate-before-inpaint still shows text).
         let inpainted = if let Some(blob_id) = page.inpainted_image {
             let bytes = ctx
                 .blobs
@@ -160,12 +159,12 @@ impl Engine for TextRendererEngine {
         };
 
         // Per-call inputs (not in user-facing schema).
-        let target_block_raw: f64 = ctx.setting(SETTING_TARGET_BLOCK_INDEX, -1.0);
-        let target_block_index: Option<usize> = if target_block_raw >= 0.0 {
-            Some(target_block_raw as usize)
-        } else {
-            None
-        };
+        //
+        // `target_block_index` is accepted but ignored: the only output
+        // this engine has is the whole-page `SetRenderedImage`, and the
+        // tmp Document carries no per-block sprites from earlier runs,
+        // so a single-block render would composite that one block alone
+        // and wipe every other bubble's text. Always render the page.
         let stroke_json: String = ctx.setting(SETTING_STROKE_JSON, String::new());
         let stroke: Option<TextStrokeStyle> = if stroke_json.is_empty() {
             None
@@ -185,7 +184,7 @@ impl Engine for TextRendererEngine {
         ctx.renderer
             .render(
                 &mut tmp_doc,
-                target_block_index,
+                None,
                 effect,
                 stroke,
                 font_family_opt.as_deref(),
@@ -199,22 +198,13 @@ impl Engine for TextRendererEngine {
         // Renderer writes the composite to `doc.rendered`. Encode
         // as PNG, register in BlobStore, emit Op::SetRenderedImage.
         //
-        // Audit #9/B2: if renderer.render() succeeds but doesn't
-        // write doc.rendered, that means layout silently rejected
-        // every translation (e.g. all bubbles overflow at min font
-        // size, all translations are whitespace post-trim, target
-        // block index has no translation). Hard-error with
-        // actionable text so the user knows WHICH knob to tune
-        // (vs the previous "renderer returned without setting
-        // doc.rendered" mystery message).
-        let rendered = tmp_doc.rendered.ok_or_else(|| {
-            anyhow!(
-                "Renderer ran but produced no output. Common causes: \
-                 every translation rejected by bubble fit (try larger \
-                 min font size or shorter text), or target block has \
-                 no translation."
-            )
-        })?;
+        // A full-page render always composites (over the inpainted
+        // page or the original), and layout failures come back as Err
+        // from render() above — so `None` here is a renderer bug, not
+        // something the user can tune.
+        let rendered = tmp_doc
+            .rendered
+            .ok_or_else(|| anyhow!("internal: renderer returned no page composite"))?;
         let rendered_dyn: image::DynamicImage = rendered.into();
         let mut buf: Vec<u8> = Vec::new();
         rendered_dyn
