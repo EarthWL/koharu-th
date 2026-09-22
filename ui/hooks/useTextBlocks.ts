@@ -136,6 +136,16 @@ export function useTextBlocks() {
     // since the canvas shows the composite) but never refreshed
     // doc.rendered, so the edit didn't appear until the user pressed
     // Render manually.
+    //
+    // Skip the auto re-render until the page has at least one
+    // translation: the renderer rejects an untranslated page, and
+    // `render` errors surface as a dialog (e.g. moving a box right
+    // after OCR). An explicit Render click still reports it.
+    const pageHasTranslation = nextBlocks.some((block) =>
+      block.translation?.trim(),
+    )
+    if (!pageHasTranslation) return
+
     if (hasGeometryChange(updates) || shouldRenderSprite(updates)) {
       scheduleFullPageRender()
     }
@@ -201,6 +211,9 @@ export function useTextBlocks() {
     const ui = useEditorUiStore.getState()
     ui.setShowRenderedImage(false)
     ui.setShowTextBlocksOverlay(true)
+    // Same guard as replaceBlock: nothing to re-render before translate.
+    if (!document?.textBlocks?.some((block) => block.translation?.trim()))
+      return
     void renderTextBlock(undefined, currentDocumentIndex, index)
   }
 

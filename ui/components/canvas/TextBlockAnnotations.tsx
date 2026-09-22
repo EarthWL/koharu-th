@@ -112,10 +112,13 @@ function TextBlockAnnotation({
     if (!interactive) return
     const nextPosition = { x: data.x, y: data.y }
     setPosition(nextPosition)
-    onUpdate({
-      x: Math.round(nextPosition.x / scaleRatio),
-      y: Math.round(nextPosition.y / scaleRatio),
-    })
+    const x = Math.round(nextPosition.x / scaleRatio)
+    const y = Math.round(nextPosition.y / scaleRatio)
+    // react-rnd fires onDragStop on a plain click too. Treating that as
+    // a move saved the block and queued a page re-render on every
+    // selection click.
+    if (x === Math.round(block.x) && y === Math.round(block.y)) return
+    onUpdate({ x, y })
   }
 
   const handleResize: RndResizeCallback = (_, __, ref, ___, nextPosition) => {
