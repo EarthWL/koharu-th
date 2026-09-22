@@ -77,8 +77,16 @@ export async function bootstrapApp(page: Page) {
 
 export async function importImages(page: Page, filePaths: string[]) {
   const fileChooserPromise = page.waitForEvent('filechooser')
-  await page.getByTestId(selectors.menu.fileTrigger).click()
-  await page.getByTestId(selectors.menu.fileOpen).click()
+  // The fork's Welcome gate (no project open) covers the menu bar. Its
+  // "Open files…" button runs the same openDocuments flow as
+  // File → Open and switches the app to standalone mode.
+  const standalone = page.getByTestId(selectors.menu.welcomeOpenStandalone)
+  if (await standalone.isVisible()) {
+    await standalone.click()
+  } else {
+    await page.getByTestId(selectors.menu.fileTrigger).click()
+    await page.getByTestId(selectors.menu.fileOpen).click()
+  }
   const fileChooser = await fileChooserPromise
   await fileChooser.setFiles(filePaths)
 }

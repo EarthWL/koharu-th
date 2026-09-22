@@ -21,7 +21,10 @@ export default defineConfig({
     reuseExistingServer: true,
     timeout: 90_000,
     wait: {
-      stdout: /Running (.*) --headless/,
+      // Match cargo's "Running `…koharu.exe --port=9999 --headless`"
+      // (process start), not Tauri's earlier "Running DevCommand (…)"
+      // line, which prints before the backend has even compiled.
+      stdout: /Running `[^`]*koharu[^`]* --headless`/,
     },
   },
 })

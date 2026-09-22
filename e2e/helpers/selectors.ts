@@ -1,6 +1,7 @@
 export const selectors = {
   menu: {
     fileTrigger: 'menu-file-trigger',
+    welcomeOpenStandalone: 'welcome-open-standalone',
     fileOpen: 'menu-file-open',
     fileExport: 'menu-file-export',
     fileExportAllInpainted: 'menu-file-export-all-inpainted',

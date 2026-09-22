@@ -341,6 +341,7 @@ function HomeStep({
           size='sm'
           disabled={loading}
           onClick={onStandalone}
+          data-testid='welcome-open-standalone'
         >
           <FileImageIcon className='size-3.5' />
           {t('welcome.openStandalone', 'Open files…')}
