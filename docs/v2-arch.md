@@ -5,7 +5,7 @@
 **Base tag**: `arch/v2-base` (anchored at the commit this doc lands on)
 **Target release**: `v2.0.0`
 **Estimated effort**: ~4-5 months
-**Last updated**: 2026-09-05
+**Last updated**: 2026-09-23
 
 This document is the **single source of truth** for the v2 rebuild.
 Decisions captured here are locked unless the doc is amended via PR.
@@ -73,7 +73,7 @@ These are settled. Changing any requires updating this doc.
 | Op log persistence | **In-memory only** (session undo) | User-edits (text-block translation, glossary edit, etc.) still go through SQLite as regular writes. Op log doesn't persist across app restart. |
 | Migration strategy v1 → v2 | **Atomic migration script with `.bak` backup** | On first open of a v1 `.koharuproj` with v2 binary: copy series.db → series.db.bak, run migration transaction (rollback whole thing if any step fails), update schema_version. |
 | `koharu-project` placement | **Stays orthogonal — not folded into `koharu-app`** | Project layer is fork-exclusive; upstream has nothing equivalent. Keep it cleanly isolated so future fork-only features (multi-project workspace, etc.) don't pollute the upstream-aligned core. |
-| Cherry-pick policy during branch life | **main → branch only**, weekly rebase | Branch never sends commits back to main until RC merge. Main bug fixes flow into branch via `git cherry-pick -x` weekly. |
+| Sync policy during branch life | **main → branch only**, via `git merge main` (amended 2026-09-23, was weekly rebase — see §12) | Branch never sends commits back to main until RC merge. Main fixes flow into the branch by merging `main` into it — no history rewrite, no force-push of the published branch. |
 | Worktree layout | `koharu-0.37.0/` (main) + `koharu-th-v2/` (branch) at sibling paths | Each has its own `target/`, `node_modules/`, `.next/`. Disk cost ~30-50GB extra for `target/`. Worth it. |
 | CI on branch | **Re-enable matrix CI on the branch only** | Refactor needs safety net. Main stays Actions-off (macOS 10× cost). Branch CI gates merge-back. |
 | Testing | **`proptest` + integration-tests crate from day 1** | Op-based state enables property testing (apply ∘ undo ∘ apply = apply). New crate `tests/integration` modelled after upstream's. |
@@ -954,14 +954,23 @@ peers of local engines, gated by having an active LLM profile.
 
 ### main → branch
 
-Every Friday: rebase `arch/v2-foundation` onto `main`. Cherry-pick
-weekly fixes that touched files the branch hasn't restructured yet.
+Whenever `main` gets a release or a fix: merge `main` into
+`arch/v2-foundation`. (Amended 2026-09-23 — was "every Friday: rebase";
+see §12.) Merging keeps the branch's published SHAs stable, so no
+force-push is needed, and conflicts are resolved once instead of per
+replayed commit.
 
 ```bash
-# Run from main worktree, target is the v2 worktree
-git -C ../koharu-th-v2 fetch
-git -C ../koharu-th-v2 rebase main
+git fetch
+git switch arch/v2-foundation
+git merge --no-ff origin/main
+# then: cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 ```
+
+A clean textual merge is not proof of a correct one: main and branch
+can each be right alone and wrong together (2026-09-23: main's #40 fix
+used `rfd::MessageDialog`, whose import the branch had dropped as
+unused). Always build + test before committing the merge.
 
 Conflicts that arise touching files the branch HAS restructured:
 - Resolve in favour of the branch's new structure
@@ -978,7 +987,7 @@ won't apply on main cleanly).
 ### Tracking sync state
 
 `docs/v2-progress.md` on the branch has a `## Sync log` section
-listing each rebase date + SHA range pulled. Lets us see at a glance
+listing each sync (merge) date + SHA range pulled. Lets us see at a glance
 how far ahead/behind main the branch is.
 
 ---
@@ -1004,7 +1013,7 @@ Decisions deferred until a phase forces them.
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| Branch drifts so far from main that weekly rebase becomes painful | High | High | Strict weekly cadence; if a rebase takes >2 hours, schedule a "drain main" sprint where main feature work pauses until branch catches up |
+| Branch drifts so far from main that syncing becomes painful | High | High | Merge main in after every main release/fix; if a sync takes >2 hours, schedule a "drain main" sprint where main feature work pauses until branch catches up |
 | Phase 4 turns into a 6-month bog because every engine port surfaces new design questions | Medium | High | Time-box each engine port to 2 weeks; if blocked, document the question in this doc's open questions and ship a temporary direct-call passthrough |
 | Migration script corrupts user projects | Low | Catastrophic | Atomic transaction + .bak backup + reversibility doc + community-tester beta before GA |
 | Engine Profile UI confuses users who don't understand VRAM | Medium | Medium | Sensible default profile; "Auto-pick" button always available; warning copy reviewed with community testers |
@@ -1031,6 +1040,24 @@ Decisions deferred until a phase forces them.
 Tracks amendments to the locked spec after the doc first landed.
 Each entry: date, trigger (issue / re-review), summary of what
 changed, link to the affected section(s).
+
+### 2026-09-23 — main → branch sync switches from rebase to merge
+
+**Trigger**: Phase 6.6 item 1. The weekly rebase had not run since
+2026-05-19; by then the branch was 108 published commits ahead, so a
+rebase would rewrite all of them and need a force-push. The owner chose
+merge instead.
+
+**Changed**:
+- **§2** (sync policy row) and **§8** — `git merge main` into the branch
+  replaces weekly rebase. Direction is unchanged: main → branch only
+  until the RC merge.
+- **§8** — build + test before committing any sync merge (silent semantic
+  conflicts are possible; the first one hit exactly that).
+- **§10** — drift risk mitigation reworded to match.
+- First sync under the new policy merged `origin/main` `f5b1889d`
+  (v1.2.2, fixes #34, #40/#41) into the branch; see `v2-progress.md`
+  Sync log.
 
 ### 2026-09-05 — Doc/code reconciliation after the 2026-05-20/21 undo + Engines-tab work
 

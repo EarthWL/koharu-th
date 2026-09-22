@@ -121,13 +121,16 @@ Blackwell box; items marked **(dogfood)** need a real user project.
 These were previously buried under "Blockers / open questions" at the
 bottom of this file — they are the actual RC gate, so they live here now.
 
-1. [ ] **Rebase onto `main`** — main is 4 commits ahead
-       (`c4dcba31` fix #34 HF cache path vs MAX_PATH, `d00fba66` v1.2.2, `efc6cc40` fix #40/#41 startup-failure
-       surfacing, `f5b1889d` ui version sync). Locked policy is weekly
-       rebase; none has happened since 2026-05-19. #40/#41 touch startup,
-       which is the same path as the v2 hardware probe — resolve
-       conflicts there carefully. Also brings README/Cargo/ui versions to
-       1.2.2. Record in the Sync log below.
+1. [x] **Sync with `main`** — done 2026-09-23 by **merging**
+       `origin/main` `f5b1889d` into the branch (policy changed from
+       rebase to merge, `v2-arch.md` §2/§8/§12). Pulled `c4dcba31` fix #34
+       HF cache path vs MAX_PATH, `d00fba66` v1.2.2, `efc6cc40` fix
+       #40/#41 startup-failure surfacing, `f5b1889d` ui version sync.
+       Cargo + ui now 1.2.2. One silent semantic conflict fixed in the
+       merge commit: restored `use rfd::MessageDialog` in
+       `koharu/src/app.rs`. Clippy `--workspace --all-targets -D warnings`
+       + `cargo test --workspace` green. Keep merging main in after each
+       main release.
 2. [ ] **(dogfood) Real v1 → v2 migration.** Only synthesised fixtures
        have gone through `pre_open_v1_to_v2` / V007 / manifest bump. Open
        a personal `.koharuproj` from a 1.2.x install, confirm the
@@ -195,7 +198,7 @@ bottom of this file — they are the actual RC gate, so they live here now.
 | Engines-tab consolidation | ✅ | `366fb840` … `ac038277` | Single source of truth for engine selection; legacy-pref migration; i18n help |
 | Cloud engines in the tab | ✅ | `28c14a77` / `f57056ae` / `c367a744` | `SettingDescriptor::ProfileSelect`; frontend pseudo-engines; `skip_translate` in Process |
 | 6.5 — CI re-enable (clippy) | ✅ | `9969d39b` | Workspace clean under `--all-targets -D warnings`; workflows already target the branch |
-| 6.6 — RC merge + per-GPU build + tag `v2.0.0-rc1` | ⏳ | — | See checklist above — gated on rebase + hardware + dogfood |
+| 6.6 — RC merge + per-GPU build + tag `v2.0.0-rc1` | ⏳ | — | See checklist above — gated on hardware + dogfood (main sync ✅ 2026-09-23) |
 
 ## Test posture
 
@@ -517,18 +520,17 @@ attr first.
 
 ---
 
-## Sync log (main → branch rebases)
+## Sync log (main → branch)
 
 | Date | Branch HEAD before | main HEAD synced to | Cherry-picks | Notes |
 |---|---|---|---|---|
 | 2026-05-19 | (initial branch creation) | `18423265` | — | Branch forked from arch/v2-base |
 | 2026-05-19 | `fe484b7a` | `64974db6` | — | Rebased to pull v1.2.1 release + design doc amendments (HTTP blob from #33, Op+Engine re-review). Conflict-free. |
+| 2026-09-23 | `48ba7f9a` | `f5b1889d` | — | **Merge** (not rebase — policy changed, `v2-arch.md` §12). Pulled `c4dcba31` #34, `d00fba66` v1.2.2, `efc6cc40` #40/#41, `f5b1889d`. No textual conflicts; one semantic one (`rfd::MessageDialog` import) fixed in the merge commit. |
 
-No rebases performed during Phase 4 / 5 / 6 work — branch has stayed
-on its own track, in breach of the weekly-rebase policy in
-`v2-arch.md` §2. As of 2026-09-05 `main` is 4 commits ahead
-(`c4dcba31` fix #34 → `d00fba66` v1.2.2 → `efc6cc40` fix #40/#41 → `f5b1889d` ui version
-sync). Rebase is item 1 of the Phase 6.6 checklist.
+No sync ran between 2026-05-19 and 2026-09-23 (Phases 4–6), in breach
+of the then-weekly rebase policy. From 2026-09-23 the policy is: merge
+`main` into the branch after each main release/fix.
 
 ---
 
@@ -567,7 +569,7 @@ and 5 close.
    `v2-arch.md` §9 Q2.
 3. **Repo not `cargo fmt`-clean.** Edition-2024 rustfmt reformats ~35
    untouched files. A dedicated `chore(fmt)` commit is cheap but should
-   land right after the rebase (item 1 of 6.6) to avoid conflict noise.
+   land now that the main sync (item 1 of 6.6) is done.
    `lint.yml` does not run `fmt --check`, so this is hygiene, not a gate.
 
 ---
