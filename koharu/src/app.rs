@@ -3,6 +3,7 @@ use std::{path::PathBuf, sync::Arc};
 use anyhow::{Context, Result};
 use clap::Parser;
 use once_cell::sync::Lazy;
+use rfd::MessageDialog;
 use tauri::Manager;
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -20,7 +21,25 @@ static APP_ROOT: Lazy<PathBuf> = Lazy::new(|| {
         .unwrap_or_default()
 });
 static LIB_ROOT: Lazy<PathBuf> = Lazy::new(|| APP_ROOT.join("libs"));
-static MODEL_ROOT: Lazy<PathBuf> = Lazy::new(|| APP_ROOT.join("models"));
+/// HuggingFace model cache directory.
+///
+/// Renamed from `models/` to `hf/` in v1.2.2 to claw back a handful
+/// of characters against Windows' MAX_PATH (260-char legacy limit).
+/// HF's own layout under here (`models--<org>--<repo>/snapshots/<40-
+/// hex-commit>/<filename>`) burns ~100 chars on its own, so shaving
+/// the parent subdir from "models" to "hf" rescues paths that hover
+/// just over the limit (long usernames + nested repo names).
+///
+/// `migrate_legacy_model_cache` (called at app startup) moves any
+/// existing `Koharu/models/` content into `Koharu/hf/` so existing
+/// users don't have to re-download multi-GB model weights.
+/// See [issue #34](https://github.com/EarthWL/koharu-th/issues/34).
+static MODEL_ROOT: Lazy<PathBuf> = Lazy::new(|| APP_ROOT.join("hf"));
+/// Legacy HF cache location used through v1.2.1. Kept as a constant
+/// so the migration helper + uninstaller hook reference the same
+/// path string. Once we're confident no v1.2.1-or-older user is
+/// running unmigrated (a year+ from now), this can be deleted.
+static LEGACY_MODEL_ROOT: Lazy<PathBuf> = Lazy::new(|| APP_ROOT.join("models"));
 /// User-droppable font directory. Any .ttf / .otf / .ttc in here is
 /// registered alongside system fonts at renderer startup. Created on
 /// first launch so the path always exists for the user to populate.
@@ -85,6 +104,14 @@ fn initialize(headless: bool, _debug: bool) -> Result<()> {
                 .from_env_lossy(),
         )
         .init();
+
+    // Migrate legacy `Koharu/models/` → `Koharu/hf/` for v1.2.1
+    // users upgrading to v1.2.2+. Best-effort: failure logs + we
+    // continue with the new path (hf-hub will re-download). Runs
+    // BEFORE create_dir_all on the new path so the rename target
+    // is still missing — std::fs::rename refuses to overwrite a
+    // non-empty directory on Windows.
+    migrate_legacy_model_cache();
 
     std::fs::create_dir_all(MODEL_ROOT.as_path()).ok();
     std::fs::create_dir_all(LIB_ROOT.as_path()).ok();
@@ -151,6 +178,83 @@ async fn prefetch() -> Result<()> {
     koharu_ml::facade::prefetch().await?;
 
     Ok(())
+}
+
+/// One-shot migration of the HuggingFace model cache from the v1.2.1
+/// location (`%LOCALAPPDATA%/Koharu/models/`) to the v1.2.2 location
+/// (`%LOCALAPPDATA%/Koharu/hf/`). The rename is atomic on same-volume
+/// renames (Windows + Unix both); cross-volume rename should never
+/// happen here (both paths share the same %LOCALAPPDATA% root).
+///
+/// Failure modes:
+///
+/// - **Legacy path missing**: fresh install. Silent no-op.
+/// - **Both paths populated**: should be impossible in practice (the
+///   new path was introduced this commit), but defensively we LEAVE
+///   BOTH alone — log a warning so a future investigator can spot
+///   the conflict. hf-hub uses the new path; the legacy folder is
+///   then dead weight cleanable by the user via the Storage panel
+///   (it still sizes the `models/` folder via the legacy ownership
+///   check) or the next uninstall.
+/// - **Rename fails** (permissions, antivirus lock, etc.): log +
+///   continue. hf-hub will re-download into the new path. Users
+///   notice a one-time multi-GB re-download — annoying but not a
+///   data-loss path. The legacy folder stays behind for them to
+///   clean manually.
+fn migrate_legacy_model_cache() {
+    let legacy = LEGACY_MODEL_ROOT.as_path();
+    let modern = MODEL_ROOT.as_path();
+
+    let legacy_has_content = legacy.exists()
+        && std::fs::read_dir(legacy)
+            .ok()
+            .map(|mut it| it.next().is_some())
+            .unwrap_or(false);
+    if !legacy_has_content {
+        return;
+    }
+
+    let modern_has_content = modern.exists()
+        && std::fs::read_dir(modern)
+            .ok()
+            .map(|mut it| it.next().is_some())
+            .unwrap_or(false);
+    if modern_has_content {
+        tracing::warn!(
+            legacy = %legacy.display(),
+            modern = %modern.display(),
+            "Both legacy and modern HF cache paths have content — leaving \
+             both intact. Clean the legacy folder via Settings → Storage \
+             once you've confirmed the new path works."
+        );
+        return;
+    }
+
+    // Make sure the rename target's parent exists. Both paths share
+    // APP_ROOT but APP_ROOT might not have been created yet on a
+    // first-of-its-kind install (legacy was the only thing here).
+    if let Some(parent) = modern.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    match std::fs::rename(legacy, modern) {
+        Ok(()) => {
+            tracing::info!(
+                from = %legacy.display(),
+                to = %modern.display(),
+                "Migrated HF model cache to shorter path (issue #34)"
+            );
+        }
+        Err(err) => {
+            tracing::warn!(
+                legacy = %legacy.display(),
+                modern = %modern.display(),
+                ?err,
+                "Failed to migrate legacy HF cache; hf-hub will re-download \
+                 missing weights on next launch. Legacy folder left intact."
+            );
+        }
+    }
 }
 
 async fn build_resources(cpu: bool) -> Result<AppResources> {
@@ -313,21 +417,50 @@ pub async fn run() -> Result<()> {
                         .plugin(tauri_plugin_updater::Builder::new().build())
                         .ok();
 
-                    shared
+                    // Per issue #40: the global panic hook (installed in
+                    // `initialize`) catches panics on the main thread —
+                    // but `tauri::async_runtime::spawn` isolates panics
+                    // at the task boundary, so a panic here would leave
+                    // the splashscreen open forever with no error
+                    // surfaced. Surface the error via a message dialog +
+                    // exit cleanly instead.
+                    let init_result = shared
                         .get_or_try_init(|| async { build_resources(cpu).await })
-                        .await
-                        .expect("failed to build app resources");
+                        .await;
+                    if let Err(err) = init_result {
+                        let msg = format!(
+                            "Failed to initialize app resources:\n\n{err:#}\n\n\
+                             Common causes: missing GPU drivers, no disk space \
+                             for the model cache, or a corrupted model download. \
+                             Check the log file at %LOCALAPPDATA%\\Koharu\\ for \
+                             details."
+                        );
+                        tracing::error!(?err, "build_resources failed");
+                        MessageDialog::new()
+                            .set_level(rfd::MessageLevel::Error)
+                            .set_title("Koharu — Startup failed")
+                            .set_description(&msg)
+                            .show();
+                        handle.exit(1);
+                        return;
+                    }
 
-                    handle
-                        .get_webview_window("splashscreen")
-                        .expect("splashscreen window not found")
-                        .close()
-                        .ok();
-                    handle
-                        .get_webview_window("main")
-                        .expect("main window not found")
-                        .show()
-                        .ok();
+                    // Window-missing should never fire in a healthy
+                    // bundle (both labels are declared in
+                    // tauri.conf.json), but if it does we'd rather
+                    // exit cleanly than panic inside a spawned task.
+                    let Some(splash) = handle.get_webview_window("splashscreen") else {
+                        tracing::error!("splashscreen window not found in bundle");
+                        handle.exit(1);
+                        return;
+                    };
+                    splash.close().ok();
+                    let Some(main) = handle.get_webview_window("main") else {
+                        tracing::error!("main window not found in bundle");
+                        handle.exit(1);
+                        return;
+                    };
+                    main.show().ok();
                 });
                 Ok(())
             }

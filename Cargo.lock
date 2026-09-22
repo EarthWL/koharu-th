@@ -3838,7 +3838,7 @@ dependencies = [
 
 [[package]]
 name = "koharu"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -3867,7 +3867,7 @@ dependencies = [
 
 [[package]]
 name = "koharu-api"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "anyhow",
  "image",
@@ -3933,7 +3933,7 @@ dependencies = [
 
 [[package]]
 name = "koharu-http"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -3953,7 +3953,7 @@ dependencies = [
 
 [[package]]
 name = "koharu-ml"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "anyhow",
  "candle-core",
@@ -3987,7 +3987,7 @@ dependencies = [
 
 [[package]]
 name = "koharu-pipeline"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4022,7 +4022,7 @@ dependencies = [
 
 [[package]]
 name = "koharu-project"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "chrono",
  "handlebars",
@@ -4043,7 +4043,7 @@ dependencies = [
 
 [[package]]
 name = "koharu-renderer"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "anyhow",
  "criterion",
@@ -4065,7 +4065,7 @@ dependencies = [
 
 [[package]]
 name = "koharu-rpc"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -4090,7 +4090,7 @@ dependencies = [
 
 [[package]]
 name = "koharu-runtime"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "anyhow",
  "csv",
@@ -4111,7 +4111,7 @@ dependencies = [
 
 [[package]]
 name = "koharu-types"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "anyhow",
  "blake3",

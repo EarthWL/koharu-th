@@ -47,6 +47,10 @@
   ; either never installed any cache here (already clean — nothing
   ; to do), OR the folder belongs to something else (don't touch).
   IfFileExists "$LOCALAPPDATA\Koharu\libs\*.*" koharu_purge_ask
+  ; v1.2.2+ HF model cache path; "models" kept as a v1.2.1-and-earlier
+  ; marker so an uninstall after an upgrade-without-launch still
+  ; recognises the folder as ours (see issue #34).
+  IfFileExists "$LOCALAPPDATA\Koharu\hf\*.*" koharu_purge_ask
   IfFileExists "$LOCALAPPDATA\Koharu\models\*.*" koharu_purge_ask
   IfFileExists "$LOCALAPPDATA\Koharu\fonts\*.*" koharu_purge_ask
   IfFileExists "$LOCALAPPDATA\Koharu\recent-projects.json" koharu_purge_ask
@@ -72,6 +76,10 @@ koharu_purge_verified:
   ; junction, blast radius is bounded to whatever they linked to).
   DetailPrint "Removing Koharu cached data from $LOCALAPPDATA\Koharu ..."
   RMDir /r "$LOCALAPPDATA\Koharu\libs"
+  RMDir /r "$LOCALAPPDATA\Koharu\hf"
+  ; Legacy v1.2.1-and-earlier HF cache path (issue #34). Kept in the
+  ; purge list so a user who never launched v1.2.2 (skipping the
+  ; auto-migration) still gets a clean uninstall.
   RMDir /r "$LOCALAPPDATA\Koharu\models"
   RMDir /r "$LOCALAPPDATA\Koharu\fonts"
   Delete "$LOCALAPPDATA\Koharu\recent-projects.json"
